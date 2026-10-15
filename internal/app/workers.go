@@ -48,7 +48,7 @@ func (a *Application) configureWorkers() error {
 			Version int    `json:"version"`
 			Runtime string `json:"runtime"`
 		}
-		if json.Unmarshal(b, &v) != nil || v.Version != 1 || !a.localWork.OwnsWork(v.Runtime) {
+		if json.Unmarshal(b, &v) != nil || v.Version != 1 || !(v.Runtime == "conversation" || a.localWork.OwnsWork(v.Runtime)) {
 			a.localWork.loadErr = errors.New("worker settings invalid")
 		}
 		if a.localWork.loadErr == nil {
@@ -168,7 +168,7 @@ func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime
 	}
 	if runtime == "" {
 		runtime = w.defaultRuntime
-		if in.LocalRuntime {
+		if in.LocalRuntime || runtime == "conversation" {
 			// The model-facing local target is the Runtime hosting this Bot.
 			runtime = w.active
 		}
@@ -250,6 +250,25 @@ func (w *localWorkers) StartWork(ctx context.Context, in api.WorkStart) (api.Tas
 	owner, err := w.target(ctx, in.ID)
 	if err != nil {
 		return api.Task{}, err
+	}
+	w.mu.Lock()
+	follow := w.defaultRuntime == "conversation"
+	w.mu.Unlock()
+	if follow {
+		source, ok := owner.(interface {
+			ConversationExecution(context.Context) (api.WorkExecutionSettings, error)
+		})
+		if !ok {
+			return api.Task{}, errors.New("conversation model unavailable")
+		}
+		execution, err := source.ConversationExecution(ctx)
+		if err != nil {
+			return api.Task{}, err
+		}
+		if execution.Model == "" {
+			return api.Task{}, errors.New("conversation model unavailable")
+		}
+		in.ExecutionOverride = &execution
 	}
 	return owner.StartWork(ctx, in)
 }
@@ -366,7 +385,7 @@ func (w *localWorkers) reloadSettingsLocked() {
 		Version int    `json:"version"`
 		Runtime string `json:"runtime"`
 	}
-	if err == nil && json.Unmarshal(b, &v) == nil && v.Version == 1 && w.OwnsWork(v.Runtime) {
+	if err == nil && json.Unmarshal(b, &v) == nil && v.Version == 1 && (v.Runtime == "conversation" || w.OwnsWork(v.Runtime)) {
 		w.defaultRuntime, w.loadErr = v.Runtime, nil
 	}
 }

@@ -155,5 +155,6 @@
   "capture.clipboardOnly": "Clipboard image only",
   "capture.fullScreenIncluded": "Full screen included",
   "saveArtifactTitle": "Save attachment",
-  "selectionConflict": "Finish or remove attached files before switching connections."
+  "selectionConflict": "Finish or remove attached files before switching connections.",
+  "welcomeTitle": "Welcome to Caelis Bot"
 }

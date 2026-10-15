@@ -10,13 +10,16 @@ func (s *Service) ContentState() (contentpack.State, error) {
 	if s.content == nil {
 		return contentpack.State{}, errors.New(s.text("native.contentStorageUnavailable", nil))
 	}
-	return s.content.State(), nil
+	return s.content.BotState(), nil
 }
 func (s *Service) Appearance() (contentpack.Appearance, error) {
 	state, e := s.ContentState()
 	return state.Appearance, e
 }
 func (s *Service) publishContent(state contentpack.State, err error) (contentpack.State, error) {
+	if s.content != nil {
+		state = s.content.BotState()
+	}
 	if err == nil && s.contentChanged != nil {
 		s.contentChanged(state.Appearance)
 	}
@@ -26,7 +29,7 @@ func (s *Service) SelectAppearance(character, avatar string) (contentpack.State,
 	if s.content == nil {
 		return s.ContentState()
 	}
-	return s.publishContent(s.content.Select(contentpack.Selection{Character: character, Avatar: avatar}))
+	return s.publishContent(s.content.Select(contentpack.Selection{Character: character, Avatar: "follow"}))
 }
 func (s *Service) FallbackAppearance(revision uint64) (contentpack.Appearance, error) {
 	if s.content == nil {
@@ -40,18 +43,18 @@ func (s *Service) ImportContent() (contentpack.State, error) {
 		return s.ContentState()
 	}
 	if !s.contentImportMu.TryLock() {
-		return s.content.State(), errors.New(s.text("native.importInProgress", nil))
+		return s.content.BotState(), errors.New(s.text("native.importInProgress", nil))
 	}
 	defer s.contentImportMu.Unlock()
 	if s.pickContentFile == nil {
-		return s.content.State(), errors.New(s.text("native.fileSelectionUnavailable", nil))
+		return s.content.BotState(), errors.New(s.text("native.fileSelectionUnavailable", nil))
 	}
 	name, e := s.pickContentFile()
 	if e != nil {
-		return s.content.State(), e
+		return s.content.BotState(), e
 	}
 	if name == "" {
-		return s.content.State(), nil
+		return s.content.BotState(), nil
 	}
 	state, e := s.content.Install(name)
 	if e != nil {

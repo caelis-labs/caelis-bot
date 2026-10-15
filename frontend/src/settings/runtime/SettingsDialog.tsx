@@ -4,7 +4,7 @@ import { useI18n } from '../../i18n';
 import { XIcon } from '../../SettingsIcons';
 
 export function SettingsDialog({ title, description, busy = false, blocked = false, onClose, children, className = '', anchor, alignTo, returnFocus, portalTarget }: {
- title: string; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null; portalTarget?: HTMLElement;
+ title: ReactNode; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null; portalTarget?: HTMLElement;
 }) {
  const { t } = useI18n();
  const restoreFrame = useRef<number | undefined>(undefined);
@@ -33,6 +33,7 @@ export function SettingsDialog({ title, description, busy = false, blocked = fal
  useEffect(() => {
   if (blocked) return;
   const key = (event: KeyboardEvent) => {
+   if (document.querySelector('[data-select-open="true"]')) return;
    if (event.key !== 'Escape' || event.isComposing || ref.current?.closest('[inert]')) return;
    event.preventDefault(); event.stopImmediatePropagation();
    if (!busy) onClose();

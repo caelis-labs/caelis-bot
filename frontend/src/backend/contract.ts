@@ -50,6 +50,8 @@ export interface AttachmentStorage {
   notice: string;
 }
 export interface BotInitialization {
+  requestId?: string;
+  prompt?: string;
   required: boolean;
   status: string;
   message: string;
@@ -333,6 +335,7 @@ export interface RuntimeFlowInput {
   model: string;
 }
 export interface RuntimeFlowModel {
+  parameters?: ModelOption | null;
   id: string;
   name: string;
   description: string;
@@ -402,6 +405,7 @@ export interface ServiceTier {
   description: string;
 }
 export interface SetupChoice {
+  parameters?: ModelOption | null;
   value: string;
   label: string;
   noAuth: boolean;
@@ -435,6 +439,7 @@ export interface SetupState {
   accountType: string;
 }
 export interface Snapshot {
+  introductionPending?: boolean;
   maintenance?: string;
   scheduled: boolean;
   quiet: boolean;

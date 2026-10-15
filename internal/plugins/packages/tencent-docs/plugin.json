@@ -8,5 +8,10 @@
     "url": "https://developer.cloud.tencent.com/mcp/server/11803"
   },
   "homepage": "https://developer.cloud.tencent.com/mcp/server/11803",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "extensions": {
+    "dev.caelis.bot": {
+      "icon": "assets/logo.png"
+    }
+  }
 }

@@ -33,3 +33,13 @@ test('preview reads retain the bounded read deadline',async t=>{
  const rejection=assert.rejects(pending,/not been confirmed/);
  t.mock.timers.tick(5_000);await rejection;
 });
+
+test('runtime installation waits for its original cancellable native result beyond 40 seconds',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ let finish,calls=0,settled=false;
+ const pending=nativeCall('backend','ApplySetup',()=>{calls++;return new Promise(resolve=>finish=resolve)});
+ pending.then(()=>settled=true);
+ t.mock.timers.tick(120_000);await Promise.resolve();
+ assert.equal(settled,false);assert.equal(calls,1);
+ finish({state:'models'});assert.deepEqual(await pending,{state:'models'});assert.equal(calls,1);
+});

@@ -155,3 +155,22 @@ func TestRuntimeDefaultDoesNotUseBotOrWorkOverrides(t *testing.T) {
 		t.Fatal("unconfigured model was replaced by an override", got, err)
 	}
 }
+
+func TestConversationExecutionUsesConfirmedNativeDefault(t *testing.T) {
+	s := &Session{}
+	s.state.Connection = "ready"
+	s.residentExecution = api.WorkExecutionSettings{Model: "native-default", Effort: "medium", ServiceTier: "priority"}
+	got, err := s.ConversationExecution(t.Context())
+	if err != nil || got != s.residentExecution {
+		t.Fatal(got, err)
+	}
+	s.opts.Execution = api.ExecutionSettings{Model: "selected-model", Effort: "high"}
+	got, err = s.ConversationExecution(t.Context())
+	if err != nil || got != api.WorkModel(s.opts.Execution) {
+		t.Fatal(got, err)
+	}
+	s.state.Connection = "offline"
+	if _, err = s.ConversationExecution(t.Context()); err == nil {
+		t.Fatal("offline model accepted")
+	}
+}

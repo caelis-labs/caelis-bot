@@ -74,3 +74,18 @@ func (s *Service) RequireSetup(v bool) {
 	}
 	s.admission.Unlock()
 }
+
+func (s *Service) SetupInstallProgress() api.SetupInstallProgress {
+	if v, ok := s.setup.(interface {
+		InstallProgress() api.SetupInstallProgress
+	}); ok {
+		return v.InstallProgress()
+	}
+	return api.SetupInstallProgress{}
+}
+func (s *Service) CancelSetupOperation() bool {
+	if v, ok := s.setup.(interface{ CancelOperation() bool }); ok {
+		return v.CancelOperation()
+	}
+	return false
+}

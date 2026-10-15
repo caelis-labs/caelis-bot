@@ -29,9 +29,12 @@ func (s *runtimeSetup) ChangeRuntimeConfiguration(ctx context.Context, r api.Run
 	if e != nil {
 		return api.RuntimeMutationResult{}, e
 	}
+	return s.changeProfileConfiguration(ctx, v, r)
+}
+func (s *runtimeSetup) changeProfileConfiguration(ctx context.Context, v api.RuntimeSettings, r api.RuntimeConfigurationChange) (api.RuntimeMutationResult, error) {
 	// Destructive connection changes retain the existing Bot admission guard.
 	if r.Action == "remove-model" || r.Action == "disconnect-agent" {
-		if e = s.app.guardRuntimeChange(); e != nil {
+		if e := s.app.guardRuntimeChange(); e != nil {
 			return api.RuntimeMutationResult{}, e
 		}
 		dir, _ := providerDirectory(s.app.root, "caelis")
@@ -39,7 +42,10 @@ func (s *runtimeSetup) ChangeRuntimeConfiguration(ctx context.Context, r api.Run
 		if err != nil {
 			return api.RuntimeMutationResult{}, err
 		}
-		worker := s.app.Backend.WorkExecutionSettings()
+		worker, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+		if err != nil {
+			return api.RuntimeMutationResult{}, err
+		}
 		configuration, err := caelis.ReadRuntimeConfiguration(ctx, v)
 		if err != nil {
 			return api.RuntimeMutationResult{}, err

@@ -8,5 +8,10 @@
     "url": "https://github.com/github/github-mcp-server"
   },
   "homepage": "https://github.com/github/github-mcp-server",
-  "license": "MIT"
+  "license": "MIT",
+  "extensions": {
+    "dev.caelis.bot": {
+      "icon": "assets/logo.png"
+    }
+  }
 }

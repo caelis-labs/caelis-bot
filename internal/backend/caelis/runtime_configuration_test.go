@@ -24,7 +24,7 @@ func runtimeFixtureHandshake(w http.ResponseWriter, r *http.Request) bool {
 }
 func TestRuntimeConfigurationSelectorsAndRevision(t *testing.T) {
 	var status wire.AgentBindingStatus
-	raw := `{"targets":[{"id":"profile-provider","display_name":"Provider model","effort":{"choices":[]},"backend":{"provider":{"model_config_id":"stored-model"}}},{"id":"acp-profile","display_name":"Agent model","effort":{"choices":[]},"backend":{"acp":{"agent_id":"agent-native"}}}],"handles":[{"eligible_profile_ids":["profile-provider"],"definition":{"handle":"orbit","configurable":true},"binding":{"profile_id":"profile-provider","speed":"fast"}},{"definition":{"handle":"self","configurable":true},"binding":{"profile_id":"profile-provider"}},{"definition":{"handle":"memory","class":"system","configurable":true},"binding":{}}]}`
+	raw := `{"targets":[{"id":"profile-provider","display_name":"Provider model","speed":{"choices":[{"canonical":"standard"},{"canonical":"fast"}]},"effort":{"choices":[]},"backend":{"provider":{"model_config_id":"stored-model"}}},{"id":"acp-profile","display_name":"Agent model","effort":{"choices":[]},"backend":{"acp":{"agent_id":"agent-native"}}}],"handles":[{"eligible_profile_ids":["profile-provider"],"definition":{"handle":"orbit","configurable":true},"binding":{"profile_id":"profile-provider","speed":"fast"}},{"definition":{"handle":"self","configurable":true},"binding":{"profile_id":"profile-provider"}},{"definition":{"handle":"memory","class":"system","configurable":true},"binding":{}}]}`
 	if err := json.Unmarshal([]byte(raw), &status); err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,9 @@ func TestRuntimeConfigurationSelectorsAndRevision(t *testing.T) {
 	}
 	if view.Revision != "9007199254740993" || view.Main.Model != "provider/vendor/model" || view.Main.ServiceTier != "priority" || !view.OAuthAvailable {
 		t.Fatalf("lost native revision/selection: %+v", view)
+	}
+	if len(view.Team.Models) != 2 || len(view.Team.Models[0].ServiceTiers) != 2 || view.Team.Models[0].ServiceTiers[1].ID != "fast" || view.Team.Models[0].ServiceTiers[1].Name != "Fast" || len(view.Team.Models[1].ServiceTiers) != 0 {
+		t.Fatalf("team must project only advertised speed capabilities: %+v", view.Team.Models)
 	}
 	if len(view.Team.Roles) != 2 || len(view.Team.Roles[0].ModelIDs) != 1 || view.Team.Roles[0].ModelIDs[0] != "profile-provider" || view.Team.Roles[0].Selection.Model != "profile-provider" || view.Team.Roles[0].Selection.ServiceTier != "fast" || !view.Team.Roles[1].Inherited {
 		t.Fatalf("team must retain native profile IDs, no writable self: %+v", view.Team)
