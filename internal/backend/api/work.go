@@ -37,6 +37,8 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 type WorkStart struct {
 	TaskStart
 	ID, Workspace, Instructions string
+	// ExecutionOverride is host-owned and applies only to a new worker.
+	ExecutionOverride *WorkExecutionSettings `json:"-"`
 }
 
 // WorkRouter freezes the native backend before preparation or dispatch. An empty

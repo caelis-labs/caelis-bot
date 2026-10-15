@@ -4,9 +4,11 @@ import "context"
 
 // Initialization is a one-time user message, not a second source of identity.
 type BotInitialization struct {
-	Required bool   `json:"required"`
-	Status   string `json:"status"`
-	Message  string `json:"message"`
+	RequestID string `json:"requestId,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
+	Required  bool   `json:"required"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
 }
 type BotIntroduction struct {
 	Name        string `json:"name"`

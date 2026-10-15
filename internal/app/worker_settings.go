@@ -78,7 +78,17 @@ func (w *localWorkers) InspectLocalWorker(ctx context.Context, runtime string) (
 	if runtime == "" {
 		runtime = current
 	}
-	v, err := w.inspect(ctx, runtime)
+	inspectionRuntime := runtime
+	if runtime == "conversation" {
+		w.mu.Lock()
+		inspectionRuntime = w.active
+		w.mu.Unlock()
+	}
+	v, err := w.inspect(ctx, inspectionRuntime)
+	if runtime == "conversation" {
+		v.Runtime = runtime
+		v.Work = api.WorkExecutionSettings{}
+	}
 	if err != nil {
 		return v, err
 	}
@@ -103,7 +113,14 @@ func (w *localWorkers) SaveLocalWorkerModel(ctx context.Context, value api.WorkE
 	defer w.settingsMu.Unlock()
 	w.mu.Lock()
 	runtime := w.defaultRuntime
+	if runtime == "conversation" {
+		w.mu.Unlock()
+		return api.LocalWorkerSettings{}, errors.New("select an explicit worker runtime before changing its model")
+	}
 	w.mu.Unlock()
+	return w.saveModel(ctx, runtime, value)
+}
+func (w *localWorkers) saveModel(ctx context.Context, runtime string, value api.WorkExecutionSettings) (api.LocalWorkerSettings, error) {
 	owner, err := w.settingsOwner(ctx, runtime)
 	if err != nil {
 		return api.LocalWorkerSettings{}, err
@@ -125,4 +142,51 @@ func (w *localWorkers) SaveLocalWorkerModel(ctx context.Context, value api.WorkE
 		return api.LocalWorkerSettings{}, err
 	}
 	return w.inspect(ctx, runtime)
+}
+
+// Save the model before committing the default Runtime. Existing tasks retain their owners.
+func (w *localWorkers) saveSelectedModel(ctx context.Context, runtime string, value api.WorkExecutionSettings) error {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	v, e := w.inspect(ctx, runtime)
+	if e != nil {
+		return e
+	}
+	if !v.Ready {
+		return errors.New("worker_not_ready")
+	}
+	if _, e = w.saveModel(ctx, runtime, value); e != nil {
+		return e
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if runtime == w.defaultRuntime {
+		return nil
+	}
+	if e = localstate.Write(w.path, struct {
+		Version int    `json:"version"`
+		Runtime string `json:"runtime"`
+	}{1, runtime}); e != nil {
+		return e
+	}
+	w.defaultRuntime = runtime
+	return nil
+}
+
+// LocalWorkerSelection reads the saved choice even when its Runtime is offline.
+func (w *localWorkers) LocalWorkerSelection() (api.LocalWorkerSettings, error) {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	runtime := w.defaultRuntime
+	w.mu.Unlock()
+	if runtime == "conversation" {
+		return api.LocalWorkerSettings{Runtime: runtime, Models: []api.ModelOption{}}, nil
+	}
+	dir, err := providerDirectory(w.root, runtime)
+	if err != nil {
+		return api.LocalWorkerSettings{}, err
+	}
+	value, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+	return api.LocalWorkerSettings{Runtime: runtime, Work: value, Models: []api.ModelOption{}}, err
 }

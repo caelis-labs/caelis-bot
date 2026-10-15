@@ -1,3 +1,5 @@
+import {SetupBack} from './SetupBack';
+import { SettingsSelect } from './SettingsSelect';
 import {SettingsDialog} from './settings/runtime/SettingsDialog';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
@@ -77,6 +79,7 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
      </div>;
  };
  return <section className="permission-settings">
+  {onDone&&onBack&&<SetupBack disabled={!!busy} onClick={onBack}/>}
   {embedded?<h2 className="settings-section-title">{t('settings.systemPermissions')}</h2>:<h1>{t(onDone?'settings.permissionGuideTitle':'settings.permissions')}</h1>}
   <p className="permission-intro">{t(onDone?'settings.permissionOptionalIntro':'settings.permissionIntroduction')}</p>
   {!state&&<p role="status">{t('common.loading')}</p>}
@@ -98,9 +101,9 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
     {state.development&&<p className="settings-note">{t('settings.permissionDevelopment')}</p>}
     {state.permissions.some(p=>p.id==='notifications'&&p.status==='authorized')&&<button className="text-action" disabled={!!busy} onClick={()=>void perform('test-notification',()=>call('Notify',`notification-test-${crypto.randomUUID()}`,t('settings.notificationTestTitle'),t('settings.notificationTestBody'),true))}>{t('settings.notificationTest')}</button>}
     <div className="permission-reset-category"><label htmlFor="permission-repair-category">{t('settings.permissionRepairCategory')}</label>
-     <select id="permission-repair-category" value={repair} disabled={!!busy} onChange={e=>{setRepair(e.target.value as PermissionID);setConfirmed(false);setNotice(false);}}>
+     <SettingsSelect id="permission-repair-category" value={repair} disabled={!!busy} onChange={e=>{setRepair(e.target.value as PermissionID);setConfirmed(false);setNotice(false);}}>
       {(['accessibility','screenCapture','automation'] as const).map(id=><option key={id} value={id}>{t(names[id])}</option>)}
-     </select>
+     </SettingsSelect>
     </div>
     <p className="settings-note">{t('settings.permissionResetScope')}</p>
     <label className="permission-reset-consent"><input type="checkbox" checked={confirmed} disabled={!!busy} onChange={e=>setConfirmed(e.target.checked)}/>{t('settings.permissionResetConfirm')}</label>
@@ -110,6 +113,6 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
    </div></SettingsDialog>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
-  {onDone&&<div className="setup-end">{onBack&&<button type="button" disabled={!!busy} onClick={onBack}>{t('settings.setupBack')}</button>}<button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');latestDone.current?.()})}>{t('settings.permissionContinue')}</button></div>}
+  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');latestDone.current?.()})}>{t('settings.permissionContinue')}</button></div>}
  </section>;
 }

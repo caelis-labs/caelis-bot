@@ -39,3 +39,19 @@ The bundled first set is Brave Search (official npm `2.1.4`, vendored with scrip
 The HTTP bridge forwards Streamable HTTP JSON-RPC requests and SSE responses without retrying an unknown `tools/call`. It blocks redirects so credentials cannot follow a changed host, caps response size, and returns generic authentication/network errors without upstream response bodies. Brave requires Node.js 22 or newer on the local machine. The catalog never runs npm, install hooks or upstream setup scripts at install time.
 
 Notion's hosted server uses interactive OAuth with PKCE and dynamic client registration. Bot discovers resource and authorization metadata, opens a loopback callback for browser consent, and keeps client identity and tokens in its native private store. A signed-in user chooses the workspace in Notion. A successful callback applies a new connection revision under Runtime admission; failed or cancelled authorization does not enable the server. Refresh is serialized across relay processes and never replays an MCP call with an unknown outcome. Real account consent and tool behavior still require user acceptance. GitHub uses Device Flow with a reviewed public GitHub App client ID. Users install that App on selected repositories, then approve the device code; the GitHub MCP relay uses the resulting private user token at the reviewed default endpoint. The App grants Contents, Issues and Pull requests read/write plus Metadata read; other repository, organization and account permissions are not requested. A personal access token remains an optional connection method. Credential-backed services require the user's own key or token and remain unconfigured until one is saved. The Tencent Docs Authorization value is sent exactly as entered, following the publisher's guide; GitHub uses `Bearer`. No secret enters Core profiles, Codex project config, snapshots or desktop metadata. OpenAI-hosted OAuth and connector IDs remain separate.
+
+### Package icons
+
+Agent Plugins 1.0 has no portable top-level icon field. Bot uses the standard
+client extension entry point: `extensions["dev.caelis.bot"].icon` names a
+package-relative PNG (for example `assets/logo.png`). Icons are optional,
+SHA-256 reviewed with the rest of the package, limited to 256 KiB and 1024×1024,
+and decoded before being exposed as an offline data URL. Invalid or absent icons
+fall back to the plugin initial. Remote URLs and paths outside the package are
+not accepted. Browse and installed/detail views share this loader.
+
+Bundled service marks come from their publisher websites; each package records
+the source in `assets/SOURCE.md`. Desktop World's Bot presentation overlay uses
+the Caelis Bot avatar, applied after upstream verification and included in the
+final signed app's package inventory. It does not change runtime capabilities.
+No Bot skill update is needed: this is host presentation metadata only.

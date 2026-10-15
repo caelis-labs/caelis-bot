@@ -8,7 +8,7 @@ import (
 
 func applicationInstanceID(root string) string {
 	_, id := applicationIdentity()
-	if buildChannel == "development" && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
+	if buildChannel != "release" && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
 		digest := sha256.Sum256([]byte(root))
 		return fmt.Sprintf("%s.fixture.%x", id, digest[:8])
 	}
@@ -20,6 +20,9 @@ func applicationInstanceID(root string) string {
 var buildChannel = "development"
 
 func applicationIdentity() (name, id string) {
+	if buildChannel == "onboarding" {
+		return "Caelis Bot Onboarding", "dev.caelis.bot.onboarding"
+	}
 	if buildChannel == "release" {
 		return "Caelis Bot", "dev.caelis.bot"
 	}

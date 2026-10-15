@@ -8,6 +8,7 @@ import "context"
 const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
 
 type Snapshot struct {
+	IntroductionPending bool `json:"introductionPending,omitempty"`
 	// Maintenance is presentation-only, derived from a confirmed native Dream
 	// turn. Empty during submission uncertainty, interruption and after completion.
 	Maintenance string `json:"maintenance,omitempty"`

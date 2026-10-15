@@ -99,3 +99,23 @@ func (s *Service) OpenReleasePage() error {
 	}
 	return s.openReleasePage()
 }
+
+// Snapshot service state before entering the UI thread. Native updates can hold
+// mu while waiting for that thread, so its presentation callback must not read
+// service preferences or translations under mu.
+func (s *Service) presentSettings(dispatch func(func()), present func(bool, string)) {
+	welcome := s.SettingsSection() == "setup"
+	key := "native.settingsTitle"
+	if welcome {
+		key = "native.welcomeTitle"
+	}
+	title := s.text(key, nil)
+	dispatch(func() { present(welcome, title) })
+}
+
+// SurfaceReady acknowledges the requested renderer layout before native presentation.
+func (s *Service) SurfaceReady(surface string, token uint64) {
+	if (surface == "chat" || surface == "settings") && s.surfaceReady != nil {
+		s.surfaceReady(surface, token)
+	}
+}

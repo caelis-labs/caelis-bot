@@ -18,7 +18,7 @@ export type RuntimeView = {
 export type ConnectionKind = 'account' | 'api-key' | 'agent';
 export type ConnectChoice = { id: string; name: string; description: string; custom?: boolean };
 export type ConnectionCatalog = { choices: ConnectChoice[]; unavailable: string };
-export type APIKeyOptions = { endpoints: { value: string; name: string; reuseAuth: boolean }[]; models: { value: string; name: string }[] };
+export type APIKeyOptions = { endpoints: { value: string; name: string; reuseAuth: boolean }[]; models: { value: string; name: string; parameters?: ModelOption | null }[] };
 export type AuthMethod = { id: string; name: string; description: string; available: boolean; reason?: string };
 export type ConnectionStage = 'preparing' | 'launcher' | 'installation' | 'auth-method' | 'authorization' | 'models' | 'complete' | 'failed' | 'unknown';
 export type ConnectionFlow = {
@@ -26,7 +26,7 @@ export type ConnectionFlow = {
  installation?: { destination: string; source: string; platform: string; instructions: string; canInstall: boolean };
  launchers?: ConnectChoice[]; methods?: AuthMethod[];
  authorization?: { url: string; userCode?: string; inputLabel?: string; expiresAt?: string; canSubmit: boolean };
- models?: { id: string; name: string; description: string }[];
+ models?: { id: string; name: string; description: string; parameters?: ModelOption | null }[];
 };
 export type ConnectInput = { kind: ConnectionKind; choice: string; command?: string; baseUrl?: string; model?: string; apiKey?: string; contextWindowTokens?: number; maxOutputTokens?: number; imageInput?: boolean; reasoningLevels?: string[] };
 export type ConnectAction = 'choose-launcher' | 'install' | 'check-installation' | 'authenticate' | 'submit-code' | 'connect' | 'refresh';
@@ -41,6 +41,7 @@ export type TeamChange =
 // No implementation may infer an auth URL, installation command or capability.
 export interface RuntimeSettingsClient {
  read(): Promise<RuntimeView>;
+ modelParameters?(provider:string,baseUrl:string,model:string):Promise<ModelOption | null>;
  saveModel(scope: ModelScope, value: ModelSelection, revision?: string): Promise<void>;
  changeTeam(change: TeamChange, revision: string): Promise<void>;
  removeModel(group: ConnectionGroup, model: ConnectionModel, revision?: string): Promise<void>;

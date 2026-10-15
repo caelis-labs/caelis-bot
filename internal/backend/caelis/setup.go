@@ -87,7 +87,7 @@ func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupCh
 		if m.ModelSelection != nil {
 			current = value(m.ModelSelection.Current)
 		}
-		out = append(out, api.SetupChoice{Value: m.Value, Label: label, NoAuth: value(m.NoAuth), Current: current})
+		out = append(out, api.SetupChoice{Value: m.Value, Label: label, NoAuth: value(m.NoAuth), Current: current, Parameters: connectionModelParameters(m)})
 	}
 	return out, nil
 }
@@ -103,10 +103,26 @@ func SetupCatalog(ctx context.Context, r api.SetupRequest) ([]api.SetupChoice, e
 		command = "connect-provider-api-key"
 	case "endpoints":
 		command = "connect-baseurl:" + r.Provider
+	case "model-parameters":
+		payload, _ := json.Marshal(map[string]string{"provider": r.Provider, "base_url": r.BaseURL, "model": r.Model})
+		candidates, err := setupCatalog(ctx, c, "connect-reasoning-levels:"+url.QueryEscape(string(payload)))
+		if err != nil {
+			return nil, err
+		}
+		option := api.ModelOption{Model: r.Model, Name: r.Model, Efforts: []string{}, ServiceTiers: []api.ServiceTier{}}
+		if len(candidates) == 1 && candidates[0].Value != "-" {
+			option.Efforts = strings.Split(candidates[0].Value, ",")
+		}
+		return []api.SetupChoice{{Value: r.Model, Parameters: &option}}, nil
 	case "models":
 		// The query carries only public model metadata, never a credential.
 		payload, _ := json.Marshal(map[string]string{"provider": r.Provider, "base_url": r.BaseURL})
-		command = "connect-model:" + url.QueryEscape(string(payload))
+		prefix := "connect-model:"
+		if r.Provider == "magpie" {
+			// Unified discovery includes typed classifiers; chat-only selectors do not.
+			prefix = "connect-models:"
+		}
+		command = prefix + url.QueryEscape(string(payload))
 	default:
 		return nil, errors.New("不支持的模型目录")
 	}
@@ -197,4 +213,14 @@ func ApplySetup(ctx context.Context, r api.SetupRequest) error {
 		}
 	}
 	return nil
+}
+
+// Connection catalogs may expose capabilities before credentials are available.
+func connectionModelParameters(m wire.SlashArgCandidate) *api.ModelOption {
+	if m.ModelSelection == nil {
+		return nil
+	}
+	m.NoAuth = nil
+	options := modelOptions([]wire.SlashArgCandidate{m})
+	return &options[0]
 }

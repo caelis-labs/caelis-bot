@@ -12,10 +12,11 @@ export class TaskPreferencesSaver {
  private blocked=false;
  private read:()=>Promise<TaskPreferences>;
  private write:(p:TaskPreferences)=>Promise<TaskPreferences>;
- private state:(s:'saving'|'saved'|'failed')=>void;
+ private state:(s:'saving'|'saved'|'failed',error?:unknown)=>void;
  private accepted:(p:TaskPreferences)=>void;
- constructor(initial:TaskPreferences,read:()=>Promise<TaskPreferences>,write:(p:TaskPreferences)=>Promise<TaskPreferences>,state:(s:'saving'|'saved'|'failed')=>void,accepted:(p:TaskPreferences)=>void=()=>{}){this.saved=initial;this.read=read;this.write=write;this.state=state;this.accepted=accepted;}
+ constructor(initial:TaskPreferences,read:()=>Promise<TaskPreferences>,write:(p:TaskPreferences)=>Promise<TaskPreferences>,state:(s:'saving'|'saved'|'failed',error?:unknown)=>void,accepted:(p:TaskPreferences)=>void=()=>{}){this.saved=initial;this.read=read;this.write=write;this.state=state;this.accepted=accepted;}
  change(p:Partial<Values>){this.pending={...this.pending,...p};this.blocked=false;}
+ discardTerminal(){delete this.pending.terminal;delete this.pending.customCommand;}
  discardLimit(){delete this.pending.maxRunning;}
  async flush(){
   if(this.running||this.blocked||Object.keys(this.pending).length===0)return;
@@ -28,7 +29,7 @@ export class TaskPreferencesSaver {
     catch(e){this.pending={...patch,...this.pending};throw e;}
    }
    this.state('saved');
-  }catch{this.reload=true;this.blocked=true;this.state('failed');}
+  }catch(error){this.reload=true;this.blocked=true;this.state('failed',error);}
   finally{this.running=false;}
  }
 }

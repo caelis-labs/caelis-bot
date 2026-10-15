@@ -8,5 +8,10 @@
     "url": "https://brave.com"
   },
   "homepage": "https://github.com/brave/brave-search-mcp-server",
-  "license": "MIT"
+  "license": "MIT",
+  "extensions": {
+    "dev.caelis.bot": {
+      "icon": "assets/logo.png"
+    }
+  }
 }

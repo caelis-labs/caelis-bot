@@ -61,5 +61,9 @@
   "canceling": "正在取消…",
   "cancelConnection": "取消连接",
   "magpieHint": "本机网关",
-  "gatewayEmpty": "未读取到模型。请确认 Magpie 网关已启动，或检查地址。"
+  "gatewayEmpty": "未读取到模型。请确认 Magpie 网关已启动，或检查地址。",
+  "oauthTitle": "使用 {provider} 登录",
+  "oauthBrowserHint": "在浏览器中完成授权。",
+  "oauthManual": "手动完成授权",
+  "oauthResponse": "授权码或回调地址"
 }

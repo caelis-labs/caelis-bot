@@ -130,6 +130,15 @@ def verify_package(dest, spec, target):
 def inventory(dest, target):
     if target not in PIN.get("targets", {}):
         raise ValueError(f"Desktop World target unsupported by release pin: {target}")
+    # Bot-owned presentation overlay, applied after upstream verification and
+    # native signing; included in the final immutable package inventory.
+    assets = dest / "assets"
+    assets.mkdir(exist_ok=True)
+    shutil.copyfile(ROOT / "resources/desktop-world/assets/logo.png", assets / "logo.png")
+    manifest_path = dest / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.setdefault("extensions", {})["dev.caelis.bot"] = {"icon": "assets/logo.png"}
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     files = {f.relative_to(dest).as_posix(): digest(f) for f in dest.rglob("*") if f.is_file()}
     entry = {"ID": "desktop-world", "Title": "Computer Use", "titleZh": "电脑操控", "Version": PIN["version"].removeprefix("v"),
              "Description": "Operate desktop apps through one native CUA exec tool",

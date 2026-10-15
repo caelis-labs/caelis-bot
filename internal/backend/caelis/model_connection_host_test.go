@@ -169,7 +169,87 @@ func TestExternalHostMagpieProviderSelection(t *testing.T) {
 	if !routeFound {
 		t.Fatal("saved selector lost its Magpie provider route")
 	}
-	t.Logf("Bot Magpie catalog=%d chat choices; selected Magpie provider route retained; application/global setting scopes verified; no inference", len(models))
+	if os.Getenv("CAELIS_BOT_MAGPIE_CATALOG_URL") != "" {
+		classifier := ""
+		for _, m := range models {
+			if m.Value == "typesafe/jev-latest" {
+				classifier = m.Value
+			}
+		}
+		if classifier == "" {
+			t.Fatal("unified Magpie catalog lost Jev classifier")
+		}
+		flow, err := connections.Start(ctx, settings, api.RuntimeConnectionInput{Kind: "api-key", Choice: "magpie", BaseURL: baseURL, Model: classifier, APIKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = waitConnection(t, connections, flow.ID, "complete")
+		config, err := ReadRuntimeConfiguration(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile := ""
+		effort := ""
+		for _, m := range config.Team.Models {
+			if strings.Contains(m.Name, "jev-latest") {
+				profile = m.Model
+				effort = m.DefaultEffort
+			}
+		}
+		if profile == "" {
+			t.Fatal("saved classifier missing from Team model catalog")
+		}
+		listed := false
+		for _, group := range config.Connections {
+			for _, m := range group.Models {
+				listed = listed || strings.Contains(m.Name, "jev-latest")
+			}
+		}
+		if !listed {
+			t.Fatal("saved classifier missing from connection management")
+		}
+		for _, m := range config.Models {
+			if strings.Contains(m.Name, "jev-latest") {
+				t.Fatal("classifier leaked into conversation choices")
+			}
+		}
+		eligible := false
+		for _, role := range config.Team.Roles {
+			for _, id := range role.ModelIDs {
+				if id != profile {
+					continue
+				}
+				if role.ID == "guardian-screen" {
+					eligible = true
+				}
+				if role.ID == "guardian" {
+					t.Fatal("classifier incorrectly eligible as guardian LLM")
+				}
+			}
+		}
+		if !eligible {
+			t.Fatal("Jev not eligible for guardian-screen")
+		}
+		result, err := ChangeRuntimeConfiguration(ctx, settings, api.RuntimeConfigurationChange{Action: "bind", ID: "guardian-screen", Selection: api.WorkExecutionSettings{Model: profile, Effort: effort}, ExpectedRevision: config.Revision})
+		if err != nil || result.Outcome != "committed" {
+			t.Fatal("classifier binding failed", result.Outcome, result.Message, err)
+		}
+		verified, err := ReadRuntimeConfiguration(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bound := false
+		for _, role := range verified.Team.Roles {
+			if role.ID == "guardian-screen" && role.Selection.Model == profile {
+				bound = true
+			}
+		}
+		if !bound {
+			t.Fatal("classifier binding not retained")
+		}
+		t.Log("Jev discovered, connected, and bound to optional guardian-screen in temporary Host; no inference")
+	}
+	t.Logf("Bot Magpie catalog=%d connectable choices; selected Magpie provider route retained; application/global setting scopes verified; no inference", len(models))
 }
 
 func mustHostClient(t *testing.T, settings api.RuntimeSettings) *client {

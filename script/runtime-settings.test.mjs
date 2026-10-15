@@ -6,7 +6,8 @@ const server = await createServer({server:{middlewareMode:true,hmr:false},appTyp
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {setupStatusKey,botSessionStatusKey} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
-const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
+const {connectModels}=await server.ssrLoadModule('/src/settings/runtime/connect-models.ts');
+const {validCustomLimits,onboardingEffort,modelDescription,initialModelSelection,defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
@@ -136,7 +137,7 @@ test('default labels use actual configured identity; unreadable defaults stay ge
  const inherited={model:'',effort:'',serviceTier:''};
  assert.equal(defaultModel([model]),undefined);
  assert.equal(selectionSummary(inherited,[model]).name,'默认');
- assert.deepEqual(selectionSummary(inherited,[model],undefined,selection),{name:'A',detail:'默认 · 高 · Fast'});
+ assert.deepEqual(selectionSummary(inherited,[model],undefined,selection),{name:'A',detail:'默认 · high · Fast'});
  assert.equal(selectionSummary(inherited,[model],undefined,{...selection,model:'missing'}).name,'默认');
 });
 test('editing inherited parameters pins the actual model and preserves other effective parameters',()=>{
@@ -153,4 +154,65 @@ test('Magpie local URL UX accepts a changed port without exempting remote creden
  for(const address of ['http://127.0.0.1:3425/v1','http://127.0.0.1:4888/v1','http://localhost:4888/v1','http://[::1]:4888/v1']) assert.equal(localMagpie('magpie',address),true,address);
  for(const address of ['https://example.com/v1','http://localhost.example.com/v1','http://127.0.0.1@example.com/v1','http://user@localhost/v1','file:///tmp/models','invalid']) assert.equal(localMagpie('magpie',address),false,address);
  assert.equal(localMagpie('custom','http://localhost:4888/v1'),false);
+});
+
+test('unbound role gets a local default draft without overwriting saved unavailable choices',()=>{
+ const empty={model:'',effort:'',serviceTier:''};
+ const model={model:'luna',defaultEffort:'medium',efforts:['medium'],serviceTiers:[{id:'fast',name:'Fast'}]};
+ assert.deepEqual(initialModelSelection(empty,[model]),{model:'luna',effort:'medium',serviceTier:''});
+ assert.equal(empty.model,'');
+ assert.equal(initialModelSelection(empty,[]),empty);
+ const saved={model:'offline',effort:'high',serviceTier:'fast'};
+ assert.equal(initialModelSelection(saved,[model]),saved);
+ assert.equal(fastTier(model).id,'fast');
+});
+
+test('multi-model connection waits for confirmed completion and stops on ambiguous result',async()=>{
+ const calls=[],done=[];let finish;
+ const client={startConnection:async(input,signal,progress)=>{calls.push(input.model);if(input.model==='a'){finish=()=>progress({id:'a',stage:'complete'});return {id:'a',stage:'preparing'};}return {id:'b',stage:'unknown'};}};
+ const result=connectModels(client,{kind:'api-key',choice:'deepseek'},['a','b','c'],new AbortController().signal,()=>{},id=>done.push(id));
+ await Promise.resolve();assert.deepEqual(calls,['a']);finish();
+ assert.equal((await result).stage,'unknown');assert.deepEqual(calls,['a','b']);assert.deepEqual(done,['a']);
+});
+test('canceling multi-model connection never starts the next model',async()=>{
+ const controller=new AbortController(),calls=[];
+ const result=connectModels({startConnection:async(input)=>{calls.push(input.model);return {id:'a',stage:'preparing'};}},{kind:'api-key',choice:'deepseek'},['a','b'],controller.signal,()=>{},()=>{});
+ controller.abort();await assert.rejects(result);assert.deepEqual(calls,['a']);
+});
+
+test('multi-model connection keeps confirmed items when a later dispatch rejects',async()=>{
+ const calls=[],done=[];
+ const client={startConnection:async(input)=>{calls.push(input.model);if(input.model==='b')throw Error('transport');return {id:'a',stage:'complete'};}};
+ await assert.rejects(connectModels(client,{kind:'api-key',choice:'deepseek'},['a','b','c'],new AbortController().signal,()=>{},id=>done.push(id)));
+ assert.deepEqual(calls,['a','b']);assert.deepEqual(done,['a']);
+});
+
+test('onboarding model capabilities use the selected provider endpoint and model without credentials',async()=>{
+ const calls=[];
+ const capability={...model,model:'xiaomi/mimo'};
+ const profile={runtime:'caelis',cliPath:''};
+ const client=createRuntimeSettingsClient(async(method,...args)=>{calls.push([method,...args]);return [{value:capability.model,parameters:capability}];},profile);
+ assert.deepEqual(await client.modelParameters('xiaomi','https://token-plan.example/v1',capability.model),capability);
+ assert.deepEqual(calls,[['SetupCatalog',{settings:profile,action:'model-parameters',provider:'xiaomi',baseUrl:'https://token-plan.example/v1',model:capability.model,apiKey:''}]]);
+});
+
+test('onboarding picks a supported middle effort, preferring medium',()=>{
+ assert.equal(onboardingEffort(['ultra','low','medium','high']), 'medium');
+ assert.equal(onboardingEffort(['none','low','high','max']), 'high');
+ assert.equal(onboardingEffort(['none','high']), 'high');
+ assert.equal(onboardingEffort(['low']), 'low');
+ assert.equal(onboardingEffort([]), '');
+ assert.equal(onboardingEffort(['','medium','medium']), 'medium');
+});
+test('model descriptions omit repeated names and preserve genuine descriptions',()=>{
+ assert.equal(modelDescription('gpt-6-sol','GPT-6-sol'), undefined);
+ assert.equal(modelDescription('', 'Model'), undefined);
+ assert.equal(modelDescription('native preset · reasoning · tools', 'Model'), undefined);
+ assert.equal(modelDescription('Supports image input', 'Model'), 'Supports image input');
+});
+
+test('custom limits require explicit positive safe token counts',()=>{
+ assert.equal(validCustomLimits('128000','8192'),true);
+ for(const value of ['', '0', '-1', '1.5', 'NaN', 'Infinity']) assert.equal(validCustomLimits(value,'8192'),false);
+ assert.equal(validCustomLimits('128000',''),false);
 });

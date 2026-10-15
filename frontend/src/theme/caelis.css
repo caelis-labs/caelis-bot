@@ -40,8 +40,7 @@
  --error:var(--caelis-error);
  --success:var(--caelis-success);
 }
-@media (prefers-color-scheme:dark) {
- :root {
+:root[data-mode="dark"] {
   --caelis-window:#19191c;
   --caelis-sidebar:#1c1c20;
   --caelis-content:#202024;
@@ -71,13 +70,12 @@
   --caelis-warning:#e3b875;
   --caelis-glass-reading:rgba(32,32,36,.88);
   --caelis-bubble-reading:rgba(32,32,36,.96);
- }
 }
 @media (prefers-contrast:more) {
  :root { --caelis-border:#74747d; --caelis-text-secondary:#45454d; --caelis-focus:#363875; --caelis-link:#363875; --caelis-selected:#e2e2f2; }
 }
-@media (prefers-contrast:more) and (prefers-color-scheme:dark) {
- :root { --caelis-border:#aaaab4; --caelis-text-secondary:#e2e2ea; --caelis-focus:#d0d1ff; --caelis-link:#d0d1ff; --caelis-selected:#484862; }
+@media (prefers-contrast:more) {
+ :root[data-mode="dark"] { --caelis-border:#aaaab4; --caelis-text-secondary:#e2e2ea; --caelis-focus:#d0d1ff; --caelis-link:#d0d1ff; --caelis-selected:#484862; }
 }
 @media (prefers-reduced-transparency:reduce) {
  :root { --caelis-glass-reading:var(--caelis-composer); --caelis-bubble-reading:var(--caelis-raised); }

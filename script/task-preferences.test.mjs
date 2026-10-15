@@ -26,3 +26,11 @@ test('invalid numeric drafts do not save the previous pending number',async()=>{
  for(const v of ['', ' ', '0','-1','1.1','NaN','9007199254740992'])assert.equal(validTaskLimit(v),false,v);
  for(const v of ['1','3','12','1000'])assert.equal(validTaskLimit(v),true,v);
 });
+test('cancelled custom terminal failure cannot leak into a later task limit save',async()=>{
+ let fail=true;const calls=[];
+ const saved={...initial,customCommand:''};
+ const saver=new TaskPreferencesSaver(saved,async()=>saved,async p=>{calls.push(p);if(fail)throw Error('invalid command');return p;},()=>{});
+ saver.change({terminal:'custom',customCommand:'invalid'});await saver.flush();
+ saver.discardTerminal();fail=false;saver.change({maxRunning:6});await saver.flush();
+ assert.equal(calls[1].terminal,'system');assert.equal(calls[1].customCommand,'');assert.equal(calls[1].maxRunning,6);
+});

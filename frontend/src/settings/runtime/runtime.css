@@ -84,7 +84,7 @@
 .runtime-scheme-list>div>div { flex:1; }
 .runtime-scheme-list strong { font-size:13px; }
 .runtime-dialog .runtime-management .setting-section:first-child { margin-top:16px; }
-@media(prefers-color-scheme:dark) { .runtime-close img { filter:invert(1); } }
+:root[data-mode="dark"] .runtime-close img { filter:invert(1); }
 @media(max-width:800px) { .runtime-workspace-tabs { gap:20px; } .runtime-setting-row { gap:12px; } .settings-window .runtime-model-summary { min-width:140px; max-width:190px; } .runtime-row-actions { gap:4px; } .runtime-shared-label { max-width:90px; text-align:right; } }
 @media(max-width:560px) { .runtime-dialog-scrim { padding:12px; } .runtime-dialog { padding:20px; max-height:calc(100dvh - 24px); } .runtime-connect-catalog { grid-template-columns:1fr; } .runtime-model-options-row { gap:8px; } .runtime-setting-row { flex-wrap:wrap; } }
 
@@ -143,3 +143,36 @@
 @media(max-width:620px){.runtime-connect-catalog{grid-template-columns:minmax(0,1fr)}}
 .local-worker-runtime .runtime-segments { width:180px; flex-shrink:0; }
 @media(max-width:680px){.local-worker-runtime { align-items:flex-start; flex-wrap:wrap; }.local-worker-runtime .runtime-segments{ width:100%; }}
+
+/* Connection settings use the same page and grouped-row hierarchy as Settings. */
+.connections-page { max-width: 1040px; margin: 0 auto; }
+.settings-window .connections-page button.connection-navigation-row {
+ display:flex; align-items:center; justify-content:space-between; gap:24px;
+ width:100%; min-height:76px; padding:18px 22px; border:0; border-radius:0;
+ border-bottom:1px solid var(--line); background:transparent; text-align:left;
+ color:var(--ink); font-size:14px;
+}
+.settings-window .connections-page button.connection-navigation-row:last-child { border-bottom:0; }
+.settings-window .connections-page button.connection-navigation-row:hover { background:var(--wash); }
+.connection-navigation-row strong { font-size:14px; font-weight:500; }
+.connection-navigation-row small { display:block; margin-top:6px; color:var(--muted); font-size:12px; }
+.connection-navigation-value { display:flex; align-items:center; gap:18px; color:var(--muted); font-size:12px; flex-shrink:0; }
+.connection-detail-header { display:flex; align-items:center; gap:18px; margin:0 0 28px; }
+.connection-detail-header h2 { font-size:20px; font-weight:600; margin:0; }
+.connection-detail-body > label { display:flex; flex-direction:column; gap:9px; margin:20px 0; max-width:600px; font-size:13px; }
+.connection-detail-body > label input { width:100%; }
+.connection-detail-body .runtime-connect-choice { margin:24px 0; font-size:18px; }
+.connection-detail-body .setup-end { justify-content:flex-start; margin:28px 0; }
+.connection-status { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; color:var(--muted); font-size:13px; }
+.connection-status strong { font-weight:400; }
+.connection-prepare { margin:0 0 28px; padding:24px; border:1px solid var(--line); border-radius:12px; }
+.connection-prepare h3 { font-size:18px; margin:0 0 10px; }
+.connection-prepare p,.connection-page-heading p { font-size:13px; color:var(--muted); margin:0 0 20px; line-height:1.6; }
+.connections-page .setting-control { max-width:65%; }
+.connections-page .runtime-model-summary { width:300px; max-width:100%; }
+.connections-page .settings-footer { display:flex; justify-content:flex-end; gap:10px; margin:24px 0; }
+@media(max-width:700px) {
+ .connection-navigation-value { gap:8px; }
+ .settings-window .connections-page button.connection-navigation-row { gap:12px; padding:16px; }
+ .connections-page .runtime-model-summary { width:220px; }
+}

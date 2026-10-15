@@ -1,13 +1,14 @@
+import './theme/display';
 import './style.css';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './i18n';
 import { desktop } from './desktop';
 import { History } from './Panel';
+import { Settings } from './Settings';
 import { ContextWindow } from './ContextWindow';
 import './surface.css';
 import { Bubble } from './Bubble';
-import { Settings } from './Settings';
 import { SurfaceBoundary } from './SurfaceBoundary';
 import { ArtifactPreviewWindow } from './ArtifactPreviewWindow';
 
@@ -54,4 +55,4 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
-createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);

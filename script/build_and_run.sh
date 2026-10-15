@@ -61,6 +61,12 @@ fi
 BOT_LOG="$BOT_ROOT/.cache/$BOT_BUILD_CHANNEL-native-run.log"
 : > "$BOT_LOG"
 BOT_OPEN_ARGS=(-g -n "$BOT_BUNDLE" --stdout "$BOT_LOG" --stderr "$BOT_LOG")
+# Explicit onboarding QA uses an empty account-like home outside Bot data.
+if [[ "$BOT_BUILD_CHANNEL" == onboarding ]]; then
+  : "${BOT_ONBOARDING_ROOT:?Launch with script/run-onboarding.sh}"
+  BOT_OPEN_ARGS+=(--env "HOME=$BOT_ONBOARDING_ROOT/home" --env "ZDOTDIR=$BOT_ONBOARDING_ROOT/home" --env "SHELL=/bin/bash" --env "PATH=$BOT_ONBOARDING_ROOT/home/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+fi
+
 # Launch Services does not reliably inherit a shell's test-scoped environment.
 # Pass only the two explicit isolation roots needed by native Dev acceptance.
 if [[ "${CAELIS_BOT_DATA_DIR+x}" == x ]]; then

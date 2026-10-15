@@ -61,5 +61,9 @@
   "canceling": "Canceling…",
   "cancelConnection": "Cancel connection",
   "magpieHint": "Local gateway",
-  "gatewayEmpty": "No models found. Start the Magpie gateway or check its address."
+  "gatewayEmpty": "No models found. Start the Magpie gateway or check its address.",
+  "oauthTitle": "Sign in with {provider}",
+  "oauthBrowserHint": "Complete authorization in your browser.",
+  "oauthManual": "Complete authorization manually",
+  "oauthResponse": "Authorization code or callback URL"
 }

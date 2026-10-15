@@ -212,7 +212,7 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 }
 func install(ctx context.Context, loc ...i18n.Locale) error {
 	l := getLocale(loc...)
-	ctx, c := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, c := context.WithTimeout(ctx, 15*time.Minute)
 	defer c()
 	req, e := http.NewRequestWithContext(ctx, "GET", InstallerURL, nil)
 	if e != nil {
@@ -236,6 +236,11 @@ func install(ctx context.Context, loc ...i18n.Locale) error {
 	if e != nil || len(b) > 1<<20 {
 		return errors.New(text(l, "host.installerContentInvalid"))
 	}
+	localRelease, cleanup, e := stageOfficialRelease(ctx)
+	if e != nil {
+		return errors.New("无法下载或校验运行环境，请检查网络后重试")
+	}
+	defer cleanup()
 	file, e := os.CreateTemp("", "caelis-installer-*.sh")
 	if e != nil {
 		return e
@@ -249,7 +254,8 @@ func install(ctx context.Context, loc ...i18n.Locale) error {
 	if ce != nil {
 		return ce
 	}
-	_, e = run(ctx, l, "/bin/sh", file.Name())
+	ReportInstallProgress(ctx, InstallProgress{Phase: "installing"})
+	e = runInstaller(ctx, l, file.Name(), localRelease)
 	return e
 }
 

@@ -1,3 +1,4 @@
+import { SettingsSelect } from '../SettingsSelect';
 import { useState } from 'react';
 import { SettingGroup, SettingRow } from '../SettingsUI';
 import { useI18n } from './index';
@@ -11,8 +12,8 @@ export function LanguageSetting(){
   try{await setLanguage(value);}catch{setSaveFailed(true);}finally{setSaving(false);}
  };
  return <SettingGroup><SettingRow label={t('settings.language')} htmlFor="interface-language">
-  <select id="interface-language" value={preference} disabled={saving} onChange={event=>void change(event.target.value as LanguagePreference)}>
+  <SettingsSelect id="interface-language" value={preference} disabled={saving} onChange={event=>void change(event.target.value as LanguagePreference)}>
    <option value="system">{t('settings.system')}</option><option value="en">English</option><option value="zh-CN">简体中文</option>
-  </select>
+  </SettingsSelect>
  </SettingRow>{(saveFailed||failed)&&<p role="alert" className="inline-error">{t(saveFailed?'settings.languageSaveFailed':'settings.languageLoadFailed')}</p>}</SettingGroup>;
 }

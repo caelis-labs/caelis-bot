@@ -269,7 +269,13 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return api.Task{}, errors.New("当前运行中的工作连接过多，请等待已完成任务释放资源后重试")
 	}
 	s.mu.Unlock()
-	execution, err := s.resolveWorkExecution(ctx, in.Workspace)
+	var execution api.WorkExecutionSettings
+	var err error
+	if in.ExecutionOverride != nil {
+		execution = *in.ExecutionOverride
+	} else {
+		execution, err = s.resolveWorkExecution(ctx, in.Workspace)
+	}
 	if err != nil {
 		return api.Task{}, err
 	}
