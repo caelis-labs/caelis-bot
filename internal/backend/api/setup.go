@@ -13,10 +13,11 @@ type SetupRequest struct {
 	APIKey   string          `json:"apiKey"`
 }
 type SetupChoice struct {
-	Value   string `json:"value"`
-	Label   string `json:"label"`
-	NoAuth  bool   `json:"noAuth"`
-	Current bool   `json:"current"`
+	Parameters *ModelOption `json:"parameters,omitempty"`
+	Value      string       `json:"value"`
+	Label      string       `json:"label"`
+	NoAuth     bool         `json:"noAuth"`
+	Current    bool         `json:"current"`
 }
 type SetupState struct {
 	ServiceUpdateAvailable bool            `json:"serviceUpdateAvailable"` // Installed CLI is newer than the running Host.
@@ -45,4 +46,12 @@ type SetupController interface {
 	Apply(context.Context, SetupRequest) (SetupState, error)
 	Activate(context.Context, RuntimeSettings) error
 	Dismiss() error
+}
+
+// SetupInstallProgress reports measured download bytes, never an estimated completion.
+type SetupInstallProgress struct {
+	Phase          string `json:"phase"`
+	Downloaded     int64  `json:"downloaded"`
+	Total          int64  `json:"total"`
+	BytesPerSecond int64  `json:"bytesPerSecond"`
 }

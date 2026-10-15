@@ -136,9 +136,10 @@ type RuntimeAuthMethod struct {
 	Reason      string `json:"reason"`
 }
 type RuntimeFlowModel struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Parameters  *ModelOption `json:"parameters,omitempty"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
 }
 
 // RuntimeConfigurationController is available only to explicit settings actions.

@@ -163,6 +163,7 @@ func (r *Registry) snapshot() State {
 	if r.selection.Avatar != "follow" {
 		avatar = avatars[r.selection.Avatar]
 	}
+
 	s := State{Appearance: Appearance{r.revision, r.selection, selected.model, avatar, r.selection.Character != "builtin:caelis", r.selection.Character}, Characters: []Choice{{"builtin:caelis", "Caelis", "", "内置"}, {"builtin:stick", "Stick", "", "内置"}}, Avatars: []Choice{{"follow", "跟随角色", "", ""}, {"builtin:avatar", "Caelis Bot", "", "内置"}}, Packs: []Installed{}, Notice: r.notice}
 	keys := make([]string, 0, len(r.entries))
 	for key := range r.entries {
@@ -427,4 +428,25 @@ func WriteArchive(name string, b []byte) error {
 		return e
 	}
 	return closed
+}
+
+// BotState projects the current product choices without rewriting legacy stored
+// selections. The registry still supports all content-pack capabilities.
+func (r *Registry) BotState() State {
+	r.State() // Retry unavailable storage through the normal read path.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.snapshot()
+	character := r.selection.Character
+	if character == "builtin:stick" {
+		character = "builtin:caelis"
+	}
+	chars, _ := r.choices()
+	chosen := chars[character]
+	state.Appearance.Selection = Selection{Character: character, Avatar: "follow"}
+	state.Appearance.Model = chosen.model
+	state.Appearance.Avatar = chosen.avatar
+	state.Appearance.Basic = character != "builtin:caelis"
+	state.Appearance.Key = character
+	return state
 }

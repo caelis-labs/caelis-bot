@@ -58,6 +58,11 @@ type Service struct {
 	taskWindows            taskWindowController
 	taskWindowEvents       map[string]taskterminal.WindowEvent
 	taskWindowPrompt       string
+	displayMu              sync.Mutex
+	displaySaveMu          sync.Mutex
+	displayFile            string
+	display                DisplayState
+	displayChanged         func(DisplayState)
 	languageMu             sync.Mutex
 	languageSaveMu         sync.Mutex
 	languageFile           string
@@ -76,6 +81,7 @@ type Service struct {
 	taskShortcut           ShortcutState
 	shortcutFile           string
 	shortcut               ShortcutState
+	surfaceReady           func(string, uint64)
 	ready                  chan struct{}
 	mu                     sync.Mutex
 	native                 driver

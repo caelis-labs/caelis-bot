@@ -303,3 +303,14 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	t.Log("real Host: asynchronous API-key connect, main model, Team profile binding, role and preset lifecycle, CAS conflict; no inference request")
 }
+
+func TestConnectionModelParametersPreserveHostCapabilities(t *testing.T) {
+	candidate := wire.SlashArgCandidate{Value: "provider/model", NoAuth: pointer(true), ModelSelection: &wire.ModelSelection{Effort: "medium", Efforts: []string{"low", "medium", "high"}, FastSupported: pointer(true)}}
+	got := connectionModelParameters(candidate)
+	if got == nil || got.DefaultEffort != "medium" || len(got.Efforts) != 3 || len(got.ServiceTiers) != 1 || got.ServiceTiers[0].ID != "priority" {
+		t.Fatalf("lost connection capabilities: %+v", got)
+	}
+	if connectionModelParameters(wire.SlashArgCandidate{Value: "unknown"}) != nil {
+		t.Fatal("invented capabilities for an unknown model")
+	}
+}

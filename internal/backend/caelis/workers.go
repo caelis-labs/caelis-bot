@@ -207,6 +207,9 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	s.mu.Lock()
 	old, exists := s.state.Workers[in.ID]
 	execution := s.workExecution
+	if in.ExecutionOverride != nil {
+		execution = *in.ExecutionOverride
+	}
 	s.mu.Unlock()
 	if exists {
 		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace {

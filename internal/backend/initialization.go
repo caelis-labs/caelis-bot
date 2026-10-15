@@ -39,3 +39,32 @@ func (s *Service) RetryBotIntroduction(ctx context.Context) (api.BotInitializati
 	}
 	return i.RetryInitialization(ctx)
 }
+
+// Project the durable, not-yet-accepted introduction without creating another
+// submission. Native acceptance replaces it by the same request identity.
+func (s *Service) projectIntroduction(v *api.Snapshot) {
+	s.mu.Lock()
+	initializer := s.initializer
+	s.mu.Unlock()
+	if initializer == nil {
+		return
+	}
+	intro := initializer.Initialization()
+	if intro.Prompt == "" {
+		return
+	}
+	found := false
+	for _, item := range v.Items {
+		if item.RequestID == intro.RequestID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		v.Items = append(v.Items, api.Item{ID: "outgoing:" + intro.RequestID, RequestID: intro.RequestID, Kind: "user", Text: intro.Prompt})
+	}
+	v.IntroductionPending = (intro.Status == "pending" || intro.Status == "dispatching") && (v.Connection == "ready" || v.Connection == "connecting")
+	if v.IntroductionPending && (v.Connection == "connecting" || v.Message == intro.Message) {
+		v.Message = ""
+	}
+}

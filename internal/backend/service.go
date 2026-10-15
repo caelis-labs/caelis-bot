@@ -258,6 +258,7 @@ func (s *Service) Snapshot() api.Snapshot {
 		v.Revision += revision
 	}
 	v.Revision += localRevision
+	s.projectIntroduction(&v)
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {

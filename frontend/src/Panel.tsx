@@ -1,3 +1,4 @@
+import { surfaceReady, surfaceMounted } from './surface-ready';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
@@ -500,6 +501,7 @@ export function History() {
  const [connectionError,setConnectionError]=useState('');
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
+ useEffect(()=>{if(active&&snapshot)surfaceReady('chat');},[active,snapshot]);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
  const [menu,setMenu]=useState<{item:Item;x:number;y:number}|null>(null);
  const [quoteRequest,setQuoteRequest]=useState<{item:Item}|null>(null);
@@ -528,6 +530,7 @@ export function History() {
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
+  surfaceMounted('chat');
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
@@ -574,7 +577,7 @@ export function History() {
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
- const connection=snapshot&&snapshot.connection!=='ready';
+ const connection=snapshot&&snapshot.connection!=='ready'&&!snapshot.introductionPending;
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';

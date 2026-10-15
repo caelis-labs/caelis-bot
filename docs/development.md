@@ -724,3 +724,71 @@ limits in the owner guide. Do not append dated handoff diaries, duplicate implem
 Historical decisions/acceptance remain in Git and linked PRs. When replacing a guide, update all repository
 links and AGENTS instructions. Protocol/generated schemas, source tests and English Bot skills remain separate
 sources of truth. A code-only regression fix that preserves the workflow needs no new skill instructions.
+
+### Connection settings navigation
+
+The Connections and models page separates model use (Bot conversation and new
+background work) from runtime management (built-in and Codex). Both runtimes
+can be prepared independently. Runtime details, program paths, provider setup and
+built-in Team configuration are full pages with a back path; only short model
+edits and destructive confirmations use dialogs. Team is an optional built-in
+advanced setting, not a shared execution setting.
+
+Model choices carry their runtime source and include only ready runtimes.
+`SetupModels` inspects a profile without selecting it; `LocalWorkerSelection`
+reads saved preferences without opening an offline worker. `SaveSelectedModel`
+validates against the selected runtime's catalog before committing the use.
+Existing work retains its original owner. Conversation runtime changes retain
+the idle/receipt guards and native adapter handshake.
+Codex discovers its existing installation and authentication; provider setup is
+exclusive to built-in. Magpie obtains model choices from its gateway.
+Profile-scoped connection removal preserves admission, usage and revision checks.
+
+This changes user settings navigation, not Bot tools or capabilities; no Bot core
+skill update is needed. Native acceptance must use the isolated Dev profile and
+must not be inferred from the fixture/Go checks.
+
+Codex settings distinguish missing installation, handshake failure, login and ready
+states. Installation/update uses a blocking indeterminate progress dialog; only
+confirmed completion advances the page. Program paths and Auto-Review are not
+shown in connection settings; existing native defaults and saved policy remain
+unchanged. This presentation change requires no Bot skill update.
+
+Built-in settings separate runtime preparation/updates, provider connections and
+optional Team configuration. Team presents breeze, orbit, zenith, tool-search and
+a single guardian card. Guardian configures the Host's LLM approval binding;
+an optional classifier entry configures guardian-screen separately. Uncertain
+classifier results retain the Host's LLM review fallback. Eligible models and
+Fast support come from Host capabilities. Opening an unbound role preselects a
+model in the local draft only; saving is explicit. Other roles and saved binding
+sets are not removed. No Bot skill update is needed: these are settings for
+existing capabilities. Live classifier acceptance requires an eligible classifier.
+
+Built-in provider forms use Host model catalogs. DeepSeek and Xiaomi use the
+Host default endpoint and expose model checkboxes plus API key only. Multi-model
+connection is sequential: each native receipt must complete before the next
+model starts; failed/unknown outcomes stop the sequence with completed items
+retained. Secrets remain transient write arguments. Runtime version management
+is the last independent section; connection usage labels are presentation-only
+and do not change removal guards. These settings do not add Bot capabilities or
+require Bot skill guidance changes.
+
+### Isolated first-run review
+
+`BOT_BUILD_CHANNEL=onboarding BOT_DEVELOPMENT_IDENTITY=- make build` produces
+`dist/Caelis Bot Onboarding.app` with a separate development bundle identity.
+Launch with `bash script/run-onboarding.sh --restart`, never by opening the bundle
+alone: the launcher supplies separate Bot data, Runtime HOME, CODEX_HOME and a
+minimal runtime PATH. `BOT_ONBOARDING_ROOT=/absolute/disposable/root` selects a
+review profile; the default `.cache/onboarding-experience` is for user acceptance.
+Do not copy credentials or existing Runtime stores into it. macOS permissions
+remain system-owned. Global `/opt/homebrew/bin` or `/usr/local/bin` Runtime installs
+may still be discovered; inspect those before claiming a missing-Runtime scenario.
+
+First-run order is Runtime detection/preparation and authentication/model connection,
+optional features, optional permissions, then name/description. Only the final
+Start chatting action journals the introduction. Installation waits for its native
+result; built-in download progress reports observed bytes and speed, with an
+indeterminate animation when no total is known. Cancellation stops the installer
+process group and the UI waits for the original request. Changes here are setup
+presentation/installation only; Bot-facing skill guidance does not change.
