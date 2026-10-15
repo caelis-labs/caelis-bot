@@ -1,4 +1,5 @@
 import appIcon from '../../internal/desktop/assets/app-icon.png';
+import { ExistingSetupModels } from './settings/runtime/ExistingSetupModels';
 import { OnboardingProviders } from './settings/runtime/OnboardingProviders';
 import type { ConnectionKind, ModelSelection } from './settings/runtime/types';
 import { SetupBack } from './SetupBack';
@@ -119,6 +120,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  </section>;
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const updateAvailable = state?.installation.updateState === 'available';
+ const existingModels = state?.models.filter(m=>!m.noAuth) ?? [];
+ const reuseModels = onboarding && id==='caelis' && state?.state==='ready' && existingModels.length>0;
  const oauthPage = onboarding && id==='codex' && !!state?.installation.installed && (state.state==='login'||!!state.loginPending);
  const switchDisabled = blocked || state?.state !== 'ready';
  const switchHint = blocked ? t('runtime.waitCurrentAction') : state?.state === 'incompatible' ? t('runtime.incompatibleServiceHint', { name }) : state?.state === 'ready' ? t('runtime.switchTakesEffectRestart', { name }) : state ? t(setupStatusKey(state)) : t('runtime.switchAvailableAfterInstall');
@@ -157,7 +160,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </section>}
 
    {id === 'caelis' && (onboarding || !state.models.length) && <div className="onboarding-models">
-    {onboarding ? <OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/> : <button className="primary" disabled={blocked} onClick={()=>setForm('model')}>{t('runtime.connectNewModel')}</button>}
+    {reuseModels && <ExistingSetupModels models={existingModels} selectedModel={state.selectedModel} disabled={blocked} onSelect={model=>void run('use-model',{model})} onContinue={()=>void activate()}/>}
+    {onboarding ? (reuseModels ? <details><summary>{t('runtime.connectNewModel')}</summary><OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/></details> : <OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/>) : <button className="primary" disabled={blocked} onClick={()=>setForm('model')}>{t('runtime.connectNewModel')}</button>}
    </div>}
 
   </>}

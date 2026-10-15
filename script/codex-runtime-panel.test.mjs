@@ -28,3 +28,14 @@ test('built-in separates installation, connection, and optional Team without exp
  assert.equal((html.match(/class="team-agent-card"/g)||[]).length,5);
  assert.match(html,/Jev classifier/);assert.match(html,/Luna reviewer/);assert.match(html,/Classifier \(optional\)/);assert.doesNotMatch(html,/>guardian-screen<|>self<|>reviewer<|>custom</);
 });
+
+test('existing Caelis models can continue without a new provider connection',async()=>{
+ globalThis.HTMLElement ??= class HTMLElement {};
+ const {ExistingSetupModels}=await server.ssrLoadModule('/src/settings/runtime/ExistingSetupModels.tsx');
+ const renderExisting=(selectedModel,disabled=false)=>renderToStaticMarkup(React.createElement(ExistingSetupModels,{models:[{value:'custom/existing',label:'Existing custom model',noAuth:false},{value:'unavailable',label:'No credentials',noAuth:true}],selectedModel,disabled,onSelect:()=>{},onContinue:()=>{}}));
+ const ready=renderExisting('custom/existing');
+ assert.match(ready,/Existing custom model/);
+ assert.match(ready,/<button class="primary">Continue<\/button>/);
+ assert.doesNotMatch(ready,/No credentials|API Key/);
+ for(const html of [renderExisting('unavailable'),renderExisting(''),renderExisting('custom/existing',true)])assert.match(html,/<button class="primary" disabled="">Continue<\/button>/);
+});

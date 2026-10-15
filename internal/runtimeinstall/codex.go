@@ -57,7 +57,12 @@ func Codex(ctx context.Context) error {
 	if ce != nil {
 		return ce
 	}
-	cmd := exec.CommandContext(ctx, "/bin/sh", f.Name())
+	return runCodexInstaller(ctx, f.Name())
+}
+
+func runCodexInstaller(ctx context.Context, script string) error {
+	cmd := exec.CommandContext(ctx, "/bin/sh", script)
+	configureInstallerCommand(cmd)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	for _, v := range os.Environ() {
@@ -67,7 +72,7 @@ func Codex(ctx context.Context) error {
 	}
 	home, _ := os.UserHomeDir()
 	cmd.Env = append(cmd.Env, "CODEX_NON_INTERACTIVE=1", "PATH="+filepath.Join(home, ".local", "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if e = cmd.Run(); e != nil {
+	if e := cmd.Run(); e != nil {
 		if ctx.Err() != nil {
 			return codexDownloadError(ctx.Err())
 		}

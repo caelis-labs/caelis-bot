@@ -130,7 +130,7 @@ func Inspect(ctx context.Context, path string, loc ...i18n.Locale) (Status, erro
 }
 func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale) (Status, error) {
 	l := getLocale(loc...)
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := manageContext(ctx, action)
 	defer cancel()
 	if action == "detect" {
 		return Inspect(ctx, path, l)
@@ -212,8 +212,6 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 }
 func install(ctx context.Context, loc ...i18n.Locale) error {
 	l := getLocale(loc...)
-	ctx, c := context.WithTimeout(ctx, 15*time.Minute)
-	defer c()
 	req, e := http.NewRequestWithContext(ctx, "GET", InstallerURL, nil)
 	if e != nil {
 		return e
@@ -283,4 +281,14 @@ func updateResult(v Status, output string, check bool, loc ...i18n.Locale) (Stat
 		return v, nil
 	}
 	return v, errors.New(text(l, "host.updateResultUnconfirmed"))
+}
+
+// Budget the whole operation once, so the installer is not shortened by a
+// generic management deadline. A caller's earlier deadline still wins.
+func manageContext(ctx context.Context, action string) (context.Context, context.CancelFunc) {
+	timeout := 5 * time.Minute
+	if action == "install" {
+		timeout = 15 * time.Minute
+	}
+	return context.WithTimeout(ctx, timeout)
 }

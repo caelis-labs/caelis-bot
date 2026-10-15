@@ -111,9 +111,14 @@ func TestWorkerSelectionReadPreservesOfflineSavedChoice(t *testing.T) {
 
 type followingWorkerFixture struct {
 	*workerFixture
-	execution *api.WorkExecutionSettings
+	execution  *api.WorkExecutionSettings
+	current    api.WorkExecutionSettings
+	currentErr error
 }
 
+func (w *followingWorkerFixture) ConversationExecution(context.Context) (api.WorkExecutionSettings, error) {
+	return w.current, w.currentErr
+}
 func (w *followingWorkerFixture) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	w.execution = in.ExecutionOverride
 	return w.workerFixture.StartWork(ctx, in)
@@ -132,6 +137,7 @@ func TestWorkerFollowConversationUsesCurrentModelAndKeepsOldRoutes(t *testing.T)
 	dir, _ := providerDirectory(root, "caelis")
 	for i, model := range []string{"first-model", "changed-model"} {
 		prefs := api.ExecutionSettings{Model: model, Effort: "medium"}
+		next.current = api.WorkModel(prefs)
 		if err := localstate.Write(filepath.Join(dir, "execution.json"), prefs); err != nil {
 			t.Fatal(err)
 		}
@@ -156,5 +162,34 @@ func TestWorkerFollowConversationUsesCurrentModelAndKeepsOldRoutes(t *testing.T)
 	}
 	if next.execution != nil {
 		t.Fatal("explicit worker choice was overridden")
+	}
+}
+
+func TestWorkerFollowConversationResolvesUnsavedDefault(t *testing.T) {
+	for _, runtime := range []string{"codex", "caelis"} {
+		t.Run(runtime, func(t *testing.T) {
+			root := t.TempDir()
+			worker := &followingWorkerFixture{workerFixture: &workerFixture{runtime: runtime, states: map[string]api.WorkState{}}, current: api.WorkExecutionSettings{Model: "native-default", Effort: "medium", ServiceTier: "priority"}}
+			pool := workPool(root, runtime, map[string]*workerFixture{runtime: worker.workerFixture})
+			pool.resident = worker
+			if err := pool.SelectFirstRuntime("conversation"); err != nil {
+				t.Fatal(err)
+			}
+			dir, _ := providerDirectory(root, runtime)
+			if err := localstate.Write(filepath.Join(dir, "execution.json"), api.ExecutionSettings{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.StartWork(t.Context(), api.WorkStart{ID: "inherited"}); err != nil {
+				t.Fatal(err)
+			}
+			if worker.execution == nil || *worker.execution != worker.current {
+				t.Fatal(worker.execution)
+			}
+			worker.currentErr = errors.New("read failed")
+			starts := worker.starts
+			if _, err := pool.StartWork(t.Context(), api.WorkStart{ID: "failed"}); err == nil || worker.starts != starts {
+				t.Fatal("failed read started work", err)
+			}
+		})
 	}
 }

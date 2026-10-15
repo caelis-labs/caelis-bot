@@ -253,21 +253,21 @@ func (w *localWorkers) StartWork(ctx context.Context, in api.WorkStart) (api.Tas
 	}
 	w.mu.Lock()
 	follow := w.defaultRuntime == "conversation"
-	runtime := w.routes[in.ID]
 	w.mu.Unlock()
 	if follow {
-		dir, err := providerDirectory(w.root, runtime)
-		if err != nil {
-			return api.Task{}, err
-		}
-		prefs, err := backend.LoadExecutionSettings(filepath.Join(dir, "execution.json"), api.ExecutionSettings{})
-		if err != nil {
-			return api.Task{}, err
-		}
-		if prefs.Model == "" {
+		source, ok := owner.(interface {
+			ConversationExecution(context.Context) (api.WorkExecutionSettings, error)
+		})
+		if !ok {
 			return api.Task{}, errors.New("conversation model unavailable")
 		}
-		execution := api.WorkModel(prefs)
+		execution, err := source.ConversationExecution(ctx)
+		if err != nil {
+			return api.Task{}, err
+		}
+		if execution.Model == "" {
+			return api.Task{}, errors.New("conversation model unavailable")
+		}
 		in.ExecutionOverride = &execution
 	}
 	return owner.StartWork(ctx, in)
