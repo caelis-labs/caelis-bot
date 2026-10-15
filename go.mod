@@ -8,7 +8,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/mymmrac/telego v1.12.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/wailsapp/wails/v3 v3.0.0-beta.27
+	github.com/wailsapp/wails/v3 v3.0.0-beta.28
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.53.0
@@ -44,7 +44,7 @@ require (
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/oauth2 v0.35.0
+	golang.org/x/oauth2 v0.37.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect

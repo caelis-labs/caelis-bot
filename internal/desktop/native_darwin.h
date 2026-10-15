@@ -31,6 +31,7 @@ int bot_trash_path(char *path);
 
 void bot_style_settings(void *window);
 void bot_clamp_context_window(void *window);
+void bot_resize_context_window(void *window, int width, int height);
 void bot_artifact_preview_toolbar_install(void *window);
 void bot_artifact_preview_toolbar_selection(void *window, const char *identifier, const char *filename);
 void bot_artifact_preview_toolbar_language(void *window, const char *open, const char *more, const char *save, const char *path, const char *content, const char *reveal);

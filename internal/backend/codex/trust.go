@@ -32,7 +32,8 @@ func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (works
 		} `json:"config"`
 		Layers *[]struct {
 			Name struct {
-				Type string `json:"type"`
+				Type           string `json:"type"`
+				DotCodexFolder string `json:"dotCodexFolder"`
 			} `json:"name"`
 			DisabledReason string `json:"disabledReason"`
 		} `json:"layers"`
@@ -63,6 +64,11 @@ func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (works
 		}
 	}
 	for _, layer := range *response.Layers {
+		// Ancestor project layers may remain disabled while the private Notebook
+		// layer is enabled. Never widen trust to the surrounding checkout.
+		if layer.Name.DotCodexFolder != "" && filepath.Clean(layer.Name.DotCodexFolder) != filepath.Join(directory, ".codex") {
+			continue
+		}
 		if layer.Name.Type == "project" && layer.DisabledReason != "" {
 			state.reason = layer.DisabledReason
 			break

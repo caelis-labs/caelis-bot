@@ -67,6 +67,10 @@ func ReadRuntimeConfiguration(ctx context.Context, settings api.RuntimeSettings)
 		if err != nil {
 			return api.RuntimeConfiguration{}, err
 		}
+		management, err := rawCatalog(ctx, c, "disconnect-provider")
+		if err != nil {
+			return api.RuntimeConfiguration{}, err
+		}
 		var disconnected wire.DisconnectCandidatesSnapshot
 		if err = c.json(ctx, "POST", "/agents/disconnect-candidates", wire.AgentRequest{}, &disconnected, "", ""); err != nil {
 			return api.RuntimeConfiguration{}, err
@@ -83,6 +87,14 @@ func ReadRuntimeConfiguration(ctx context.Context, settings api.RuntimeSettings)
 			return api.RuntimeConfiguration{}, err
 		}
 		out := projectRuntimeConfiguration(status, candidates, disconnected, after)
+		// Management includes classifiers; conversational model choices remain generation-only.
+		all := append([]wire.SlashArgCandidate{}, candidates...)
+		for _, candidate := range management {
+			if !slices.ContainsFunc(all, func(existing wire.SlashArgCandidate) bool { return existing.Value == candidate.Value }) {
+				all = append(all, candidate)
+			}
+		}
+		out.Connections = projectRuntimeConfiguration(status, all, disconnected, after).Connections
 		out.OAuthAvailable = slices.Contains(info.Capabilities, "model-auth-stream-v1")
 		return out, nil
 	}

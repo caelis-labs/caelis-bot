@@ -334,3 +334,27 @@ func TestReimportRepairsStoredBytesAndFallbackSurvivesSaveFailure(t *testing.T) 
 		t.Fatal("failed to recover in memory", fallback, err)
 	}
 }
+
+func TestBotPresentationFollowsCharacterWithoutRewritingLegacySelection(t *testing.T) {
+	root := t.TempDir()
+	r, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := testPack(t)
+	if _, err = r.Install(archiveFile(t, p)); err != nil {
+		t.Fatal(err)
+	}
+	legacy := Selection{"builtin:stick", avatarKey(packageKey(p.Manifest), "portrait")}
+	if _, err = r.Select(legacy); err != nil {
+		t.Fatal(err)
+	}
+	shown := r.BotState().Appearance
+	if shown.Selection.Character != "builtin:caelis" || shown.Selection.Avatar != "follow" || shown.Model != "" || shown.Avatar != "" {
+		t.Fatalf("unexpected presentation: %+v", shown)
+	}
+	restored, err := NewRegistry(root)
+	if err != nil || restored.State().Appearance.Selection != legacy {
+		t.Fatalf("legacy selection was rewritten: %v", err)
+	}
+}

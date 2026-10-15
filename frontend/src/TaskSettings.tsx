@@ -1,3 +1,4 @@
+import { SettingsSelect } from './SettingsSelect';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import {useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
@@ -12,7 +13,10 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const {t}=useI18n();
  const [ready,setReady]=useState(false),[limit,setLimit]=useState(''),[terminal,setTerminal]=useState('system'),[choices,setChoices]=useState<Choice[]>([]);
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
+ const [saveError,setSaveError]=useState('');
  const [custom,setCustom]=useState(''),[terminalOpen,setTerminalOpen]=useState(false);
+ const customSaved=useRef(''),savingCustom=useRef(false);
+ const closeTerminal=()=>{saver.current?.discardTerminal();savingCustom.current=false;setTerminalOpen(false);setError('');};
  const saver=useRef<TaskPreferencesSaver|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const flush=()=>{if(timer.current)clearTimeout(timer.current);timer.current=null;void saver.current?.flush();};
  useEffect(()=>{
@@ -20,14 +24,14 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
   const read=()=>call<TaskPreferences>('TaskPreferences');
   void Promise.all([read(),call<Choice[]>('TerminalChoices')]).then(([p,c])=>{
    if(!active)return;
-   saver.current=new TaskPreferencesSaver(p,read,p=>call<TaskPreferences>('SaveTaskPreferences',p),state=>{if(active){setBusy(state==='saving');setError(state==='failed'?'settings.taskPreferencesSaveFailed':'');}},p=>{if(active)setTerminal(p.terminal);});
-   setLimit(String(p.maxRunning));setTerminal(p.terminal);setCustom(p.customCommand??'');setChoices(c);setReady(true);
+   saver.current=new TaskPreferencesSaver(p,read,p=>call<TaskPreferences>('SaveTaskPreferences',p),(state,cause)=>{if(active){setBusy(state==='saving');setError(state==='failed'?'settings.taskPreferencesSaveFailed':'');setSaveError(state==='failed'&&cause instanceof Error?cause.message:'');}},p=>{if(active){setTerminal(p.terminal);customSaved.current=p.customCommand??'';if(savingCustom.current){savingCustom.current=false;setTerminalOpen(false);}}});
+   setLimit(String(p.maxRunning));setTerminal(p.terminal);customSaved.current=p.customCommand??'';setChoices(c);setReady(true);
   }).catch(()=>{if(active)setError('settings.taskPreferencesLoadFailed');});
   return()=>{active=false;flush();};
  },[call]);
  const visibleError=ready&&!validTaskLimit(limit)?'settings.taskLimitInvalid':error;
- const availableChoices=choices.filter(c=>c.available);
- const terminalAvailable=availableChoices.some(c=>c.id===terminal);
+ const availableChoices=choices.filter(c=>c.available&&c.id!=='custom');
+ const terminalAvailable=terminal==='custom'||availableChoices.some(c=>c.id===terminal);
  return <SettingGroup title={t('settings.backgroundTasks')}>
   <SettingRow label={t('settings.maxBackgroundTasks')} htmlFor="max-background-tasks" description={t('settings.maxBackgroundTasksHelp')}>
    <input id="max-background-tasks" className="task-limit" type="number" min="1" step="1" value={limit} disabled={!ready} aria-invalid={ready&&!validTaskLimit(limit)} onBlur={flush} onChange={e=>{
@@ -37,18 +41,19 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
    }}/>
   </SettingRow>
   <SettingRow label={t('settings.externalTerminal')} htmlFor="external-terminal" description={t('settings.externalTerminalHelp')}>
-   <div className="terminal-choice"><select id="external-terminal" value={terminalAvailable?terminal:''} disabled={!ready} onChange={e=>{setTerminal(e.target.value);saver.current?.change({terminal:e.target.value});flush();}}>
-    {!terminalAvailable&&<option value="" disabled hidden>{t(terminal==='custom'?'settings.customTerminal':'common.loading')}</option>}
+   <div className="terminal-choice"><SettingsSelect id="external-terminal" value={terminalAvailable?terminal:''} disabled={!ready||busy} onChange={e=>{if(e.target.value==='custom'){setCustom(customSaved.current);setError('');setTerminalOpen(true);return;}setTerminal(e.target.value);saver.current?.change({terminal:e.target.value});flush();}}>
+    {!terminalAvailable&&<option value="" disabled hidden>{t('common.loading')}</option>}
     {availableChoices.map(c=><option key={c.id} value={c.id}>{c.id==='system'?t('settings.systemTerminal'):c.name}</option>)}
-   </select><button disabled={!ready} aria-label={t('settings.advancedTerminal')} onClick={event=>{event.currentTarget.focus();setTerminalOpen(true);}}>{t('runtime.change')}</button></div>
+    <option value="custom">{t('settings.customTerminalOption')}</option>
+   </SettingsSelect></div>
   </SettingRow>
-  {terminalOpen&&<SettingsDialog title={t('settings.advancedTerminal')} onClose={()=>{flush();setTerminalOpen(false);}}>
-   <div className="terminal-command-editor">
-   <label htmlFor="custom-terminal-command">{t('settings.customTerminalCommand')}</label>
-   <textarea id="custom-terminal-command" rows={2} value={custom} disabled={!ready} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onBlur={flush} onChange={e=>{setCustom(e.target.value);saver.current?.change({customCommand:e.target.value});if(timer.current)clearTimeout(timer.current);timer.current=setTimeout(flush,350);}}/>
-   <p className="settings-note">{t('settings.customTerminalHelp',{script:'{script}'})}</p>
-   <label className="custom-terminal-enable"><input type="checkbox" checked={terminal==='custom'} disabled={!ready||!custom.trim()} onChange={e=>{const value=e.target.checked?'custom':'system';setTerminal(value);saver.current?.change({terminal:value});flush();}}/>{t('settings.useCustomTerminal')}</label>
-   </div><div className="setup-end"><button onClick={()=>{flush();setTerminalOpen(false);}}>{t('common.done')}</button></div></SettingsDialog>}
-  {(visibleError||busy)&&<p className={`task-settings-feedback ${visibleError?'inline-error':'settings-note'}`} role={visibleError?'alert':'status'}>{t(visibleError||'settings.taskPreferencesSaving')}</p>}
+  {terminalOpen&&<SettingsDialog title={t('settings.customTerminal')} busy={busy} onClose={closeTerminal}>
+   <form onSubmit={event=>{event.preventDefault();if(busy||!custom.trim())return;savingCustom.current=true;saver.current?.change({terminal:'custom',customCommand:custom.trim()});flush();}}>
+    <input className="custom-terminal-input" aria-label={t('settings.customTerminalCommand')} value={custom} disabled={busy} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onChange={event=>{setCustom(event.target.value);setError('');}}/>
+    {error&&<p className="inline-error" role="alert">{saveError||t(error)}</p>}
+    <div className="setup-end"><button type="button" disabled={busy} onClick={closeTerminal}>{t('common.cancel')}</button><button type="submit" className="primary" disabled={busy||!custom.trim()}>{t('common.save')}</button></div>
+   </form>
+  </SettingsDialog>}
+  {!terminalOpen&&(visibleError||busy)&&<p className={`task-settings-feedback ${visibleError?'inline-error':'settings-note'}`} role={visibleError?'alert':'status'}>{t(visibleError||'settings.taskPreferencesSaving')}</p>}
  </SettingGroup>;
 }

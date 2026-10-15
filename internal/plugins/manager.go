@@ -68,6 +68,7 @@ type ConnectionView struct {
 }
 
 type Item struct {
+	Icon         string          `json:"icon,omitempty"`
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
 	TitleZh      string          `json:"titleZh,omitempty"`
@@ -462,6 +463,7 @@ func (m *Manager) Snapshot() Snapshot {
 }
 func (m *Manager) decorate(item *Item) {
 	detail := m.display[item.ID]
+	item.Icon = detail.Icon
 	item.Publisher, item.PublisherURL, item.SourceURL, item.Bundled = detail.Publisher, detail.PublisherURL, detail.SourceURL, detail.Bundled
 	item.Skills = append([]Contribution{}, detail.Skills...)
 	item.MCPServers = append([]Contribution{}, detail.Servers...)

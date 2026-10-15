@@ -82,6 +82,9 @@ func (i *Initializer) Initialization() api.BotInitialization {
 }
 func (i *Initializer) view() api.BotInitialization {
 	v := api.BotInitialization{Required: i.state.Status == "required", Status: i.state.Status}
+	if i.state.Status != "accepted" && i.state.Status != "required" {
+		v.RequestID, v.Prompt = i.state.ID, i.state.Prompt
+	}
 	switch i.state.Status {
 	case "rejected":
 		v.Message = i.state.Message

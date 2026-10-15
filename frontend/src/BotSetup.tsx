@@ -1,23 +1,27 @@
+import {SetupBack} from './SetupBack';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { backend, desktop } from './desktop';
 import { PermissionSettings } from './PermissionSettings';
 import { SetupExtras } from './SetupExtras';
+import {setupStage} from './setup-stage';
 import { RuntimeSettings } from './RuntimeSettings';
-import type { BotInitialization, BotIntroduction, Snapshot } from './backend/contract';
+import type { BotInitialization, BotIntroduction, Snapshot, SetupOverview } from './backend/contract';
 import { useI18n } from './i18n';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone,active=true,focusVersion=0 }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
  const {t}=useI18n();
- const [pending,setPending]=useState<{features:boolean;permissions:boolean}|null>(null);
+ const [pending,setPending]=useState<{features:boolean;permissions:boolean;runtime:boolean}|null>(null);
  const [failed,setFailed]=useState(false);
- useEffect(()=>{if(!active)return;let live=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending')]).then(([features,permissions])=>{if(live)setPending({features,permissions})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
+ useEffect(()=>{if(!active)return;let live=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')]).then(([features,permissions,overview,snapshot])=>{if(live)setPending({features,permissions,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
  if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
- return <BotIntroductionSetup active={active} focusVersion={focusVersion} featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
+ return <BotIntroductionSetup runtimeInitiallyReady={pending.runtime} active={active} focusVersion={focusVersion} featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { onDone: () => void;active:boolean;focusVersion:number;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
+function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,focusVersion,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { runtimeInitiallyReady:boolean;onDone: () => void;active:boolean;focusVersion:number;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
   const {t} = useI18n();
+  const [runtimeReady,setRuntimeReady]=useState(runtimeInitiallyReady);
+  const submitting=useRef(false);
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -43,7 +47,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   }, [active,state?.status,t]);
 
   useEffect(() => {
-    if (!active || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
+    if (!active || !runtimeReady || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
     let live = true;
     void backend<Snapshot>('Snapshot').then(async snapshot => {
       if (!live || snapshot.connection !== 'ready' || opening.current) return;
@@ -52,7 +56,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
       catch (e) { opening.current = false; if (live) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
     }).catch(() => {});
     return () => { live = false; };
-  }, [active, state?.required, state?.status, featuresPending, permissionsPending, t]);
+  }, [active, runtimeReady, state?.required, state?.status, featuresPending, permissionsPending, t]);
 
   const openConversation = async () => {
     if (opening.current) return;
@@ -66,7 +70,8 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !name.trim()) return;
+    if (submitting.current || busy || !name.trim()) return;
+    submitting.current=true;
     setBusy(true);
     setError('');
     try {
@@ -77,7 +82,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
       await continueWhenReady();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('chat.setupSaveFailed'));
-    } finally { setBusy(false); }
+    } finally { submitting.current=false; setBusy(false); }
   };
   const retry = async () => {
     setBusy(true);
@@ -91,6 +96,8 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   };
 
   if (!state) return <section className="runtime-welcome" role="status">{error || t('chat.setupPreparing')}</section>;
+  const stage=setupStage(runtimeReady,featuresPending,permissionsPending);
+  if(stage==='runtime')return <div className="setup-flow"><RuntimeSettings onboarding active={active} onDone={()=>setRuntimeReady(true)}/></div>;
   if (state.status === 'rejected' || state.status === 'unknown') return <section className="bot-introduction">
     <h1>{t('chat.setupIncompleteTitle')}</h1>
     <p className="setup-lead" role="status">{state.message}</p>
@@ -100,14 +107,12 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
-  if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
-  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings active={active} focusVersion={focusVersion} onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
-  if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/>
-    {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
-    <RuntimeSettings onboarding active={active} onBack={onPermissionsBack} onDone={onDone} />
-  </div>;
+  if (stage==='features') return <div className="setup-flow"><SetupExtras onBack={()=>setRuntimeReady(false)} onDone={onFeaturesDone}/></div>;
+  if (stage==='permissions') return <div className="setup-flow"><PermissionSettings active={active} focusVersion={focusVersion} onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
+  if (!state.required) return <section className="runtime-welcome" role="status">{state.message||t('chat.setupPreparing')}<button onClick={()=>void openConversation()}>{t('chat.setupOpenChat')}</button></section>;
 
-  return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">
+  return <div className="setup-flow"><section className="bot-introduction">
+    <SetupBack disabled={busy} onClick={onPermissionsBack}/>
     <img className="setup-avatar" src="/icons/caelis-avatar.png" alt="" />
     <h1>{t('chat.setupIntroTitle')}</h1>
     <p className="setup-lead">{t('chat.setupSubtitle')}</p>
@@ -117,19 +122,14 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
           disabled={busy} onChange={e => setName(e.target.value)} placeholder={t('chat.setupNamePlaceholder')} />
       </label>
       <label htmlFor="bot-description">{t('chat.setupDescLabel')} <span>{t('chat.setupOptional')}</span>
-        <textarea id="bot-description" rows={3} maxLength={2000} value={description}
+        <textarea id="bot-description" rows={2} maxLength={2000} value={description}
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
-      <p className="settings-note">{t('chat.setupHint')}</p>
+      <p className="settings-note">{t('settings.setupStartHint')}</p>
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="setup-end">
-        <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? t('common.loading') : t('chat.setupContinue')}</button>
+        <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? t('common.loading') : t('settings.setupStartChat')}</button>
       </div>
     </form>
   </section></div>;
-}
-
-function SetupProgress({step}:{step:number}) {
- const {t}=useI18n();
- return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupIdentity','setupExtras','setupPermissions','setupConnection'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
 }

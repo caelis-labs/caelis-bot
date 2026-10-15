@@ -34,6 +34,7 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 	for _, tc := range []struct{ channel, name, id string }{
 		{"development", "Caelis Bot Dev", "dev.caelis.bot.dev"},
 		{"release", "Caelis Bot", "dev.caelis.bot"},
+		{"onboarding", "Caelis Bot Onboarding", "dev.caelis.bot.onboarding"},
 	} {
 		buildChannel = tc.channel
 		name, id := applicationIdentity()

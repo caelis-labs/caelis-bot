@@ -91,3 +91,18 @@ void bot_clamp_context_window(void *pointer) {
     frame.origin.y = MAX(NSMinY(visible), MIN(frame.origin.y, NSMaxY(visible)-frame.size.height));
     [window setFrame:frame display:YES];
 }
+
+// Change the contextual window in one layout transaction. Wails SetSize first
+// sets content size and then animates the frame, exposing unpainted web content.
+void bot_resize_context_window(void *pointer, int width, int height) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    NSRect frame = window.frame;
+    frame.origin.y += frame.size.height - height;
+    frame.size = NSMakeSize(width, height);
+    [NSAnimationContext beginGrouping];
+    NSAnimationContext.currentContext.duration = 0;
+    [window setFrame:frame display:NO animate:NO];
+    [window.contentView layoutSubtreeIfNeeded];
+    [window displayIfNeeded];
+    [NSAnimationContext endGrouping];
+}

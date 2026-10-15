@@ -1,28 +1,28 @@
 /* Caelis is the built-in palette. Layout and type live with their components. */
 :root {
- --caelis-window:#f5f5f1;
- --caelis-sidebar:#f0f1ec;
+ --caelis-window:#f5f5f7;
+ --caelis-sidebar:#eeeef0;
  --caelis-content:#ffffff;
  --caelis-raised:#ffffff;
- --caelis-chat:#f5f6f2;
+ --caelis-chat:#f5f5f7;
  --caelis-composer:#ffffff;
  --caelis-popover:#ffffff;
- --caelis-user-bubble:#e9eee8;
- --caelis-text:#272e29;
- --caelis-text-secondary:#687267;
- --caelis-text-disabled:#8e988e;
- --caelis-border:#dde2d9;
- --caelis-focus:#486b5b;
- --caelis-link:#365747;
- --caelis-selected:#e8eee7;
- --caelis-selected-text:#365747;
- --caelis-hover:#eef1eb;
- --caelis-pressed:#e2e9e0;
- --caelis-disabled:#f0f2ed;
- --caelis-action:#486b5b;
- --caelis-action-hover:#365747;
- --caelis-action-pressed:#294839;
- --caelis-action-disabled:#e6ebe3;
+ --caelis-user-bubble:#e9e9f2;
+ --caelis-text:#242429;
+ --caelis-text-secondary:#696970;
+ --caelis-text-disabled:#94949c;
+ --caelis-border:#dedee3;
+ --caelis-focus:#5e60a8;
+ --caelis-link:#4e5095;
+ --caelis-selected:#e8e8f2;
+ --caelis-selected-text:#4e5095;
+ --caelis-hover:#eeeef2;
+ --caelis-pressed:#e2e2ea;
+ --caelis-disabled:#f0f0f3;
+ --caelis-action:#5e60a8;
+ --caelis-action-hover:#4e5095;
+ --caelis-action-pressed:#40427e;
+ --caelis-action-disabled:#e7e7ee;
  --caelis-on-action:#ffffff;
  --caelis-success:#3c7053;
  --caelis-error:#a83f3d;
@@ -40,44 +40,42 @@
  --error:var(--caelis-error);
  --success:var(--caelis-success);
 }
-@media (prefers-color-scheme:dark) {
- :root {
-  --caelis-window:#1e221f;
-  --caelis-sidebar:#242925;
-  --caelis-content:#292e2a;
-  --caelis-raised:#303631;
-  --caelis-chat:#222723;
-  --caelis-composer:#303631;
-  --caelis-popover:#303631;
-  --caelis-user-bubble:#354137;
-  --caelis-text:#edf0e9;
-  --caelis-text-secondary:#b5bfb3;
-  --caelis-text-disabled:#849081;
-  --caelis-border:#414a41;
-  --caelis-focus:#a5c8ae;
-  --caelis-link:#aed3b5;
-  --caelis-selected:#34453a;
-  --caelis-selected-text:#aed3b5;
-  --caelis-hover:#363e36;
-  --caelis-pressed:#424d43;
-  --caelis-disabled:#303830;
-  --caelis-action:#a2c4a8;
-  --caelis-action-hover:#b5d1b7;
-  --caelis-action-pressed:#8fb498;
-  --caelis-action-disabled:#39473b;
-  --caelis-on-action:#1c3023;
+:root[data-mode="dark"] {
+  --caelis-window:#19191c;
+  --caelis-sidebar:#1c1c20;
+  --caelis-content:#202024;
+  --caelis-raised:#29292e;
+  --caelis-chat:#202024;
+  --caelis-composer:#29292e;
+  --caelis-popover:#29292e;
+  --caelis-user-bubble:#323240;
+  --caelis-text:#eeeef1;
+  --caelis-text-secondary:#aaaab3;
+  --caelis-text-disabled:#787882;
+  --caelis-border:#37373e;
+  --caelis-focus:#b6b7ec;
+  --caelis-link:#b6b7ec;
+  --caelis-selected:#333342;
+  --caelis-selected-text:#b6b7ec;
+  --caelis-hover:#303036;
+  --caelis-pressed:#3b3b44;
+  --caelis-disabled:#29292e;
+  --caelis-action:#b0b1e8;
+  --caelis-action-hover:#c2c3f0;
+  --caelis-action-pressed:#9c9edb;
+  --caelis-action-disabled:#363642;
+  --caelis-on-action:#202033;
   --caelis-success:#a2cbaa;
   --caelis-error:#f0a29e;
   --caelis-warning:#e3b875;
-  --caelis-glass-reading:rgba(41,46,42,.88);
-  --caelis-bubble-reading:rgba(41,46,42,.96);
- }
+  --caelis-glass-reading:rgba(32,32,36,.88);
+  --caelis-bubble-reading:rgba(32,32,36,.96);
 }
 @media (prefers-contrast:more) {
- :root { --caelis-border:#6a7467; --caelis-text-secondary:#414d40; --caelis-focus:#264e36; --caelis-link:#264e36; --caelis-selected:#dcebdd; }
+ :root { --caelis-border:#74747d; --caelis-text-secondary:#45454d; --caelis-focus:#363875; --caelis-link:#363875; --caelis-selected:#e2e2f2; }
 }
-@media (prefers-contrast:more) and (prefers-color-scheme:dark) {
- :root { --caelis-border:#a0b09f; --caelis-text-secondary:#dde4d8; --caelis-focus:#c1e1c1; --caelis-link:#c1e1c1; --caelis-selected:#3f5b43; }
+@media (prefers-contrast:more) {
+ :root[data-mode="dark"] { --caelis-border:#aaaab4; --caelis-text-secondary:#e2e2ea; --caelis-focus:#d0d1ff; --caelis-link:#d0d1ff; --caelis-selected:#484862; }
 }
 @media (prefers-reduced-transparency:reduce) {
  :root { --caelis-glass-reading:var(--caelis-composer); --caelis-bubble-reading:var(--caelis-raised); }

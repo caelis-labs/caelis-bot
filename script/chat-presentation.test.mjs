@@ -164,3 +164,8 @@ test('confirmed Dream has a quiet status that yields to attention and ends with 
  for(const change of [{phase:'completed'},{phase:'unknown'},{connection:'offline'},{message:'Recovery required'}])assert.equal(chatActivity({...dreaming,...change}),null);
  assert.equal(canSubmit(dreaming),true,'new user input retains its native capability');
 });
+
+test('pending introduction uses the normal working animation before connection is ready',()=>{
+ assert.equal(chatActivity({...running,connection:'connecting',phase:'idle',introductionPending:true}),'thinking');
+ assert.equal(chatActivity({...running,connection:'disconnected',introductionPending:false}),null);
+});

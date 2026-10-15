@@ -77,3 +77,9 @@ func (s *Session) ChangeRuntime(ctx context.Context, v api.RuntimeSettings, pers
 	}
 	return api.RuntimeCheck{Saved: true, Message: "已保存，下次启动生效"}, nil
 }
+
+// ConversationExecution reads the active conversation, including inherited Host defaults.
+func (s *Session) ConversationExecution(ctx context.Context) (api.WorkExecutionSettings, error) {
+	v, err := s.CurrentExecutionSettings(ctx)
+	return api.WorkModel(v), err
+}

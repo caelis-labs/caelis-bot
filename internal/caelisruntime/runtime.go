@@ -130,7 +130,7 @@ func Inspect(ctx context.Context, path string, loc ...i18n.Locale) (Status, erro
 }
 func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale) (Status, error) {
 	l := getLocale(loc...)
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := manageContext(ctx, action)
 	defer cancel()
 	if action == "detect" {
 		return Inspect(ctx, path, l)
@@ -212,8 +212,6 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 }
 func install(ctx context.Context, loc ...i18n.Locale) error {
 	l := getLocale(loc...)
-	ctx, c := context.WithTimeout(ctx, 5*time.Minute)
-	defer c()
 	req, e := http.NewRequestWithContext(ctx, "GET", InstallerURL, nil)
 	if e != nil {
 		return e
@@ -236,6 +234,11 @@ func install(ctx context.Context, loc ...i18n.Locale) error {
 	if e != nil || len(b) > 1<<20 {
 		return errors.New(text(l, "host.installerContentInvalid"))
 	}
+	localRelease, cleanup, e := stageOfficialRelease(ctx)
+	if e != nil {
+		return errors.New("无法下载或校验运行环境，请检查网络后重试")
+	}
+	defer cleanup()
 	file, e := os.CreateTemp("", "caelis-installer-*.sh")
 	if e != nil {
 		return e
@@ -249,7 +252,8 @@ func install(ctx context.Context, loc ...i18n.Locale) error {
 	if ce != nil {
 		return ce
 	}
-	_, e = run(ctx, l, "/bin/sh", file.Name())
+	ReportInstallProgress(ctx, InstallProgress{Phase: "installing"})
+	e = runInstaller(ctx, l, file.Name(), localRelease)
 	return e
 }
 
@@ -277,4 +281,14 @@ func updateResult(v Status, output string, check bool, loc ...i18n.Locale) (Stat
 		return v, nil
 	}
 	return v, errors.New(text(l, "host.updateResultUnconfirmed"))
+}
+
+// Budget the whole operation once, so the installer is not shortened by a
+// generic management deadline. A caller's earlier deadline still wins.
+func manageContext(ctx context.Context, action string) (context.Context, context.CancelFunc) {
+	timeout := 5 * time.Minute
+	if action == "install" {
+		timeout = 15 * time.Minute
+	}
+	return context.WithTimeout(ctx, timeout)
 }

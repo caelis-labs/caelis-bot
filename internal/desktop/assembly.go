@@ -28,6 +28,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
 	logError(s.configureCapture(filepath.Join(root, "Captures")))
 	logError(s.configureLanguage(filepath.Join(root, "language.json"), languages))
+	logError(s.configureDisplay(filepath.Join(root, "display.json")))
 	s.content = contentpack.NewRecoveringRegistry(filepath.Join(root, "content"))
 	host := effects(s)
 	host.Locale = func() i18n.Locale { return s.LanguagePreferences().Locale }

@@ -8,5 +8,10 @@
     "url": "https://developer.amap.com/api/mcp-server/gettingstarted"
   },
   "homepage": "https://developer.amap.com/api/mcp-server/gettingstarted",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "extensions": {
+    "dev.caelis.bot": {
+      "icon": "assets/logo.png"
+    }
+  }
 }

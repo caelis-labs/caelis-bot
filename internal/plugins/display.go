@@ -1,10 +1,13 @@
 package plugins
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"image/png"
 	"io/fs"
 	"net/url"
 	"path"
@@ -53,6 +56,7 @@ type SkillDetail struct {
 }
 
 type displayMetadata struct {
+	Icon         string
 	Publisher    string
 	PublisherURL string
 	SourceURL    string
@@ -196,6 +200,7 @@ func reviewedDisplay(files fs.FS, entry Entry) (displayMetadata, error) {
 	if json.Unmarshal(body, &manifest) != nil || manifest.Schema != manifestSchema || manifest.Name != entry.ID || manifest.Version != entry.Version {
 		return out, errors.New("reviewed manifest identity mismatch")
 	}
+	out.Icon = reviewedIcon(files, entry, manifest.Extensions)
 	var author struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
@@ -275,4 +280,35 @@ func reviewedDisplay(files fs.FS, entry Entry) (displayMetadata, error) {
 		out.Servers[0].Description = displayText(manifest.Description)
 	}
 	return out, nil
+}
+
+// Only bounded, reviewed package-local PNGs cross the UI boundary. No file paths
+// or remote URLs are exposed, and malformed optional artwork falls back to text.
+func reviewedIcon(files fs.FS, entry Entry, extensions json.RawMessage) string {
+	var ext map[string]json.RawMessage
+	if json.Unmarshal(extensions, &ext) != nil {
+		return ""
+	}
+	var own struct {
+		Icon string `json:"icon"`
+	}
+	if json.Unmarshal(ext["dev.caelis.bot"], &own) != nil {
+		return ""
+	}
+	name := own.Icon
+	if !fs.ValidPath(name) || strings.Contains(name, "\\") || path.Ext(name) != ".png" {
+		return ""
+	}
+	body, err := reviewedFile(files, entry, name)
+	if err != nil || len(body) > 256<<10 {
+		return ""
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(body))
+	if err != nil || config.Width > 1024 || config.Height > 1024 {
+		return ""
+	}
+	if _, err := png.Decode(bytes.NewReader(body)); err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(body)
 }

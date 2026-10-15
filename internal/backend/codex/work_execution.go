@@ -112,3 +112,22 @@ func (s *Session) applyWorkExecution(params map[string]any, thread bool, t *task
 		params["modelProvider"] = t.ModelProvider
 	}
 }
+
+// ConversationExecution follows the resident thread's confirmed model when the
+// user has not saved an explicit override. Catalog defaults are recommendations,
+// not evidence of the model already selected by thread/start or thread/resume.
+func (s *Session) ConversationExecution(ctx context.Context) (api.WorkExecutionSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Connection != "ready" || s.closed || s.closing {
+		return api.WorkExecutionSettings{}, errors.New("Codex conversation unavailable")
+	}
+	v := api.WorkModel(s.opts.Execution)
+	if v.Model == "" {
+		v = s.residentExecution
+	}
+	if v.Model == "" {
+		return v, errors.New("Codex conversation model unavailable")
+	}
+	return v, nil
+}

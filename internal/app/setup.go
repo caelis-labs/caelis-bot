@@ -19,12 +19,36 @@ import (
 )
 
 type runtimeSetup struct {
-	mu          sync.Mutex
-	app         *Application
-	codex       *codex.Setup
-	connections caelis.Connections
-	pending     string
-	fresh       bool
+	progressMu      sync.Mutex
+	progress        api.SetupInstallProgress
+	operationMu     sync.Mutex
+	operationCancel context.CancelFunc
+	mu              sync.Mutex
+	app             *Application
+	codex           *codex.Setup
+	connections     caelis.Connections
+	pending         string
+	fresh           bool
+}
+
+func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	return s.progress
+}
+func (s *runtimeSetup) setInstallProgress(p caelisruntime.InstallProgress) {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	s.progress = api.SetupInstallProgress{Phase: p.Phase, Downloaded: p.Downloaded, Total: p.Total, BytesPerSecond: p.BytesPerSecond}
+}
+func (s *runtimeSetup) CancelOperation() bool {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+	if s.operationCancel == nil {
+		return false
+	}
+	s.operationCancel()
+	return true
 }
 
 func (a *Application) configureSetup() {
@@ -154,6 +178,17 @@ func (s *runtimeSetup) Catalog(ctx context.Context, r api.SetupRequest) ([]api.S
 func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.Action == "install" || r.Action == "update" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		s.operationMu.Lock()
+		s.operationCancel = cancel
+		s.operationMu.Unlock()
+		defer func() { s.operationMu.Lock(); s.operationCancel = nil; s.operationMu.Unlock(); cancel() }()
+		s.setInstallProgress(caelisruntime.InstallProgress{Phase: "checking"})
+		ctx = caelisruntime.WithInstallProgress(ctx, s.setInstallProgress)
+	}
+
 	if e := validSetup(r.Settings, s.app.locale()); e != nil {
 		return api.SetupState{}, e
 	}
