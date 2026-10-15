@@ -1,27 +1,22 @@
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ['*']
+    patterns: ['*']
+    multi-ecosystem-group: dependencies
   - package-ecosystem: npm
     directory: /
+    patterns: ['*']
+    multi-ecosystem-group: dependencies
     # Keep typings on the Node runtime major pinned in toolchain.json.
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    groups:
-      development:
-        dependency-type: development
-        update-types: [minor, patch]
   - package-ecosystem: gomod
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
+    patterns: ['*']
+    multi-ecosystem-group: dependencies
