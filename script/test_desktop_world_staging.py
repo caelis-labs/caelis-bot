@@ -45,6 +45,17 @@ class StagingTests(unittest.TestCase):
         files = sorted(p for p in self.package.rglob('*') if p.is_file() and p.name != 'SHA256SUMS')
         (self.package / 'SHA256SUMS').write_text(''.join(staging.digest(p) + '  ' + p.relative_to(self.package).as_posix() + '\n' for p in files))
 
+    def test_presentation_overlay_is_in_final_inventory(self):
+        staging.verify_package(self.package, self.spec, 'windows-amd64')
+        worker_hash = staging.digest(self.package / 'libexec/cua-driver.exe')
+        staging.inventory(self.package, 'windows-amd64')
+        manifest = json.loads((self.package / 'plugin.json').read_text())
+        self.assertEqual(manifest['extensions']['dev.caelis.bot']['icon'], 'assets/logo.png')
+        entry = json.loads((self.root / 'desktop-world-inventory.json').read_text())
+        for name in ('plugin.json', 'assets/logo.png'):
+            self.assertEqual(entry['Files'][name], staging.digest(self.package / name))
+        self.assertEqual(worker_hash, staging.digest(self.package / 'libexec/cua-driver.exe'))
+
     def test_complete_export_including_hidden_files(self):
         staging.verify_package(self.package, self.spec, 'windows-amd64')
         destination = self.root / 'Plugins' / 'desktop-world'

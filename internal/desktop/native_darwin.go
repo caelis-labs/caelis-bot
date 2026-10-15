@@ -551,3 +551,7 @@ func (d *macDriver) taskTransitions(data string) {
 	defer C.free(unsafe.Pointer(value))
 	application.InvokeSync(func() { C.bot_task_transitions(d.pointer, value) })
 }
+
+func resizeMacContextWindow(window *application.WebviewWindow, width, height int) {
+	application.InvokeSync(func() { C.bot_resize_context_window(window.NativeWindow(), C.int(width), C.int(height)) })
+}

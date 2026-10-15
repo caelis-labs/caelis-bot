@@ -1,7 +1,7 @@
 // Deadlines bound host work, not the time a person spends in a native sheet.
 // An unknown result never retries the original operation.
 export async function nativeCall<T>(service:string,method:string,invoke:()=>Promise<T>):Promise<T> {
- if(service==='desktop'&&method==='PickFiles')return invoke();
+ if(service==='desktop'&&method==='PickFiles'||service==='backend'&&method==='ApplySetup')return invoke();
  const reading=/Snapshot$|Preferences$|Status$/.test(method)||['Draft','DraftFiles','DraftImage','DraftImagePreview','HistoryVisible'].includes(method);
  let timer:ReturnType<typeof setTimeout>|undefined;
  try {

@@ -14,9 +14,10 @@ import {botSessionStatusKey,setupStatusKey} from './setup-status';
 
 export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,active=true,refreshKey=0,workerSettings,executionSettings }: { workerSettings?:(manage:(runtime?:string)=>void)=>ReactNode; executionSettings?:ReactNode; active?:boolean; refreshKey?:number; client?: RuntimeSettingsClient; preparation: (id: string, onBusy: (busy: boolean) => void) => ReactNode }) {
  const { t, locale } = useI18n();
+ const [page, setPage] = useState<'models' | 'connections' | 'permissions'>('models');
  const [view, setView] = useState<RuntimeView | null>(null);
  const [error, setError] = useState(''), [notice, setNotice] = useState(''), [loading, setLoading] = useState(true);
- const [editing, setEditing] = useState<ModelScope | null>(null), [connecting, setConnecting] = useState(false), [switching, setSwitching] = useState<string | null>(null), [groupID,setGroupID]=useState<string|null>(null), [teamOpen,setTeamOpen]=useState(false);
+ const [editing, setEditing] = useState<ModelScope | null>(null), [connecting, setConnecting] = useState(false), [switching, setSwitching] = useState<string | null>(null), [groupID,setGroupID]=useState<string|null>(null);
  const [removing, setRemoving] = useState<{ group: ConnectionGroup; model: ConnectionModel } | null>(null), [removeError, setRemoveError] = useState(''), [busy, setBusy] = useState(false);
  const [preparationBusy, setPreparationBusy] = useState(false);
  const modelAnchor = useRef<HTMLElement | null>(null);
@@ -31,10 +32,10 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
  useEffect(() => { if(active)void refresh(); return () => { generation.current++; }; }, [client,active,refreshKey]);
  // Navigation cannot silently discard an active settings/authentication dialog.
  useEffect(() => {
-  const guard = (event: Event) => { if (editing || connecting || removing || switching !== null || groupID !== null || teamOpen) event.preventDefault(); };
+  const guard = (event: Event) => { if (editing || connecting || removing || switching !== null || groupID !== null) event.preventDefault(); };
   window.addEventListener('settings-navigate', guard);
   return () => window.removeEventListener('settings-navigate', guard);
- }, [editing, connecting, removing, switching, groupID, teamOpen]);
+ }, [editing, connecting, removing, switching, groupID]);
  const remove = async () => {
   if (!removing || working.current) return;
   working.current = true; setBusy(true); setRemoveError('');
@@ -44,7 +45,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
  };
  const caelis = view?.profile.runtime === 'caelis';
  const choiceRequired = !view?.hasRuntimeChoice;
- const name = choiceRequired ? t('runtime.noConnection') : caelis ? 'Caelis' : 'Codex';
+ const name = choiceRequired ? t('runtime.noConnection') : caelis ? 'Caelis' : 'ChatGPT / Codex';
  const configured = view?.setup.state === 'ready' && !choiceRequired;
  const reconnectable = configured && view?.session?.connection === 'offline' && view.session.issue !== 'setup_required';
  const sessionLabel = view ? t(botSessionStatusKey(view.setup,view.session,!choiceRequired)) : t('runtime.statusUnknown');
@@ -52,28 +53,36 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
  const group = view?.connections.find(entry=>entry.id===groupID);
  const selection = editing === 'conversation' ? view?.conversation : editing === 'runtime' ? view?.main : view?.work;
  return <section className="runtime-workspace">
-  <h1>{t('settings.connections')}</h1><p className="settings-page-intro">{t('runtime.connectionsIntro')}</p>
+  <h1>{t('settings.connections')}</h1>
+  <nav className="runtime-workspace-tabs" aria-label={t('settings.connections')}>
+   {(['models','connections','permissions'] as const).map(id=><button key={id} aria-pressed={page===id} onClick={()=>setPage(id)}>{t(id==='models'?'runtime.tabModels':id==='connections'?'runtime.modelConnections':'settings.execution')}</button>)}
+  </nav>
   {!view ? <div className="runtime-empty"><p role="status">{loading ? t('runtime.loadingRuntime') : t('runtime.loadRuntimeFailed')}</p>{error && <p role="alert" className="inline-error">{error}</p>}<button disabled={loading} onClick={() => void refresh()}>{t('runtime.reload')}</button>{!loading&&<button className="text-action" onClick={()=>setSwitching('')}>{t('runtime.completeSetup')}</button>}</div> : <>
-   <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{choiceRequired ? '+' : caelis ? 'C' : '⌘'}</span><div><strong>{name}</strong><p role="status">{sessionLabel}{view.pending && t('runtime.pendingSwitch', { runtime: view.pending })}</p></div><div className="runtime-active-actions">{!configured ? <button className="primary" onClick={() => setSwitching(choiceRequired ? '' : view.profile.runtime)}>{t(choiceRequired ? 'runtime.chooseConnection' : 'runtime.completeSetup')}</button> : <>{reconnectable && <button disabled={loading} onClick={() => void reconnect()}>{t('runtime.reconnect')}</button>}<button onClick={() => setSwitching(view.profile.runtime)}>{t(caelis ? 'runtime.manage' : 'runtime.manageAccount')}</button></>}{!choiceRequired&&<button className="text-action" onClick={() => setSwitching('')}>{t('runtime.switchConnection')}</button>}</div></div>
+   <div hidden={page!=='models'}>
+   <div className="runtime-active"><div><strong>{name}</strong><p role="status">{sessionLabel}{view.pending && t('runtime.pendingSwitch', { runtime: view.pending })}</p></div><div className="runtime-active-actions">{!configured ? <button className="primary" onClick={() => setSwitching(choiceRequired ? '' : view.profile.runtime)}>{t(choiceRequired ? 'runtime.chooseConnection' : 'runtime.completeSetup')}</button> : <>{reconnectable && <button disabled={loading} onClick={() => void reconnect()}>{t('runtime.reconnect')}</button>}<button onClick={() => setSwitching(view.profile.runtime)}>{t(caelis ? 'runtime.manage' : 'runtime.manageAccount')}</button></>}{!choiceRequired&&<button className="text-action" onClick={() => setSwitching('')}>{t('runtime.switchConnection')}</button>}</div></div>
    {!choiceRequired&&!caelis&&configured&&<p className="settings-note runtime-account-note">{t(view.setup.accountType === 'chatgpt' ? 'runtime.connectedViaChatGPT' : view.setup.accountType === 'apiKey' ? 'runtime.connectedViaApiKey' : 'runtime.viewOrChangeCodexLogin')}</p>}
    <section className="runtime-model-section">
-    <h2>{t('runtime.botConversation')}</h2><div className="runtime-setting-row"><div><strong>{t('runtime.botConversation')}</strong><p>{t('runtime.botConversationHint')}</p></div>{view.conversation ? <ModelSummary value={view.conversation} models={view.models} runtimeDefault={view.runtimeDefault} label={` ${t('runtime.botConversationModel')}`} disabled={loading} onClick={anchor => edit('conversation', anchor)}/> : <span className="settings-note">{t('runtime.notConnected')}</span>}</div>
+    <div className="runtime-setting-row"><div><strong>{t('runtime.botConversation')}</strong></div>{view.conversation ? <ModelSummary value={view.conversation} models={view.models} runtimeDefault={view.runtimeDefault} label={` ${t('runtime.botConversationModel')}`} disabled={loading} onClick={anchor => edit('conversation', anchor)}/> : <span className="settings-note">{t('runtime.notConnected')}</span>}</div>
     <h2>{t('settings.backgroundTasks')}</h2>{workerSettings?.(runtime=>setSwitching(runtime??view.profile.runtime)) ?? <>    <div className="runtime-setting-row"><div><strong>{t('runtime.workModel')}</strong><p>{t(caelis ? 'runtime.caelisWorkModelHint' : 'runtime.workModelHint')}</p></div>{(caelis ? view.main : view.work) ? <ModelSummary value={(caelis ? view.main : view.work)!} models={view.models} runtimeDefault={view.runtimeDefault} label={t('runtime.workModel')} disabled={loading || caelis && !view.canEditMain} onClick={anchor=>edit(caelis ? 'runtime' : 'work',anchor)}/> : <span className="settings-note">{t('runtime.notConnected')}</span>}</div>
     {caelis && !view.canEditMain && <p className="settings-note">{t('runtime.updateCaelisForMainModel')}</p>}
     {caelis && view.work && <div className="runtime-setting-row"><div><strong>{t('runtime.dedicatedWorkModel')}</strong><p>{t('runtime.dedicatedWorkModelHint')}</p></div><ModelSummary value={view.work} models={view.models} runtimeDefault={view.runtimeDefault} label={t('runtime.dedicatedWorkModel')} disabled={loading} onClick={anchor=>edit('work',anchor)}/></div>}</>}
    </section>
+   {!choiceRequired&&caelis&&<TeamSettings team={view.team} models={view.team.models} client={client} onRefresh={() => refresh(true)}/>}
+   </div>
+   <div hidden={page!=='connections'}>
    {!choiceRequired&&caelis&&<>
     <div className="runtime-section-title"><h2>{t('runtime.modelConnections')}</h2>{configured && <button onClick={() => setConnecting(true)}>{t('runtime.addConnection')}</button>}</div>
     {!configured ? <p className="settings-note">{t(setupStatusKey(view.setup))}</p> : view.connections.length ? view.connections.map(group => <button className="runtime-connection-entry" key={group.id} onClick={event=>{event.currentTarget.focus();setGroupID(group.id);}}><span><strong>{group.name}</strong><small>{group.kind === 'agent' ? t('runtime.externalAgent') : t('runtime.modelCount', { count: group.models.length })}</small></span><SettingsChevron/></button>) : <div className="runtime-empty">{t('runtime.noConnections')}</div>}
-    <button className="text-action runtime-team-entry" onClick={event=>{event.currentTarget.focus();setTeamOpen(true);}}>{t('runtime.tabAdvanced')}<SettingsChevron/></button>
+
    </>}
-   {executionSettings}
+   {(!caelis||choiceRequired)&&<button onClick={()=>setSwitching(choiceRequired?'':view.profile.runtime)}>{t(choiceRequired?'runtime.chooseConnection':'runtime.manageAccount')}</button>}
+   </div>
+   <div hidden={page!=='permissions'}>{executionSettings}</div>
    <div className="runtime-page-footer"><button className="text-action" disabled={loading} onClick={() => void refresh()}><ArrowClockwiseIcon aria-hidden="true" size={14}/>{t('runtime.refreshConfig')}</button>{(loading || notice) && <p className="settings-note" role="status">{loading ? t('runtime.refreshing') : notice}</p>}</div>
    {error && <p role="alert" className="inline-error">{error}</p>}
   </>}
   {group&&<SettingsDialog title={group.name} onClose={()=>setGroupID(null)}>{group.models.map(model => <div className="runtime-connection-model" key={model.id}><div><strong>{model.name}</strong><p>{model.unavailable ? t('runtime.reauthNeeded') : model.uses.map(u => formatModelUse(u, t)).join(' · ') || t('runtime.notInUse')}</p></div>{group.kind === 'provider' && <span title={model.uses.length ? t('runtime.inUseByHint', { uses: model.uses.map(u => formatModelUse(u, t)).join(locale === 'zh-CN' ? '、' : ', ') }) : undefined}><button disabled={!!model.uses.length} aria-label={t('runtime.removeModelLabel', { label: model.name })} onClick={() => { setRemoving({ group, model }); setRemoveError(''); }}>{t('runtime.remove')}</button></span>}</div>)}{group.kind === 'agent' && <div className="setup-end"><button disabled={group.models.some(m => m.uses.length > 0)} onClick={() => { setRemoving({group,model:group.models[0]});setRemoveError(''); }}>{t('runtime.disconnectAgent')}</button></div>}<div className="setup-end"><button onClick={()=>setGroupID(null)}>{t('common.done')}</button></div></SettingsDialog>}
-  {teamOpen&&view&&<SettingsDialog title={t('runtime.tabAdvanced')} onClose={()=>setTeamOpen(false)}><TeamSettings team={view.team} models={view.team.models} client={client} onRefresh={() => refresh(true)}/></SettingsDialog>}
-  {editing && selection && view && <ModelPicker anchor={modelAnchor.current} runtimeDefault={view.runtimeDefault} title={editing === 'conversation' ? t('runtime.botConversationModel') : editing === 'runtime' ? t('runtime.caelisMainModel') : t('runtime.workModel')} description={editing === 'work' ? t('runtime.dedicatedWorkModelDescription') : undefined} value={selection} models={view.models} onReload={() => refresh(true)} inherited={editing !== 'runtime'} onSave={async value => { await client.saveModel(editing, value, view.revision); setNotice(t('runtime.modelSaved')); await refresh(); }} onClose={() => setEditing(null)} onConnect={caelis ? () => { setEditing(null); setConnecting(true); } : undefined}/>}
+  {editing && selection && view && <ModelPicker anchor={modelAnchor.current} runtimeDefault={view.runtimeDefault} title={editing === 'conversation' ? t('runtime.botConversationModel') : editing === 'runtime' ? t('runtime.caelisMainModel') : t('runtime.workModel')} description={editing === 'work' ? t('runtime.dedicatedWorkModelDescription') : undefined} value={selection} models={view.models} onReload={() => refresh(true)} inherited={editing === 'work' || editing === 'conversation' && !caelis} onSave={async value => { await client.saveModel(editing, value, view.revision); setNotice(t('runtime.modelSaved')); await refresh(); }} onClose={() => setEditing(null)} onConnect={caelis ? () => { setEditing(null); setConnecting(true); } : undefined}/>}
   {connecting && <ConnectionWizard client={client} active={active} onClose={() => setConnecting(false)} onConnected={async () => { setConnecting(false); await refresh(); }}/ >}
   {removing && <SettingsDialog title={removing.group.kind === 'agent' ? t('runtime.disconnectAgentPrompt', { name: removing.group.name }) : t('runtime.removeModelPrompt', { name: removing.model.name })} busy={busy} onClose={() => setRemoving(null)}><p className="settings-note">{removing.group.kind === 'agent' ? t('runtime.disconnectAgentNote', { count: removing.group.models.length }) : t('runtime.removeModelNote')}</p>{removeError && <p role="alert" className="inline-error">{removeError}</p>}<div className="setup-end"><button disabled={busy} onClick={() => { setRemoving(null); if (removeError) void refresh(); }}>{removeError ? t('runtime.closeAndRefresh') : t('common.cancel')}</button><button disabled={busy || !!removeError} onClick={() => void remove()}>{busy ? t('runtime.removing') : t('runtime.remove')}</button></div></SettingsDialog>}
   {switching !== null && <SettingsDialog busy={preparationBusy} title={switching ? (switching === 'caelis' ? t('runtime.manageCaelis') : t('runtime.manageCodex')) : t(choiceRequired ? 'runtime.chooseConnection' : 'runtime.switchRuntime')} description={switching || choiceRequired ? undefined : t('runtime.switchRuntimeDescription')} onClose={() => { setSwitching(null); void refresh(); }}>{switching ? preparation(switching, setPreparationBusy) : <div className="runtime-choices">{['caelis', 'codex'].map(id => <button key={id} onClick={() => setSwitching(id)}><div><strong>{id === 'caelis' ? 'Caelis' : 'Codex'}</strong><span>{!choiceRequired && id === view?.profile.runtime ? t('runtime.currentInUse') : id === 'caelis' ? t('runtime.caelisOptionDescription') : t('runtime.codexOptionDescription')}</span></div><SettingsChevron/></button>)}</div>}</SettingsDialog>}

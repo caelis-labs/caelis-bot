@@ -142,3 +142,26 @@ func TestPublicSnapshotMapsContributionHealthWithoutExposingDiagnostics(t *testi
 		t.Fatal("public projection changed the original diagnostic snapshot")
 	}
 }
+
+func TestReviewedIcon(t *testing.T) {
+	// Use a real bundled image, not a header-only PNG fixture.
+	image, err := reviewed.ReadFile("packages/github/assets/logo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, entry := displayFixture(map[string]string{"assets/logo.png": string(image)}, DisplayCatalog{})
+	extension := json.RawMessage(`{"dev.caelis.bot":{"icon":"assets/logo.png"}}`)
+	if got := reviewedIcon(files, entry, extension); !strings.HasPrefix(got, "data:image/png;base64,") {
+		t.Fatal("valid reviewed icon missing")
+	}
+	for _, name := range []string{"../logo.png", "/logo.png", "https://example.com/logo.png", "missing.png"} {
+		ext, _ := json.Marshal(map[string]any{"dev.caelis.bot": map[string]string{"icon": name}})
+		if reviewedIcon(files, entry, ext) != "" {
+			t.Fatalf("accepted %s", name)
+		}
+	}
+	files["assets/logo.png"].Data = []byte("tampered")
+	if reviewedIcon(files, entry, extension) != "" {
+		t.Fatal("accepted altered image")
+	}
+}

@@ -59,11 +59,15 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    await change({action:group.kind==='agent'?'disconnect-agent':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision:revision});
   },
   async catalog(kind) {return invoke('RuntimeConnectionCatalog',kind,profile ?? null);},
+  async modelParameters(provider,baseUrl,model) {
+   const choices=await invoke<SetupChoice[]>('SetupCatalog',setupRequest(await currentProfile(),'model-parameters',{provider,baseUrl,model}));
+   return choices[0]?.parameters??null;
+  },
   async apiKeyOptions(provider, baseUrl) {
    const profile = await currentProfile();
    const endpoints = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'endpoints', { provider }));
    const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' }));
-   return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(m => ({ value:m.value,name:m.label || m.value })) };
+   return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(m => ({ value:m.value,name:m.label || m.value,parameters:m.parameters })) };
   },
   async startConnection(input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('StartRuntimeConnection',{...input,settings:profile ?? null}),signal,progress);},
   async advanceConnection(flow,action,input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('AdvanceRuntimeConnection',{id:flow.id,revision:flow.revision,action,input}),signal,progress);},

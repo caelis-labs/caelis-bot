@@ -60,6 +60,7 @@ export function activeReplyID(snapshot: Snapshot | null): string | null {
  return null;
 }
 export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
+ if(snapshot?.introductionPending)return 'thinking';
  if (!snapshot || snapshot.connection !== 'ready') return null;
  if (snapshot.phase === 'interrupting') return 'stopping';
  if (snapshot.approvals.some(p => p.status !== 'resolved' && belongsToTurn(p,snapshot.currentTurn))) return null;

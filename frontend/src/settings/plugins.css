@@ -100,3 +100,6 @@
 .plugin-device-oauth { display: grid; gap: 8px; margin-bottom: 16px; }
 .plugin-device-oauth p { margin: 0; }
 .plugin-device-code { display: block; margin-top: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; user-select: text; }
+.plugin-icon:has(img){background:#fff}
+.plugin-icon img{display:block;width:30px;height:30px;object-fit:contain}
+.plugin-detail-head>.plugin-icon img{width:38px;height:38px}

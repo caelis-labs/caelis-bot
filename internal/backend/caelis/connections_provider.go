@@ -30,7 +30,7 @@ func (f *connectionFlow) accountModels() {
 		v.Title = "选择账号模型"
 		v.Message = "选择模型后，通过提供方的浏览器页面登录。"
 		for _, m := range models {
-			v.Models = append(v.Models, api.RuntimeFlowModel{ID: m.Value, Name: value(m.Display), Description: value(m.Detail)})
+			v.Models = append(v.Models, api.RuntimeFlowModel{ID: m.Value, Name: value(m.Display), Description: value(m.Detail), Parameters: connectionModelParameters(m)})
 		}
 	})
 }

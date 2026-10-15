@@ -38,7 +38,7 @@
         "HelpURL": "https://brave.com/search/api/"
       },
       "files": {
-        "plugin.json": "f31cda6205a154ecfd20a462a0adf2334f4e734fc0604246b44198cd3dca8eea",
+        "plugin.json": "7a244aaf5bcf3b38272ad03c1903cc4982b1636fcab360c1a1fd90cafe6aada3",
         "mcp.json": "27cb8333f0769036cd6009b56fa78d0d63bf750f21153493fba932047018a204",
         "upstream/LICENSE": "43dc6a32f9c44dd4647cdb3f48677a8681c500a89cfd0e682808d241ec4250a9",
         "upstream/package-lock.json": "62b44feb6f00951bf867c765f2d7029f4aca40d1f698f63d4a4ba34d50afb2db",
@@ -3536,7 +3536,9 @@
         "upstream/dist/tools/images/schemas/output.js": "a26b2b399649cfb2fbd90a50debc13cde79bb38e01c65a41bb45551dd91626a9",
         "upstream/dist/tools/images/schemas/input.js": "6bb7d01118cab59da1a35237544dd2825b2a1e09d699d1be5903a79acff53236",
         "upstream/dist/tools/place_search/schemas/output.js": "c9715f3f4f9ed8b75af9f68c860b839364ece6a12d6f72c7ca6ef1fb9df205d9",
-        "upstream/dist/tools/place_search/schemas/input.js": "9156be90acdec13564ad012c07b5855f19f04b424ca2099c9b65d2ad6a5da14d"
+        "upstream/dist/tools/place_search/schemas/input.js": "9156be90acdec13564ad012c07b5855f19f04b424ca2099c9b65d2ad6a5da14d",
+        "assets/logo.png": "5a9d815ec3141bcd8ff3ef74a78860eb183e67e049f7acc04115bba152547813",
+        "assets/SOURCE.md": "d10b3fd5eddd4ed03290baf2e2201c26f594573b56c2cba67b0be2683101b63c"
       },
       "upstreamIntegrity": "sha512-a34HBs6os4Ilp0yHPV/j3UrgBQH1uTDLsNA9y5IlO30RCYUFm9QPfC0coh2c7WEDxKcHuWjVsrfuXIJNheu9YA=="
     },
@@ -3562,8 +3564,10 @@
         }
       },
       "files": {
-        "plugin.json": "9a62241bae502366bbaad684939912fda909c1be0edea731070aeb2f264275f8",
-        "mcp.json": "5f82ee81a15e04fa3771fcaad49fc279a963895e2638d86b6c3fb5697718e608"
+        "plugin.json": "177ff1650a347735a34b14848742cb14605df22cc66f35922e78146cd76c75af",
+        "mcp.json": "5f82ee81a15e04fa3771fcaad49fc279a963895e2638d86b6c3fb5697718e608",
+        "assets/logo.png": "4163189171e8c0ce75fd18c13463c91c713f69963d71cf01e93d6547877674d5",
+        "assets/SOURCE.md": "821e871fa178c5910129061c3937d51f841d3896ee6ab0a0ac25bfc7260f55e9"
       }
     },
     {
@@ -3578,8 +3582,10 @@
         "HelpURL": "https://developers.notion.com/guides/mcp/build-mcp-client"
       },
       "files": {
-        "plugin.json": "899b45dfa21af933dfb687059ceccb6051329cb7140b0aecd93129ee792dc527",
-        "mcp.json": "8cf2989c891e877c31d89c5ee099ddffd18664ef1e0fd4e7a75359900b476197"
+        "plugin.json": "e5a668ce0f8a4aa86f6bd157cd81254358c1b878ff190584cc546e14268c6b93",
+        "mcp.json": "8cf2989c891e877c31d89c5ee099ddffd18664ef1e0fd4e7a75359900b476197",
+        "assets/logo.png": "44371c517b4ed2e2b46cb1fd0d170f05538cb003765a98573e74fe1eb9da74a1",
+        "assets/SOURCE.md": "3068977275a29b78a4d914bb74773349a0c568dc3311186ef3bf981c0a899834"
       }
     },
     {
@@ -3600,8 +3606,10 @@
         }
       },
       "files": {
-        "plugin.json": "630817f57a51765b0d83aee97a697a4788af3e64c549cec6a4ba6d0309f4a909",
-        "skills/obsidian-cli/SKILL.md": "7e14d7ec9689d6b8f234f9b31c36593f9c90f564d716237bba5c912657119575"
+        "plugin.json": "0de0329ce8c34f3944b1eefe220531bcde0a7bffc3620a42fc088446272a0e4c",
+        "skills/obsidian-cli/SKILL.md": "7e14d7ec9689d6b8f234f9b31c36593f9c90f564d716237bba5c912657119575",
+        "assets/logo.png": "a5b907743f9d1177feb62c74a3851a83cdfe2936da07e3a7320461936a876542",
+        "assets/SOURCE.md": "cc3689cf18f70589b566ed80626b0a3bdfff1c69679db49bb0b68fff8664af7c"
       }
     },
     {
@@ -3619,8 +3627,10 @@
         "HelpURL": "https://developer.amap.com/api/mcp-server/gettingstarted"
       },
       "files": {
-        "plugin.json": "c254b84161f3511e70bb51f515c69cb21b1ffd526cdc920e7922d2b6b96b5401",
-        "mcp.json": "d3e4ade4459cd7fb48ffac97b44020d8a0f7fd97d3dea3c175701b12947553ac"
+        "plugin.json": "d714a19ff6fc4e0895f6d232527b2b0680d3a998663773b4777e1a08664d5c66",
+        "mcp.json": "d3e4ade4459cd7fb48ffac97b44020d8a0f7fd97d3dea3c175701b12947553ac",
+        "assets/logo.png": "b24321eb842d157cfd08c0425dc5be832c4804050590c9c9d92dfb53f622d819",
+        "assets/SOURCE.md": "9eeb83d17a166f513fb5e9961f07f30f307ad1a4d4709746200f9328735f19c3"
       }
     },
     {
@@ -3638,8 +3648,10 @@
         "HelpURL": "https://docs.qq.com/scenario/open-claw.html?nlc=1"
       },
       "files": {
-        "plugin.json": "3684e7e016b2bdc70ba71f427f27f8c6c924f18d055ad5ca2837f888041429c4",
-        "mcp.json": "23fd49ab6699d16dc2643d89713a625347b24214bd9ea0199571594e76974d27"
+        "plugin.json": "c505b241bd431227b41ba969cef92f3be79079dcdf8142595140bcb3c2d6958b",
+        "mcp.json": "23fd49ab6699d16dc2643d89713a625347b24214bd9ea0199571594e76974d27",
+        "assets/logo.png": "5a289a1350ecd528d31fe382f8f9ccfd35b6713bd3553162d79f9cdbeea6dd1d",
+        "assets/SOURCE.md": "29fbaf4050829169eba1edebb1bfbbf4b49d1d0b754bbb76d58f8090f77e3cf6"
       }
     }
   ]

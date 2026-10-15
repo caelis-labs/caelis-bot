@@ -2,7 +2,7 @@ import type { ModelOption, SetupChoice } from '../../backend/contract';
 import type { ConnectionFlow, ConnectionGroup, ModelSelection, RuntimeView } from './types';
 
 export const inheritedSelection: ModelSelection = { model: '', effort: '', serviceTier: '' };
-export const effortName: Record<string, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高', ultra: '超高' };
+export const effortName: Record<string, string> = { none: 'none', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' };
 export const tierName = (id: string, name: string) => id === 'fast' || name.toLowerCase() === 'fast' ? 'Fast' : name || id;
 export const messageOf = (error: unknown, fallback = '操作未完成，请稍后重试') => error instanceof Error ? error.message : fallback;
 
@@ -50,6 +50,11 @@ export function changeModelParameters(selection: ModelSelection, model: ModelOpt
 export function chooseModel(model: ModelOption): ModelSelection {
  return { model: model.model, effort: model.defaultEffort, serviceTier: '' };
 }
+// Opening an unbound role creates a draft only. Never replace a saved model,
+// even if it is temporarily unavailable, or persist a catalog guess implicitly.
+export function initialModelSelection(value: ModelSelection, models: ModelOption[]): ModelSelection {
+ return value.model || !models.length ? value : chooseModel(models[0]);
+}
 export function validSelection(selection: ModelSelection, models: ModelOption[], allowInherited = false) {
  if (!selection.model) return allowInherited && !selection.effort && !selection.serviceTier;
  const model = models.find(m => m.model === selection.model);
@@ -81,4 +86,29 @@ export function groupLegacyModels(models: SetupChoice[], selected: string): Conn
 export function withWorkUsage(view: RuntimeView): RuntimeView {
  if (!view.work?.model) return view;
  return { ...view, connections: view.connections.map(group => ({ ...group, models: group.models.map(model => model.id === view.work?.model ? { ...model, uses: [...model.uses, '独立工作模型'] } : model) })) };
+}
+
+export function modelUseLabel(use:string):string {
+ if (['Bot 对话','bot_conversation'].includes(use)) return 'Bot';
+ if (['Caelis 主模型','caelis_main'].includes(use)) return 'built-in';
+ if (['独立工作模型','dedicated_work'].includes(use)) return 'Worker';
+ return use==='guardian-screen'?'guardian':use;
+}
+
+// Onboarding always starts with an explicit supported level, without changing saved settings.
+export function onboardingEffort(efforts: string[]): string {
+ const order = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+ const available = [...new Set(efforts.filter(Boolean))].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+ if (available.includes('medium')) return 'medium';
+ return available[Math.floor(available.length / 2)] || '';
+}
+export function modelDescription(description: string | undefined, ...names: string[]): string | undefined {
+ const text = description?.trim();
+ if (text && text.split('·').every(part => ['native preset','reasoning','tools'].includes(part.trim().toLowerCase()))) return undefined;
+ const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+ return text && !names.some(name => normalize(name) === normalize(text)) ? text : undefined;
+}
+
+export function validCustomLimits(context: string, output: string): boolean {
+ return [context,output].every(value=>value.trim()!==''&&Number.isSafeInteger(Number(value))&&Number(value)>0);
 }

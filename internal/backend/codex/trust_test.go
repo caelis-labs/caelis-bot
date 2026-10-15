@@ -54,7 +54,7 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 					projects := map[string]any{}
 					if level != "" {
 						trust := level
-						if level == "trusted_policy" {
+						if level == "trusted_policy" || level == "trusted_with_disabled_ancestor" {
 							trust = "trusted"
 						}
 						path := directory
@@ -70,6 +70,12 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 						reason = "untrusted"
 					}
 					result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{map[string]any{"name": map[string]string{"type": "project"}, "disabledReason": reason}}}
+					if level == "trusted_with_disabled_ancestor" {
+						result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{
+							map[string]any{"name": map[string]string{"type": "project", "dotCodexFolder": filepath.Join(directory, ".codex")}},
+							map[string]any{"name": map[string]string{"type": "project", "dotCodexFolder": filepath.Join(root, ".codex")}, "disabledReason": "ancestor checkout is untrusted"},
+						}}
+					}
 				case "config/batchWrite":
 					if level == "write_unknown" {
 						writes++
@@ -230,5 +236,28 @@ func TestUnknownBotTrustWriteIsNotReplayed(t *testing.T) {
 		if method == "thread/start" || method == "thread/resume" {
 			t.Fatal("resident initialized with uncertain trust", methods)
 		}
+	}
+}
+
+func TestTrustedNotebookDoesNotRequireTrustingAncestorCheckout(t *testing.T) {
+	s, inspect := trustSessionFixture(t, "trusted_with_disabled_ancestor")
+	if err := s.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Snapshot().Connection != "ready" {
+		t.Fatal(s.Snapshot().Connection)
+	}
+	writes, methods := inspect()
+	if writes != 0 {
+		t.Fatal("ancestor trust was modified", writes)
+	}
+	found := false
+	for _, method := range methods {
+		if method == "thread/start" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("trusted Notebook did not start", methods)
 	}
 }

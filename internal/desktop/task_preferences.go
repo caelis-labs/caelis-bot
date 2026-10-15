@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
@@ -26,6 +27,21 @@ func (s *Service) TaskPreferences() (tasks.Preferences, error) {
 	return p, nil
 }
 func (s *Service) SaveTaskPreferences(p tasks.Preferences) (tasks.Preferences, error) {
+	if p.Terminal == "custom" {
+		if _, err := taskterminal.CustomArgs(p.CustomCommand, "/private/terminal.command"); err != nil {
+			key := "settings.terminalCommandInvalid"
+			switch {
+			case strings.Contains(err.Error(), "unfinished"):
+				key = "settings.terminalCommandQuotes"
+			case strings.Contains(err.Error(), "executable"):
+				key = "settings.terminalCommandExecutable"
+			case strings.Contains(err.Error(), "{script}"):
+				key = "settings.terminalCommandPlaceholder"
+			}
+			return p, errors.New(s.text(key, nil))
+		}
+	}
+
 	if s.saveTaskPreferences == nil {
 		return p, errors.New(s.text("native.taskPreferencesUnavailable", nil))
 	}
