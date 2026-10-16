@@ -157,7 +157,7 @@ PR CI has read-only permissions and no App or Apple secrets. Both the build and 
 
 ## Developer ID signing and Apple notarization
 
-Public releases always require Developer ID Application signing and Apple notarization. There is no feature switch or ad-hoc fallback. An expired/wrong-type certificate, team mismatch, missing credentials/timestamp/hardened runtime, rejected or pending notarization, invalid staple, or Gatekeeper rejection stops publication. Pending Apple processing preserves a resumable checkpoint; rejection, unknown status, credential and transport errors fail the job.
+Public releases always require Developer ID Application signing and Apple notarization. There is no feature switch or ad-hoc fallback. An expired/wrong-type certificate, team mismatch, missing credentials/timestamp/hardened runtime, rejected or pending notarization, invalid staple, or Gatekeeper rejection stops publication. Pending Apple processing preserves a resumable checkpoint; rejection, unknown status and credential errors fail the job. Ticket transport errors use only the bounded retry described below; exhausted or unrecognized errors still fail the job.
 
 The `macos-release` GitHub environment is restricted to `main`. Configure:
 
@@ -186,6 +186,8 @@ The signing job downloads only the app built by its own preceding job; it does n
 `script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. Sparkle's framework, Autoupdate executable, Updater.app and XPC helpers are signed explicitly before the enclosing app. The app needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
 
 Notarization saves the upload receipt before waiting up to **60 minutes per submission**. The signing/packaging job allows **150 minutes** for the App and DMG waits plus packaging, validation and checkpoint upload; its temporary keychain remains unlocked for that bounded job lifetime. After waiting, the same submission is queried again: `Accepted` continues even if the wait command timed out, `Invalid`/`Rejected` prints Apple's log and fails, and `In Progress` preserves a pending checkpoint and skips publication. The signed App ZIP, signed DMG when available, byte hashes, release context, receipts and Apple logs are retained together for **14 days**; credentials never enter the artifact. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
+
+All App/DMG `stapler staple` and `stapler validate` calls, including mounted-App checks during packaging, use `script/notarization-stapler.mjs`. Each call permits at most **3 attempts**, waiting **5 then 15 seconds**, only for exit 68 accompanied by `NSURLErrorDomain` timeout (-1001), cannot-connect (-1004), or connection-lost (-1005) diagnostics. Exit 68 alone is not retryable: it can also mean the artifact was not notarized. Invalid/revoked tickets, signature failures, TLS trust errors and unknown errors fail immediately. Each attempt is capped at 120 seconds; process timeout/cancellation is not retried. Every attempt remains in the job log. No signing, notary submission or Gatekeeper command is retried by this helper; existing verification and resumable checkpoints remain required.
 
 If Apple is delayed, query the existing submission before recovering the draft:
 

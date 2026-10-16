@@ -122,8 +122,8 @@ notarize() {
 }
 # Staple the app before creating the DMG, so a copied app also works offline.
 notarize "$BOT_NOTARY_REPORTS/app.zip" app
-xcrun stapler staple "$BOT_SIGN_BUNDLE"
-xcrun stapler validate "$BOT_SIGN_BUNDLE"
+node "$BOT_SIGN_ROOT/script/notarization-stapler.mjs" staple "$BOT_SIGN_BUNDLE"
+node "$BOT_SIGN_ROOT/script/notarization-stapler.mjs" validate "$BOT_SIGN_BUNDLE"
 BOT_SIGN_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CaelisReleaseVersion' "$BOT_SIGN_BUNDLE/Contents/Info.plist")
 BOT_SIGN_ARCH=$(lipo -archs "$BOT_SIGN_BUNDLE/Contents/MacOS/caelis-bot")
 BOT_SIGN_DMG="$BOT_SIGN_ROOT/dist/releases/Caelis-Bot-$BOT_SIGN_VERSION-macos-$BOT_SIGN_ARCH.dmg"
@@ -139,8 +139,8 @@ notarize "$BOT_NOTARY_REPORTS/release.dmg" dmg
 # Keep the uploaded bytes unchanged for future resumes; staple only the final copy.
 mkdir -p "$(dirname "$BOT_SIGN_DMG")"
 cp "$BOT_NOTARY_REPORTS/release.dmg" "$BOT_SIGN_DMG"
-xcrun stapler staple "$BOT_SIGN_DMG"
-xcrun stapler validate "$BOT_SIGN_DMG"
+node "$BOT_SIGN_ROOT/script/notarization-stapler.mjs" staple "$BOT_SIGN_DMG"
+node "$BOT_SIGN_ROOT/script/notarization-stapler.mjs" validate "$BOT_SIGN_DMG"
 hdiutil verify -quiet "$BOT_SIGN_DMG"
 bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_DMG" developer-id dmg "$BOT_SIGN_DMG_ID"
 spctl --assess --type open --context context:primary-signature --verbose=2 "$BOT_SIGN_DMG"
@@ -148,7 +148,7 @@ spctl --assess --type open --context context:primary-signature --verbose=2 "$BOT
 BOT_VERIFY_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/caelis-signed-dmg.XXXXXX")
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$BOT_VERIFY_MOUNT" "$BOT_SIGN_DMG" -quiet
 bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app" developer-id app "$BOT_APP_ID"
-xcrun stapler validate "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app"
+node "$BOT_SIGN_ROOT/script/notarization-stapler.mjs" validate "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app"
 spctl --assess --type execute --verbose=2 "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app"
 test "$(/usr/libexec/PlistBuddy -c 'Print CaelisSourceCommit' "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app/Contents/Info.plist")" = "$BOT_RELEASE_SOURCE_SHA"
 cmp "$BOT_SIGN_BUNDLE/Contents/MacOS/caelis-bot" "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app/Contents/MacOS/caelis-bot"

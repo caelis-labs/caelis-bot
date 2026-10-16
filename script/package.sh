@@ -21,7 +21,7 @@ fi
 plutil -lint "$BOT_PACKAGE_BUNDLE/Contents/Info.plist"
 bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_BUNDLE" "$BOT_PACKAGE_SIGNING_MODE" app "$BOT_APP_ID"
 if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
-  xcrun stapler validate "$BOT_PACKAGE_BUNDLE"
+  node "$BOT_ROOT/script/notarization-stapler.mjs" validate "$BOT_PACKAGE_BUNDLE"
   spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_BUNDLE"
 fi
 BOT_PACKAGE_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CaelisReleaseVersion' "$BOT_PACKAGE_BUNDLE/Contents/Info.plist")
@@ -63,7 +63,7 @@ hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$BOT_PACKAGE_MOUNT" 
 BOT_PACKAGE_MOUNTED=true
 bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app" "$BOT_PACKAGE_SIGNING_MODE" app "$BOT_APP_ID"
 if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
-  xcrun stapler validate "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app"
+  node "$BOT_ROOT/script/notarization-stapler.mjs" validate "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app"
   spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app"
 fi
 test "$(readlink "$BOT_PACKAGE_MOUNT/Applications")" = /Applications

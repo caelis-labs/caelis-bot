@@ -5,6 +5,98 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {validateResumeRun} from './verify-notarization-run.mjs';
+import {staple} from './notarization-stapler.mjs';
+
+// Diagnostic shape from the v0.14.0 mounted-App validation failure.
+const lostConnection = 'error is Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."\n' +
+  "CloudKit's response is inconsistent with expections: (null)\nThe validate action failed! Error 68.\n";
+const networkFailure = {status: 68, stdout: '', stderr: lostConnection};
+async function ticketSequence(results, command = 'validate') {
+  const calls = [], waits = [], logs = [];
+  const status = await staple(command, '/fixture with spaces/Caelis Bot.app', {
+    run: (binary, args) => {
+      calls.push([binary, ...args]);
+      assert.ok(calls.length <= results.length, 'unexpected extra attempt');
+      return results[calls.length - 1];
+    }, wait: async delay => { waits.push(delay); }, log: text => { logs.push(text); },
+  });
+  return {status, calls, waits, logs};
+}
+
+for (const command of ['staple', 'validate']) {
+  test(`${command} retries the observed ticket network failure without changing the artifact`, async () => {
+    const result = await ticketSequence([networkFailure, networkFailure, {status: 0, stdout: 'verified\n'}], command);
+    assert.equal(result.status, 0);
+    assert.deepEqual(result.waits, [5000, 15000]);
+    assert.deepEqual(result.calls, Array(3).fill(['xcrun', 'stapler', command, '/fixture with spaces/Caelis Bot.app']));
+    assert.equal(result.logs.filter(log => log.includes(lostConnection)).length, 2);
+  });
+}
+
+test('persistent temporary ticket errors stop after three attempts and retain the exit code', async () => {
+  const result = await ticketSequence(Array(3).fill(networkFailure));
+  assert.equal(result.status, 68);
+  assert.equal(result.calls.length, 3);
+  assert.deepEqual(result.waits, [5000, 15000]);
+});
+
+for (const code of [-1001, -1004]) {
+  test(`ticket transport error ${code} can recover on the next attempt`, async () => {
+    const result = await ticketSequence([{status: 68, stderr: `Error Domain=NSURLErrorDomain Code=${code}`}, {status: 0}]);
+    assert.equal(result.status, 0);
+    assert.deepEqual(result.waits, [5000]);
+  });
+}
+
+for (const failure of [
+  {status: 65, stderr: lostConnection},
+  {status: 66, stderr: 'Ticket missing or invalid'},
+  {status: 77, stderr: 'Ticket revoked'},
+  {status: 68, stderr: 'Record not found; not notarized'},
+  {status: 68, stderr: 'The validate action failed! Error 68.'},
+  {status: 68, stderr: 'Error Domain=NSURLErrorDomain Code=-1202 certificate trust failure'},
+  {status: 68, stderr: lostConnection + '\nError Domain=NSURLErrorDomain Code=-1200'},
+  {status: 68, stderr: lostConnection + '\nTicket invalid'},
+  {status: 68, stderr: lostConnection + '\nSignature mismatch'},
+  {status: 68, stderr: 'HTTP 403 Forbidden'},
+  {status: 68, stderr: lostConnection + '\nHTTP 403 Forbidden'},
+  {status: null, signal: 'SIGTERM', stderr: lostConnection},
+  {status: null, error: new Error('spawn ETIMEDOUT'), stderr: lostConnection},
+]) {
+  test(`ticket validation fails closed: ${failure.stderr}`, async () => {
+    const result = await ticketSequence([failure]);
+    assert.notEqual(result.status, 0);
+    assert.equal(result.calls.length, 1);
+    assert.deepEqual(result.waits, []);
+  });
+}
+
+test('a validation failure after a network retry still blocks publication immediately', async () => {
+  const result = await ticketSequence([networkFailure, {status: 65, stderr: 'Ticket invalid'}]);
+  assert.equal(result.status, 65);
+  assert.equal(result.calls.length, 2);
+  assert.deepEqual(result.waits, [5000]);
+});
+
+test('successful ticket validation has no retry delay', async () => {
+  const result = await ticketSequence([{status: 0}]);
+  assert.equal(result.status, 0);
+  assert.deepEqual(result.waits, []);
+});
+
+test('ticket command failure prevents the publishing shell from continuing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'caelis-stapler-'));
+  try {
+    writeFileSync(join(root, 'xcrun'), '#!/bin/sh\necho "Ticket invalid" >&2\nexit 65\n', {mode: 0o700});
+    const result = spawnSync('/bin/bash', ['-c', 'set -e; node "$1" validate "$2"; echo PUBLISH',
+      'fixture', resolve('script/notarization-stapler.mjs'), join(root, 'App with spaces.app')], {
+      encoding: 'utf8', timeout: 10000, env: {...process.env, PATH: `${root}:${process.env.PATH}`},
+    });
+    assert.equal(result.status, 65);
+    assert.match(result.stderr, /Ticket invalid/);
+    assert.doesNotMatch(result.stdout, /PUBLISH/);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
 
 const submission = '00000000-1111-2222-3333-444444444444';
 function fixture(run) {
