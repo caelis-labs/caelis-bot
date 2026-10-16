@@ -368,6 +368,7 @@ export interface RuntimeSettings {
   caelisStore?: string;
 }
 export interface RuntimeStatus {
+  bundled?: boolean;
   latestVersion: string;
   updateState: string;
   installed: boolean;

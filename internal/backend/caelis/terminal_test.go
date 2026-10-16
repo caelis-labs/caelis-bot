@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -47,61 +46,5 @@ func TestTerminalResolvesOnlyOwnedNativeWorkerWithoutDispatch(t *testing.T) {
 	s.state.InstanceID = "replaced"
 	if _, err = s.WorkTerminal(t.Context(), "owned"); err == nil {
 		t.Fatal("stale Host target accepted")
-	}
-}
-
-func TestManualServicePreflightAcceptsOnlyConfirmedStoppedHost(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell lifecycle fixture")
-	}
-	for _, tc := range []struct {
-		name, state string
-		allow       bool
-	}{
-		{"stopped", `{"state":"stopped"}`, true},
-		{"running but unreachable", `{"state":"running"}`, false},
-		{"unknown", `{}`, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			settings := setupFixture(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
-			settings.CLIPath = filepath.Join(t.TempDir(), "caelis")
-			program := "#!/bin/sh\n[ \"$1 $2\" = 'service status' ] || exit 99\nprintf '%s\\n' '" + tc.state + "'\n"
-			if err := os.WriteFile(settings.CLIPath, []byte(program), 0700); err != nil {
-				t.Fatal(err)
-			}
-			if err := CheckServiceIdle(t.Context(), settings); (err == nil) != tc.allow {
-				t.Fatalf("manual preflight state %q: %v", tc.state, err)
-			}
-		})
-	}
-}
-
-func TestServiceChangeRefusesBusyUnknownAndChangedHost(t *testing.T) {
-	for _, tt := range []struct {
-		name, instance, body string
-		wantError            bool
-	}{
-		{"idle old Host", "setup-instance", `{"runtime":{}}`, false},
-		{"external Turn", "setup-instance", `{"runtime":{"active_sessions":["external"]}}`, true},
-		{"background job", "setup-instance", `{"runtime":{"active_jobs":1}}`, true},
-		{"running", "setup-instance", `{"runtime":{"running":true}}`, true},
-		{"unknown", "setup-instance", `{}`, true},
-		{"replaced", "different", `{"runtime":{}}`, true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "GET" {
-					t.Fatal("preflight mutated Host")
-				}
-				if r.URL.Path == "/api/control/v1/initialize" {
-					writeFixture(w, map[string]any{"instance_id": tt.instance})
-					return
-				}
-				_, _ = w.Write([]byte(tt.body))
-			})
-			if err := CheckServiceIdle(t.Context(), settings); (err != nil) != tt.wantError {
-				t.Fatal(err)
-			}
-		})
 	}
 }

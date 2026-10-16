@@ -17,6 +17,9 @@ func (s *Session) connectWithRecovery(ctx context.Context) error {
 	if closed {
 		return errors.New("连接已停止")
 	}
+	if err := caelisruntime.PrepareBundled(ctx, s.settings.CLIPath, s.settings.CaelisStore); err != nil {
+		return err
+	}
 	if err := s.connect(ctx); err == nil {
 		return nil
 	} else if ctx.Err() != nil {

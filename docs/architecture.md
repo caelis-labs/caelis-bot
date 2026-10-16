@@ -48,6 +48,24 @@ activation carries unsent attachments into an empty target; ordinary switches an
 rollback load the original provider-scoped selection.
 `GOWORK=off`; no sibling private imports.
 
+The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
+An explicit CLI override wins; otherwise discovery uses this app's helper before
+PATH. The app never overwrites a global CLI or creates a separate Caelis Store,
+authentication, model configuration or service authority. The embedded CLI is
+updated only with Bot, signed inside-out with the app and covered by its notary
+submission. Version/source/archive pins and the upstream license travel with the
+bundle. Damaged embedded payloads fail visibly without an ambient fallback;
+settings and local chat history remain available.
+
+On connection, the embedded CLI is offered through public `service start`.
+Core owns compatible busy-Host reuse, deferred idle replacement, exclusive Store
+writes and older-client non-downgrade. Bot coalesces requests using its existing
+recovery coordinator and then negotiates the discovered endpoint normally.
+The CLI release pin and consumed OpenAPI pin are distinct; distribution version
+equality is never a connection requirement. Packaging currently targets the
+qualified macOS arm64 app; this does not claim Windows GUI distribution.
+
+
 The General settings login switch reads macOS `SMAppService.mainApp` through a
 native desktop adapter. Registration and approval status is system-owned,
 separate from product feature preferences and permissions. A login launch skips

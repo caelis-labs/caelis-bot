@@ -611,7 +611,9 @@ after the currently running Dev Bot has stopped, or use a separate disposable
 ## Remote machine acceptance
 
 `make build` embeds checksum-pinned Linux amd64/arm64 headless helpers in
-`Contents/Resources/remote`. It does not bundle a Codex/Caelis Runtime. Native APP
+`Contents/Resources/remote`. These remote helpers do not contain a Runtime;
+the macOS app separately embeds the pinned local Caelis CLI described in
+[runtime integration](caelis-integration.md). Native APP
 acceptance still uses `script/build_and_run.sh` with an explicit disposable
 `CAELIS_BOT_DATA_DIR`; never use the daily profile for connection/model experiments.
 The remote account must have its own installed and authenticated native Runtime.

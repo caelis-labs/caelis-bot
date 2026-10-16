@@ -84,6 +84,7 @@ BOT_SIGN_MATCHES=$(printf '%s\n' "$BOT_SIGN_IDENTITIES" | sed -n 's/^[[:space:]]
 # debugger or library-validation exception is needed.
 if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   echo 'Signing the app with the imported Developer ID identity.'
+  bash "$BOT_SIGN_ROOT/script/sign-caelis-runtime.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   bash "$BOT_SIGN_ROOT/script/sign-desktop-world.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   bash "$BOT_SIGN_ROOT/script/sign-sparkle.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \

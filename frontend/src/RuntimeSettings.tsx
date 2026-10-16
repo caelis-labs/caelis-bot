@@ -40,6 +40,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false), [locationOpen,setLocationOpen] = useState(false);
  const [providerSelection,setProviderSelection]=useState<{kind:ConnectionKind;id:string}|null>(null);
  const [form, setForm] = useState<'model' | 'key' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
+ const [preparationAttempt,setPreparationAttempt] = useState(0), [preparationFailed,setPreparationFailed] = useState(false);
  useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setReconnectNeeded(true); }).catch(() => {}); }, []);
  const epoch = useRef(0), working = useRef(false), alive = useRef(true);
  useEffect(()=>{
@@ -59,9 +60,23 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  useEffect(() => { alive.current = true; void refreshOverview().then(v => { if (!onboarding && !initialRuntime) setID(v.pending || (v.hasRuntimeChoice ? v.active : '')); }).catch(e => setError(errorText(e))); const close = () => setForm(''); window.addEventListener('settings-close', close); return () => { alive.current = false; epoch.current++; window.removeEventListener('settings-close', close); }; }, [onboarding]);
  useEffect(() => {
   if (!id) return;
-  const generation = ++epoch.current; setState(null); setForm(''); setError(''); setNotice(''); setBusy('detect'); working.current = true;
-  void call<Profile>('SetupProfile', id).then(async p => { if (generation !== epoch.current) return; setProfile(p); setManual(!!p.cliPath); const v = await call<SetupState>('InspectSetup', p); if (generation === epoch.current) setState(v); }).catch(e => { if (generation === epoch.current) setError(errorText(e)); }).finally(() => { if (generation === epoch.current) { working.current = false; setBusy(''); } });
- }, [id]);
+  const generation = ++epoch.current; setState(null); setForm(''); setError(''); setNotice(''); setBusy('detect'); setPreparationFailed(false); working.current = true;
+  void call<Profile>('SetupProfile', id).then(async p => {
+   if (generation !== epoch.current) return;
+   setProfile(p); setManual(!!p.cliPath);
+   let next = await call<SetupState>('InspectSetup', p);
+   if (generation !== epoch.current) return;
+   if (onboarding && id === 'caelis' && next.installation.bundled && next.installation.installed) {
+    // Core owns busy-Host reuse and deferred upgrade; onboarding only prepares
+    // the bundled service once before showing the model connection catalog.
+    setBusy('start');
+    next = await call<SetupState>('ApplySetup', request(p, 'start'));
+    if (generation !== epoch.current) return;
+    if (!['ready', 'models'].includes(next.state)) throw new Error(t(setupStatusKey(next)));
+   }
+   setState(next);
+  }).catch(e => { if (generation === epoch.current) { setError(errorText(e)); setPreparationFailed(true); } }).finally(() => { if (generation === epoch.current) { working.current = false; setBusy(''); } });
+ }, [id, preparationAttempt]);
  const run = async (action: string, fields: Partial<SetupRequest> = {}) => {
   if (working.current) return; working.current = true; setBusy(action); setError(''); setNotice('');
   if(['install','update'].includes(action)){cancelRequested.current=false;setInstallCancelled(false);setInstallOperation(action);setInstallError('');setInstallProgress(null);}
@@ -118,8 +133,13 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   {error && <p role="alert" className="inline-error">{error}</p>}
   <div className="setup-end">{onBack&&<button type="button" onClick={onBack}>{t('settings.setupBack')}</button>}</div>
  </section>;
- const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
- const updateAvailable = state?.installation.updateState === 'available';
+ if (onboarding && id === 'caelis' && !state) return <section className="runtime-onboarding">
+  <SetupBack disabled={!!busy} onClick={() => setID('')}/>
+  <header><h1>{t('runtime.modelConnections')}</h1><p className="setup-lead">{t('settings.setupModelsHint')}</p></header>
+  {preparationFailed ? <><p role="alert" className="inline-error">{error}</p><button className="primary" onClick={() => setPreparationAttempt(v => v + 1)}>{t('settings.runtimeTryAgain')}</button></> : <p role="status" className="settings-note">{t('runtime.processing')}</p>}
+ </section>;
+ const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && !(onboarding && state.installation.bundled && ['ready','models'].includes(state.state)) && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
+ const updateAvailable = !state?.installation.bundled && state?.installation.updateState === 'available';
  const existingModels = state?.models.filter(m=>!m.noAuth) ?? [];
  const reuseModels = onboarding && id==='caelis' && state?.state==='ready' && existingModels.length>0;
  const oauthPage = onboarding && id==='codex' && !!state?.installation.installed && (state.state==='login'||!!state.loginPending);
@@ -141,9 +161,10 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </dl>}
    {serviceNeedsApply && !(onboarding && state?.state==='service') && <p className="runtime-update-hint">{state?.state === 'service' ? t('runtime.readyAfterServiceStart') : t('runtime.newVersionNotActivated')}</p>}
    <div className="runtime-program-actions">
-    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => void run('install')}>{onboarding ? t('runtime.onboardingInstallAction') : t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
+    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => void run('install')}>{onboarding ? t('runtime.onboardingInstallAction') : t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding && !state.installation.bundled ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
     <button className="text-action" disabled={blocked || !id} onClick={() => void run('detect')}>{t('runtime.recheck')}</button>
    </div>
+   {state?.installation.bundled && <p className="settings-note">{t('runtime.bundledUpdateHint')}</p>}
    {updateAvailable && <p className="settings-note">{t('runtime.newVersionAvailable', { version: state?.installation.latestVersion ?? '' })}</p>}
   </div>}
   {state?.installation.installed && state.state !== 'service' && state.state !== 'incompatible' && state.state !== 'unavailable' && <>

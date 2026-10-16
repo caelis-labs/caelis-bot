@@ -94,5 +94,6 @@
   "invalidBackendId": "Invalid backend ID",
   "taskQueryInvalid": "Invalid task search or page size (1–50).",
   "taskCursorInvalid": "This cursor does not match the current task search. Start from the first page.",
-  "taskPinsFull": "The watchlist holds up to 8 tasks. Unpin an existing item before pinning another."
+  "taskPinsFull": "The watchlist holds up to 8 tasks. Unpin an existing item before pinning another.",
+  "caelisBundledUpdate": "Caelis is included with Caelis Bot. Update the app to update this runtime."
 }

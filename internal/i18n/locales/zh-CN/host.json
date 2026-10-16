@@ -94,5 +94,6 @@
   "invalidBackendId": "无效的后端标识",
   "taskQueryInvalid": "任务检索条件或分页大小无效（每页 1–50 项）。",
   "taskCursorInvalid": "分页游标与当前检索条件不符，请从第一页重新查询。",
-  "taskPinsFull": "关注清单最多固定 8 项任务，请先移除一项再添加。"
+  "taskPinsFull": "关注清单最多固定 8 项任务，请先移除一项再添加。",
+  "caelisBundledUpdate": "Caelis 随 Caelis Bot 内置，请更新 App 来更新此运行时。"
 }

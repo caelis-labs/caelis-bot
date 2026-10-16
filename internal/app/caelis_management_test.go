@@ -9,14 +9,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 )
 
-func TestCaelisUpdateRequiresLiveCompatibilityAndRefusesBusyHost(t *testing.T) {
+func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing.T) {
 	fixtureRoot := t.TempDir()
 	binary := filepath.Join(fixtureRoot, "caelis-fixture")
 	if runtime.GOOS == "windows" {
@@ -44,7 +43,7 @@ func main() {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build portable runtime fixture: %v %s", err, output)
 	}
-	for _, mode := range []string{"ready", "busy", "becomes-busy", "incompatible", "start-failed"} {
+	for _, mode := range []string{"ready", "incompatible", "start-failed"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			calls := filepath.Join(dir, "calls")
@@ -52,7 +51,6 @@ func main() {
 			t.Setenv("BOT_UPGRADE_CALLS", calls)
 			t.Setenv("BOT_UPGRADE_MARKER", marker)
 			t.Setenv("BOT_UPGRADE_MODE", mode)
-			var inspections atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
 					t.Error("unexpected mutation", r.URL.Path)
@@ -61,9 +59,8 @@ func main() {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				if strings.HasSuffix(r.URL.Path, "/status") {
-					n := inspections.Add(1)
-					busy := mode == "busy" || mode == "becomes-busy" && n > 1
-					_ = json.NewEncoder(w).Encode(map[string]any{"runtime": map[string]any{"running": busy}})
+					t.Error("Bot duplicated Core's activity gate")
+					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
 				caps := []string{}
@@ -88,14 +85,10 @@ func main() {
 			defer a.Close()
 			result, err := a.manageCaelis(t.Context(), "update", api.RuntimeSettings{Runtime: "caelis", CLIPath: binary, CaelisStore: dir})
 			if runtime.GOOS == "windows" {
-				// The Caelis service discovery file is deliberately inaccessible
-				// until its native Windows owner/ACL adapter is implemented. Verify
-				// that an update cannot reach the installer through this boundary.
+				// The public CLI may run, but the Windows discovery owner is not
+				// implemented: do not claim a verified connection from CLI success.
 				if err == nil {
-					t.Fatal("unsupported Windows Caelis service replacement was admitted", result)
-				}
-				if raw, readErr := os.ReadFile(calls); readErr == nil && len(raw) > 0 {
-					t.Fatal("unsupported Windows Caelis service replacement ran the CLI", string(raw))
+					t.Fatal("unsupported Windows discovery was admitted", result)
 				}
 				if err := a.PrepareUpdate(); err != nil {
 					t.Fatal("rejected operation left admission frozen", err)
@@ -107,12 +100,7 @@ func main() {
 				t.Fatal(mode, result, err)
 			}
 			raw, _ := os.ReadFile(calls)
-			if mode == "busy" && len(raw) > 0 {
-				t.Fatal("busy Host ran installer", string(raw))
-			}
-			if mode == "becomes-busy" && strings.Contains(string(raw), "service") {
-				t.Fatal("replaced Host after new work arrived")
-			}
+
 			if mode == "ready" && strings.Count(string(raw), "service start") != 1 {
 				t.Fatal("did not select installed Host once", string(raw))
 			}

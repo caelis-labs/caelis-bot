@@ -282,5 +282,6 @@
   "oauthStartHint": "Authorize Codex with your ChatGPT account in your browser.",
   "oauthPendingHint": "Complete authorization in your browser. Setup will continue automatically.",
   "oauthBrowserAction": "Continue in browser",
-  "oauthContinueHint": "After authorization, this window will continue to the next step."
+  "oauthContinueHint": "After authorization, this window will continue to the next step.",
+  "bundledUpdateHint": "Included with Caelis Bot; updated with the app."
 }

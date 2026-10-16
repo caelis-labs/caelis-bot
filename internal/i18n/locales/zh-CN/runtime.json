@@ -281,5 +281,6 @@
   "oauthStartHint": "将打开浏览器，使用 ChatGPT 账号授权 Codex。",
   "oauthPendingHint": "请在浏览器中完成授权，完成后将自动继续。",
   "oauthBrowserAction": "在浏览器中继续登录",
-  "oauthContinueHint": "完成授权后，此窗口将自动进入下一步。"
+  "oauthContinueHint": "完成授权后，此窗口将自动进入下一步。",
+  "bundledUpdateHint": "随 Caelis Bot 内置，与 App 一起更新。"
 }
