@@ -96,7 +96,7 @@ func TestCanonicalReplacementKeepsBootstrapGeneration(t *testing.T) {
 					v.State.Run = wire.RunState{TurnId: pointer("A"), Status: pointer("unknown"), Active: pointer(false)}
 					if owner == "worker" {
 						v.State.Run = wire.RunState{TurnId: pointer("resident"), Status: pointer("running"), Active: pointer(true)}
-						s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: sid}, Task: api.Task{ID: "task", Status: "unknown"}}
+						s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: sid}, Task: api.Task{ID: "task", Status: "unknown"}}
 						v = &view{State: wire.SessionState{SessionId: sid, Run: wire.RunState{TurnId: pointer("A"), Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 						s.state.Views[sid] = v
 					}

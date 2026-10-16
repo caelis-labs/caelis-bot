@@ -13,7 +13,7 @@ func TestApprovalOwnerUsesKnownWorkerBinding(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("snapshot made a native request") })
 	s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("main-turn")}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Approval: wire.ApprovalState{Active: testApproval()}}, Seen: map[string]bool{}}
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task"}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task"}}
 	got := s.Snapshot()
 	if got.Phase != "working" || got.CurrentTurn == "" || len(got.Approvals) != 1 || got.Approvals[0].Owner != "task" || got.Approvals[0].TaskID != "task" {
 		t.Fatalf("known task approval scope: phase=%s owner=%v", got.Phase, got.Approvals)
@@ -57,7 +57,7 @@ func TestWorkerAutoReviewHasTaskOwnerWithoutManualApproval(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("snapshot made a native request") })
 	s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("main-turn")}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Active: pointer(true), TurnId: pointer("work-turn")}, Approval: wire.ApprovalState{Active: testApproval()}}, Seen: map[string]bool{}}
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work", Profile: wire.ApplicationProfile{Permissions: &wire.ApplicationPermissions{ApprovalMode: pointer("auto-review")}}}, Task: api.Task{ID: "task", Title: "Owned work", Status: "working"}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work", Profile: wire.SessionProfile{Permissions: &wire.SessionPermissions{ApprovalMode: pointer("auto-review")}}}, Task: api.Task{ID: "task", Title: "Owned work", Status: "working"}}
 	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "working" {
 		t.Fatal("automatic review became waiting approval", got)
 	}

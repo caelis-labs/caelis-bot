@@ -1,15 +1,13 @@
 # Caelis 接入与运行时管理
 
-当前必需能力包括 `execution-configuration-v1` 和 `application-guardian-review-v1`，
-公开协议固定于已合并 Core PR #91（`e8281aa7bb89`），包含 #85 环境修复、#89 Guardian 与 #91 审批身份修复。
-公开 schema/wire 同步固定到该提交；按能力判断兼容性，不以发行版本号代替握手。
-`application-terminal-observation-v1` 是可选增强：支持时启用迟到审批命令的结果跟进，
-不支持时正常连接，且不访问该观察接口。审批投影、指定工作区和自动 pin 均不依赖它。
-Caelis 可独立交付该修复，无需为此单独发布版本。通用应用运行时与共享原生 Worker 的
-公开 wire schema 的精确源码提交与哈希见 `protocol/caelis/manifest.json`。使用公开 HTTP/SSE 与生成的 Go wire，
-不导入兄弟仓库、不恢复旧 Bot Mode。基线包含共享会话、steering、Host 设置授权流与 Team 角色候选。
+Bot 与 TUI 使用同一 Host 身份、权限和公共 Control 协议。普通 Session 和显式
+profile 的会话共用命令、操作回执、审批与观察接口；没有 Application 注册、独立凭据或租约。
+公开 schema/wire 及交付版本的源码和哈希由 `protocol/caelis/manifest.json` 记录。
+客户端只消费公开 HTTP/SSE 与生成类型，不导入兄弟仓库。
 
-验证命令和证据范围见[开发与验证](development.md)。历史 v0.61.0 的真实模型结果不代替新增能力验收。
+这是统一协议的破坏性切换：旧 Application 路由不再支持。兼容性按握手、所需能力和
+Store 格式分别判断，不把发行版本号作为协议白名单。验证命令和证据范围见
+[开发与验证](development.md)；历史版本的结果不代替本次集成或发行制品验收。
 
 Desktop World rc.4 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
 Codex、Caelis；旧 Go host 和 `bot_desktop_*` 工具已退役。MCP 工具遵循各自
@@ -21,22 +19,22 @@ Runtime 工具审批是两层独立边界。
 `protocol/caelis/manifest.json` 固定公开 OpenAPI、wire 哈希和源码提交。
 运行时通过 `/initialize` 协商 protocol 1、API v1、`caelis.control.envelope/v1`，以及：
 
-- `application-runtime-v1`
-- `application-hot-configuration-v1`
-- `application-native-execution-v1`
-- `application-workspace-binding-v1`
-- `application-background-activation-v1`
-- `application-resource-transfer-v1`
-- `shared-native-workers-v1`
+- `session-profiles-v1`
+- `session-hot-configuration-v1`
+- `session-native-execution-v1`
+- `session-workspace-binding-v1`
+- `session-background-activation-v1`
+- `session-resource-transfer-v1`
+- `session-profile-control-v1`
 - `turn-steering-receipts-v1`
 - `execution-configuration-v1`
-- `application-guardian-review-v1`
+- `session-guardian-review-v1`
 
 CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
-不静默换用 Codex 或旧 Bot。v0.61.0 不包含共享 Worker 扩展；安装成功也不代表运行中的共享 Host 已更新。
+不静默换用 Codex 或旧 Bot。安装成功也不代表运行中的共享 Host 已更新。
 
-`application-model-capabilities-v1` 是 Ask Bot 的可选增强：应用凭据读取
-`GET /application/sessions/{session_id}/model-capabilities`，返回 `session_id`、
+`session-model-capabilities-v1` 是 Ask Bot 的可选增强：普通 Host 身份读取
+`GET /sessions/{session_id}/model-capabilities`，返回 `session_id`、
 十进制字符串 `configuration_revision`、desired `model` 和可选 `image_input`。
 仅 true 启用；false、缺失、断线、无协商均禁用 Ask Bot，复制/标注/贴图不受影响。
 发送前再次读取当前配置，模型切换后恢复，无需更换 Bot 身份。该读取不激活模型，
@@ -134,7 +132,7 @@ ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认�
 | --- | --- |
 | 持续身份、Notebook、Memory | Bot 持有 Markdown、索引、skill 和 recall/remember；常驻应用会话的 CWD 显式绑定 Notebook |
 | 原生文件与命令 | Caelis `workspace-write` 的 Read/Write/Patch/Glob/Grep/RunCommand；不增加 Bot 专用文件工具 |
-| 聊天与观察 | `/application/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `application_summary` |
+| 聊天与观察 | `/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `application_summary` |
 | 专业任务 | `internal/tasks` 分配目录、账本和有限汇报；adapter 将 WorkRuntime 映射为共享原生 Worker，不继承秘书 skill/Notebook 指令 |
 | 应用工具 | Bot 注入目录及 handler；Caelis 返回可信 callback；按 opaque call ID、native item、配置 revision、tools_version 路由 |
 | 后台提醒 | Bot 保存计划并计时；用户创建/修改时获取 background grant，激活使用 `authorized_background`；一条计划对应一次激活 |
@@ -149,7 +147,7 @@ Bot 的应用工具经过同一业务层：Codex 使用私有 MCP，Caelis 使�
 
 ## 实时配置与恢复
 
-`GET/POST /application/sessions/{id}/configuration` 使用稳定 operation ID、decimal-string
+`GET/POST /sessions/{id}/configuration` 使用稳定 operation ID、decimal-string
 `expected_configuration_revision` 和局部 patch。模型、effort、service tier、指令、工具目录可在忙碌时保存，
 同一 Turn 的下一个尚未发出的请求采用新版本；已发出的请求及其回调保持原版本。
 `revision` 是期望配置，`last_request.revision` 是已实际用于模型请求的版本。
@@ -157,12 +155,19 @@ Bot 的应用工具经过同一业务层：Codex 使用私有 MCP，Caelis 使�
 同值更新不递增 revision；Notebook 普通写入不更新配置、不强制 compact。
 字段缺省保留；instructions/effort/tier 的 `""` 与 tools/native_tools 的 `[]` 按公开契约清空。
 adapter 用 map 表达显式空数组，避免生成类型的 `omitempty` 把清空变成未提供。
-更新丢响应通过 `/application/configuration-operations/{operation_id}` 取精确历史回执，再读取当前期望配置；
+更新丢响应通过 `/operations/{operation_id}` 取精确历史回执，再读取当前期望配置；
 不能用旧回执覆盖后来的配置。目录、执行/继承/权限仍在创建时确定，默认产品装配 `workspace-write` + Guardian auto-review。
 
-原生记录保存在 `providers/caelis/application.json` 和独立的 `application-credential.json`。
-旧 Bot Mode 的 `binding.json` 等文件原样保留，不迁移到新协议。注册前持久化应用凭据与操作 ID，
-此后执行请求使用应用 credential，Host credential 仅用于 enrollment、发现与显式模型配置。
+原生绑定保存在 `providers/caelis/application.json`，当前本地格式为 v2；文件名沿用以保持
+已有安装的发现入口。连接读取 Store 的普通 `runtime/service/auth.token`，不生成或使用
+`application-credential.json`。Bot 的工具与 Notebook 通过明确的 profile、标准 MCP/Skills
+扩展点装配；它们不构成另一套身份或执行权限。
+
+v1 状态导入集中在 `internal/backend/caelis/statemigration`，仅在加载时转换；第一次保存 v2
+前先保存私有 `.v1-retired.json` 原始意图归档。原 Session、Turn、callback、请求 ID 与未知
+结果保留；`receiptID` 只指向 Core Store v3 导入后的原回执。资源上传使用独立的历史命名空间
+映射，避免与旧命令 ID 碰撞。导入器在最低支持的本地格式升到 v2 时删除；历史归档不参与
+运行或授权，保留期限独立决定。更早的 Bot Mode 文件不自动导入。
 
 所有 mutation 先持久化 intent；未知 prompt/create 查询原操作，不改 ID 重发。
 worker 启动分阶段保存创建配置、原授权和 prompt，重启后可在确认前一步回执后继续；
@@ -172,8 +177,8 @@ SSE replacement 完成后原子切换，游标保持不透明；稳定订阅期�
 
 ## Shared native Workers and steering
 
-The adapter requires `shared-native-workers-v1` and `turn-steering-receipts-v1`.
-New workers use `POST /application/workers`, then the ordinary Session prompt,
+The adapter requires `session-profile-control-v1` and `turn-steering-receipts-v1`.
+New workers use `POST /sessions`, then the ordinary Session prompt,
 steer and reconnect APIs. They use the Host's normal environment, tools, MCP,
 plugins and permissions; resident Bot profiles and private Memory are not copied.
 Explicit work model preferences select a per-Session native model; an empty
@@ -182,21 +187,17 @@ preference uses the Host default. The terminal entry point is
 Bot task bubbles resolve only owned native Workers and open this command in the
 user's external terminal. Closing it detaches observation without stopping work.
 No new Session or prompt is created; credential bytes never enter the command.
-The host credential belongs to the user's terminal, not to the Bot adapter.
+The terminal and Bot use the same Host principal and credential scope.
 
 Main and Worker submissions during an active Turn preserve its exact target in
 the outbound operation journal. A repeated ID never adopts a later Turn or turns
 into a fresh prompt. Accepted steering remains distinct from a canonical
 `input_status: applied` event. Session SSE stays open across user-initiated Turns;
-steady progress requires no state polling. Maintenance renews the application
-lease and restores failed streams or uncertain receipts.
+steady progress requires no state polling. Maintenance restores failed streams and reconciles uncertain receipts; observation has no authorization lease.
 
-Persisted pre-native workers retain their isolated Application Session binding
-and original pending creation profile. Only those existing records use the old
-creation/prompt path; new workers never select it. Remove this reader when no
-supported saved Bot state contains these workers. Unknown native operations are
-reconciled through `/application/operations/{operation_id}` without redispatch.
-
+Persisted workers retain their original Session and creation profile. Explicit profiles and
+ordinary native workers both use the common Session routes; no old protocol executor remains.
+Unknown operations are read through `/operations/{operation_id}` and never redispatched.
 
 ## Codex compatibility
 
@@ -240,7 +241,7 @@ reconciled through `/application/operations/{operation_id}` without redispatch.
 原生装配可通过 `Options.ReviewerModel` 指定另一个已配置模型。后续主模型变更不替换 reviewer。
 `workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留；没有用 full-access/never 代替审查。
 
-连接通过 `application-guardian-review-v1` 协商，读取应用作用域的 `reviewer-state`，核对
+连接通过 `session-guardian-review-v1` 协商，读取对应 Session 的 `reviewer-state`，核对
 Session、模式、reviewer 与 ready 状态；unavailable 明确报错，不转为人工或免审批。
 ready 只表示本地装配就绪，不保证下一次模型调用成功。
 
@@ -281,9 +282,9 @@ callbacks 继续沿用原调用 ID、原 catalog 和参数的 claim/result 账�
 
 ## Core release acceptance and remaining limits
 
-The public pin is Core #91, `e8281aa7bb89b0ae330044eb5bd6a13916fd68fc`, including #85 environment,
-#89 Guardian and #91 item identity. An installed release **and the running Host** must expose the required
-capabilities; a release number alone cannot prove compatibility. Core stays generic; Bot supplies the profile.
+The exact delivered Core schema and generated wire must be pinned together after integration.
+Both the installed executable and the running Host must expose the required capabilities;
+a release number alone cannot prove compatibility. Core stays generic; Bot supplies the profile.
 
 The isolated external Host suite passes explicit reviewer assembly/readiness, independent sandbox, callback
 review before claim, native command/file allow/deny, invalid replies/cancellation/real 90-second timeout with
@@ -296,8 +297,8 @@ These are release capability conditions, not proof of paid Guardian judgment qua
 uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Core v0.65.0 darwin-arm64 was independently downloaded, checksum-verified and passed this external suite
 on 2026-09-29. Rerun it for subsequent Core releases before declaring those artifacts qualified.
 
-Remaining boundaries: unknown upload responses lack a public resource-descriptor lookup and are not retried;
-worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
+Unknown upload responses are reconciled through their original common command receipt; no upload is replayed.
+Remaining boundaries: worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
 under a new ID; optional terminal observation/model image support require their own negotiated capabilities.
 Real model, long-running memory quality and cross-Runtime daily Notebook usage need separate evidence.
 
@@ -315,3 +316,16 @@ See [architecture](architecture.md#desktop-and-presentation) for the ownership
 contract and [development](development.md#current-evidence-and-limits) for real Bot,
 fixture, performance and upstream issue evidence. Live WPS success required a
 correction; it does not establish first-attempt autonomy or end-to-end speed.
+
+### Host 换代
+
+安装程序与运行中的 Host 分开。用户启用已安装版本时调用公共 `caelis service start`，
+由 Core 负责候选版本选择、单 Store 写者、实例校验、空闲准入、启动和失败回滚。
+Bot 的预检查只改善提示；Host 的 `host-idle-shutdown-v1` 才决定能否安全替换。
+工作或审批尚未结束时保留旧 Host；常驻订阅不阻止升级。重连核对新实例后继续读取原
+Session 和回执，不重新派发旧请求。
+
+首次从旧 Application Host 升级时，旧服务无法证明原子空闲停机。先完成所有 Surface
+上的工作，对同一个 Store 明确执行一次 `caelis service restart`，再重新连接。
+Bot 只显示稳定的换代提示，不透传 CLI 私密诊断，也不自动转成强制重启。
+此提示分支可在最低受支持安装版本已具备条件停机能力后删除。

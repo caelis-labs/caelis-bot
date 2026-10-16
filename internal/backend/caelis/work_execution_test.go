@@ -10,7 +10,7 @@ import (
 )
 
 func TestWorkModelResolvesHostDefaultWithoutInheritingBot(t *testing.T) {
-	fallback := wire.ApplicationProfile{Model: "bot-luna", ReasoningEffort: pointer("low"), ServiceTier: pointer("priority")}
+	fallback := wire.SessionProfile{Model: "bot-luna", ReasoningEffort: pointer("low"), ServiceTier: pointer("priority")}
 	for _, tc := range []struct {
 		name   string
 		model  wire.StatusModel

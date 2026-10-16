@@ -84,7 +84,7 @@ func (s *Session) DreamResult(id string) (api.Receipt, api.ConversationState) {
 	}
 	out.Outcome = productOutcome(wire.Outcome(j.Outcome))
 	for sid, v := range s.state.Views {
-		if j.Path != "/application/sessions/"+idPath(sid)+"/prompt" {
+		if j.Path != "/sessions/"+idPath(sid)+"/prompt" {
 			continue
 		}
 		result.Session, result.Status = sid, v.Turns[j.TurnID]
@@ -118,7 +118,7 @@ func (s *Session) CancelDream(ctx context.Context, id string) error {
 		s.mu.Unlock()
 		return nil
 	}
-	if !j.Dream || v == nil || j.Path != "/application/sessions/"+idPath(sid)+"/prompt" || j.TurnID == "" || j.TurnID != value(v.State.Run.TurnId) {
+	if !j.Dream || v == nil || j.Path != "/sessions/"+idPath(sid)+"/prompt" || j.TurnID == "" || j.TurnID != value(v.State.Run.TurnId) {
 		s.mu.Unlock()
 		return errors.New("整理请求尚未确认，请恢复连接核对")
 	}
@@ -200,7 +200,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		op = "tool-renew-" + digest([]byte(id))
 	}
 	pending, exists := s.state.Operations[op]
-	c, life := s.client, s.state.Connection
+	c, principal := s.client, s.state.PrincipalID
 	grants := clone(s.state.Grants)
 	s.mu.Unlock()
 	var renewalErr error
@@ -221,13 +221,13 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		s.configureReviewer(&profile)
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
-		_, renewalErr = s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile})
+		_, renewalErr = s.command(ctx, op, "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile})
 	} else if pending.Outcome == "unknown" {
 		renewalErr = s.recoverOperations(ctx)
 	}
 	s.mu.Lock()
 	pending = s.state.Operations[op]
-	if pending.Path == "/application/sessions" && (pending.Outcome == "rejected" || pending.Outcome == "conflicted") && s.state.Session.SessionId == source {
+	if pending.Path == "/sessions" && (pending.Outcome == "rejected" || pending.Outcome == "conflicted") && s.state.Session.SessionId == source {
 		// HTTP rejection may return both a known outcome and an error. Persist
 		// the receipt before allowing the host to retire this renewal attempt.
 		err := s.saveLocked()
@@ -245,11 +245,11 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return errors.New("新上下文创建结果尚未确认")
 	}
 	sid := pending.Resource
-	var next wire.ApplicationBinding
-	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid), nil, &next, "", ""); err != nil {
+	var next wire.SessionBinding
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/profile", nil, &next, "", ""); err != nil {
 		return err
 	}
-	if next.SessionId != sid || sid == source || next.ApplicationId != life.ApplicationId || next.ConnectionId != life.ConnectionId || next.PrincipalId != life.PrincipalId || next.Archived || next.Profile.Execution != s.executionMode {
+	if next.SessionId != sid || sid == source || next.PrincipalId != principal || next.Archived || next.Profile.Execution != s.executionMode {
 		return errors.New("新上下文绑定不匹配")
 	}
 	if err := s.checkReviewer(ctx, next); err != nil {

@@ -17,7 +17,7 @@ func TestGuardianCapabilityFailsBeforeMutation(t *testing.T) {
 		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/initialize") {
 			t.Fatal("unexpected mutation")
 		}
-		caps := slices.DeleteFunc(slices.Clone(required), func(c string) bool { return c == "application-guardian-review-v1" })
+		caps := slices.DeleteFunc(slices.Clone(required), func(c string) bool { return c == "session-guardian-review-v1" })
 		writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("instance"), Capabilities: caps})
 	})
 	if _, err := initialize(t.Context(), s.client); !errors.Is(err, errBotIncompatible) {
@@ -44,9 +44,9 @@ func TestCallbackPolicyRequiresReviewUnlessExplicitlyDirect(t *testing.T) {
 func TestReviewerReadinessAndLegacyManualAreCreationBound(t *testing.T) {
 	for _, status := range []string{"ready", "unavailable", "manual", "mismatch"} {
 		t.Run(status, func(t *testing.T) {
-			reviewer := &wire.ApplicationReviewer{Kind: "guardian", Model: "explicit/model"}
-			b := wire.ApplicationBinding{SessionId: "main", Profile: wire.ApplicationProfile{Permissions: &wire.ApplicationPermissions{ApprovalMode: pointer("auto-review")}, Reviewer: reviewer}}
-			response := wire.ApplicationReviewerState{SessionId: "main", ApprovalMode: "auto-review", Reviewer: reviewer, Status: status}
+			reviewer := &wire.SessionReviewer{Kind: "guardian", Model: "explicit/model"}
+			b := wire.SessionBinding{SessionId: "main", Profile: wire.SessionProfile{Permissions: &wire.SessionPermissions{ApprovalMode: pointer("auto-review")}, Reviewer: reviewer}}
+			response := wire.SessionReviewerState{SessionId: "main", ApprovalMode: "auto-review", Reviewer: reviewer, Status: status}
 			if status == "manual" {
 				b.Profile.Reviewer = nil
 				b.Profile.Permissions.ApprovalMode = pointer("manual")
@@ -73,7 +73,7 @@ func TestReviewerReadinessAndLegacyManualAreCreationBound(t *testing.T) {
 
 func TestReviewFactsPreserveIdentityAndNeverGrantManualAuthority(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("review fact dispatched mutation") })
-	s.state.Session.Profile.Permissions = &wire.ApplicationPermissions{ApprovalMode: pointer("auto-review")}
+	s.state.Session.Profile.Permissions = &wire.SessionPermissions{ApprovalMode: pointer("auto-review")}
 	v := s.state.Views["main"]
 	v.State.Run = wire.RunState{Active: pointer(true), TurnId: pointer("turn")}
 	v.State.Approval.Active = testApproval()
@@ -122,7 +122,7 @@ func TestReviewFactsPreserveIdentityAndNeverGrantManualAuthority(t *testing.T) {
 
 func TestNewProfileAndNaturalHandoffPinReviewerWithoutRelaxingSandbox(t *testing.T) {
 	s := New(Options{Directory: t.TempDir()})
-	profile := wire.ApplicationProfile{Model: "initial-model", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}}
+	profile := wire.SessionProfile{Model: "initial-model", Permissions: &wire.SessionPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}}
 	s.configureReviewer(&profile)
 	if profile.Reviewer.Model != "initial-model" || value(profile.Permissions.Mode) != "read-only" || value(profile.Permissions.ApprovalMode) != "auto-review" {
 		t.Fatal("wrong creation assembly")
@@ -133,7 +133,7 @@ func TestNewProfileAndNaturalHandoffPinReviewerWithoutRelaxingSandbox(t *testing
 		t.Fatal("hot model selection replaced pinned reviewer")
 	}
 	s.requireApproval = true
-	manual := wire.ApplicationProfile{Model: "test-model", Permissions: &wire.ApplicationPermissions{ApprovalMode: pointer("manual")}}
+	manual := wire.SessionProfile{Model: "test-model", Permissions: &wire.SessionPermissions{ApprovalMode: pointer("manual")}}
 	s.configureReviewer(&manual)
 	if manual.Reviewer != nil || value(manual.Permissions.ApprovalMode) != "manual" {
 		t.Fatal("explicit manual fixture changed")

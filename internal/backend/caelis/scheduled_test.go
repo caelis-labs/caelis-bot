@@ -58,7 +58,7 @@ func TestScheduledCanonicalReplayUsesInputOperationIdentity(t *testing.T) {
 
 func TestBackgroundResultRequiresCaughtUpHistoryAndSurvivesReload(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
-	s.state.Operations["care-fixture"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/application/sessions/main/prompt"}
+	s.state.Operations["care-fixture"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/sessions/main/prompt"}
 	v := s.state.Views["main"]
 	v.State.Run.TurnId = pointer("care-turn")
 	v.State.Run.Status = pointer("completed")
@@ -91,7 +91,7 @@ func TestBackgroundResultRequiresCaughtUpHistoryAndSurvivesReload(t *testing.T) 
 
 func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
-	s.state.Operations["care-fixture"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/application/sessions/main/prompt"}
+	s.state.Operations["care-fixture"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/sessions/main/prompt"}
 	v := s.state.Views["main"]
 	v.CommandCaughtUp = true
 	v.State.Run.TurnId = pointer("care-turn")
@@ -132,8 +132,8 @@ func TestBackgroundGuardianReviewDoesNotCountAsVisibleFeedback(t *testing.T) {
 	} {
 		t.Run(tc.status+"/"+tc.turn, func(t *testing.T) {
 			s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
-			s.state.Session.Profile.Permissions = &wire.ApplicationPermissions{ApprovalMode: pointer("auto-review")}
-			s.state.Operations["care"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/application/sessions/main/prompt"}
+			s.state.Session.Profile.Permissions = &wire.SessionPermissions{ApprovalMode: pointer("auto-review")}
+			s.state.Operations["care"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/sessions/main/prompt"}
 			v := s.state.Views["main"]
 			v.CommandCaughtUp = true
 			v.State.Run.TurnId, v.State.Run.Status = pointer("care-turn"), pointer("running")

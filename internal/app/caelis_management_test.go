@@ -68,7 +68,7 @@ func main() {
 				}
 				caps := []string{}
 				if _, err := os.Stat(marker); err == nil && mode != "incompatible" {
-					caps = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1", "application-guardian-review-v1"}
+					caps = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1"}
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"instance_id": "fixture-instance", "store_id": "fixture-store", "protocol_version": 1, "api_version": "v1", "envelope_version": "caelis.control.envelope/v1", "capabilities": caps})
 			}))
@@ -124,11 +124,12 @@ func main() {
 	}
 }
 
-// Opt-in, actual release executables and private Store; no account or model call.
-func TestCaelisReleasedServiceUpgrade(t *testing.T) {
+// Opt-in, two compatible executable builds and private Store; no model call.
+// Source-built fixtures do not prove acceptance of published release assets.
+func TestCaelisServiceUpgrade(t *testing.T) {
 	old, newBinary := os.Getenv("CAELIS_BOT_TEST_PREVIOUS_BINARY"), os.Getenv("CAELIS_BOT_TEST_BINARY")
 	if old == "" || newBinary == "" {
-		t.Skip("set two release binaries for isolated lifecycle acceptance")
+		t.Skip("set two compatible binaries for isolated lifecycle acceptance")
 	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -165,5 +166,5 @@ func TestCaelisReleasedServiceUpgrade(t *testing.T) {
 	if raw, err := os.ReadFile(sentinel); err != nil || string(raw) != "preserve" {
 		t.Fatal("Store replaced", err)
 	}
-	t.Log("released older Host replaced through native lifecycle; Store retained and Bot protocol verified")
+	t.Log("older Host build replaced through native lifecycle; Store retained and Bot protocol verified")
 }

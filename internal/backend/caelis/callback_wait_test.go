@@ -15,24 +15,24 @@ import (
 func TestCallbackRecoveryThenWaitKeepsClaimedReceipts(t *testing.T) {
 	var snapshots, waits, receipts atomic.Int32
 	entered, submitted := make(chan struct{}), make(chan struct{})
-	old := wire.ApplicationCall{Id: "old", SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", TurnId: "turn", ItemId: "item", State: "claimed", Source: wire.ApplicationSource{Kind: "user", OperationId: "request"}}
+	old := wire.SessionToolCall{Id: "old", SessionId: "main", PrincipalId: "owner", TurnId: "turn", ItemId: "item", State: "claimed", Source: wire.SessionSource{Kind: "user", OperationId: "request"}}
 	next := old
 	next.Id, next.State = "new", "pending"
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/calls") && r.URL.Query().Get("wait") == "true":
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/tool-calls") && r.URL.Query().Get("wait") == "true":
 			if waits.Add(1) == 1 {
 				close(entered)
-				_ = json.NewEncoder(w).Encode([]wire.ApplicationCall{next})
+				_ = json.NewEncoder(w).Encode([]wire.SessionToolCall{next})
 			} else {
 				if waits.Load() == 2 {
 					close(submitted)
 				}
 				<-r.Context().Done()
 			}
-		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/calls"):
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/tool-calls"):
 			snapshots.Add(1)
-			_ = json.NewEncoder(w).Encode([]wire.ApplicationCall{old})
+			_ = json.NewEncoder(w).Encode([]wire.SessionToolCall{old})
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/new/claim"):
 			call := next
 			call.State = "claimed"
@@ -44,8 +44,8 @@ func TestCallbackRecoveryThenWaitKeepsClaimedReceipts(t *testing.T) {
 			t.Error("unexpected callback route")
 		}
 	})
-	s.state.Operations["request"] = journal{Path: "/application/sessions/main/prompt", Source: old.Source, Outcome: "committed"}
-	s.state.Calls[old.Id] = callRecord{Call: old, Phase: "receipt", Receipt: &wire.ApplicationCallResult{Outcome: "succeeded", Content: json.RawMessage(`[]`)}}
+	s.state.Operations["request"] = journal{Path: "/sessions/main/prompt", Source: old.Source, Outcome: "committed"}
+	s.state.Calls[old.Id] = callRecord{Call: old, Phase: "receipt", Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", Content: json.RawMessage(`[]`)}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	s.wg.Add(1)

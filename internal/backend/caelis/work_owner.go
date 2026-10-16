@@ -42,7 +42,7 @@ func (w *WorkOwner) source(ctx context.Context, request string) context.Context 
 	s := w.engine
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	call := wire.ApplicationCall{SessionId: s.state.Session.SessionId, ApplicationId: s.state.Connection.ApplicationId, ConnectionId: s.state.Connection.ConnectionId, PrincipalId: s.state.PrincipalID, Source: wire.ApplicationSource{Kind: "user", OperationId: request}}
+	call := wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: request}}
 	return context.WithValue(ctx, invocationKey{}, call)
 }
 func (w *WorkOwner) WorkAdmission(ctx context.Context) error {

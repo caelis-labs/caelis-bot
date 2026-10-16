@@ -190,8 +190,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 	noCalls := func() {
 		t.Helper()
-		var calls []wire.ApplicationCall
-		if e := s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/calls", nil, &calls, "", ""); e != nil {
+		var calls []wire.SessionToolCall
+		if e := s.client.json(ctx, "GET", "/sessions/"+idPath(original)+"/tool-calls", nil, &calls, "", ""); e != nil {
 			t.Fatal(e)
 		}
 		for _, c := range calls {
@@ -245,8 +245,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 			if record.Call.ItemId != review.ItemID || record.Call.TurnId != review.TurnID || record.Call.CallId != review.ToolCallID || record.Receipt == nil {
 				t.Fatal("lost exact callback identity")
 			}
-			path := "/application/sessions/" + idPath(original) + "/calls/" + idPath(record.Call.Id)
-			var claimed wire.ApplicationCall
+			path := "/sessions/" + idPath(original) + "/tool-calls/" + idPath(record.Call.Id)
+			var claimed wire.SessionToolCall
 			if e := s.client.json(ctx, "POST", path+"/claim", struct{}{}, &claimed, "", ""); e == nil {
 				t.Fatal("duplicate claim accepted")
 			}
@@ -465,8 +465,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 				t.Fatal("restart repeated native effect")
 			}
 		}
-		var state wire.ApplicationReviewerState
-		if e = s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/reviewer-state", nil, &state, "", ""); e != nil || state.Status != "ready" || state.Reviewer.Model != reviewerSelector {
+		var state wire.SessionReviewerState
+		if e = s.client.json(ctx, "GET", "/sessions/"+idPath(original)+"/reviewer-state", nil, &state, "", ""); e != nil || state.Status != "ready" || state.Reviewer.Model != reviewerSelector {
 			t.Fatal("reviewer binding changed", e)
 		}
 	}) {

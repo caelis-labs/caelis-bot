@@ -30,7 +30,6 @@ func TestIdleHeadWithoutTargetRefreshesNotebookOnce(t *testing.T) {
 		}
 	})
 	s.state.StoreID = "store"
-	s.state.Connection.ExpiresAt = time.Now().Add(time.Hour)
 	vault, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +63,7 @@ func TestIdleHeadWithoutTargetRefreshesNotebookOnce(t *testing.T) {
 
 func TestIdleWorkerReportsOnlyLatestCanonicalTurn(t *testing.T) {
 	s := New(Options{Directory: filepath.Join(t.TempDir(), "bot")})
-	s.state.Workers["worker"] = worker{Task: api.Task{ID: "worker"}, Binding: wire.ApplicationBinding{SessionId: "child"}}
+	s.state.Workers["worker"] = worker{Task: api.Task{ID: "worker"}, Binding: wire.SessionBinding{SessionId: "child"}}
 	head := wire.SessionState{SessionId: "child"}
 	head.Run.Status = pointer("completed")
 	s.state.Views["child"] = &view{State: head, Items: []api.Item{{Kind: "assistant", TurnKey: "old", Text: "old result"}, {Kind: "assistant", TurnKey: "new", Text: "new result"}}}

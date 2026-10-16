@@ -12,7 +12,7 @@ func TestLateLifecycleCannotReprojectRetiredWorkerRun(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
 	main := s.state.Views["main"]
 	main.State.Run = wire.RunState{TurnId: pointer("resident"), Status: pointer("running"), Active: pointer(true)}
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("A"), HandleId: pointer("handle-A"), RunId: pointer("run-A"), Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	work := s.state.Views["work"]
 	applyEnvelope(work, wire.Envelope{Kind: "caelis/lifecycle", SessionId: pointer("work"), TurnId: pointer("B"), HandleId: pointer("handle-B"), RunId: pointer("run-B"), Lifecycle: &wire.LifecycleEvent{State: "running"}})
@@ -67,7 +67,7 @@ func TestLateLifecycleCannotCompleteNewResidentTurn(t *testing.T) {
 
 func TestLateTerminalCannotReplaceRestoredWorkerHead(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("B"), Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	applyEnvelope(s.state.Views["work"], wire.Envelope{Kind: "caelis/lifecycle", SessionId: pointer("work"), TurnId: pointer("A"), Lifecycle: &wire.LifecycleEvent{State: "completed"}})
 	if got := s.WorkStates()[0]; got.ExecutionKey != "B" || got.Task.Status != "unknown" {

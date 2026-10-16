@@ -61,6 +61,7 @@
   "caelisPathNotExecutable": "Caelis 路径不是可执行文件",
   "caelisNotFoundInstallOrSelect": "尚未找到 Caelis，请安装或选择本机可执行文件",
   "caelisDataDirFullPath": "Caelis 数据目录必须是完整路径",
+  "caelisHostRestartRequired": "当前 Caelis 服务需要一次换代重启。请先完成所有已连接应用的工作，再对同一个 Store 执行 caelis service restart，然后重新连接。",
   "caelisCommandFailed": "Caelis 命令未成功，请检查本机安装和运行时配置",
   "outputExceededLimit": "输出超过限制",
   "fileInvalidCaelisVersion": "该文件没有返回有效的 Caelis 版本",

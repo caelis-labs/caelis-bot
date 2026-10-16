@@ -10,7 +10,7 @@ import (
 )
 
 // WorkTerminal resolves only a confirmed, owned native Worker. The terminal
-// authenticates as the local user; Bot execution retains its application scope.
+// authenticates as the local user; Bot uses that same Host identity.
 func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
 	if err := ctx.Err(); err != nil {
 		return api.TerminalTarget{}, err
@@ -19,10 +19,10 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	w, ok := s.state.Workers[id]
 	status := s.workerViewLocked(w).Status
 	unresolved := ok && (status == "unknown" || w.Submission != nil && status == "pending")
-	life, instance := s.state.Connection, s.state.InstanceID
+	principal, instance := s.state.PrincipalID, s.state.InstanceID
 	ready := s.connected && !s.closed && s.client != nil
 	s.mu.Unlock()
-	if !ok || w.Retired || unresolved || !w.Native || w.Binding.SessionId == "" || w.Binding.ApplicationId != life.ApplicationId || w.Binding.ConnectionId != life.ConnectionId || w.Binding.PrincipalId != life.PrincipalId {
+	if !ok || w.Retired || unresolved || !w.Native || w.Binding.SessionId == "" || w.Binding.PrincipalId != principal {
 		return api.TerminalTarget{}, errors.New("该任务尚无已确认的共享会话，不会自动重建")
 	}
 	if !ready {

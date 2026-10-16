@@ -41,11 +41,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
 	}
-	source := wire.ApplicationSource{}
-	var prompt wire.ApplicationPromptRequest
+	source := wire.SessionSource{}
+	var prompt wire.PromptRequest
 	if strings.HasSuffix(path, "/prompt") {
 		_ = json.Unmarshal(b, &prompt)
-		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
+		source = wire.SessionSource{Kind: value(prompt.SourceKind), OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
 	if len(scheduled) > 1 {
@@ -53,7 +53,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j.Dream = scheduled[1]
 		s.state.Operations[op] = j
 	}
-	if path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || source.Kind == "application_summary") && !s.state.Operations[op].Scheduled {
+	if path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || source.Kind == "application_summary") && !s.state.Operations[op].Scheduled {
 		pending := &pendingInput{VisibleIDs: []string{}}
 		if v := s.state.Views[s.state.Session.SessionId]; v != nil {
 			for _, item := range v.Items {
@@ -138,7 +138,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	if out.Resource != nil {
 		j.Resource = value(out.Resource.Ref)
 	}
-	if value(out.SessionId) != "" && (path == "/application/sessions" || path == "/application/workers") {
+	if value(out.SessionId) != "" && path == "/sessions" {
 		j.Resource = value(out.SessionId)
 	}
 	s.state.Operations[op] = j
@@ -195,7 +195,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		}
 	}
 	modelText := in.ModelInputText()
-	req := wire.ApplicationPromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &modelText, SourceKind: source}
+	req := wire.PromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &modelText, SourceKind: &source}
 	if grant != "" {
 		req.GrantId = &grant
 	}
@@ -303,7 +303,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
 		out, e = s.submitNativeInput(ctx, sid, in.ID, modelText, req.ContentParts, true)
 	} else {
-		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled, in.Dream)
+		out, e = s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled, in.Dream)
 	}
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {

@@ -217,7 +217,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		}
 		return textResult("unexpected tool", fmt.Errorf("unexpected tool %s", name))
 	}
-	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Host: h, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tools, do not claim effects without successful tool results. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"LiveCheckpoint", "LiveVersion", "LiveDelegate", "LiveSchedule", "bot_schedule"}, Host: h, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tools, do not claim effects without successful tool results. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	open := func() {
 		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: model, ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
@@ -226,7 +226,11 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		if e = s.Connect(ctx); e != nil {
 			t.Fatal(e)
 		}
-		waitAcceptance(t, ctx, func() bool { return s.Snapshot().Connection == "ready" })
+		// Connection discovery precedes the initial authoritative Session read.
+		waitAcceptance(t, ctx, func() bool {
+			v := s.Snapshot()
+			return v.Connection == "ready" && (v.CanSend || v.CanInterrupt || len(v.Approvals) > 0)
+		})
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
@@ -237,7 +241,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		before := s.Snapshot().CurrentTurn
 		r, err := s.Submit(c, api.Submission{ID: id, Text: prompt}, nil)
 		if err != nil || r.Outcome != "accepted" {
-			t.Fatalf("submit rejected: %s %v", r.Outcome, err)
+			t.Fatalf("submit rejected: %s %s %v", r.Outcome, r.Message, err)
 		}
 		waitTurn(t, c, s, before)
 	}
@@ -456,7 +460,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		defer done()
 		defer unblock()
 		before := s.Snapshot().CurrentTurn
-		r, err := s.Submit(c, api.Submission{ID: "live-hot", Text: "Call LiveCheckpoint exactly once and wait for its result; afterwards follow the current system instructions. Do not call any other tool before LiveCheckpoint."}, nil)
+		r, err := s.Submit(c, api.Submission{ID: "live-hot", Text: "Call LiveCheckpoint exactly once and wait for its result. Afterwards call LiveVersion exactly once using the version value and type required by your CURRENT system instructions. Do not summarize prior work or finish before that second tool succeeds. Do not call any other tool before LiveCheckpoint."}, nil)
 		if err != nil || r.Outcome != "accepted" {
 			t.Fatal(r, err)
 		}
@@ -506,7 +510,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		waitTurn(t, c, s, before)
 		used, err := s.Configuration(c)
 		if err != nil || used.LastRequest == nil || used.LastRequest.Revision != updated.Revision || used.LastRequest.TurnId != updated.LastRequest.TurnId || oldCalls.Load() != 1 || newCalls.Load() != 1 {
-			t.Fatal("hot configuration/callback version not observed", err)
+			t.Fatalf("hot configuration/callback version not observed: old_effects=%d new_effects=%d desired=%s request=%+v error=%v", oldCalls.Load(), newCalls.Load(), updated.Revision, used.LastRequest, err)
 		}
 		noop, err := s.UpdateConfiguration(c, "live-noop", string(used.Revision), patch)
 		if err != nil || noop.Revision != used.Revision {

@@ -12,8 +12,9 @@ import (
 )
 
 // CheckServiceIdle is a preflight for an explicitly confirmed shared Host
-// replacement. It works with older application capabilities. Other clients can
-// still submit after this read; the UI must disclose that restart affects them.
+// replacement. This read improves feedback only: the public CLI and Host own
+// atomic idle admission at replacement time. No successful preflight authorizes
+// a forced restart or a second Store writer.
 func CheckServiceIdle(ctx context.Context, settings api.RuntimeSettings) error {
 	allowConfirmedStop := func(err error) error {
 		if caelisruntime.ConfirmedStopped(ctx, settings.CLIPath, settings.CaelisStore) {

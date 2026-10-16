@@ -15,7 +15,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
-const atomicCapabilities = "application-atomic-capabilities-v1"
+const atomicCapabilities = "session-atomic-capabilities-v1"
 
 // Called with s.mu. A lost plugin result stays fenced across reconnects.
 // Once its original receipt is resolved, the public configuration must match
@@ -23,7 +23,7 @@ const atomicCapabilities = "application-atomic-capabilities-v1"
 func (s *Session) pluginConfigurationUnknownLocked() bool {
 	sid := s.state.Session.SessionId
 	for op, record := range s.state.Typed {
-		if strings.HasPrefix(op, "plugin-") && record.Path == "/application/sessions/"+idPath(sid)+"/configuration" && record.Outcome == "unknown" {
+		if strings.HasPrefix(op, "plugin-") && record.Path == "/sessions/"+idPath(sid)+"/configuration" && record.Outcome == "unknown" {
 			return true
 		}
 	}
@@ -38,7 +38,7 @@ func (s *Session) BotPluginRecoveryPending() bool {
 	defer s.mu.Unlock()
 	sid := s.state.Session.SessionId
 	for op, record := range s.state.Typed {
-		if !strings.HasPrefix(op, "plugin-") || record.Path != "/application/sessions/"+idPath(sid)+"/configuration" {
+		if !strings.HasPrefix(op, "plugin-") || record.Path != "/sessions/"+idPath(sid)+"/configuration" {
 			continue
 		}
 		if record.Outcome == "unknown" || record.Outcome == "committed" && s.state.Configurations[sid].Revision == "" {
@@ -52,7 +52,7 @@ func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 	sid := s.state.Session.SessionId
 	seen := false
 	for op, record := range s.state.Typed {
-		if !strings.HasPrefix(op, "plugin-") || record.Path != "/application/sessions/"+idPath(sid)+"/configuration" || record.Outcome == "rejected" {
+		if !strings.HasPrefix(op, "plugin-") || record.Path != "/sessions/"+idPath(sid)+"/configuration" || record.Outcome == "rejected" {
 			continue
 		}
 		seen = true
@@ -77,8 +77,8 @@ func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 	return false
 }
 
-func corePlugins(selection plugins.Selection, binary string, builtins []string) ([]wire.ApplicationMCPServer, []string, []plugins.Issue) {
-	servers := []wire.ApplicationMCPServer{}
+func corePlugins(selection plugins.Selection, binary string, builtins []string) ([]wire.SessionMCPServer, []string, []plugins.Issue) {
+	servers := []wire.SessionMCPServer{}
 	roots := append([]string{}, builtins...)
 	roots = append(roots, selection.SkillRoots...)
 	issues := append([]plugins.Issue{}, selection.Issues...)
@@ -95,7 +95,7 @@ func corePlugins(selection plugins.Selection, binary string, builtins []string) 
 			if p.Connection != nil {
 				args = append(args, strconv.FormatUint(p.ConnectionRevision, 10))
 			}
-			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: args, WorkDir: &p.Root})
+			servers = append(servers, wire.SessionMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: args, WorkDir: &p.Root})
 			continue
 		}
 		switch s.Type {
@@ -105,14 +105,14 @@ func corePlugins(selection plugins.Selection, binary string, builtins []string) 
 				continue
 			}
 			store := filepath.Dir(filepath.Dir(p.Data))
-			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: []string{"--plugin-mcp", store, p.PackageID, p.Name, filepath.Base(p.Root)}, WorkDir: &p.Root})
+			servers = append(servers, wire.SessionMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: []string{"--plugin-mcp", store, p.PackageID, p.Name, filepath.Base(p.Root)}, WorkDir: &p.Root})
 		case "streamable-http", "sse":
 			if len(s.Headers) > 0 {
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Remote headers need a Bot local connection proxy"})
 				continue
 			}
 			transport := strings.ReplaceAll(s.Type, "-", "_")
-			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: transport, Url: &s.URL})
+			servers = append(servers, wire.SessionMCPServer{Name: name, Transport: transport, Url: &s.URL})
 		}
 	}
 	slices.Sort(roots)
@@ -153,7 +153,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	s.mu.Unlock()
 	servers, roots, _ := corePlugins(selection, binary, builtins)
 	if connected && !capable && (len(servers) > 0 || len(roots) > 0) {
-		return errors.New("Caelis Core requires application-atomic-capabilities-v1")
+		return errors.New("Caelis Core requires session-atomic-capabilities-v1")
 	}
 	if connected && sid != "" {
 		current, err := s.configuration(ctx, sid)
@@ -201,8 +201,8 @@ func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 	if !capable || c == nil || sid == "" {
 		return issues
 	}
-	var status wire.ApplicationMCPStatus
-	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+	var status wire.SessionMCPStatus
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 		return append(issues, plugins.Issue{Component: "runtime", Message: err.Error()})
 	}
 	for _, server := range status.Servers {
@@ -266,7 +266,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 	var status struct {
 		Servers []mcpServerStatus `json:"servers"`
 	}
-	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, err
 	}
 	for _, server := range status.Servers {

@@ -15,7 +15,7 @@ import (
 
 func TestConfigurationLostResponseKeepsExactReceiptAndExplicitClear(t *testing.T) {
 	var posts atomic.Int32
-	receipt := wire.ApplicationConfiguration{SessionId: "main", Revision: "2", Profile: wire.ApplicationProfile{Instructions: ""}}
+	receipt := wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: wire.SessionProfile{Instructions: ""}}
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			posts.Add(1)
@@ -29,8 +29,8 @@ func TestConfigurationLostResponseKeepsExactReceiptAndExplicitClear(t *testing.T
 			drop(w)
 			return
 		}
-		if strings.Contains(r.URL.Path, "configuration-operations") {
-			writeFixture(w, receipt)
+		if strings.Contains(r.URL.Path, "/operations/") {
+			writeFixture(w, wire.CommandResult{OperationId: "lost-update", Outcome: "committed", Configuration: &receipt})
 			return
 		}
 		latest := receipt
@@ -63,7 +63,7 @@ func TestUnknownApplicationPromptIsReadNotRedispatched(t *testing.T) {
 			drop(w)
 			return
 		}
-		writeFixture(w, wire.ApplicationOperation{OperationId: "original", Outcome: "accepted", Result: &wire.CommandResult{OperationId: "original", Outcome: "accepted"}})
+		writeFixture(w, &wire.CommandResult{OperationId: "original", Outcome: "accepted"})
 	})
 	in := api.Submission{ID: "original", Text: "synthetic message"}
 	receipt, e := s.Submit(t.Context(), in, nil)
@@ -91,7 +91,7 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 	for _, loss := range []string{"claim", "result"} {
 		t.Run(loss, func(t *testing.T) {
 			var effects, claims, results atomic.Int32
-			call := wire.ApplicationCall{Id: "opaque", CallId: "reusable-provider-id", SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", TurnId: "turn", ItemId: "item", Name: "FixtureLookup", ToolsVersion: "v1", ConfigurationRevision: "1", Source: wire.ApplicationSource{Kind: "user", OperationId: "prompt"}, State: "pending", Arguments: map[string]any{"key": "fixture"}}
+			call := wire.SessionToolCall{Id: "opaque", CallId: "reusable-provider-id", SessionId: "main", PrincipalId: "owner", TurnId: "turn", ItemId: "item", Name: "FixtureLookup", ToolsVersion: "v1", ConfigurationRevision: "1", Source: wire.SessionSource{Kind: "user", OperationId: "prompt"}, State: "pending", Arguments: map[string]any{"key": "fixture"}}
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/claim") {
 					claims.Add(1)
@@ -106,7 +106,7 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/result") {
 					count := results.Add(1)
-					var result wire.ApplicationCallResult
+					var result wire.SessionToolCallResult
 					_ = json.NewDecoder(r.Body).Decode(&result)
 					if _, ok := result.Content.([]any); !ok {
 						t.Error("callback blocks encoded as an opaque base64 string")
@@ -132,13 +132,13 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 				return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "effect"}}}
 			}}
 			s.catalogs = map[string]map[string]api.ApplicationTools{"v1": {"FixtureLookup": h}}
-			s.state.Operations["prompt"] = journal{Path: "/application/sessions/main/prompt", Outcome: "accepted", Source: call.Source}
-			_ = s.handleCall(t.Context(), s.client, s.state.Session, s.state.Connection, call)
+			s.state.Operations["prompt"] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", Source: call.Source}
+			_ = s.handleCall(t.Context(), s.client, s.state.Session, s.state.PrincipalID, call)
 			restored := New(Options{Directory: filepath.Dir(s.path)})
 			restored.catalogs = s.catalogs
 			restored.client = s.client
 			call.State = "claimed"
-			if e := restored.handleCall(t.Context(), s.client, s.state.Session, s.state.Connection, call); e != nil {
+			if e := restored.handleCall(t.Context(), s.client, s.state.Session, s.state.PrincipalID, call); e != nil {
 				t.Fatal(e)
 			}
 			want := int32(1)
@@ -149,7 +149,7 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 				t.Fatal("effect/claim repeated", effects.Load(), claims.Load())
 			}
 			call.ItemId = "forged"
-			if e := restored.handleCall(t.Context(), s.client, s.state.Session, s.state.Connection, call); e == nil {
+			if e := restored.handleCall(t.Context(), s.client, s.state.Session, s.state.PrincipalID, call); e == nil {
 				t.Fatal("changed invocation accepted")
 			}
 		})
@@ -157,7 +157,7 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 }
 func TestResourceDigestMismatchNeverReturnsBytes(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		writeFixture(w, wire.ApplicationResourceContent{Data: "eA==", Resource: wire.ApplicationResource{Id: "r", SessionId: "main", Size: 1, Sha256: "wrong"}})
+		writeFixture(w, wire.SessionResourceContent{Data: "eA==", Resource: wire.SessionResource{Id: "r", SessionId: "main", Size: 1, Sha256: "wrong"}})
 	})
 	b, _, e := s.ReadResource(t.Context(), "main", "r")
 	if e == nil || b != nil {
@@ -168,7 +168,7 @@ func TestSourceEvidenceCannotAuthorizeWorkOrBackground(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("untrusted source reached Host") })
 	s.state.PrincipalID = "owner"
 	for _, kind := range []string{"application_summary", "external_material", ""} {
-		ctx := context.WithValue(t.Context(), invocationKey{}, wire.ApplicationCall{SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Source: wire.ApplicationSource{Kind: kind}})
+		ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: kind}})
 		if s.WorkAdmission(ctx) == nil {
 			t.Fatal("source gained delegation authority", kind)
 		}
@@ -180,7 +180,7 @@ func TestSourceEvidenceCannotAuthorizeWorkOrBackground(t *testing.T) {
 
 func TestNativeArtifactProjectionAcceptsToolContentUnion(t *testing.T) {
 	v := &view{State: wire.SessionState{SessionId: "main"}, Seen: map[string]bool{}}
-	result, _ := json.Marshal(map[string]any{"resource": wire.ApplicationResource{Id: "artifact", SessionId: "main", Name: "result.txt"}})
+	result, _ := json.Marshal(map[string]any{"resource": wire.SessionResource{Id: "artifact", SessionId: "main", Name: "result.txt"}})
 	for _, name := range []string{"ReadResource", "PublishArtifact", "PublishArtifact"} {
 		raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": name, "toolCallId": "call", "status": "completed", "content": []any{map[string]any{"type": "content", "content": map[string]string{"type": "text", "text": string(result)}}}, "rawOutput": map[string]string{"result": string(result)}})
 		update := json.RawMessage(raw)
@@ -194,7 +194,7 @@ func TestNativeArtifactProjectionAcceptsToolContentUnion(t *testing.T) {
 		t.Fatal("artifact missing or duplicated", v.Items)
 	}
 	v = &view{State: wire.SessionState{SessionId: "main"}, Seen: map[string]bool{}}
-	result, _ = json.Marshal(map[string]any{"resource": wire.ApplicationResource{Id: "private-name", SessionId: "main", Name: "../private/report.sql"}})
+	result, _ = json.Marshal(map[string]any{"resource": wire.SessionResource{Id: "private-name", SessionId: "main", Name: "../private/report.sql"}})
 	raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": "PublishArtifact", "status": "completed", "rawOutput": map[string]string{"result": string(result)}})
 	update := json.RawMessage(raw)
 	applyEnvelope(v, wire.Envelope{TurnId: pointer("turn"), Update: &update})
@@ -208,9 +208,9 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
 		switch {
-		case r.Method == "POST" && path == "/application/workers":
+		case r.Method == "POST" && path == "/sessions":
 			creates.Add(1)
-			var in wire.CreateWorkerRequest
+			var in wire.CreateSessionRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			if value(in.Model) != "fixture-model" || value(in.ReasoningEffort) != "high" || !value(in.FastMode) {
 				t.Error("worker lost independent model")
@@ -221,14 +221,14 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 			drop(w)
 		case r.Method == "POST" && strings.HasSuffix(path, "/background-grants"):
 			grants.Add(1)
-			var in wire.ApplicationBackgroundGrantRequest
+			var in wire.CreateSessionBackgroundGrantRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			writeFixture(w, wire.ApplicationBackgroundGrant{Id: "grant", SessionId: "worker", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId})
-		case strings.Contains(path, "/application/operations/"):
+			writeFixture(w, wire.SessionBackgroundGrant{Id: "grant", SessionId: "worker", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId})
+		case strings.Contains(path, "/operations/"):
 			op := filepath.Base(path)
-			writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: "accepted", Result: &wire.CommandResult{OperationId: op, Outcome: "accepted", SessionId: pointer("worker")}})
-		case path == "/application/workers":
-			writeFixture(w, []wire.ApplicationWorker{{SessionId: "worker", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner"}})
+			writeFixture(w, &wire.CommandResult{OperationId: op, Outcome: "accepted", SessionId: pointer("worker")})
+		case path == "/sessions/worker/state":
+			writeFixture(w, wire.SessionState{SessionId: "worker"})
 		default:
 			t.Error("unexpected worker recovery route", r.Method, path)
 			w.WriteHeader(404)
@@ -236,8 +236,8 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	})
 	s.workExecution = api.WorkExecutionSettings{Model: "fixture-model", Effort: "high", ServiceTier: "priority"}
 	s.state.PrincipalID = "owner"
-	s.state.Configurations["main"] = wire.ApplicationConfiguration{Profile: wire.ApplicationProfile{Model: "bot-luna", Execution: "workspace-write"}}
-	ctx := context.WithValue(t.Context(), invocationKey{}, wire.ApplicationCall{SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Source: wire.ApplicationSource{Kind: "user", OperationId: "authorized-user"}})
+	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: wire.SessionProfile{Model: "bot-luna", Execution: "workspace-write"}}
+	ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: "user", OperationId: "authorized-user"}})
 	_, _ = s.StartWork(ctx, api.WorkStart{ID: "job", TaskStart: api.TaskStart{RequestID: "request", Title: "Fixture", Prompt: "synthetic"}, Workspace: t.TempDir()})
 	for range 2 {
 		restored := New(Options{Directory: filepath.Dir(s.path), WorkExecution: api.WorkExecutionSettings{Model: "changed-setting"}})

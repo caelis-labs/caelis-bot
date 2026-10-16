@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -29,8 +28,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 		{"stopped accepted", "accepted", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			life := wire.ApplicationConnection{ApplicationId: "original-app", ConnectionId: "original-connection", PrincipalId: "local-owner", ExpiresAt: time.Now().Add(time.Hour)}
-			binding := wire.ApplicationBinding{ApplicationId: life.ApplicationId, ConnectionId: life.ConnectionId, PrincipalId: life.PrincipalId, SessionId: "original-worker", Profile: wire.ApplicationProfile{Execution: "workspace-write"}}
+			binding := wire.SessionBinding{PrincipalId: "local-owner", SessionId: "original-worker", Profile: wire.SessionProfile{Execution: "workspace-write"}}
 			reads := 0
 			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
@@ -41,13 +39,11 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 				case "/initialize":
 					writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("original-store"), InstanceId: pointer("setup-instance"), Capabilities: required})
-				case "/application/connection":
-					writeFixture(w, life)
-				case "/application/sessions/original-worker":
+				case "/sessions/original-worker/profile":
 					writeFixture(w, binding)
-				case "/application/operations/original-request":
+				case "/operations/original-request":
 					reads++
-					writeFixture(w, wire.ApplicationOperation{OperationId: "original-request", Outcome: tc.outcome, Result: &wire.CommandResult{OperationId: "original-request", Outcome: tc.outcome}})
+					writeFixture(w, &wire.CommandResult{OperationId: "original-request", Outcome: tc.outcome})
 				default:
 					t.Errorf("unexpected recovery route %s", r.URL.Path)
 					http.NotFound(w, r)
@@ -89,11 +85,9 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			s.tools = &api.ToolConnection{}
 			s.state.StoreID, s.state.PrincipalID, s.state.InstanceID = "original-store", "local-owner", "original-instance"
 			s.state.StoreDirectory = settings.CaelisStore
-			s.state.Session, s.state.Connection = binding, life
-			s.state.Operations["original-request"] = journal{Path: "/application/sessions/original-worker/prompt", Digest: "original-digest", Outcome: "unknown", Body: json.RawMessage(`{"input":"PRIVATE_ORIGINAL_INPUT"}`)}
-			if err = privateWrite(secretPath(s.path), credential{StoreID: "original-store", PrincipalID: "local-owner", OperationID: "original-registration", Token: "original-token"}); err != nil {
-				t.Fatal(err)
-			}
+			s.state.Session = binding
+			s.state.Operations["original-request"] = journal{Path: "/sessions/original-worker/prompt", Digest: "original-digest", Outcome: "unknown", Body: json.RawMessage(`{"input":"PRIVATE_ORIGINAL_INPUT"}`)}
+
 			if err = s.saveLocked(); err != nil {
 				t.Fatal(err)
 			}

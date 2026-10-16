@@ -29,7 +29,7 @@ func (s *Session) callLoop(ctx context.Context) {
 		ready := s.connected && !s.closed
 		c := s.client
 		binding := s.state.Session
-		life := s.state.Connection
+		principal := s.state.PrincipalID
 		generation, observationCtx := s.generation, s.streamCtx
 		s.mu.Unlock()
 		if !ready || binding.SessionId == "" {
@@ -40,7 +40,7 @@ func (s *Session) callLoop(ctx context.Context) {
 		if recoveredClient != c || recoveredSession != binding.SessionId || recoveredGeneration != generation {
 			// Recovery includes claimed calls; waiting only returns new pending
 			// calls and must never replace this uncertain-effect reconciliation.
-			e = s.pollCalls(ctx, c, binding, life)
+			e = s.pollCalls(ctx, c, binding, principal)
 			if e == nil {
 				recoveredClient, recoveredSession, recoveredGeneration = c, binding.SessionId, generation
 			}
@@ -48,7 +48,7 @@ func (s *Session) callLoop(ctx context.Context) {
 			if observationCtx == nil {
 				observationCtx = ctx
 			}
-			var calls []wire.ApplicationCall
+			var calls []wire.SessionToolCall
 			calls, e = waitCalls(observationCtx, c, binding.SessionId)
 			s.mu.Lock()
 			current := s.connected && !s.closed && s.client == c && s.generation == generation && s.state.Session.SessionId == binding.SessionId
@@ -63,7 +63,7 @@ func (s *Session) callLoop(ctx context.Context) {
 						e = errors.New("Caelis 等待调用返回无效状态")
 						break
 					}
-					if e = s.handleCall(ctx, c, binding, life, call); e != nil {
+					if e = s.handleCall(ctx, c, binding, principal, call); e != nil {
 						break
 					}
 				}
@@ -76,13 +76,13 @@ func (s *Session) callLoop(ctx context.Context) {
 	}
 }
 
-func waitCalls(ctx context.Context, c *client, sid string) ([]wire.ApplicationCall, error) {
+func waitCalls(ctx context.Context, c *client, sid string) ([]wire.SessionToolCall, error) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	observation, closeTransport := c.observationClient()
 	defer closeTransport()
-	var calls []wire.ApplicationCall
-	err := observation.jsonTimeout(ctx, "GET", "/application/sessions/"+idPath(sid)+"/calls?wait=true", nil, &calls, "", "", time.Minute)
+	var calls []wire.SessionToolCall
+	err := observation.jsonTimeout(ctx, "GET", "/sessions/"+idPath(sid)+"/tool-calls?wait=true", nil, &calls, "", "", time.Minute)
 	// An idle read wait or replacement of its owning stream has no uncertain
 	// effect to reconcile and is not a disconnection. Other failures still are.
 	if err != nil && ctx.Err() != nil {
@@ -90,29 +90,29 @@ func waitCalls(ctx context.Context, c *client, sid string) ([]wire.ApplicationCa
 	}
 	return calls, err
 }
-func (s *Session) pollCalls(ctx context.Context, c *client, b wire.ApplicationBinding, life wire.ApplicationConnection) error {
-	var calls []wire.ApplicationCall
-	if e := c.json(ctx, "GET", "/application/sessions/"+idPath(b.SessionId)+"/calls", nil, &calls, "", ""); e != nil {
+func (s *Session) pollCalls(ctx context.Context, c *client, b wire.SessionBinding, principal string) error {
+	var calls []wire.SessionToolCall
+	if e := c.json(ctx, "GET", "/sessions/"+idPath(b.SessionId)+"/tool-calls", nil, &calls, "", ""); e != nil {
 		return e
 	}
 	for _, call := range calls {
 		if call.State != "pending" && call.State != "claimed" {
 			continue
 		}
-		if e := s.handleCall(ctx, c, b, life, call); e != nil {
+		if e := s.handleCall(ctx, c, b, principal, call); e != nil {
 			return e
 		}
 	}
 	return nil
 }
-func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationBinding, life wire.ApplicationConnection, call wire.ApplicationCall) error {
+func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBinding, principal string, call wire.SessionToolCall) error {
 	// Only the authenticated opaque ID is an effect identity. Arguments and the
 	// provider's reusable call_id are never trusted invocation context.
 	s.mu.Lock()
 	host := s.catalogs[call.ToolsVersion][call.Name]
 	contentV1 := s.state.ContentCatalogs[call.ToolsVersion][call.Name]
 	s.mu.Unlock()
-	if call.Id == "" || call.TurnId == "" || call.ItemId == "" || call.SessionId != b.SessionId || call.ApplicationId != b.ApplicationId || call.ConnectionId != life.ConnectionId || call.PrincipalId != life.PrincipalId {
+	if call.Id == "" || call.TurnId == "" || call.ItemId == "" || call.SessionId != b.SessionId || call.PrincipalId != principal || b.PrincipalId != principal {
 		return errors.New("Caelis 工具调用绑定不匹配")
 	}
 	if call.Source.Kind != "user" && call.Source.Kind != "application_summary" && call.Source.Kind != "external_material" && call.Source.Kind != "authorized_background" {
@@ -124,20 +124,20 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 	op, known := s.state.Operations[call.Source.OperationId]
 	record, exists := s.state.Calls[call.Id]
 	s.mu.Unlock()
-	if !known || op.Path != "/application/sessions/"+idPath(b.SessionId)+"/prompt" || op.Source.Kind != call.Source.Kind || value(op.Source.GrantId) != value(call.Source.GrantId) {
+	if !known || op.Path != "/sessions/"+idPath(b.SessionId)+"/prompt" || op.Source.Kind != call.Source.Kind || value(op.Source.GrantId) != value(call.Source.GrantId) {
 		return errors.New("Caelis 工具来源不属于当前应用提交")
 	}
 	if exists && !sameInvocation(record.Call, call) {
 		return errors.New("Caelis 工具调用内容发生改变")
 	}
-	path := "/application/sessions/" + idPath(b.SessionId) + "/calls/" + idPath(call.Id)
+	path := "/sessions/" + idPath(b.SessionId) + "/tool-calls/" + idPath(call.Id)
 	if !exists {
 		record = callRecord{Call: call, Phase: "claiming"}
 		if e := s.saveCall(call.Id, record); e != nil {
 			return e
 		}
 		if call.State == "pending" {
-			var claimed wire.ApplicationCall
+			var claimed wire.SessionToolCall
 			e := c.json(ctx, "POST", path+"/claim", struct{}{}, &claimed, "", "")
 			if e == nil && claimed.State == "claimed" && sameInvocation(claimed, call) {
 				record.Phase = "executing"
@@ -160,7 +160,7 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 				if result.IsError {
 					outcome = "failed"
 				}
-				record.Receipt = &wire.ApplicationCallResult{Outcome: outcome, Content: json.RawMessage(content)}
+				record.Receipt = &wire.SessionToolCallResult{Outcome: outcome, Content: json.RawMessage(content)}
 				if result.TurnComplete && outcome == "succeeded" {
 					record.Receipt.TurnComplete = pointer(true)
 				}
@@ -174,7 +174,7 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 		}
 	}
 	if record.Receipt == nil {
-		record.Receipt = &wire.ApplicationCallResult{Outcome: "unknown", Content: json.RawMessage(`[{"type":"text","text":"Tool outcome is uncertain; do not automatically repeat the effect."}]`)}
+		record.Receipt = &wire.SessionToolCallResult{Outcome: "unknown", Content: json.RawMessage(`[{"type":"text","text":"Tool outcome is uncertain; do not automatically repeat the effect."}]`)}
 		if contentV1 {
 			record.Receipt.ResultFormat = pointer("content-v1")
 		}
@@ -227,7 +227,7 @@ func contentV1Blocks(result api.ToolResult) []map[string]string {
 	}
 	return blocks
 }
-func sameInvocation(a, b wire.ApplicationCall) bool {
+func sameInvocation(a, b wire.SessionToolCall) bool {
 	a.State = ""
 	b.State = ""
 	a.Result = nil

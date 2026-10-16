@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/statemigration"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -22,16 +24,17 @@ type pendingInput struct {
 }
 
 type journal struct {
-	Dream        bool                   `json:"dream,omitempty"`
-	PendingInput *pendingInput          `json:"pendingInput,omitempty"`
-	TurnID       string                 `json:"turnID,omitempty"`
-	Scheduled    bool                   `json:"scheduled,omitempty"`
-	Digest       string                 `json:"digest"`
-	Path         string                 `json:"path"`
-	Body         json.RawMessage        `json:"body"`
-	Outcome      string                 `json:"outcome"`
-	Resource     string                 `json:"resource,omitempty"`
-	Source       wire.ApplicationSource `json:"source"`
+	ReceiptID    string             `json:"receiptID,omitempty"`
+	Dream        bool               `json:"dream,omitempty"`
+	PendingInput *pendingInput      `json:"pendingInput,omitempty"`
+	TurnID       string             `json:"turnID,omitempty"`
+	Scheduled    bool               `json:"scheduled,omitempty"`
+	Digest       string             `json:"digest"`
+	Path         string             `json:"path"`
+	Body         json.RawMessage    `json:"body"`
+	Outcome      string             `json:"outcome"`
+	Resource     string             `json:"resource,omitempty"`
+	Source       wire.SessionSource `json:"source"`
 }
 type view struct {
 	Usage           api.ContextUsage                 `json:"-"`
@@ -55,48 +58,49 @@ type view struct {
 	Failure         string                           `json:"failure,omitempty"`
 }
 type typedRecord struct {
-	Path    string          `json:"path"`
-	Digest  string          `json:"digest,omitempty"`
-	Body    json.RawMessage `json:"body"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Outcome string          `json:"outcome"`
+	ReceiptID string          `json:"receiptID,omitempty"`
+	Path      string          `json:"path"`
+	Digest    string          `json:"digest,omitempty"`
+	Body      json.RawMessage `json:"body"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Outcome   string          `json:"outcome"`
 }
 type callRecord struct {
-	Call    wire.ApplicationCall        `json:"call"`
+	Call    wire.SessionToolCall        `json:"call"`
 	Phase   string                      `json:"phase"`
-	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
+	Receipt *wire.SessionToolCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
+	migrationSource   json.RawMessage
 	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
 	// Keep callback formats across a crash or a disabled experiment so old
 	// pending calls can receive an unknown receipt without redispatching effects.
-	ContentCatalogs   map[string]map[string]bool               `json:"contentCatalogs,omitempty"`
-	Context           contextseed.State                        `json:"context,omitempty"`
-	ContextInputs     map[string]int                           `json:"contextInputs,omitempty"`
-	ContextRequests   map[string]string                        `json:"contextRequests,omitempty"`
-	PastSessions      []string                                 `json:"pastSessions,omitempty"`
-	RenewedBy         string                                   `json:"renewedBy,omitempty"`
-	CommandFollowups  map[string]commandFollowup               `json:"commandFollowups,omitempty"`
-	Version           int                                      `json:"version"`
-	ProjectionVersion int                                      `json:"projectionVersion"`
-	StoreID           string                                   `json:"storeID"`
-	StoreDirectory    string                                   `json:"storeDirectory,omitempty"`
-	Endpoint          string                                   `json:"endpoint"`
-	InstanceID        string                                   `json:"instanceID"`
-	PrincipalID       string                                   `json:"principalID"`
-	Connection        wire.ApplicationConnection               `json:"connection"`
-	Session           wire.ApplicationBinding                  `json:"session"`
-	CreateID          string                                   `json:"createID"`
-	Operations        map[string]journal                       `json:"operations"`
-	Views             map[string]*view                         `json:"views"`
-	Calls             map[string]callRecord                    `json:"calls"`
-	Typed             map[string]typedRecord                   `json:"typed"`
-	Configurations    map[string]wire.ApplicationConfiguration `json:"configurations"`
-	Workers           map[string]worker                        `json:"workers"`
-	Grants            map[string]grantRecord                   `json:"grants"`
-	FinishedTurn      string                                   `json:"finishedTurn"`
-	LastReceipt       api.Receipt                              `json:"lastReceipt"`
+	ContentCatalogs   map[string]map[string]bool           `json:"contentCatalogs,omitempty"`
+	Context           contextseed.State                    `json:"context,omitempty"`
+	ContextInputs     map[string]int                       `json:"contextInputs,omitempty"`
+	ContextRequests   map[string]string                    `json:"contextRequests,omitempty"`
+	PastSessions      []string                             `json:"pastSessions,omitempty"`
+	RenewedBy         string                               `json:"renewedBy,omitempty"`
+	CommandFollowups  map[string]commandFollowup           `json:"commandFollowups,omitempty"`
+	Version           int                                  `json:"version"`
+	ProjectionVersion int                                  `json:"projectionVersion"`
+	StoreID           string                               `json:"storeID"`
+	StoreDirectory    string                               `json:"storeDirectory,omitempty"`
+	Endpoint          string                               `json:"endpoint"`
+	InstanceID        string                               `json:"instanceID"`
+	PrincipalID       string                               `json:"principalID"`
+	Session           wire.SessionBinding                  `json:"session"`
+	CreateID          string                               `json:"createID"`
+	Operations        map[string]journal                   `json:"operations"`
+	Views             map[string]*view                     `json:"views"`
+	Calls             map[string]callRecord                `json:"calls"`
+	Typed             map[string]typedRecord               `json:"typed"`
+	Configurations    map[string]wire.SessionConfiguration `json:"configurations"`
+	Workers           map[string]worker                    `json:"workers"`
+	Grants            map[string]grantRecord               `json:"grants"`
+	FinishedTurn      string                               `json:"finishedTurn"`
+	LastReceipt       api.Receipt                          `json:"lastReceipt"`
 }
 
 // privateRead refuses redirected/world-readable metadata and bounds allocations.
@@ -127,9 +131,9 @@ func privateRead(path string, limit int64) ([]byte, error) {
 	return b, nil
 }
 func loadBinding(path string) (binding, error) {
-	b := binding{Version: 1, Operations: map[string]journal{}, Views: map[string]*view{}, Calls: map[string]callRecord{}}
+	b := binding{Version: 2, Operations: map[string]journal{}, Views: map[string]*view{}, Calls: map[string]callRecord{}}
 	b.Typed = map[string]typedRecord{}
-	b.Configurations = map[string]wire.ApplicationConfiguration{}
+	b.Configurations = map[string]wire.SessionConfiguration{}
 	b.Workers = map[string]worker{}
 	b.Grants = map[string]grantRecord{}
 	raw, e := privateRead(path, 64<<20)
@@ -140,7 +144,14 @@ func loadBinding(path string) (binding, error) {
 	if e != nil {
 		return b, e
 	}
-	if json.Unmarshal(raw, &b) != nil || b.Version != 1 || b.Operations == nil || b.Views == nil || b.Calls == nil {
+	upgraded, migrated, e := statemigration.Upgrade(raw)
+	if e != nil {
+		return b, e
+	}
+	if migrated {
+		b.migrationSource = append(json.RawMessage(nil), raw...)
+	}
+	if json.Unmarshal(upgraded, &b) != nil || b.Version != 2 || b.Operations == nil || b.Views == nil || b.Calls == nil {
 		return b, errors.New("Caelis 连接记录无法识别，请保留文件")
 	}
 	if b.ProjectionVersion > currentProjectionVersion || b.ProjectionVersion < 0 {
@@ -178,11 +189,27 @@ func (s *Session) saveLocked() error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
+	if len(s.state.migrationSource) > 0 {
+		archive := s.path + ".v1-retired.json"
+		existing, err := privateRead(archive, 64<<20)
+		if errors.Is(err, os.ErrNotExist) {
+			err = privateWrite(archive, s.state.migrationSource)
+		} else if err == nil {
+			var a, b bytes.Buffer
+			if json.Compact(&a, existing) != nil || json.Compact(&b, s.state.migrationSource) != nil || !bytes.Equal(a.Bytes(), b.Bytes()) {
+				err = errors.New("Caelis 旧连接归档与迁移来源不一致，请保留文件")
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
 	s.captureBackgroundResultsLocked()
 	if e := privateWrite(s.path, s.state); e != nil {
 		s.issue = "Caelis 连接记录暂未保存；原请求已保留，将自动重试"
 		return e
 	}
+	s.state.migrationSource = nil
 	if s.issue == "Caelis 连接记录暂未保存；原请求已保留，将自动重试" {
 		s.issue = ""
 	}
@@ -205,9 +232,6 @@ func value[T any](p *T) (z T) {
 	return z
 }
 func pointer[T any](v T) *T { return &v }
-func secretPath(path string) string {
-	return filepath.Join(filepath.Dir(path), "application-credential.json")
-}
 
 func succeeded(v wire.Outcome) bool { return v == wire.OutcomeAccepted || v == wire.OutcomeCommitted }
 func productOutcome(v wire.Outcome) string {

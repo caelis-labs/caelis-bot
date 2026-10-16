@@ -20,7 +20,7 @@ type commandFollowup struct {
 
 // This is optional Host observation support, not part of the Bot connection
 // contract. Recheck the current handshake after reconnect before any request.
-const commandObservationCapability = "application-terminal-observation-v1"
+const commandObservationCapability = "session-terminal-observation-v1"
 
 func (s *Session) trackCommandApprovalLocked(sid, callID, kind string) {
 	if !slices.Contains(s.info.Capabilities, commandObservationCapability) || sid != s.state.Session.SessionId || callID == "" || kind != "execute" {

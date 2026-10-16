@@ -86,9 +86,9 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 					return
 				}
 				posts.Add(1)
-				var req wire.ApplicationPromptRequest
+				var req wire.PromptRequest
 				_ = json.NewDecoder(r.Body).Decode(&req)
-				if req.SourceKind != "application_summary" || value(req.Input) != "Command command-1 is completed." {
+				if value(req.SourceKind) != "application_summary" || value(req.Input) != "Command command-1 is completed." {
 					t.Error("notice lost authority/identity")
 				}
 				if lost {
@@ -159,7 +159,7 @@ func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/prompt") {
 					posts++
-					var req wire.ApplicationPromptRequest
+					var req wire.PromptRequest
 					_ = json.NewDecoder(r.Body).Decode(&req)
 					writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: outcome})
 					return

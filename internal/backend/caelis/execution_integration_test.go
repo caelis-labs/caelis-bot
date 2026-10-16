@@ -122,11 +122,11 @@ func verifyExecutionConfiguration(t *testing.T, ctx context.Context, s *Session,
 			t.Fatal(err)
 		}
 		profile := config.Profile
-		profile.Workspace = &wire.ApplicationWorkspace{Cwd: &other}
+		profile.Workspace = &wire.SessionWorkspace{Cwd: &other}
 		profile.ExecutionConfig = &wire.ExecutionConfig{Environment: tc.environment, Shell: &wire.ShellConfig{Login: pointer(false)}}
 		op = "environment-session-" + tc.name
 		created = wire.CommandResult{}
-		if err = s.client.json(ctx, "POST", "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile}, &created, op, ""); err != nil || !succeeded(created.Outcome) {
+		if err = s.client.json(ctx, "POST", "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile}, &created, op, ""); err != nil || !succeeded(created.Outcome) {
 			t.Fatal("configured session creation failed", err)
 		}
 		sid = value(created.SessionId)
@@ -136,7 +136,7 @@ func verifyExecutionConfiguration(t *testing.T, ctx context.Context, s *Session,
 		key := "CASE_ENV_" + strings.ToUpper(tc.name)
 		model.set(key, modelStep{Name: "RunCommand", Args: map[string]any{"command": f.check(t, other) + ` && test -z "${HOST_ONLY+x}" && test "$SESSION_VALUE" = configured && test "${EMPTY_VALUE+x}" = x && printf ok > configured.txt`}})
 		op = "environment-prompt-" + tc.name
-		if err = s.client.json(ctx, "POST", "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &op, Input: &key, SourceKind: "user"}, &result, op, ""); err != nil || !succeeded(result.Outcome) {
+		if err = s.client.json(ctx, "POST", "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &op, Input: &key, SourceKind: pointer("user")}, &result, op, ""); err != nil || !succeeded(result.Outcome) {
 			t.Fatal("configured prompt rejected", err)
 		}
 		waitAcceptance(t, ctx, func() bool { _, err := os.Stat(filepath.Join(other, "configured.txt")); return err == nil })
