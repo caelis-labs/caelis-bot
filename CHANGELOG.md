@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/caelis-labs/caelis-bot/compare/v0.13.0...v0.14.0) (2026-10-16)
+
+
+### Features
+
+* embed Caelis v0.72.2 and simplify model onboarding ([#179](https://github.com/caelis-labs/caelis-bot/issues/179)) ([f9b5d38](https://github.com/caelis-labs/caelis-bot/commit/f9b5d38234268a6224b3b7356aebf0f3b2dedca2))
+* migrate Caelis Bot to unified public Control sessions ([#178](https://github.com/caelis-labs/caelis-bot/issues/178)) ([0f5fedf](https://github.com/caelis-labs/caelis-bot/commit/0f5fedff82a3f7d61a91f67320a39777698506ef))
+
+
+### Bug Fixes
+
+* **codex:** recover stopped private owners without replaying old work ([#168](https://github.com/caelis-labs/caelis-bot/issues/168)) ([ec8bb15](https://github.com/caelis-labs/caelis-bot/commit/ec8bb15b1d5200d2725eb0b9814f7bd8b885e15e))
+* **codex:** retry capacity rejections with cancellable original requests ([#166](https://github.com/caelis-labs/caelis-bot/issues/166)) ([8d2d63a](https://github.com/caelis-labs/caelis-bot/commit/8d2d63a2efa222e4b7d99c32568665881d0966a5))
+
 ## [0.13.0](https://github.com/caelis-labs/caelis-bot/compare/v0.12.0...v0.13.0) (2026-10-12)
 
 
