@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/caelis-labs/caelis-bot/compare/v0.14.0...v0.14.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **release:** retry transient Apple ticket transport failures ([#180](https://github.com/caelis-labs/caelis-bot/issues/180)) ([95882f1](https://github.com/caelis-labs/caelis-bot/commit/95882f1cab67605403d03f8446a128cda8d8eee8))
+
 ## [0.14.0](https://github.com/caelis-labs/caelis-bot/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
