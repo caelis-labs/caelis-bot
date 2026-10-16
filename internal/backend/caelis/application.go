@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"sort"
 
@@ -265,7 +264,18 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		right, _ := json.Marshal(b)
 		return string(left) == string(right)
 	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs)) {
-		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest([]byte(string(desired.Revision)+s.profile.ToolsVersion+s.profile.Instructions+fmt.Sprint(s.profile.McpServers, s.profile.SkillRoots, s.profile.SkillDirs))), string(desired.Revision), map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs})
+		patch := map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs}
+		// Operation IDs share the Host principal namespace. Include the Session
+		// and the exact structured intent; never rewrite retained receipt IDs.
+		intent, err := json.Marshal(struct {
+			SessionID string         `json:"session_id"`
+			Revision  string         `json:"revision"`
+			Patch     map[string]any `json:"patch"`
+		}{b.SessionId, string(desired.Revision), patch})
+		if err != nil {
+			return err
+		}
+		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest(intent), string(desired.Revision), patch)
 	}
 	return e
 }

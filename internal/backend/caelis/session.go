@@ -76,6 +76,9 @@ type Session struct {
 	streams               map[string]bool
 	projectionSavedAt     time.Time
 	projectionPublishedAt time.Time
+
+	configurationRetryAt    time.Time
+	configurationRetryDelay time.Duration
 }
 
 func New(opts Options) *Session {

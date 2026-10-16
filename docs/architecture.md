@@ -534,7 +534,7 @@ files, sync and replacement with restricted permissions. macOS rename behavior i
 Bot identity, Notebook/Memory, appearance and product task records are shared across Runtime choices.
 Native bindings/credentials and scheduled execution remain provider-scoped; old Codex root files remain
 readable, Caelis uses `providers/caelis`. Switching never migrates an unknown operation to another provider.
-Caelis application credentials are distinct from Host credentials. Logs/diagnostic export contain allowlisted
+Caelis Bot and TUI use the same Host principal and credential; Bot keeps no separate application credential. Logs/diagnostic export contain allowlisted
 states/counts/versions, not conversation prose, paths, native identifiers, arguments or credentials.
 
 Notebook has `MEMORY.md`, generated `INDEX.md`, historical `HANDOFF.md` from older versions, and local-date `YYYY/MM/DD/*.md`.

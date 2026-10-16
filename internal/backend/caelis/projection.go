@@ -865,7 +865,7 @@ func (s *Session) refresh(ctx context.Context) error {
 	if err := s.refreshWorkers(ctx, c); err != nil {
 		s.componentError("worker_state", "", err)
 	}
-	if err := s.recoverConfigurations(ctx); err != nil {
+	if err := s.maintainConfigurations(ctx); err != nil {
 		s.componentError("configuration", "", err)
 	}
 	if err := s.recoverOperations(ctx); err != nil {
@@ -966,6 +966,9 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 // observes Host identity, or reconciles an unresolved operation/one terminal hook.
 func (s *Session) needsRefreshLocked() bool {
 	if !s.connected || s.client == nil {
+		return true
+	}
+	if s.configurationRecoveryPendingLocked() && !time.Now().Before(s.configurationRetryAt) {
 		return true
 	}
 	for _, j := range s.state.Operations {

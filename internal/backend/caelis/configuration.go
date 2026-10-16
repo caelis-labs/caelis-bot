@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -187,7 +188,7 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		if !strings.HasSuffix(r.Path, "/configuration") {
 			continue
 		}
-		if r.Outcome == "committed" && strings.HasPrefix(op, "plugin-") {
+		if r.Outcome == "committed" {
 			s.mu.Lock()
 			sid := s.state.Session.SessionId
 			missing := r.Path == "/sessions/"+idPath(sid)+"/configuration" && s.state.Configurations[sid].Revision == ""
@@ -224,6 +225,44 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+// Called with s.mu. Receipt recovery and subsequent configuration readback are
+// both required even while the Bot is idle and its event stream is healthy.
+func (s *Session) configurationRecoveryPendingLocked() bool {
+	sid := s.state.Session.SessionId
+	for _, record := range s.state.Typed {
+		if !strings.HasSuffix(record.Path, "/configuration") {
+			continue
+		}
+		if record.Outcome == "unknown" || record.Outcome == "committed" && record.Path == "/sessions/"+idPath(sid)+"/configuration" && s.state.Configurations[sid].Revision == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Session) maintainConfigurations(ctx context.Context) error {
+	s.mu.Lock()
+	due := s.configurationRecoveryPendingLocked() && !time.Now().Before(s.configurationRetryAt)
+	s.mu.Unlock()
+	if !due {
+		return nil
+	}
+	err := s.recoverConfigurations(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.configurationRecoveryPendingLocked() {
+		s.configurationRetryAt, s.configurationRetryDelay = time.Time{}, 0
+	} else {
+		if s.configurationRetryDelay == 0 {
+			s.configurationRetryDelay = 2 * time.Second
+		} else {
+			s.configurationRetryDelay = min(30*time.Second, 2*s.configurationRetryDelay)
+		}
+		s.configurationRetryAt = time.Now().Add(s.configurationRetryDelay)
+	}
+	return err
 }
 
 // typedPayload decodes only the original committed common command receipt.

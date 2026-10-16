@@ -329,6 +329,60 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_shared_principal_rebind", func(t *testing.T) {
+		ids := map[string]string{}
+		for _, name := range []string{"rebind-a", "rebind-b"} {
+			dir := filepath.Join(root, name)
+			openBot := func(connection *api.ToolConnection) *Session {
+				bot := New(Options{RequireApproval: true, Directory: dir, Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, ApprovalMode: "workspace-write"}})
+				t.Cleanup(func() { _ = bot.Close(context.Background()) })
+				if err := bot.ConfigureBotTools(connection); err != nil {
+					t.Fatal(err)
+				}
+				if err := bot.Connect(ctx); err != nil {
+					t.Fatal(err)
+				}
+				return bot
+			}
+			old := openBot(config)
+			if err := old.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			updated := config.Clone()
+			updated.Instructions += "\nSAME_UPGRADED_BOT_INSTRUCTIONS"
+			bot := openBot(updated)
+			bot.mu.Lock()
+			sid, principal := bot.state.Session.SessionId, bot.state.PrincipalID
+			records := clone(bot.state.Typed)
+			bot.mu.Unlock()
+			if principal != s.state.PrincipalID {
+				t.Fatal("Bots did not share the same Host principal")
+			}
+			found := false
+			for id, record := range records {
+				if !strings.HasPrefix(id, "rebind-") {
+					continue
+				}
+				found = true
+				if record.Outcome != "committed" || ids[id] != "" {
+					t.Fatal("shared-principal rebind collided", id, record.Outcome)
+				}
+				var receipt wire.CommandResult
+				if err := host.json(ctx, "GET", "/operations/"+idPath(id), nil, &receipt, "", ""); err != nil || receipt.Configuration == nil || receipt.Configuration.SessionId != sid {
+					t.Fatal("Core did not retain a Session-specific receipt", err)
+				}
+				ids[id] = sid
+			}
+			if !found {
+				t.Fatal("upgraded Bot did not rebind its original Session")
+			}
+		}
+		if len(ids) != 2 {
+			t.Fatal("expected two independent rebind receipts", ids)
+		}
+	}) {
+		return
+	}
 	if !t.Run("B00_reviewed_plugin_activation", func(t *testing.T) {
 		manager, err := plugins.Open(filepath.Join(root, "Plugins"))
 		if err != nil {
