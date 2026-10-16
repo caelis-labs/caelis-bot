@@ -25,7 +25,7 @@ Available for Apple Silicon Macs. Download the DMG and its `.sha256` file, verif
 
 Before installing, check that the GitHub Latest tag matches the [signed macOS manifest](https://releases.caelis.dev/caelis-bot/latest.json). If they differ, pause rather than downloading an older default. Published builds use one signed update feed; local `Caelis Bot Dev.app` builds are development-only.
 
-Choose **Caelis or Codex** during setup or in **Settings → Runtime**. Use your local installation and account; neither runtime is bundled. Caelis must expose the required application and Guardian capabilities; see [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
+Choose **Caelis or Codex** during setup or in **Settings → Runtime**. The macOS app includes Caelis and opens model connection setup directly; it shares your existing Caelis Store and account with the global CLI. Codex uses your local installation and account. See [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
 
 Click the character to write, double-click to open the conversation, and use the menu bar for settings or Quit. Hiding the character does not stop work. Stable builds with the updater check daily and install signed updates after confirmation. Older builds need one manual upgrade; see [updating](docs/install.md#update).
 

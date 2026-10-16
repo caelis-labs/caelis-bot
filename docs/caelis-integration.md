@@ -85,30 +85,34 @@ Bot 的 workspace-write profile 显式选择继承 Host 环境、非登录 shell
 
 ## 安装、更新与启用服务
 
-程序版本和运行中的服务版本分别显示。检查更新只读取版本；“更新并重新连接”执行
-`caelis update`，随后通过 `caelis service start --format json` 启用已安装版本。
-原生生命周期负责服务选择、锁、就绪验证及启动失败回退；Bot 不按 PID 强杀 Host。
-安装成功后仍需 `/initialize` 验证 Bot 所需协议，并重新连接当前 Store 的 Bot adapter，
-全部成功才显示服务就绪。仅升级同一 Runtime 不要求重启 Bot。
+macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Caelis CLI。
+默认发现顺序为显式路径、当前 App 内置 CLI、PATH；不修改全局 CLI。内置版本随 Bot App
+升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
+共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
-若程序已更新、服务仍旧，直接选择“启用已安装版本”，不重复下载安装。
-失败后重新读取安装与服务状态，保留明确错误，允许检测后重试启用。原始安装日志不进入设置页面。
-换 Runtime、程序路径或数据目录仍需显式切换并重启 Bot。
+程序版本和运行中的服务版本分别显示。内置 CLI 连接时通过公共 `caelis service start`
+提交候选版本，由 Core 负责选择、锁、就绪校验和回滚。正在执行的 Session 暂时保留旧 Host；
+空闲 Session、后台 Task 和观察连接不阻止换代。Core 的等待器在执行结束后换代，Bot
+重新发现新实例并恢复原 Session/回执，不重放请求。早期版本的非原子过渡也由 Core 的
+有界兼容路径处理，Bot 不强杀进程，不维护第二套版本选择或升级账本。
 
-升级确认提示其他 Caelis 客户端将短暂断开。执行期间暂停 Bot 的新对话、提醒及任务准入；
-本机 Host 状态显示活动工作，或状态无法确认时，拒绝替换服务。下载后再次检查，
-其间到达的工作只延后启用，已安装程序保留。公开协议尚无跨客户端原子的“空闲时重启”，
-检查与替换间其他客户端仍可能发起工作；应先结束其他终端/应用中的工作，升级期间不要再提交任务。
-普通连接、检测、关闭终端或退出 Bot 不触发共享 Host 替换。
+显式选择的外部 CLI 保留检查更新和 `caelis update`。安装成功后仍需 `/initialize`
+验证协议并读取服务状态；“启用已安装版本”只调用公共生命周期接口，不重复安装。
+内置 CLI 缺失或损坏时显示连接设置错误，App 保持可用，不悄悄改用另一个全局版本。
+更改 Runtime、程序路径或数据目录仍需显式切换并重启 Bot。
 
-可使用两个正式二进制复现隔离升级，不读取日常模型账户：
+隔离的真实版本互操作验证：
 
 ```sh
 source script/env.sh
-CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-previous \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-current \
-go test -race -v -count=1 -timeout 180s ./internal/app -run '^TestCaelisReleasedServiceUpgrade$'
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.72.1 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.72.2 \
+go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
+
+该测试从临时 App bundle 运行真实 Bot adapter：验证内置 CLI 优先于全局旧版、旧 Session
+执行期间可互操作、结束后自动换代、Bot 自动恢复原身份及回执、旧全局 CLI 可继续执行。
+使用隔离 Store 和合成模型；真实供应商模型和原生 GUI 仍单独验收。
 
 ## 共享模型与 Team 设置
 
@@ -321,11 +325,10 @@ correction; it does not establish first-attempt autonomy or end-to-end speed.
 
 安装程序与运行中的 Host 分开。用户启用已安装版本时调用公共 `caelis service start`，
 由 Core 负责候选版本选择、单 Store 写者、实例校验、空闲准入、启动和失败回滚。
-Bot 的预检查只改善提示；Host 的 `host-idle-shutdown-v1` 才决定能否安全替换。
-工作或审批尚未结束时保留旧 Host；常驻订阅不阻止升级。重连核对新实例后继续读取原
+Bot 不复制活动判定；Host 的 `host-idle-shutdown-v1` 决定能否安全替换。
+Session 正在执行时保留旧 Host；空闲 Session 的后台任务和常驻订阅不阻止升级。重连核对新实例后继续读取原
 Session 和回执，不重新派发旧请求。
 
-首次从旧 Application Host 升级时，旧服务无法证明原子空闲停机。先完成所有 Surface
-上的工作，对同一个 Store 明确执行一次 `caelis service restart`，再重新连接。
-Bot 只显示稳定的换代提示，不透传 CLI 私密诊断，也不自动转成强制重启。
-此提示分支可在最低受支持安装版本已具备条件停机能力后删除。
+早期 Host 的过渡策略由 Core 管理：v0.72.2 之前的已知发行版在确认没有运行中的
+Session 后允许公共强制停机，覆盖缺少原子接口以及旧接口将后台 Task 计入 busy 的情况。
+新版本保持原子准入保护；Bot 不复制该兼容判断。过渡代码的退役边界在 Core 文档中定义。

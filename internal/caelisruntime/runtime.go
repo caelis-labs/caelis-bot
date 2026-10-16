@@ -1,5 +1,5 @@
 // Package caelisruntime uses the public Caelis CLI for installation and service lifecycle.
-// It never embeds the runtime or takes ownership of a shared Host process.
+// The app may ship a CLI; the public Core lifecycle still owns the shared Host.
 package caelisruntime
 
 import (
@@ -24,6 +24,7 @@ import (
 const InstallerURL = "https://caelis.dev/install.sh"
 
 type Status struct {
+	Bundled       bool
 	LatestVersion string
 	UpdateState   string
 	Installed     bool   `json:"installed"`
@@ -58,6 +59,10 @@ func Find(path string, loc ...i18n.Locale) (string, error) {
 			return "", errors.New(text(l, "host.caelisPathNotExecutable"))
 		}
 		return filepath.Clean(path), nil
+	}
+	if p := ownBundledPath(); p != "" {
+		// A damaged app must not silently fall back to an unrelated global CLI.
+		return Find(p, l)
 	}
 	if p, e := exec.LookPath("caelis"); e == nil {
 		return filepath.Abs(p)
@@ -132,7 +137,7 @@ func Inspect(ctx context.Context, path string, loc ...i18n.Locale) (Status, erro
 	if json.Unmarshal(b, &v) != nil || v.Version == "" {
 		return Status{}, errors.New(text(l, "host.fileInvalidCaelisVersion"))
 	}
-	return Status{Installed: true, Path: p, Version: v.Version, Message: text(l, "host.caelisInstalled")}, nil
+	return Status{Installed: true, Bundled: isBundled(p), Path: p, Version: v.Version, Message: text(l, "host.caelisInstalled")}, nil
 }
 func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale) (Status, error) {
 	l := getLocale(loc...)
@@ -166,6 +171,14 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 	}
 	switch action {
 	case "check-update", "update":
+		if isBundled(p) {
+			v, err := Inspect(ctx, p, l)
+			v.Message = text(l, "host.caelisBundledUpdate")
+			if err == nil && action == "update" {
+				err = errors.New(v.Message)
+			}
+			return v, err
+		}
 		args := []string{"update", "--store-dir", dir}
 		if action == "check-update" {
 			args = append(args, "--check")

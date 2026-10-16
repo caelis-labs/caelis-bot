@@ -49,21 +49,6 @@ func Recover(ctx context.Context, path, store string) error {
 	})
 }
 
-// ConfirmedStopped is read-only preflight for a manual replacement when a
-// stale discovery record cannot be reached. Unclear status never permits it.
-func ConfirmedStopped(ctx context.Context, path, store string) bool {
-	p, err := Find(path)
-	if err != nil {
-		return false
-	}
-	dir, err := Store(store)
-	if err != nil {
-		return false
-	}
-	state, err := serviceState(ctx, p, dir)
-	return err == nil && state == "stopped"
-}
-
 func serviceState(ctx context.Context, path, store string) (string, error) {
 	raw, err := run(ctx, i18n.DefaultLocale, path, "service", "status", "--store-dir", store, "--format", "json")
 	if err != nil {

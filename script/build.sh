@@ -45,6 +45,8 @@ ditto "$BOT_SPARKLE_DIR/Sparkle.framework" "$BOT_BUNDLE/Contents/Frameworks/Spar
 cp "$BOT_SPARKLE_DIR/LICENSE" "$BOT_BUNDLE/Contents/Resources/Sparkle-LICENSE"
 node script/configure-updates.mjs "$BOT_BUNDLE/Contents/Info.plist"
 bash script/desktop-world-runtime.sh "$BOT_BUNDLE"
+python3 script/caelis-runtime.py stage "$BOT_BUNDLE"
+bash script/sign-caelis-runtime.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 bash script/sign-desktop-world.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 bash script/sign-sparkle.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 BOT_BUILD_SIGN_ARGS=(--force --sign "$BOT_BUILD_SIGN_IDENTITY" --identifier "$BOT_APP_ID" --entitlements "$BOT_ROOT/resources/macos/entitlements.plist")

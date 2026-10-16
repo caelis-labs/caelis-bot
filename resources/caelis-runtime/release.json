@@ -1,0 +1,11 @@
+{
+  "version": "v0.72.2",
+  "commit": "fa598b00db7d6635086d3388f4d4c9c335642cfd",
+  "team": "64KZ67PM5J",
+  "targets": {
+    "darwin-arm64": {
+      "artifact": "caelis_0.72.2_darwin_arm64.tar.gz",
+      "sha256": "7c39452f942c5830398a79c396d78087ec351341c0065c913f091242db428a49"
+    }
+  }
+}

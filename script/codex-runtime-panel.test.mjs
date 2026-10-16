@@ -39,3 +39,12 @@ test('existing Caelis models can continue without a new provider connection',asy
  assert.doesNotMatch(ready,/No credentials|API Key/);
  for(const html of [renderExisting('unavailable'),renderExisting(''),renderExisting('custom/existing',true)])assert.match(html,/<button class="primary" disabled="">Continue<\/button>/);
 });
+
+
+test('bundled Caelis needs no installation or self-update, while Host activation remains available',()=>{
+ const panel=state=>renderToStaticMarkup(React.createElement(BuiltinRuntimePanel,{state,busy:false,checking:false,onAction:()=>{},onConnect:()=>{},onTeam:()=>{},onDetect:()=>{}}));
+ const bundled={...base,state:'models',installation:{installed:true,bundled:true,version:'0.72.2',updateState:'available',latestVersion:'99'}};
+ const html=panel(bundled);
+ assert.match(html,/updated with the app/);assert.doesNotMatch(html,/Check for updates|Install|New version available/);
+ assert.match(panel({...bundled,serviceUpdateAvailable:true}),/Enable installed version/);
+});

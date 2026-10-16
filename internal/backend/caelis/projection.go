@@ -520,6 +520,20 @@ func (s *Session) ensureStreamLocked(sid string) {
 				return
 			}
 			s.componentError("session_observation", sid, err)
+			// A retry against a dead endpoint cannot discover its replacement.
+			// Read discovery only after stream failure; healthy idle observers do
+			// no periodic Host polling. The normal connect owner authenticates and
+			// checks Store/principal before accepting the new instance.
+			if next, _, discoveryErr := Discover(s.settings); discoveryErr == nil && next.InstanceID != instance {
+				s.mu.Lock()
+				if s.generation == generation && !s.closed {
+					s.connected = false
+					s.bumpLocked()
+					s.requestRefreshLocked()
+				}
+				s.mu.Unlock()
+				return
+			}
 			timer := time.NewTimer(time.Second * time.Duration(1<<min(attempt, 4)))
 			select {
 			case <-ctx.Done():

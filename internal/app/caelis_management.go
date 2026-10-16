@@ -10,7 +10,7 @@ import (
 )
 
 func runtimeInstallation(st caelisruntime.Status) api.RuntimeStatus {
-	return api.RuntimeStatus{Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message, LatestVersion: st.LatestVersion, UpdateState: st.UpdateState}
+	return api.RuntimeStatus{Bundled: st.Bundled, Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message, LatestVersion: st.LatestVersion, UpdateState: st.UpdateState}
 }
 
 // All user-facing Caelis installation paths converge here. Installation alone
@@ -24,19 +24,13 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 		return api.RuntimeStatus{}, err
 	}
 	defer a.CancelUpdate()
-	if err := caelis.CheckServiceIdle(ctx, v); err != nil {
-		return api.RuntimeStatus{}, err
-	}
+	// The public Core lifecycle alone decides whether to retain a busy Host
+	// or replace it. Bot subscriptions and detached jobs are not upgrade gates.
 	st, err := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore, a.locale())
 	if err != nil {
 		return runtimeInstallation(st), err
 	}
 	if action == "install" || action == "update" {
-		// Another client may have started work during a download. Retain the new
-		// binary and let the user apply it later; never repeat the installation.
-		if err = caelis.CheckServiceIdle(ctx, v); err != nil {
-			return runtimeInstallation(st), err
-		}
 		st, err = caelisruntime.Manage(ctx, "apply-update", v.CLIPath, v.CaelisStore, a.locale())
 		if err != nil {
 			return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.programInstalledServiceNotStarted"), err)

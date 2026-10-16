@@ -341,6 +341,7 @@ type ServiceTier struct {
 }
 
 type RuntimeStatus struct {
+	Bundled       bool   `json:"bundled,omitempty"`
 	LatestVersion string `json:"latestVersion"`
 	UpdateState   string `json:"updateState"` // available, current, or empty (not checked)
 	Installed     bool   `json:"installed"`
