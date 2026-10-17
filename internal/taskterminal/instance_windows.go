@@ -244,6 +244,12 @@ func (w *consoleWindow) Release() {
 }
 func (w *consoleWindow) keepUnconfirmedLaunch() bool { return true }
 func (w *consoleWindow) Observe(ctx context.Context) (WindowObservation, error) {
+	return w.observe(ctx, w.inspectWindow)
+}
+
+// Keep native mapping facts separate from the original client's lifecycle.
+// A confirmed live client can precede its host's first visible HWND.
+func (w *consoleWindow) observe(ctx context.Context, inspect func() (WindowObservation, bool)) (WindowObservation, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	o := WindowObservation{State: WindowUnknown, InputEpoch: InputEpoch()}
@@ -263,14 +269,27 @@ func (w *consoleWindow) Observe(ctx context.Context) (WindowObservation, error) 
 		o.Settled = true
 		return o, nil
 	}
-	if !w.validWindow() {
+	state, valid := inspect()
+	if !valid {
+		if w.hwnd == 0 {
+			return o, ErrWindowObservationPending
+		}
 		return o, ErrWindowUnsupported
+	}
+	state.InputEpoch = o.InputEpoch
+	return state, nil
+}
+
+func (w *consoleWindow) inspectWindow() (WindowObservation, bool) {
+	o := WindowObservation{State: WindowUnknown}
+	if !w.validWindow() {
+		return o, false
 	}
 	o.CanCollapse = true
 	o.Settled = true
 	if yes, _, _ := terminalUser.NewProc("IsIconic").Call(w.hwnd); yes != 0 {
 		o.State = WindowCollapsed
-		return o, nil
+		return o, true
 	}
 	front, _, _ := terminalUser.NewProc("GetForegroundWindow").Call()
 	o.AppActive = front == w.hwnd
@@ -279,7 +298,7 @@ func (w *consoleWindow) Observe(ctx context.Context) (WindowObservation, error) 
 	} else {
 		o.State = WindowBackground
 	}
-	return o, nil
+	return o, true
 }
 func (w *consoleWindow) validWindow() bool {
 	// A hosted terminal may publish the observer receipt before it finishes

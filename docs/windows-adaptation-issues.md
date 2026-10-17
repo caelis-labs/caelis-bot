@@ -417,12 +417,12 @@ preview.11 实测选区外双击保留、选区内双击复制关闭，F3 读回
 | 5 / P2 | Windows 环境解析保留 `=C:` 记录，Install 不对系统记录调用 Setenv/Unsetenv | 盘符环境继承与正常变量清理回归 |
 | 6 / P2 | 从选定 npm 安装发现原生 EXE，支持嵌套/提升依赖和旧 vendor 布局 | npm `.cmd` 的版本检测与真实 App Server 握手；不执行 shell shim |
 | 7 / P2 | 按规范化后的完整 UTF-8 地址限制 107 字节，采用用户可写的短父目录和私有随机叶目录 | 原生 AF_UNIX 监听、长中文 TMP 下真实 Codex 握手；不依赖 8.3 别名绕过限制 |
-| 8 / P2 | 沿 ConPTY 窗口归属链取得可见宿主，校验原 observer 及宿主 PID/创建时间 | Windows Terminal 和经典 Console 真实 stdio、复用、收起、聚焦、关闭均通过 |
+| 8 / P2 | 沿 ConPTY 窗口归属链取得可见宿主，校验原 observer 及宿主 PID/创建时间；首次未映射保持 bounded pending | 单次 WindowManager.Click 等待原宿主映射；Windows Terminal 和经典 Console 真实 stdio、复用、收起、聚焦、关闭均通过 |
 | 9 / P2 | portable stage/backup 放在安装卷，事务记录仍在 AppData | C 盘下载/事务、D 盘安装的真实进程交接、替换、重启；占用及未提交交接拒绝 |
 | 10 / P2 | Wails Show 全程加 NOACTIVATE，Dock 使用非激活样式 | 原生 HWND 连续显示时前台窗口保持不变；完整 WebView 输入走查仍单列 |
 | 11 / P2 | 用第二个 native ID 预注册新键，成功后释放旧键 | 冲突保留原键、成功替换、保存失败回滚和禁用回归 |
 | 12 / P2 | 显式召回状态独立于 pet 的持久可见性 | 隐藏 pet、展开任务、收起任务后保持原隐藏偏好的状态回归 |
-| 13 / P2 | 恢复时复用原 draft，并重新显示已 ready 的保留窗口 | unknown 原回执/窗口身份不变，禁用与未绘制窗口不能显示，启用后可恢复 |
+| 13 / P2 | 恢复时复用原 draft，停用期间仍记录当前首帧事实，启用时显示已 ready 的保留窗口 | unknown 原回执/窗口身份不变；覆盖首帧前停用、迟到确认和再次启用，停用期间不显示 |
 
 Windows Terminal 使用 Microsoft 的 [ConPTY 窗口归属实现](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalApp/TerminalPage.cpp)，
 不根据窗口标题、前台窗口或进程数量猜测归属。宿主不提供可靠映射时仍明确拒绝控制。
@@ -450,3 +450,20 @@ Windows Terminal 使用 Microsoft 的 [ConPTY 窗口归属实现](https://github
 异步插件索引轮询允许原子替换窗口内的短暂打开失败，仍在原 3 秒期限内要求完整目录。
 Windows 检查限制同时执行两个 Go 包，单包预算改为 180 秒：runner 上 Codex 包的累计测试
 超过 90 秒，超时当刻的当前用例只运行约 1 秒；各产品请求与用例的独立期限没有放宽。
+
+### 复核补齐的两项 P2（2026-10-17）
+
+- F13：`claimPresentation` 先验证当前 draft/window/generation 和 driver 生命周期，再记录
+  `ready`；`enabled` 只决定是否允许显示。`TestWindowsCaptureLatePaintWhileDisabledRestoresSameUnknownRequest`
+  覆盖恢复 → 绘制前停用 → 停用期间确认 → 再启用，保留原 unknown 请求与窗口，不重发图片。
+  旧 generation、已关闭 draft、停止 driver 与重复确认仍不能显示。
+- F8：原客户端句柄仍存活且从未绑定 HWND 时返回 `ErrWindowObservationPending`，复用
+  controller 的有期限观察。已有 HWND 失效仍返回 unsupported，关闭/身份错误仍保留原分类。
+  `TestWindowsManagerFirstClickWaitsForOriginalHostMapping` 从 `WindowManager.Click` 驱动真实回执
+  确认和 Windows Observe 生命周期，仅模拟原生映射事实；验证前三次未映射后一次点击完成、
+  只启动/确认一次、原 PID/回执/绑定不变，以及首次一直不可见超时、已绑定后丢失关联不重启。
+  本机另建 Windows Terminal 窗口完成 stdio/回执/原 PID 创建时间、收起、聚焦和关闭实测。
+  测试前已有用户 Windows Terminal 进程，未关闭它；因此不把此证据称为整个终端进程的冷启动。
+
+上述修正只改变 Windows 适配器状态时序，Mac 原生和共享 controller 均未修改。
+Bot Skill 已复核：工具、权限、未知回执和恢复工作流不变，无需新增指导。

@@ -456,11 +456,16 @@ func (c *windowsCapture) claimPresentation(id string, presentation uint64) *appl
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := c.drafts[id]
-	if !c.enabled || c.driver.stopped.Load() || d == nil || d.window == nil || d.ready || d.document.Presentation != presentation {
+	if c.driver.stopped.Load() || d == nil || d.window == nil || d.ready || d.document.Presentation != presentation {
 		return nil
 	}
+	// First paint is a fact about this presentation, even while disabled.
+	// Retained unknown requests do not emit another acknowledgement on enable.
 	d.ready = true
 	c.timing("paint_ready", d.started)
+	if !c.enabled {
+		return nil
+	}
 	return d.window
 }
 

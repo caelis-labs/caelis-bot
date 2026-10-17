@@ -101,13 +101,45 @@ func TestWindowsCaptureRevealRequiresCurrentDecodedPresentation(t *testing.T) {
 	}
 	d.ready = false
 	c.enabled = false
-	if c.claimPresentation("owned", 2) != nil || d.ready {
-		t.Fatal("disabled capture was revealed")
+	if c.claimPresentation("owned", 2) != nil || !d.ready {
+		t.Fatal("disabled capture must record paint without revealing")
 	}
 	c.enabled = true
+	d.ready = false
 	c.driver.stopped.Store(true)
-	if c.claimPresentation("owned", 2) != nil {
-		t.Fatal("shutdown capture was revealed")
+	if c.claimPresentation("owned", 2) != nil || d.ready {
+		t.Fatal("shutdown capture accepted an acknowledgement")
+	}
+}
+
+func TestWindowsCaptureLatePaintWhileDisabledRestoresSameUnknownRequest(t *testing.T) {
+	w := &application.WebviewWindow{}
+	saved := &windowsCaptureDraft{snapshot: screeninput.Snapshot{ID: "original"}, document: WindowsCaptureDocument{ID: "original", Outcome: "unknown", Presentation: 7}}
+	c := &windowsCapture{driver: &windowsDriver{}, enabled: true, drafts: map[string]*windowsCaptureDraft{}}
+	d := c.restoreDraft(saved)
+	d.window = w // The restored WebView exists but has not finished first paint.
+	if c.retainedPresentation(d) != nil {
+		t.Fatal("unpainted restoration revealed")
+	}
+	c.enabled = false
+	if c.claimPresentation("original", 6) != nil || d.ready {
+		t.Fatal("old presentation accepted while disabled")
+	}
+	if c.claimPresentation("original", 7) != nil || !d.ready || c.retainedPresentation(d) != nil {
+		t.Fatal("late first paint must be retained without showing the window")
+	}
+	c.enabled = true
+	restored := c.restoreDraft(&windowsCaptureDraft{document: WindowsCaptureDocument{ID: "original", Outcome: "unknown"}})
+	if restored != d || c.retainedPresentation(restored) != w || restored.snapshot.ID != "original" || restored.document.ID != "original" || restored.document.Outcome != "unknown" || restored.document.Presentation != 7 {
+		t.Fatal("reenable did not preserve original window, request and presentation")
+	}
+	if c.claimPresentation("original", 7) != nil {
+		t.Fatal("duplicate first-paint receipt showed the window again")
+	}
+	delete(c.drafts, "original")
+	d.ready = false
+	if c.claimPresentation("original", 7) != nil || d.ready || c.retainedPresentation(d) != nil {
+		t.Fatal("closed draft accepted a late receipt")
 	}
 }
 
