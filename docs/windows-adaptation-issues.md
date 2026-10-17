@@ -435,3 +435,12 @@ Windows Terminal 使用 Microsoft 的 [ConPTY 窗口归属实现](https://github
 保留原失败日志，没有放宽超时或跳过测试。后续 npm alias 元数据补充已通过发现矩阵与真实握手回归。
 本机原始测试日志仍在忽略的 `.cache/windows-realignment-20261016/pr183-*.log`；
 跨编译仅证明测试可编译，Mac 实机 UI、Win10/Server、多屏 DPI 和精确安装包验收继续保留。
+
+首轮远端 CI 的 Mac 产品/预览及 Linux 检查通过；Windows runner 进一步暴露提权进程的
+默认文件所有者差异。Windows 可把新对象归给令牌的 Administrators 默认所有者，见
+[Microsoft 的对象所有者说明](https://learn.microsoft.com/en-us/windows/win32/secauthz/owner-of-a-new-object)。
+保护操作现在只在提权令牌、对象所有者与令牌默认 Administrators SID 三者匹配时，
+通过同一个已检查句柄转为当前个人 SID，再设置私有 DACL；不启用额外特权。
+读取验证仍只接受个人 SID，不更改所有者；其他用户/组、重解析点和多硬链接继续拒绝。
+原生回归检查新建对象保护、替换与内容保留，并覆盖非默认管理员组及其他所有者的拒绝。
+这是 Windows 私有存储实现修正，不更改 Bot 工具或用户权限语义。

@@ -26,9 +26,14 @@ func privateHandle(path string, write bool) (windows.Handle, *windows.Tokenuser,
 	if err != nil {
 		return 0, nil, err
 	}
+	token := windows.GetCurrentProcessToken()
+	elevated := write && token.IsElevated()
 	access := uint32(windows.READ_CONTROL | windows.FILE_READ_ATTRIBUTES)
 	if write {
 		access |= windows.WRITE_DAC
+	}
+	if elevated {
+		access |= windows.WRITE_OWNER
 	}
 	h, err := windows.CreateFile(name, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
@@ -45,7 +50,7 @@ func privateHandle(path string, write bool) (windows.Handle, *windows.Tokenuser,
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.NumberOfLinks > 1 {
 		return fail(errors.New("private path is redirected or multiply linked"))
 	}
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	user, err := token.GetTokenUser()
 	if err != nil {
 		return fail(err)
 	}
@@ -54,10 +59,29 @@ func privateHandle(path string, write bool) (windows.Handle, *windows.Tokenuser,
 		return fail(err)
 	}
 	owner, _, err := sd.Owner()
-	if err != nil || owner == nil || !owner.Equals(user.User.Sid) {
+	if err != nil || owner == nil {
 		return fail(errors.New("private path owner mismatch"))
 	}
+	if !owner.Equals(user.User.Sid) {
+		// Elevated Windows processes can create objects owned by the token's
+		// default Administrators group rather than TokenUser. Only protection
+		// may normalize that exact default owner, through this checked handle.
+		// Read-only attestation still requires the individual user's SID.
+		var buffer [256]byte // TOKEN_OWNER pointer and its SID (at most 68 bytes).
+		var size uint32
+		if !elevated || windows.GetTokenInformation(token, windows.TokenOwner, &buffer[0], uint32(len(buffer)), &size) != nil ||
+			!claimablePrivateOwner(owner, *(**windows.SID)(unsafe.Pointer(&buffer[0]))) {
+			return fail(errors.New("private path owner mismatch"))
+		}
+		if err := windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user.User.Sid, nil, nil, nil); err != nil {
+			return fail(err)
+		}
+	}
 	return h, user, nil
+}
+
+func claimablePrivateOwner(owner, defaultOwner *windows.SID) bool {
+	return owner != nil && defaultOwner != nil && owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && owner.Equals(defaultOwner)
 }
 
 func protectPath(path string, directory bool) error {
