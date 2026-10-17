@@ -330,12 +330,15 @@ func TestPluginIndexFreshSessionAndPostTurnDirectory(t *testing.T) {
 	finish()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		got := read()
-		if strings.Contains(got, `"name":"lookup"`) && strings.Contains(got, `"name":"update"`) {
+		// Poll an asynchronous publication. Windows can briefly reject opening
+		// the destination while its atomic replacement owns the delete handle.
+		body, err := os.ReadFile(path)
+		got := string(body)
+		if err == nil && strings.Contains(got, `"name":"lookup"`) && strings.Contains(got, `"name":"update"`) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("post-turn connected directory incomplete: %s", got)
+			t.Fatalf("post-turn connected directory incomplete: %s (%v)", got, err)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

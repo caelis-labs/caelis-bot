@@ -20,6 +20,8 @@ try {
     'script/streaming-text.test.mjs','script/markdown-chunks.test.mjs','script/capture-editor.test.mjs','script/pet-interaction.test.mjs'
   )
   Invoke-BotCommand node --test @taskNodeTests
-  Invoke-BotCommand go test -timeout 90s ./...
+  # Bound package concurrency on hosted Windows runners. The timeout applies to
+  # an entire package (hundreds of native-process tests), not a request deadline.
+  Invoke-BotCommand go test -p 2 -timeout 180s ./...
   Invoke-BotCommand git diff --check
 } finally { $env:CGO_ENABLED=$taskPreviousCGO }

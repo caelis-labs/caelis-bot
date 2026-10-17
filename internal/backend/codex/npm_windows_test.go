@@ -31,6 +31,10 @@ func TestWindowsNPMLongTempNativeHandshake(t *testing.T) {
 	if err = os.WriteFile(native, b, 0700); err != nil {
 		t.Fatal(err)
 	}
+	native, err = filepath.EvalSymlinks(native)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"@openai/codex"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +98,11 @@ func TestWindowsNPMShimResolvesNativeInstallation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got, err := runtimeBinary(shim); err != nil || got != binary {
+			want, err := filepath.EvalSymlinks(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := runtimeBinary(shim); err != nil || got != want {
 				t.Fatal("native npm discovery", got, err)
 			}
 			os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"foreign"}`), 0600)
