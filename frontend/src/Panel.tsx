@@ -1,4 +1,5 @@
 import { surfaceReady, surfaceMounted } from './surface-ready';
+import { useConnectionNotice } from './use-connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
@@ -154,7 +155,7 @@ type MessageProps={ item: Item; report: (message: string) => void; onContextMenu
 const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, onQuestion, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
-  const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
+  const delivery=item.kind==='user'&&['unknown','rejected'].includes(item.status)?statusLabel:'';
   const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
@@ -258,10 +259,14 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   }).catch(()=>{});
   return()=>{alive=false;};
  },[refs,locale]);
- const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
+ const pending=useRef<{request:Submission;files:DraftFile[];outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number;editRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
  const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
+ const presentFiles=(value:DraftFile[])=>{
+  const visible=visibleDraftFiles(value,saved.current),attempt=pending.current;
+  return attempt?.progress.outcome==='sending'?visible.filter(file=>!attempt.request.fileIds.includes(file.id)):visible;
+ };
  const writes=useRef(new DraftQueue()), conflicted=useRef(false),composing=useRef(false);
  useEffect(()=>{
   const flush=async()=>{
@@ -288,7 +293,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  useEffect(()=>{
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
   setLoaded(false);setFilesLoaded(false);setSendBlocked(false);setCleanupPending(false);setSyncReadFailed(false);fileOrder.current.reset();
-  const readFiles=()=>{stopFileRead.current();const ticket=fileOrder.current.request();setFilesLoaded(false);stopFileRead.current=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{if(!fileOrder.current.accept(ticket))return;const visible=visibleDraftFiles(value,saved.current);setFiles(visible);setFilesLoaded(true);setError(previous=>previous===t('chat.fileSelectionReadFailed')?(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice):previous);if(!visible.length)setFeedback('');},()=>setError(previous=>previous||t('chat.fileSelectionReadFailed')));};
+  const readFiles=()=>{stopFileRead.current();const ticket=fileOrder.current.request();setFilesLoaded(false);stopFileRead.current=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{if(!fileOrder.current.accept(ticket))return;const visible=presentFiles(value);setFiles(visible);setFilesLoaded(true);setError(previous=>previous===t('chat.fileSelectionReadFailed')?(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice):previous);if(!visible.length)setFeedback('');},()=>setError(previous=>previous||t('chat.fileSelectionReadFailed')));};
   const stopDraft=retryRead(async()=>{
    await writes.current.flush();
    return backend<Draft>('Draft');
@@ -397,11 +402,24 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    }
   }
  };
+ const restoreSubmittedDraft=(attempt:NonNullable<typeof pending.current>)=>{
+  // The original durable draft is untouched until native acceptance. Restore
+  // its local presentation on refusal/uncertainty, never over a newer edit.
+  if(pending.current!==attempt||lifetime.current!==attempt.generation||editGeneration.current!==attempt.editRevision)return;
+  setDraftValue(attempt.request.text);setRefs(attempt.request.referenceIds);
+  quotedRef.current=attempt.request.quoted??null;setQuoted(quotedRef.current);
+  setFiles(current=>[...attempt.files,...current.filter(file=>!attempt.request.fileIds.includes(file.id))]);
+ };
  const retryLocalCleanup=async()=>{
   stopFileRead.current();
   const generation=lifetime.current,fileTicket=fileOrder.current.request(),editTicket=editGeneration.current;
   try{
    await writes.current.flush();
+   if(pending.current?.progress.outcome==='unknown'){
+    // A successful local draft read alone is not a terminal send receipt.
+    // Let the exact native request settle before enabling another submission.
+    await backend<Draft>('Draft');await refresh();return;
+   }
    let next=await backend<Draft>('Draft');
    if(generation!==lifetime.current)return;
    if(editTicket!==editGeneration.current){setError(t('chat.sentDraftSyncFailed'));return;}
@@ -424,14 +442,18 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   working.current=true;setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft.current,fileIds:files.map(f=>f.id),referenceIds:refs,quoted:quotedRef.current??undefined};
   const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,seenAt:Date.now()*1000,turnKey:'',kind:'user',text:[draft.current,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[],quoted:request.quoted};
-  const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current,draftRevision:saved.current.revision};
+  const attempt={request,files:[...files],outgoing,progress:new SubmissionProgress(),generation:lifetime.current,draftRevision:saved.current.revision,editRevision:editGeneration.current};
   pending.current=attempt;onOutgoing?.(outgoing);
+  // Move the message into chat in the same interaction frame. This is only a
+  // view change: queued draft writes and the original submission stay intact.
+  stopFileRead.current();fileOrder.current.reset();
+  setDraftValue('');setRefs([]);quotedRef.current=null;setQuoted(null);setFiles([]);setFeedback('');
   try{
    try{await writes.current.flush();}
-   catch{attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});return;}
+   catch{attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});restoreSubmittedDraft(attempt);return;}
    if(lifetime.current!==attempt.generation)return;
    attempt.draftRevision=saved.current.revision;
-   if(conflicted.current){attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});return;}
+   if(conflicted.current){attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});restoreSubmittedDraft(attempt);return;}
    let receipt:Receipt;
    try{receipt=await backend<Receipt>('Submit',request);}
    catch{receipt={id:request.id,outcome:'unknown',message:t('chat.sendPendingChat')};}
@@ -439,7 +461,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    const outcome=attempt.progress.observe(receipt.outcome);
    onOutgoing?.({...outgoing,status:outcome});
    if(outcome==='accepted')await accepted(attempt);
-   else setError(receipt.message||t('chat.sendPending'));
+   else {restoreSubmittedDraft(attempt);setSendBlocked(outcome!=='rejected');setError(receipt.message||t('chat.sendPending'));}
   }finally{
    // Keep the disabled state until the authoritative send/stop action is fresh.
    try{await refresh();}catch{/* A read failure does not change the send receipt. */}
@@ -448,7 +470,11 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  };
  useEffect(()=>{
   const attempt=pending.current;
-  if(attempt&&snapshot?.lastReceipt.id===attempt.request.id&&snapshot.lastReceipt.outcome==='accepted')void accepted(attempt);
+  if(!attempt||snapshot?.lastReceipt.id!==attempt.request.id)return;
+  if(snapshot.lastReceipt.outcome==='accepted')void accepted(attempt);
+  else if(snapshot.lastReceipt.outcome==='rejected'&&attempt.progress.observe('rejected')==='rejected'){
+   restoreSubmittedDraft(attempt);setSendBlocked(false);onOutgoing?.({...attempt.outgoing,status:'rejected'});
+  }
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
  const primaryAction=composerAction(snapshot,!!(hasText||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
@@ -574,10 +600,10 @@ export function History() {
   const entry=interactionDock.current?.querySelector<HTMLElement>('[data-interaction]:not([hidden])');
   entry?.querySelector<HTMLElement>('.question-prompt-options button:not(:disabled),.question-prompt-entry input:not(:disabled),.approval-choices button:not(:disabled)')?.focus({preventScroll:true});
  },[interactionOpen,currentInteraction]);
- const activity=chatActivity(snapshot);
+ const activity=chatActivity(snapshot,outgoing);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
- const connection=snapshot&&snapshot.connection!=='ready'&&!snapshot.introductionPending;
+ const connection=useConnectionNotice(snapshot);
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';
@@ -589,7 +615,7 @@ export function History() {
   snapshot?.connectionIssue==='resource_exhausted'?t('chat.resourceConnection'):
   snapshot?.connectionIssue==='existing_server'?t('chat.existingServerConnection'):
   snapshot?.connectionIssue==='connection'?t('chat.offlineConnection'):
-  snapshot?.message||t('chat.offlineConnection');
+  t('chat.offlineConnection');
  useLayoutEffect(()=>{
   const el=scroll.current;if(!el||!active)return;
   if(prepend.current){
@@ -610,11 +636,11 @@ export function History() {
     {chatTimeDivider(messages[index-1]?.seenAt,i.seenAt)&&<div className="history-time-divider"><time dateTime={new Date(i.seenAt!/1000).toISOString()}>{chatTimeLabel(i.seenAt!,locale)}</time></div>}
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
-   {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
+   {connection&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className="message assistant state-bubble">
-   {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
+   {connection&&snapshot&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>
     <div className="connection-actions">
@@ -625,10 +651,6 @@ export function History() {
      {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
-   {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
-   {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
-    <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
-   </div>}
     </div>
    </article>}
    {!!(error||connectionError)&&<p className="inline-error" role="alert">{error||connectionError}</p>}

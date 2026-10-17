@@ -1,5 +1,4 @@
-import '../style.css';
-import './settings.css';
+import '../application.css';
 import {createRoot} from 'react-dom/client';
 import {I18nProvider, type LanguageBridge} from '../i18n';
 import {Settings} from '../Settings';

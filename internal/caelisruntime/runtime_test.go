@@ -4,42 +4,21 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestOfficialCLICommandsAndCredentialIsolation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("native Windows runtime management is not implemented")
-	}
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "caelis")
+	bin := nativeCommandFixture(t, dir, "caelis")
 	log := filepath.Join(dir, "calls")
 	t.Setenv("CAELIS_RUNTIME_TEST_LOG", log)
 	t.Setenv("CAELIS_CONTROL_TOKEN", "HOST_SECRET_SENTINEL")
 	t.Setenv("CAELIS_CONTROL_URL", "http://wrong-host.invalid")
 	t.Setenv("CODEX_THREAD_ID", "foreign-caller")
 	t.Setenv("RUNTIME_TOOL_SETTING", "native-export")
-	t.Setenv("PATH", dir+":/usr/bin:/bin")
-	if e := os.WriteFile(filepath.Join(dir, "worker-tool"), []byte("#!/bin/sh\nprintf '%s' \"$RUNTIME_TOOL_SETTING\"\n"), 0700); e != nil {
-		t.Fatal(e)
-	}
-	script := `#!/bin/sh
-[ -z "$CAELIS_CONTROL_TOKEN$CAELIS_CONTROL_URL" ] || exit 97
-[ -z "$CODEX_THREAD_ID" ] || exit 96
-[ "$(worker-tool)" = native-export ] || exit 95
-printf '%s\n' "$*" >> "$CAELIS_RUNTIME_TEST_LOG"
-case "$1" in
-version) printf '{"version":"0.fixture"}\n';;
-update) printf 'caelis is up to date (0.fixture)\n';;
-service) printf '{"state":"running"}\n';;
-*) exit 98;;
-esac
-`
-	if e := os.WriteFile(bin, []byte(script), 0700); e != nil {
-		t.Fatal(e)
-	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	nativeCommandFixture(t, dir, "worker-tool")
 	for _, action := range []string{"detect", "check-update", "update", "start"} {
 		v, e := Manage(context.Background(), action, bin, dir)
 		if e != nil || !v.Installed || v.Path != bin || v.Version != "0.fixture" {
@@ -96,17 +75,8 @@ func TestUpdateCompletionIsStructuredAndNeverLeaksInstallerOutput(t *testing.T) 
 }
 
 func TestOldHostReplacementShowsBoundedRestartInstruction(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fixture")
-	}
-	path := filepath.Join(t.TempDir(), "caelis")
-	script := `#!/bin/sh
-printf '%s\n' 'PRIVATE_CONFIG_SENTINEL CAELIS_HOST_RESTART_REQUIRED PRIVATE_CONVERSATION_SENTINEL' >&2
-exit 1
-`
-	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
+	path := nativeCommandFixture(t, t.TempDir(), "caelis")
+	t.Setenv("CAELIS_RUNTIME_FIXTURE_RESTART", "1")
 	_, err := Manage(t.Context(), "apply-update", path, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "caelis service restart") || strings.Contains(err.Error(), "SENTINEL") {
 		t.Fatalf("unsafe or missing upgrade diagnostic: %v", err)

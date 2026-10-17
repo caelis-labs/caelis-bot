@@ -25,7 +25,7 @@ class StagingTests(unittest.TestCase):
                  'skills/desktop-world/SKILL.md', 'skills/desktop-world/api.d.ts', 'skills/desktop-world/RECIPES.md',
                  'LICENSING/MPL-SOURCES.tar.gz', 'LICENSING/THIRD-PARTY.md', 'LICENSING/DEPENDENCIES.json',
                  'LICENSING/rust-runtime-licenses/OFL-1.1.txt',
-                 'LICENSING/licenses/cursor-overlay-0.34.0/assets/Inter-OFL.txt', 'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE',
+                 'LICENSING/licenses/cursor-overlay-0.35.4/assets/Inter-OFL.txt', 'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE',
                  '.claude-plugin/plugin.json', '.dtw-bundle-sha256']
         for name in names:
             path = self.package / name

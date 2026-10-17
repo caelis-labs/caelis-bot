@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -409,10 +411,10 @@ func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 		t.Fatalf("duplicate or foreign ingress refreshed the wrong budget: %#v", window)
 	}
 	info, err := os.Stat(b.path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || !localstate.HasPrivateMode(b.path, info, 0600) {
 		t.Fatalf("private state permissions: %v %v", info, err)
 	}
-	reloaded, err := Open(strings.TrimSuffix(b.path, "/weixin.json"), Host{})
+	reloaded, err := Open(filepath.Dir(b.path), Host{})
 	if err != nil || reloaded.state.Cursor != "next-cursor" || len(reloaded.state.Inbox) != 1 {
 		t.Fatalf("reopen: %#v %v", reloaded.state, err)
 	}

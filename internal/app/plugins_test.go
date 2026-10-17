@@ -287,7 +287,6 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 }
 
 func TestPluginIndexFreshSessionAndPostTurnDirectory(t *testing.T) {
-	requireNativeIPC(t)
 	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
 	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"https://example.com/mcp"}}}`)
 	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
@@ -331,12 +330,15 @@ func TestPluginIndexFreshSessionAndPostTurnDirectory(t *testing.T) {
 	finish()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		got := read()
-		if strings.Contains(got, `"name":"lookup"`) && strings.Contains(got, `"name":"update"`) {
+		// Poll an asynchronous publication. Windows can briefly reject opening
+		// the destination while its atomic replacement owns the delete handle.
+		body, err := os.ReadFile(path)
+		got := string(body)
+		if err == nil && strings.Contains(got, `"name":"lookup"`) && strings.Contains(got, `"name":"update"`) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("post-turn connected directory incomplete: %s", got)
+			t.Fatalf("post-turn connected directory incomplete: %s (%v)", got, err)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -677,7 +679,6 @@ func TestPluginConnectionReturnsFullPackageVerificationSnapshot(t *testing.T) {
 }
 
 func TestPluginProjectionRecoversOnOriginalRuntimeReadyTransition(t *testing.T) {
-	requireNativeIPC(t)
 	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}
 	e.rejectNext.Store(true)
 	a, _ := fixtureApp(t, e, Host{})
@@ -732,7 +733,6 @@ func (e *bindingRacePluginEngine) ConfigureBotTools(config *api.ToolConnection) 
 }
 
 func TestPluginStartDoesNotMarkNewerUnboundRevisionProjected(t *testing.T) {
-	requireNativeIPC(t)
 	e := &bindingRacePluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}}
 	a, _ := fixtureApp(t, e, Host{})
 	e.manager = a.plugins
@@ -907,7 +907,6 @@ func (e *lockOrderPluginEngine) UpdateBotPlugins(context.Context, plugins.Select
 func (e *lockOrderPluginEngine) BotPluginHealth(context.Context) []plugins.Issue { return nil }
 
 func TestPluginInstallDoesNotWaitForCurrentTurn(t *testing.T) {
-	requireNativeIPC(t)
 	e := &lockOrderPluginEngine{testEngine: newTestEngine(), submitEntered: make(chan struct{}), continueSubmit: make(chan struct{}), applied: make(chan plugins.Selection, 2)}
 	a, _ := fixtureApp(t, e, Host{})
 	if err := a.Start(); err != nil {

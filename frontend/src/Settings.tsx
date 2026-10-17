@@ -1,5 +1,4 @@
 import { surfaceReady, surfaceMounted } from './surface-ready';
-import './settings/settings.css';
 import {SettingsToolbarContext} from './settings/SettingsToolbar';
 import { SettingsNavIcon } from './SettingsNavIcon';
 import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
@@ -25,7 +24,7 @@ import { PluginSettings } from './PluginSettings';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
 type Update = { state:string; current:string; latest:string; message:string };
-type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean; state?:string; message?:string };
+type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean; state?:string; message?:string; format?:string; latest?:string };
 
 export function Settings() {
  const {t}=useI18n();
@@ -104,6 +103,15 @@ function Updates({version,active,focusVersion}:{version:string;active:boolean;fo
   if(!opening&&Date.now()-lastRead.current<1000)return;
   lastRead.current=Date.now();void refresh();
  },[active,focusVersion,t]);
+ useEffect(()=>{
+  if(!active||!preferences?.format)return;
+  const timer=window.setInterval(()=>void refresh(),1000);
+  return()=>window.clearInterval(timer);
+ },[active,preferences?.format,t]);
+ const install=async()=>{
+  setBusy(true);setError('');
+  try{await desktop('InstallUpdate');await refresh();}catch{setError(t('settings.updateCheckFailed'));}finally{setBusy(false);}
+ };
  const automatic=async(value:boolean)=>{
   setBusy(true);setError('');
   try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
@@ -113,12 +121,13 @@ function Updates({version,active,focusVersion}:{version:string;active:boolean;fo
   preferences?.state==='preparing'?t('settings.updatePreparing'):
   preferences?.state==='closing'?t('settings.updateClosing'):
   preferences?.state==='restarting'?t('settings.updateRestarting'):
-  preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion');
+  preferences?.format&&preferences.message?preferences.message:preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion');
  return <section className="update-settings">
   <h1>{t('settings.updates')}</h1>
   <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>Caelis Bot</h2><p>{result?.current||version}</p></div></div>
   <SettingGroup>{preferences?.available&&<SettingRow label={t('settings.autoUpdateLabel')} htmlFor="automatic-updates" description={t('settings.autoUpdateDescription')}><input id="automatic-updates" className="settings-switch" role="switch" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
   <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{error||updateStatus}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button></SettingRow>
+  {preferences?.format&&preferences.state==='ready'&&<SettingRow label={t('settings.newVersionAvailable',{version:preferences.latest||''})} description={t('settings.windowsUpdateInstallDescription')}><button disabled={busy||preferences.waiting} onClick={()=>void install()}>{t('settings.windowsUpdateInstall')}</button></SettingRow>}
   <SettingRow label={result?.state==='available'?t('settings.newVersionAvailable',{version:result.latest}):t('settings.releaseAndInstall')}><button onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{result?.state==='available'?t('settings.downloadNewVersion'):t('settings.viewReleasePage')}</button></SettingRow></SettingGroup>
   <p className="settings-note">{preferences?.available?t('settings.updateNoteAvailable'):t('settings.updateNoteManual')}</p><Maintenance storage={false} embedded/>
  </section>;

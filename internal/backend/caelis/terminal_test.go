@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -15,6 +16,9 @@ func TestTerminalResolvesOnlyOwnedNativeWorkerWithoutDispatch(t *testing.T) {
 	settings.CLIPath = filepath.Join(t.TempDir(), "caelis")
 	if err := os.WriteFile(settings.CLIPath, []byte("#!/bin/sh\nexit 99\n"), 0700); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		settings.CLIPath, _ = os.Executable()
 	}
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Error("application must not dispatch") })
 	s.settings = settings

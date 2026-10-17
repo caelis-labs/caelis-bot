@@ -35,6 +35,8 @@ func setupFixture(t *testing.T, h http.HandlerFunc) api.RuntimeSettings {
 	if e := os.WriteFile(filepath.Join(service, "auth.token"), []byte("HOST_SETUP_TOKEN"), 0600); e != nil {
 		t.Fatal(e)
 	}
+	protectHostFixture(t, filepath.Join(service, "discovery.json"))
+	protectHostFixture(t, filepath.Join(service, "auth.token"))
 	return api.RuntimeSettings{Runtime: "caelis", CaelisStore: dir}
 }
 

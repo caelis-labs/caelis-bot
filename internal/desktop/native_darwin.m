@@ -91,7 +91,12 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property double placementY;
 @property UNAuthorizationStatus notificationPermission;
 @property NSString *notificationError;
+@property NSMutableDictionary<NSString *,UNNotificationRequest *> *pendingNotifications;
+@property BOOL notificationAuthorizationPending;
+@property BOOL notificationAuthorizationAttempted;
 - (void)refreshNotificationPermission;
+- (void)deliverPendingNotifications;
+- (void)requestNotificationAuthorization;
 - (void)configureNotifications:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)checkUpdates:(id)sender;
@@ -189,18 +194,41 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 - (void)configureNotifications:(id)sender {
     if (self.notificationPermission == UNAuthorizationStatusNotDetermined) {
-        __weak BotHost *weak = self;
-        [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound completionHandler:^(BOOL granted, NSError *error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (!weak) return;
-                weak.notificationError = error ? @"暂时无法开启通知，请稍后重试" : nil;
-                [weak refreshNotificationPermission];
-                if (granted) bot_notify((__bridge void *)weak, "notifications-enabled", "通知已开启", "需要你确认的事项和定时任务结果会出现在这里。", 1);
-            });
-        }];
+        if(self.notificationAuthorizationPending)return;
+        // An explicit settings action may retry a failed request; background
+        // notifications never repeat it during this process lifetime.
+        self.notificationAuthorizationAttempted=NO;
+        [self requestNotificationAuthorization];
     } else {
         [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.Notifications-Settings.extension"]];
     }
+}
+- (void)deliverPendingNotifications {
+    NSArray<UNNotificationRequest *> *requests=self.pendingNotifications.allValues;
+    [self.pendingNotifications removeAllObjects];
+    if(self.history.keyWindow)return;
+    __weak BotHost *weak=self;
+    for(UNNotificationRequest *request in requests) {
+        [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request withCompletionHandler:^(NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{ weak.notificationError=error?@"系统通知未能送达，请检查通知权限":nil; });
+        }];
+    }
+}
+- (void)requestNotificationAuthorization {
+    if(self.notificationAuthorizationPending||self.notificationAuthorizationAttempted)return;
+    self.notificationAuthorizationPending=YES;
+    self.notificationAuthorizationAttempted=YES;
+    __weak BotHost *weak=self;
+    [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound completionHandler:^(BOOL granted,NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BotHost *host=weak;if(!host)return;
+            host.notificationAuthorizationPending=NO;
+            host.notificationError=error?@"暂时无法开启通知，请稍后重试":nil;
+            [host refreshNotificationPermission];
+            if(granted)[host deliverPendingNotifications];
+            else [host.pendingNotifications removeAllObjects];
+        });
+    }];
 }
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)notification withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
     completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList | UNNotificationPresentationOptionSound);
@@ -683,6 +711,7 @@ void bot_mask(void *pointer, unsigned char *mask, int length) {
 void bot_destroy(void *pointer) {
     BotHost *host = (__bridge_transfer BotHost *)pointer;
     [host trace:@"shutdown"];
+    [host.pendingNotifications removeAllObjects];
     UNUserNotificationCenter.currentNotificationCenter.delegate = nil;
     [host dismissMenu:@"menu-dismiss-shutdown"];
     [host cancelPlane]; [host.contextTimer invalidate];
@@ -733,7 +762,7 @@ void bot_gesture(void *pointer,char *action) {
 
 void bot_notify(void *pointer, char *identifier, char *title, char *body, int reminder) {
     BotHost *host = (__bridge BotHost *)pointer;
-    // Ordinary results already have a pet bubble. A hidden pet must not silence
+    // Decisions already have a pet bubble. A hidden pet must not silence
     // due reminders or decisions. Arrival never activates a window.
     if (host.history.keyWindow || (host.visible && !reminder)) return;
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
@@ -741,15 +770,31 @@ void bot_notify(void *pointer, char *identifier, char *title, char *body, int re
     content.body = [NSString stringWithUTF8String:body];
     content.sound = UNNotificationSound.defaultSound;
     UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:[NSString stringWithUTF8String:identifier] content:content trigger:nil];
+    if(!host.pendingNotifications)host.pendingNotifications=[NSMutableDictionary new];
+    host.pendingNotifications[request.identifier]=request;
     __weak BotHost *weak = host;
-    [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request withCompletionHandler:^(NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{ weak.notificationError = error ? @"系统通知未能送达，请检查通知权限" : nil; });
+    // Ask only when an actual notification needs delivery, never at launch or
+    // during a status read. Keep original IDs so dismissal also cancels events
+    // waiting for the user's decision.
+    [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BotHost *owner=weak;if(!owner||!owner.pendingNotifications.count)return;
+            owner.notificationPermission=settings.authorizationStatus;
+            if(settings.authorizationStatus==UNAuthorizationStatusAuthorized||settings.authorizationStatus==UNAuthorizationStatusProvisional) {
+                [owner deliverPendingNotifications];
+            } else if(settings.authorizationStatus==UNAuthorizationStatusNotDetermined) {
+                if(owner.notificationAuthorizationPending)return;
+                if(owner.notificationAuthorizationAttempted)[owner.pendingNotifications removeAllObjects];
+                else [owner requestNotificationAuthorization];
+            } else [owner.pendingNotifications removeAllObjects];
+        });
     }];
 }
 
-void bot_dismiss_notification(char *identifier) {
+void bot_dismiss_notification(void *pointer,char *identifier) {
     NSString *key = [NSString stringWithUTF8String:identifier];
     if (!key.length) return;
+    [((__bridge BotHost *)pointer).pendingNotifications removeObjectForKey:key];
     [UNUserNotificationCenter.currentNotificationCenter removeDeliveredNotificationsWithIdentifiers:@[key]];
     [UNUserNotificationCenter.currentNotificationCenter removePendingNotificationRequestsWithIdentifiers:@[key]];
 }

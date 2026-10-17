@@ -1,6 +1,7 @@
 package notebook
 
 import (
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestContextIgnoresUntrustedLegacyHandoffAndRejectsUnsafeMemory(t *testing.T
 	outside := filepath.Join(t.TempDir(), "secret.md")
 	os.WriteFile(outside, []byte("private"), 0600)
 	path := filepath.Join(v.Path(), HandoffName)
-	if err := os.Symlink(outside, path); err != nil {
+	if err := testutil.Redirect(outside, path); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := v.PrepareContext(t.Context()); err != nil {
@@ -58,7 +59,7 @@ func TestContextIgnoresUntrustedLegacyHandoffAndRejectsUnsafeMemory(t *testing.T
 	os.Remove(path)
 	memory := filepath.Join(v.Path(), "MEMORY.md")
 	os.Remove(memory)
-	os.Symlink(outside, memory)
+	testutil.Redirect(outside, memory)
 	if _, err := v.PrepareContext(t.Context()); err == nil {
 		t.Fatal("read redirected memory")
 	}

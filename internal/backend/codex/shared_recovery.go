@@ -58,6 +58,7 @@ func recoverShared(ctx context.Context, opts Options) error {
 			return err
 		}
 		cmd := exec.CommandContext(ctx, binary, "app-server", "daemon", "start")
+		runtimeenv.BackgroundCommand(cmd)
 		cmd.Dir = opts.Directory
 		cmd.Env = append(runtimeenv.Clean(cmd.Environ()), "CODEX_HOME="+home)
 		cmd.Stdout, cmd.Stderr = io.Discard, io.Discard

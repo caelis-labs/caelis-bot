@@ -4,6 +4,7 @@ import { useEffectEvent, useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { SettingRow } from './SettingsUI';
 import { useI18n } from './i18n';
+import { presentationWarning } from './presentation-warning';
 
 type Shortcut={enabled:boolean;key:string;control:boolean;alt:boolean;shift:boolean;meta:boolean};
 type State={shortcut:Shortcut;registered:boolean;message:string};
@@ -16,15 +17,17 @@ export function ShortcutSettings({tasks=false,capture=false,paste=false}:{tasks?
  const prefix=capture?'Capture':paste?'Paste':tasks?'Task':'';
  const title=capture?'settings.captureShortcutTitle':paste?'settings.pasteShortcutTitle':tasks?'settings.taskShortcutTitle':'settings.shortcutTitle';
  const {t}=useI18n();
- const loadFailed=useEffectEvent(()=>t('settings.shortcutLoadFailed'));
+ const loadFailed=useEffectEvent(()=>{presentationWarning('background_read_failed');});
  const edit=useRef<HTMLButtonElement>(null),recorder=useRef<HTMLInputElement>(null);
  const [value,setValue]=useState<Shortcut>(defaults),[recording,setRecording]=useState(false),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[message,setMessage]=useState('');
- useEffect(()=>{void desktop<State>(prefix+'ShortcutSettings').then(s=>{setValue(s.shortcut);setMessage(s.message);setReady(true);}).catch(()=>setMessage(loadFailed()));},[prefix]);
+ const receive=(s:State)=>{setValue(s.shortcut);setReady(true);if(s.message)presentationWarning('background_read_failed');setMessage(s.shortcut.enabled&&!s.registered?t('settings.shortcutChooseAnother'):'');};
+ const loaded=useEffectEvent(receive);
+ useEffect(()=>{void desktop<State>(prefix+'ShortcutSettings').catch(()=>desktop<State>(prefix+'ShortcutSettings')).then(loaded).catch(loadFailed);},[prefix]);
  useEffect(()=>{if(recording)recorder.current?.focus();},[recording]);
  const cancel=()=>{setRecording(false);setMessage('');requestAnimationFrame(()=>edit.current?.focus());};
- const save=async(v:Shortcut)=>{setBusy(true);setRecording(false);setMessage('');try{const s=await desktop<State>('Save'+prefix+'Shortcut',v);setValue(s.shortcut);setMessage(s.message);}catch(e){setMessage(e instanceof Error?e.message:t('settings.shortcutSaveFailed'));}finally{setBusy(false);requestAnimationFrame(()=>edit.current?.focus());}};
+ const save=async(v:Shortcut)=>{setBusy(true);setRecording(false);setMessage('');try{receive(await desktop<State>('Save'+prefix+'Shortcut',v));}catch{presentationWarning('background_read_failed');try{receive(await desktop<State>(prefix+'ShortcutSettings'));}catch{}setMessage(t('settings.shortcutChooseAnother'));}finally{setBusy(false);requestAnimationFrame(()=>edit.current?.focus());}};
  return <div className="shortcut-setting">
-  <SettingRow label={t(title)} description={message?<span role="alert" className="inline-error">{message}</span>:undefined}>
+  <SettingRow label={t(title)} description={message?<span role="status">{message}</span>:undefined}>
    <div className="shortcut-inline" aria-busy={busy}>
     {recording?<><input ref={recorder} className="shortcut-inline-recorder" readOnly value="" placeholder={t('settings.shortcutRecordingPlaceholder')} aria-label={t('settings.shortcutRecordingAria')} onBlur={()=>{setRecording(false);setMessage('');}} onKeyDown={event=>{
      if(event.key==='Tab'){setRecording(false);return;}

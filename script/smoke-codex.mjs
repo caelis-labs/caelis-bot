@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pin = JSON.parse(readFileSync(path.join(root, 'toolchain.json'), 'utf8')).codex;
 const binary = process.env.CODEX_BIN ?? 'codex';
 const child = spawn(binary, ['app-server', '--listen', 'stdio://'], {
-  cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
+  cwd: root, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: process.platform === 'win32',
 });
 const closed = once(child, 'close');
 // Observe rejection immediately so a spawn error cannot become unhandled.

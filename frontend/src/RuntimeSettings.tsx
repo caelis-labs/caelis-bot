@@ -3,10 +3,12 @@ import { ExistingSetupModels } from './settings/runtime/ExistingSetupModels';
 import { OnboardingProviders } from './settings/runtime/OnboardingProviders';
 import type { ConnectionKind, ModelSelection } from './settings/runtime/types';
 import { SetupBack } from './SetupBack';
+import { SetupButton, SetupLoading } from './SetupLoading';
+import { existingModelChoice, selectExistingModel } from './settings/runtime/onboarding-models';
+import { presentationWarning } from './presentation-warning';
 import { CubeIcon } from '@phosphor-icons/react/dist/csr/Cube';
 import { TerminalIcon } from '@phosphor-icons/react/dist/csr/Terminal';
 import { StarIcon } from '@phosphor-icons/react/dist/csr/Star';
-import { SettingsSelect } from './SettingsSelect';
 import { SettingsChevron } from './SettingsIcons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { backend, desktop } from './desktop';
@@ -23,11 +25,11 @@ const names: Record<string, string> = { caelis: 'built-in', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
-export function RuntimeSettings({ onboarding = false, onBack,onDone,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; active?:boolean; refreshKey?:number }) {
- return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <ConnectionsPage active={active} refreshKey={refreshKey}/>;
+export function RuntimeSettings({ onboarding = false, onBack,onDone,onActivating,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>)=>void; active?:boolean; refreshKey?:number }) {
+ return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onActivating={onActivating}/> : <ConnectionsPage active={active} refreshKey={refreshKey}/>;
 }
 
-export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
+export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone,onActivating, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>)=>void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
  const { t } = useI18n();
  const errorText = (e: unknown) => e instanceof Error ? e.message : t('runtime.actionFailed');
  const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [reconnectNeeded, setReconnectNeeded] = useState(false);
@@ -39,6 +41,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const [installOperation,setInstallOperation]=useState(''),[installError,setInstallError]=useState('');
  const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false), [locationOpen,setLocationOpen] = useState(false);
  const [providerSelection,setProviderSelection]=useState<{kind:ConnectionKind;id:string}|null>(null);
+ const [draftModel,setDraftModel]=useState('');
  const [form, setForm] = useState<'model' | 'key' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
  const [preparationAttempt,setPreparationAttempt] = useState(0), [preparationFailed,setPreparationFailed] = useState(false);
  useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setReconnectNeeded(true); }).catch(() => {}); }, []);
@@ -60,20 +63,12 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  useEffect(() => { alive.current = true; void refreshOverview().then(v => { if (!onboarding && !initialRuntime) setID(v.pending || (v.hasRuntimeChoice ? v.active : '')); }).catch(e => setError(errorText(e))); const close = () => setForm(''); window.addEventListener('settings-close', close); return () => { alive.current = false; epoch.current++; window.removeEventListener('settings-close', close); }; }, [onboarding]);
  useEffect(() => {
   if (!id) return;
-  const generation = ++epoch.current; setState(null); setForm(''); setError(''); setNotice(''); setBusy('detect'); setPreparationFailed(false); working.current = true;
+  const generation = ++epoch.current; setState(null); setDraftModel(''); setForm(''); setError(''); setNotice(''); setBusy('detect'); setPreparationFailed(false); working.current = true;
   void call<Profile>('SetupProfile', id).then(async p => {
    if (generation !== epoch.current) return;
    setProfile(p); setManual(!!p.cliPath);
-   let next = await call<SetupState>('InspectSetup', p);
+   const next = onboarding ? await call<SetupState>('ApplySetup', request(p, 'prepare')) : await call<SetupState>('InspectSetup', p);
    if (generation !== epoch.current) return;
-   if (onboarding && id === 'caelis' && next.installation.bundled && next.installation.installed) {
-    // Core owns busy-Host reuse and deferred upgrade; onboarding only prepares
-    // the bundled service once before showing the model connection catalog.
-    setBusy('start');
-    next = await call<SetupState>('ApplySetup', request(p, 'start'));
-    if (generation !== epoch.current) return;
-    if (!['ready', 'models'].includes(next.state)) throw new Error(t(setupStatusKey(next)));
-   }
    setState(next);
   }).catch(e => { if (generation === epoch.current) { setError(errorText(e)); setPreparationFailed(true); } }).finally(() => { if (generation === epoch.current) { working.current = false; setBusy(''); } });
  }, [id, preparationAttempt]);
@@ -97,9 +92,15 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  };
  useEffect(() => { if (!active||!state?.loginPending) return; const timer = window.setInterval(() => { if (!working.current) void run('detect'); }, 2000); return () => clearInterval(timer); }, [active,state?.loginPending, profile]);
  const pick = async () => { try { const path = await host<string>('PickRuntimeCLI'); if (path) { setManual(true); setProfile(p => ({ ...p, cliPath: path })); setState(null); } } catch (e) { setError(errorText(e)); } };
- const activate = async () => {
+ const activate = async (model?:string) => {
   if (working.current) return; working.current = true; setBusy('activate'); setError('');
-  try { await call('ActivateRuntime', profile); await refreshOverview(); setActiveProfile(profile); setReconnectNeeded(false); setNotice(t('runtime.connectionCheckPassed')); onDone?.(); }
+  try {
+   if(model&&state)await selectExistingModel(call,profile,state,model);
+   if(onboarding&&onActivating){onActivating(async()=>{await call('ActivateRuntime',profile)});return;}
+   await call('ActivateRuntime', profile);
+   if(onboarding)void refreshOverview().catch(()=>presentationWarning('background_read_failed'));else await refreshOverview();
+   setActiveProfile(profile); setReconnectNeeded(false); setNotice(t('runtime.connectionCheckPassed')); onDone?.();
+  }
   catch (e) { setError(errorText(e)); }
   finally { working.current = false; if (alive.current) setBusy(''); }
  };
@@ -114,6 +115,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   const next=await call<SetupState>('ApplySetup',request(profile,'use-model',{model:selected.value}));
   if(next.state!=='ready')throw new Error(t(setupStatusKey(next)));
   setState(next);
+  const complete=async()=>{
   await call('ActivateRuntime',profile);
   // Resolve the connected model ID before persisting the user's onboarding parameters.
   if(parameters){
@@ -123,7 +125,10 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    if(parameters.effort&&!option?.efforts.includes(parameters.effort)||parameters.serviceTier&&!option?.serviceTiers.some(t=>t.id===parameters.serviceTier))throw new Error(t('runtime.modelUnavailable'));
    await connectionClient.saveModel('conversation',{model:selected.value,effort,serviceTier:parameters.serviceTier});
   }
-  await refreshOverview();
+  };
+  if(onActivating){onActivating(complete);return;}
+  await complete();
+  void refreshOverview().catch(()=>presentationWarning('background_read_failed'));
   setForm('');onDone?.();
  };
  if(onboarding&&form==='model'&&providerSelection)return <ConnectionWizard inline onboarding initialKind={providerSelection.kind} initialChoice={providerSelection.id} client={connectionClient} active={active} onClose={()=>setForm('')} onConnected={finishOnboardingConnection}/>;
@@ -133,15 +138,23 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   {error && <p role="alert" className="inline-error">{error}</p>}
   <div className="setup-end">{onBack&&<button type="button" onClick={onBack}>{t('settings.setupBack')}</button>}</div>
  </section>;
- if (onboarding && id === 'caelis' && !state) return <section className="runtime-onboarding">
-  <SetupBack disabled={!!busy} onClick={() => setID('')}/>
-  <header><h1>{t('runtime.modelConnections')}</h1><p className="setup-lead">{t('settings.setupModelsHint')}</p></header>
-  {preparationFailed ? <><p role="alert" className="inline-error">{error}</p><button className="primary" onClick={() => setPreparationAttempt(v => v + 1)}>{t('settings.runtimeTryAgain')}</button></> : <p role="status" className="settings-note">{t('runtime.processing')}</p>}
- </section>;
+ if (onboarding && (!state||profile.runtime!==id)) return preparationFailed ? <section className="runtime-onboarding">
+  <SetupBack onClick={() => setID('')}/>
+  <button className="primary" onClick={() => setPreparationAttempt(v => v + 1)}>{t('settings.runtimeTryAgain')}</button>
+ </section> : <SetupLoading/>;
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && !(onboarding && state.installation.bundled && ['ready','models'].includes(state.state)) && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const updateAvailable = !state?.installation.bundled && state?.installation.updateState === 'available';
- const existingModels = state?.models.filter(m=>!m.noAuth) ?? [];
- const reuseModels = onboarding && id==='caelis' && state?.state==='ready' && existingModels.length>0;
+ const {models:existingModels,selected:selectedModel}=existingModelChoice(state,draftModel);
+ const reuseModels = onboarding && existingModels.length>0;
+ if(onboarding&&state&&!state.loginPending&&['ready','models'].includes(state.state)) {
+  if(id==='caelis'&&!reuseModels)return <OnboardingProviders client={connectionClient} disabled={blocked} onBack={()=>setID('')} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/>;
+  return <section className="runtime-onboarding">
+   <SetupBack disabled={blocked} onClick={()=>setID('')}/>
+   <header><h1>{t('settings.setupChooseModel')}</h1><p className="setup-lead">{t('settings.setupChooseModelHint')}</p></header>
+   <div className="onboarding-models"><ExistingSetupModels models={existingModels} selectedModel={selectedModel} disabled={blocked} busy={busy==='activate'} onSelect={setDraftModel} onContinue={()=>void activate(selectedModel)}/></div>
+   {!existingModels.length&&<div className="setup-end"><SetupButton busy={busy==='detect'} disabled={blocked} onClick={()=>void run('detect')}>{t('runtime.recheck')}</SetupButton></div>}
+  </section>;
+ }
  const oauthPage = onboarding && id==='codex' && !!state?.installation.installed && (state.state==='login'||!!state.loginPending);
  const switchDisabled = blocked || state?.state !== 'ready';
  const switchHint = blocked ? t('runtime.waitCurrentAction') : state?.state === 'incompatible' ? t('runtime.incompatibleServiceHint', { name }) : state?.state === 'ready' ? t('runtime.switchTakesEffectRestart', { name }) : state ? t(setupStatusKey(state)) : t('runtime.switchAvailableAfterInstall');
@@ -149,7 +162,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   {onboarding ? <><SetupBack disabled={blocked} onClick={() => setID('')}/>
    {!oauthPage&&<header className={!state || !state.installation.installed ? 'setup-install-heading' : undefined}>
     {(!state || !state.installation.installed) && <span className="setup-install-icon" aria-hidden="true">{id === 'caelis' ? <CubeIcon size={30} weight="duotone"/> : <TerminalIcon size={30} weight="bold"/>}</span>}
-    <div><h1>{!state ? t('settings.setupCheckingTitle') : !state.installation.installed ? t('runtime.onboardingPrepareTitle') : state.state==='ready' && id!=='caelis' ? t('settings.setupReadyTitle') : id==='caelis' ? t('runtime.modelConnections') : t('runtime.loginWithChatGPT')}</h1><p className="setup-lead">{t(!state?'settings.setupCheckingHint':!state.installation.installed?(id==='caelis'?'runtime.onboardingInstallCaelisLead':'runtime.onboardingInstallCodexLead'):state.state==='ready'&&id!=='caelis'?'settings.setupReadyHint':id==='caelis'?'settings.setupModelsHint':'settings.setupLoginHint')}</p></div>
+    <div><h1>{id==='caelis'&&state?.installation.installed?t(reuseModels?'settings.setupChooseModel':'settings.setupConnectModel'):!state ? t('settings.setupCheckingTitle') : !state.installation.installed ? t('runtime.onboardingPrepareTitle') : state.state==='ready' ? t('settings.setupReadyTitle') : id==='caelis' ? t('runtime.modelConnections') : t('runtime.loginWithChatGPT')}</h1><p className="setup-lead">{t(id==='caelis'&&state?.installation.installed?(reuseModels?'settings.setupChooseModelHint':'settings.setupConnectModelHint'):!state?'settings.setupCheckingHint':!state.installation.installed?(id==='caelis'?'runtime.onboardingInstallCaelisLead':'runtime.onboardingInstallCodexLead'):state.state==='ready'?'settings.setupReadyHint':id==='caelis'?'settings.setupModelsHint':'settings.setupLoginHint')}</p></div>
    </header>}</> : <>
    {id && overview?.hasRuntimeChoice && id !== overview.active && <div className="runtime-selection"><p className="settings-note">{t('runtime.switchAfterInstallNote', { name })}</p><span className="runtime-switch" title={switchHint}><button className="primary" disabled={switchDisabled} onClick={() => setConfirm(request(profile, 'switch'))}>{t('runtime.switchToRuntime', { name })}</button></span></div>}
   </>}
@@ -175,20 +188,18 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
     <img className="onboarding-oauth-app-icon" src={appIcon} alt="Caelis Bot"/>
     <h1 id="onboarding-oauth-title">{t(state.loginPending?'runtime.waitingBrowserLogin':'runtime.loginWithChatGPT')}</h1>
     <p className="setup-lead">{t(state.loginPending?'runtime.oauthPendingHint':'runtime.oauthStartHint')}</p>
-    <div className="onboarding-oauth-actions"><button className="primary" disabled={blocked} onClick={()=>void run('login')}>{t(state.loginPending?'runtime.openLoginPage':'runtime.oauthBrowserAction')}</button>{state.loginPending&&<button className="text-action" disabled={blocked} onClick={()=>void run('cancel-login')}>{t('common.cancel')}</button>}</div>
+    <div className="onboarding-oauth-actions"><SetupButton className="primary" busy={busy==='login'} disabled={blocked} onClick={()=>void run('login')}>{t(state.loginPending?'runtime.openLoginPage':'runtime.oauthBrowserAction')}</SetupButton>{state.loginPending&&<button className="text-action" disabled={blocked} onClick={()=>void run('cancel-login')}>{t('common.cancel')}</button>}</div>
     <p className="onboarding-oauth-footnote">{t('runtime.oauthContinueHint')}</p>
     {error&&<p className="inline-error" role="alert">{error}</p>}
    </section>}
 
    {id === 'caelis' && (onboarding || !state.models.length) && <div className="onboarding-models">
-    {reuseModels && <ExistingSetupModels models={existingModels} selectedModel={state.selectedModel} disabled={blocked} onSelect={model=>void run('use-model',{model})} onContinue={()=>void activate()}/>}
-    {onboarding ? (reuseModels ? <details><summary>{t('runtime.connectNewModel')}</summary><OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/></details> : <OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/>) : <button className="primary" disabled={blocked} onClick={()=>setForm('model')}>{t('runtime.connectNewModel')}</button>}
+    {onboarding ? <OnboardingProviders client={connectionClient} disabled={blocked} onSelect={(kind,id)=>{setProviderSelection({kind,id});setForm('model')}}/> : <button className="primary" disabled={blocked} onClick={()=>setForm('model')}>{t('runtime.connectNewModel')}</button>}
    </div>}
 
   </>}
   {!onboarding&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
   {locationOpen&&<SettingsDialog title={t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
-   {onboarding && id === 'codex' && state?.state === 'ready' && state.models.length > 0 && <SettingGroup title={t('runtime.model')}><SettingRow label={t('runtime.botUseModel')} description={t('runtime.botUseModelDescription')}><SettingsSelect aria-label={t('runtime.botUseModel')} disabled={blocked} value={state.selectedModel} onChange={e => void run('use-model', { model: e.target.value })}><option value="" disabled>{t('runtime.selectModel')}</option>{state.models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</SettingsSelect></SettingRow></SettingGroup>}
    {onboarding&&id==='codex'&&<button onClick={()=>{setLocationOpen(false);setForm('key')}}>{t('runtime.useOpenAIApiKey')}</button>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
     {manual && <div className="setup-path-field"><input aria-label={t('runtime.programPath')} disabled={blocked} value={profile.cliPath} placeholder={t('runtime.programPathPlaceholder')} onChange={e => { setProfile(p => ({ ...p, cliPath: e.target.value })); setState(null); }}/><button disabled={blocked} onClick={() => void pick()}>{t('runtime.chooseFile')}</button></div>}
@@ -197,9 +208,9 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </SettingGroup>
    <div className="setup-end"><button disabled={blocked} onClick={()=>setLocationOpen(false)}>{t('common.done')}</button><button className="primary" disabled={blocked} onClick={()=>void run('detect')}>{t('runtime.recheck')}</button></div>
   </SettingsDialog>}
-  {!oauthPage && busy && !['install','update'].includes(busy) && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
+  {!onboarding && !oauthPage && busy && !['install','update'].includes(busy) && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
   {!oauthPage && (error ? <p className="inline-error" role="alert">{error}</p> : notice && !(onboarding && state && ['ready','models'].includes(state.state)) ? <p className="settings-note" role="status">{notice}</p> : state && !(onboarding && (!state.installation.installed || state.state==='login')) && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>)}
-  {!(onboarding&&id==='caelis') && state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (reconnectNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end"><button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('settings.permissionContinue') : t('runtime.restartAndApply')}</button></div>}
+  {!(onboarding&&id==='caelis') && state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (reconnectNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end"><SetupButton busy={busy==='activate'} className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('settings.permissionContinue') : t('runtime.restartAndApply')}</SetupButton></div>}
   {installOperation&&<SettingsDialog className="runtime-install-dialog" title={t(installError?(installCancelled?'settings.runtimeInstallCancelled':'settings.runtimeInstallFailed'):installOperation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name})} busy={!!busy} onClose={()=>{if(!busy){setInstallOperation('');setInstallError('')}}}>
    {installError?<p className="inline-error" role="alert">{installError}</p>:<><div className={`runtime-install-progress${measured?' is-measured':''}`} role="progressbar" aria-valuemin={measured?0:undefined} aria-valuemax={measured?100:undefined} aria-valuenow={progressPercent} aria-label={t(installOperation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name})}><span style={measured?{width:`${progressPercent}%`}:undefined}/></div>{progressAmount&&<p className="settings-note">{progressAmount}</p>}<p className="settings-note" role="status">{t(id==='caelis'&&installProgress?.phase==='verifying'?'settings.runtimeVerifying':id==='caelis'&&installProgress?.phase==='installing'?'settings.runtimeFinishing':'settings.runtimeInstallWait')}</p><div className="setup-end"><button disabled={installCancelled} onClick={()=>{cancelRequested.current=true;setInstallCancelled(true);void call('CancelSetupOperation').catch(()=>{cancelRequested.current=false;setInstallCancelled(false)})}}>{t('common.cancel')}</button></div></>}
    {installError&&<div className="setup-end"><button onClick={()=>{setInstallOperation('');setInstallError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void run(installOperation)}>{t('settings.runtimeTryAgain')}</button></div>}

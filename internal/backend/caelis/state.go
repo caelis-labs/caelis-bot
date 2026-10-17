@@ -109,7 +109,7 @@ func privateRead(path string, limit int64) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	if !before.Mode().IsRegular() || before.Mode().Perm()&0077 != 0 || !owned(before) {
+	if !before.Mode().IsRegular() || !privateState(path, before) {
 		return nil, errors.New("私有连接文件权限不安全")
 	}
 	if e := privateDir(filepath.Dir(path)); e != nil {
@@ -249,14 +249,14 @@ func privateDir(path string) error {
 	if e != nil {
 		return e
 	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 || !owned(info) {
+	if !info.IsDir() || !privateState(path, info) {
 		return errors.New("私有连接目录权限不安全")
 	}
 	return nil
 }
 func privateWrite(path string, v any) error {
 	dir := filepath.Dir(path)
-	if e := os.MkdirAll(dir, 0700); e != nil {
+	if e := localstate.EnsurePrivateDirectory(dir); e != nil {
 		return e
 	}
 	if e := privateDir(dir); e != nil {

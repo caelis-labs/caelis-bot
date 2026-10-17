@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -110,6 +111,9 @@ func (w *workerFixture) Models(context.Context) ([]api.ModelOption, error) {
 func (w *workerFixture) RuntimeDefault(context.Context) (api.WorkExecutionSettings, error) {
 	return api.WorkExecutionSettings{Model: w.runtime + "-model"}, nil
 }
+func (w *workerFixture) ConversationExecution(ctx context.Context) (api.WorkExecutionSettings, error) {
+	return w.RuntimeDefault(ctx)
+}
 func (w *workerFixture) SubmitReport(_ context.Context, in api.Submission) (api.Receipt, error) {
 	w.reports++
 	return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
@@ -158,6 +162,10 @@ func TestLocalDefaultSwitchAndResidentSwitchKeepTaskOwnership(t *testing.T) {
 		t.Fatal(e)
 	}
 	before, _ := m.WorkTerminal(t.Context(), old.ID)
+	dir, _ := providerDirectory(root, "caelis")
+	if e := localstate.Write(filepath.Join(dir, "work-execution.json"), api.WorkExecutionSettings{Model: "caelis-model"}); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = pool.InspectLocalWorker(t.Context(), "caelis"); e != nil {
 		t.Fatal(e)
 	}

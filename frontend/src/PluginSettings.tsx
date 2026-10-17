@@ -3,7 +3,6 @@ import {CaretLeftIcon} from '@phosphor-icons/react/dist/csr/CaretLeft';
 import {CaretRightIcon} from '@phosphor-icons/react/dist/csr/CaretRight';
 import {backend, desktop} from './desktop';
 import {useI18n} from './i18n';
-import './settings/plugins.css';
 
 type Issue={component:string;name:string;message:string};
 type Contribution={id:string;name:string;description?:string;nameZh?:string;descriptionZh?:string};

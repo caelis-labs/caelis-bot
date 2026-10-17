@@ -1,0 +1,6 @@
+{
+  "version": "3.12",
+  "bundle": "2.0.1",
+  "url": "https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis%402.0.1/nsis-bundle-3.12.tar.gz",
+  "sha256": "fe36a357f3a220db893498e830fd80e0769768a18a99f4e4d2447b982538feed"
+}

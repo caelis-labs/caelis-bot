@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"io"
 	"net"
 	"net/url"
@@ -242,12 +243,16 @@ func (s *Service) secret(id string) string {
 }
 func (s *Service) controlDirectory() (string, error) {
 	sum := sha256.Sum256([]byte(s.root))
-	controlDir := filepath.Join("/tmp", "caelis-ssh-"+base64.RawURLEncoding.EncodeToString(sum[:9]))
-	if err := os.Mkdir(controlDir, 0700); err != nil && !os.IsExist(err) {
+	controlDir := filepath.Join(controlDirectoryRoot(), "caelis-ssh-"+base64.RawURLEncoding.EncodeToString(sum[:9]))
+	if err := os.Mkdir(controlDir, 0700); err != nil {
+		if !os.IsExist(err) {
+			return "", err
+		}
+	} else if err := localstate.ProtectDirectory(controlDir); err != nil {
 		return "", err
 	}
 	info, err := os.Lstat(controlDir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !localstate.RestrictedAccess(controlDir, info) {
 		return "", errors.New("ssh_control_directory_invalid")
 	}
 	return controlDir, nil

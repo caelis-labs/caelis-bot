@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,6 +179,7 @@ func TestConnectionUnknownCannotRetryAndExpiry(t *testing.T) {
 	s.mu.Unlock()
 }
 func TestAgentPreparationExplicitInstallAndAuthentication(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "test-agent")
 	var prepare, auth, connect atomic.Int32
 	var last wire.ACPPrepareRequest
 	var mu sync.Mutex
@@ -196,7 +198,7 @@ func TestAgentPreparationExplicitInstallAndAuthentication(t *testing.T) {
 			case "connect-acp-launcher:antigravity":
 				writeFixture(w, []wire.SlashArgCandidate{{Value: "install"}})
 			case "connect-acp-install:antigravity":
-				writeFixture(w, []any{map[string]any{"value": "install", "runtime_setup": map[string]any{"directory": "/tmp/test-agent", "archive_url": "https://example.invalid/agent.zip", "sha256": "verified-digest", "manual_steps": []string{"Install full runtime"}}}})
+				writeFixture(w, []any{map[string]any{"value": "install", "runtime_setup": map[string]any{"directory": destination, "archive_url": "https://example.invalid/agent.zip", "sha256": "verified-digest", "manual_steps": []string{"Install full runtime"}}}})
 			default:
 				t.Errorf("unexpected command %s", value(b.Command))
 			}
@@ -261,7 +263,7 @@ func TestAgentPreparationExplicitInstallAndAuthentication(t *testing.T) {
 	if prepare.Load() != 0 || v.Installation == nil {
 		t.Fatal("catalog inspection installed runtime")
 	}
-	v, e = s.Advance(t.Context(), api.RuntimeFlowAction{ID: v.ID, Revision: v.Revision, Action: "install", Input: api.RuntimeFlowInput{Destination: "/tmp/test-agent"}})
+	v, e = s.Advance(t.Context(), api.RuntimeFlowAction{ID: v.ID, Revision: v.Revision, Action: "install", Input: api.RuntimeFlowInput{Destination: destination}})
 	if e != nil {
 		t.Fatal(e)
 	}

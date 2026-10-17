@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -229,7 +229,7 @@ func TestReportContextIsNotAHumanMessage(t *testing.T) {
 
 func TestPrivateCredentialBoundary(t *testing.T) {
 	root := t.TempDir()
-	if e := os.Chmod(root, 0700); e != nil {
+	if e := testutil.SetMode(root, 0700); e != nil {
 		t.Fatal(e)
 	}
 	secret := filepath.Join(root, "credential.json")
@@ -240,28 +240,28 @@ func TestPrivateCredentialBoundary(t *testing.T) {
 		t.Fatal(e)
 	}
 	link := filepath.Join(root, "redirect.json")
-	if e := os.Symlink(secret, link); e != nil {
+	if e := testutil.Redirect(secret, link); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := privateRead(link, 1024); e == nil {
 		t.Fatal("symlink credential accepted")
 	}
-	if e := os.Chmod(secret, 0644); e != nil {
+	if e := testutil.SetMode(secret, 0644); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := privateRead(secret, 1024); e == nil {
 		t.Fatal("readable credential accepted")
 	}
-	if e := os.Chmod(secret, 0600); e != nil {
+	if e := testutil.SetMode(secret, 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.Chmod(root, 0755); e != nil {
+	if e := testutil.SetMode(root, 0755); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := privateRead(secret, 1024); e == nil {
 		t.Fatal("unprotected directory accepted")
 	}
-	if e := os.Chmod(root, 0700); e != nil {
+	if e := testutil.SetMode(root, 0700); e != nil {
 		t.Fatal(e)
 	}
 }

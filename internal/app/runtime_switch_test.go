@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -181,6 +182,9 @@ func TestFailedRuntimeActivationPreservesDraftSavedAfterSnapshot(t *testing.T) {
 
 func TestRuntimeActivationKeepsExistingTaskRoute(t *testing.T) {
 	a, root, engines := newSwitchFixture(t, true, nil)
+	if err := a.localWork.SelectFirstRuntime("codex"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +206,9 @@ func TestRuntimeActivationKeepsExistingTaskRoute(t *testing.T) {
 
 func TestBotAndNewWorkSelectionsRemainIndependentInAllFourCombinations(t *testing.T) {
 	a, _, _ := newSwitchFixture(t, true, nil)
+	if err := a.localWork.SelectFirstRuntime("codex"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -258,9 +265,10 @@ func TestCancelledRuntimeActivationRestoresOriginalClient(t *testing.T) {
 func TestMissingUserCLILeavesShellHistoryAndSettingsAvailable(t *testing.T) {
 	root := t.TempDir()
 	missing := filepath.Join(root, "no-user-cli")
+	runtimeFixture, _ := json.Marshal(map[string]any{"version": 1, "runtime": "codex", "cliPath": missing})
 	t.Setenv("CODEX_BIN", missing)
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
-	if err := os.WriteFile(filepath.Join(root, "runtime.json"), []byte(`{"version":1,"runtime":"codex","cliPath":"`+missing+`"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "runtime.json"), runtimeFixture, 0600); err != nil {
 		t.Fatal(err)
 	}
 	a, err := New(root, Host{})

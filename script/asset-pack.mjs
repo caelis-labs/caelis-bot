@@ -1,7 +1,7 @@
 // Public handoff contract. This module never reads a private repository.
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,lstatSync,readdirSync,mkdirSync,copyFileSync,existsSync,unlinkSync} from 'node:fs';
-import {resolve,dirname,join,relative} from 'node:path';
+import {resolve,dirname,join,relative,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {validateAvatarSVG} from './avatar-svg.mjs';
@@ -113,7 +113,7 @@ export async function verifyPack(root='.',{strict=false}={}){
   const expected=new Set([manifestPath,...m.files.map(f=>f.path)]);
   function walk(dir){for(const entry of readdirSync(dir,{withFileTypes:true})){
    const p=join(dir,entry.name);assert.ok(!entry.isSymbolicLink(),'release bundle may not contain symlinks');
-   if(entry.isDirectory())walk(p);else assert.ok(expected.has(relative(resolve(root),p)),`unlisted release file: ${p}`);
+   if(entry.isDirectory())walk(p);else assert.ok(expected.has(relative(resolve(root),p).split(sep).join('/')),`unlisted release file: ${p}`);
   }}
   walk(resolve(root));
  }

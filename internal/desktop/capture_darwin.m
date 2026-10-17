@@ -710,7 +710,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     if(self.overlay||self.preparing) {[self finish:YES];return;}
     [self refresh];
     self.previousApp=NSWorkspace.sharedWorkspace.frontmostApplication;
-    if(!CGPreflightScreenCaptureAccess()||bot_screen_capture_denied()) {
+    if(bot_screen_capture_denied()) {
         NSAlert *alert=[NSAlert new];alert.messageText=[self text:@"capture.permission" fallback:@"Allow screen capture in Settings → Permissions, then try again."];
         [alert addButtonWithTitle:[self text:@"capture.ok" fallback:@"OK"]];[alert runModal];return;
     }
@@ -734,11 +734,21 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         }
         NSMutableSet *excluded=[NSMutableSet new];for(NSWindow *window in self.excludedWindows)[excluded addObject:@(window.windowNumber)];
         __weak BotCapture *weak=self;
+        // This path is entered only by an explicit F1/menu action. Let the
+        // capture framework request first-use consent here; preflight alone
+        // cannot distinguish a new installation from a previously denied one.
         [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *content,NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 BotCapture *strong=weak;if(!strong || strong.stopped||generation!=strong.generation)return;
                 SCDisplay *display=nil;for(SCDisplay *d in content.displays)if(d.displayID==displayID){display=d;break;}
-                if(error||!display){strong.preparing=NO;[strong captureError];return;}
+                if(error||!display){
+                    strong.preparing=NO;
+                    if([error.domain isEqualToString:SCStreamErrorDomain]&&error.code==SCStreamErrorUserDeclined) {
+                        bot_screen_capture_set_denied(1);
+                        return; // Respect the OS decision without a second alert.
+                    }
+                    [strong captureError];return;
+                }
                 NSMutableArray *exclude=[NSMutableArray new];for(SCWindow *w in content.windows)if([excluded containsObject:@(w.windowID)])[exclude addObject:w];
                 SCContentFilter *filter=[[SCContentFilter alloc] initWithDisplay:display excludingWindows:exclude];
                 SCStreamConfiguration *config=[SCStreamConfiguration new];

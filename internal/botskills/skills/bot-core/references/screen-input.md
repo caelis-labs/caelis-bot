@@ -11,7 +11,7 @@ Use the surrounding page or application to disambiguate the selected content.
 The metadata gives capture time, source application when available, and the
 selection rectangle in the encoded background's top-left pixel coordinates.
 On first setup, the user chooses whether to enable the F1 selection and F3 paste
-tools in the separate Extras step before optional system permissions. These
+tools in the separate Extras step. Onboarding does not ask for system permissions. These
 tools default to enabled and can later be changed in Settings > Extras. Their
 switch is a preference, not Screen Recording authorization. Ask for that system
 permission only when the enabled tool actually needs it. The user chooses a

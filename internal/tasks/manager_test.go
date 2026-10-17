@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -416,7 +417,7 @@ func TestWorkspaceNeverAdoptsExistingOrSymlinkDirectory(t *testing.T) {
 		t.Fatal("adopted existing directory")
 	}
 	link := filepath.Join(t.TempDir(), "redirect")
-	if e := os.Symlink(t.TempDir(), link); e != nil {
+	if e := testutil.Redirect(t.TempDir(), link); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := prepareWorkspace(link, "two"); e == nil {

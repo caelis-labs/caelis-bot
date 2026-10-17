@@ -3,12 +3,11 @@ package desktop
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
 )
 
 func applicationInstanceID(root string) string {
 	_, id := applicationIdentity()
-	if buildChannel != "release" && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
+	if buildChannel != "release" && customInstanceProfile(root) {
 		digest := sha256.Sum256([]byte(root))
 		return fmt.Sprintf("%s.fixture.%x", id, digest[:8])
 	}
@@ -25,6 +24,9 @@ func applicationIdentity() (name, id string) {
 	}
 	if buildChannel == "release" {
 		return "Caelis Bot", "dev.caelis.bot"
+	}
+	if buildChannel == "windows-preview" {
+		return "Caelis Bot Preview", "dev.caelis.bot.preview"
 	}
 	return "Caelis Bot Dev", "dev.caelis.bot.dev"
 }

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 		t.Fatal("restart lost selection", loaded, err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || !localstate.HasPrivateMode(path, info, 0600) {
 		t.Fatal("unsafe settings file", err)
 	}
 	service.executionFile = path + "/impossible"

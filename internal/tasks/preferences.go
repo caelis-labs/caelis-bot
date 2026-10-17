@@ -48,10 +48,9 @@ func validPreferences(p Preferences) bool {
 		return false
 	}
 	if p.Terminal == "custom" {
-		_, err := taskterminal.CustomArgs(p.CustomCommand, "/private/terminal.command")
-		return err == nil
+		return taskterminal.ValidateCustomCommand(p.CustomCommand) == nil
 	}
-	return p.Terminal == "system" || p.Terminal == "terminal" || p.Terminal == "iterm2" || p.Terminal == "ghostty"
+	return p.Terminal == "system" || p.Terminal == "terminal" || p.Terminal == "iterm2" || p.Terminal == "ghostty" || taskterminal.NativeTerminalPreference(p.Terminal)
 }
 func (s *PreferencesStore) Snapshot() Preferences {
 	s.mu.Lock()

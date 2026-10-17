@@ -3,6 +3,9 @@ import { TerminalIcon } from '@phosphor-icons/react/dist/csr/Terminal';
 import { PlugsConnectedIcon } from '@phosphor-icons/react/dist/csr/PlugsConnected';
 import { SettingsChevron } from '../../SettingsIcons';
 import { useI18n } from '../../i18n';
+import { presentationWarning } from '../../presentation-warning';
+import { SetupLoading } from '../../SetupLoading';
+import { SetupBack } from '../../SetupBack';
 import type { ConnectChoice, ConnectionKind, RuntimeSettingsClient } from './types';
 
 type Provider = ConnectChoice & { kind: ConnectionKind };
@@ -12,25 +15,31 @@ const logos: Record<string,string> = { deepseek:'deepseek.ico',ollama:'ollama.pn
 export function ProviderLogo({id}:{id:string}) {
  return <span className="onboarding-provider-logo" aria-hidden="true">{logos[id]?<img src={`/icons/provider-logos/${logos[id]}`} alt=""/>:id==='codex'?<TerminalIcon size={24}/>:<PlugsConnectedIcon size={24}/>}</span>;
 }
-export function OnboardingProviders({client,onSelect,disabled}:{client:RuntimeSettingsClient;onSelect:(kind:ConnectionKind,id:string)=>void;disabled:boolean}) {
+export function OnboardingProviders({client,onSelect,disabled,onBack}:{client:RuntimeSettingsClient;onSelect:(kind:ConnectionKind,id:string)=>void;disabled:boolean;onBack?:()=>void}) {
  const {t}=useI18n();
- const [providers,setProviders]=useState<Provider[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+ const [providers,setProviders]=useState<Provider[]>([]),[loading,setLoading]=useState(true),[retry,setRetry]=useState(0);
  useEffect(()=>{
-  let live=true;setLoading(true);setError('');
-  void Promise.all((['account','api-key'] as const).map(async kind=>({kind,catalog:await client.catalog(kind)}))).then(results=>{
+  let live=true;setLoading(true);
+  // Catalogs are safe reads. Retry each independently once, retaining the other
+  // catalog if one provider family is unavailable. Never retry a connection.
+  void Promise.allSettled((['account','api-key'] as const).map(async kind=>{
+   try{return {kind,catalog:await client.catalog(kind)};}
+   catch{if(!live)throw new Error('cancelled');return {kind,catalog:await client.catalog(kind)};}
+  })).then(results=>{
    if(!live)return;
-   setProviders(results.flatMap(({kind,catalog})=>catalog.choices.map(c=>({...c,kind}))));
-   setError(results.map(r=>r.catalog.unavailable).filter(Boolean).join(' '));
-  }).catch(e=>{if(live)setError(e instanceof Error?e.message:t('runtime.actionFailed'));}).finally(()=>{if(live)setLoading(false)});
+   if(results.some(r=>r.status==='rejected'||r.value.catalog.unavailable))presentationWarning('background_read_failed');
+   setProviders(results.flatMap(r=>r.status==='fulfilled'?r.value.catalog.choices.map(c=>({...c,kind:r.value.kind})):[]));
+  }).finally(()=>{if(live)setLoading(false)});
   return()=>{live=false};
  },[client,retry]);
- return <div className="onboarding-provider-list">
-  {loading&&<p role="status">{t('common.loading')}</p>}
+ if(loading)return <SetupLoading/>;
+ return <section className="runtime-onboarding">
+  {onBack&&<><SetupBack disabled={disabled} onClick={onBack}/><header><h1>{t('settings.setupConnectModel')}</h1><p className="setup-lead">{t('settings.setupConnectModelHint')}</p></header></>}
+  <div className="onboarding-provider-list">
   {providers.map(p=><button key={`${p.kind}:${p.id}`} disabled={disabled||loading} onClick={()=>onSelect(p.kind,p.id)}>
    <ProviderLogo id={p.id}/>
    <span className="onboarding-provider-copy"><strong>{providerNames[p.id]|| (p.id==='custom'?t('runtime.providerCustom'):p.name)}</strong><small>{p.id in hints?t(hints[p.id as keyof typeof hints]):p.description}</small></span><SettingsChevron/>
   </button>)}
-  {error&&<p className="inline-error" role="alert">{error}</p>}
   {!loading&&!providers.length&&<button onClick={()=>setRetry(n=>n+1)}>{t('runtime.recheck')}</button>}
- </div>;
+ </div></section>;
 }

@@ -403,7 +403,7 @@ func (m *Manager) localCodexInflight(id string) bool {
 }
 
 func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
-	if e := os.MkdirAll(root, 0700); e != nil {
+	if e := localstate.EnsurePrivateDirectory(root); e != nil {
 		return "", e
 	}
 	info, e := os.Lstat(root)
@@ -423,6 +423,9 @@ func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 	}
 	defer r.Close()
 	if e = r.Mkdir(id, 0700); e != nil {
+		return "", e
+	}
+	if e = localstate.ProtectDirectory(filepath.Join(root, id)); e != nil {
 		return "", e
 	}
 	return filepath.Join(root, id), nil

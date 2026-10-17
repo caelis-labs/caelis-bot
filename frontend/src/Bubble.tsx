@@ -7,19 +7,18 @@ import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
 import { chatActivity, incompleteAssistant } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
+import { presentationWarning } from './presentation-warning';
 
 export function Bubble() {
  const {t,locale} = useI18n();
- const [visible,setVisible]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[index,setIndex]=useState(0);
+ const [visible,setVisible]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[index,setIndex]=useState(0);
  const surface=useRef<HTMLDivElement>(null);
- const errorTimer=useRef(0);
  const [reading,setReading]=useState(false);
  const leaveTimer=useRef(0);
  const nativeHover=useRef<boolean|null>(null);
  const read=()=>{window.clearTimeout(leaveTimer.current);setReading(true);};
  const unread=()=>{window.clearTimeout(leaveTimer.current);leaveTimer.current=window.setTimeout(()=>setReading(false),180);};
  useEffect(()=>()=>window.clearTimeout(leaveTimer.current),[]);
- useEffect(()=>()=>window.clearTimeout(errorTimer.current),[]);
  const [notice,dispatchNotice]=useReducer(reduceBubbleNotice,null);
  const noticeID=useRef(0);
  const {snapshot,liveReplies,refresh}=useConversation(visible,true);
@@ -28,6 +27,7 @@ export function Bubble() {
    const detail=(event as CustomEvent<{message:string;pending:boolean}>).detail;
    if(!detail||typeof detail.message!=='string'||typeof detail.pending!=='boolean')return;
    if(!detail.message){dispatchNotice({type:'clearPending'});return;}
+   if(!detail.pending){presentationWarning('bubble_action_failed');dispatchNotice({type:'clearPending'});return;}
    dispatchNotice({type:'show',notice:{id:++noticeID.current,...detail}});
   };
   window.addEventListener('terminal-notice',receive);
@@ -60,27 +60,26 @@ export function Bubble() {
  const activity=chatActivity(snapshot);
  const dreaming=activity==='dreaming';
  const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='thinking'?t('chat.bubbleThinking'):'';
- const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
- const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
- const conversationWanted=(!snapshot?.quiet||dreaming||!!error||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
- const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention||!!error,notice);
- const markdown=!showNotice&&!error&&!prompt&&!snapshot?.message&&!!output?.text&&content===output.text;
- const progressText=!showNotice&&!attention&&!error&&content!==progress?progress:'';
+ const attention=!!prompt;
+ const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
+ const conversationContent=(prompt&&approvalTitle(prompt,locale))||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
+ const conversationWanted=(!snapshot?.quiet||dreaming||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
+ const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention,notice);
+ const markdown=!showNotice&&!prompt&&!!output?.text&&content===output.text;
+ const progressText=!showNotice&&!attention&&content!==progress?progress:'';
  const readingMessage=reading&&!prompt;
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);
  useEffect(()=>{if(!prompt&&expanded)void desktop('CollapseBubble');},[prompt?.id,expanded]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetBubbleHeight',Math.max(68,Math.min(480,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
  const open=()=>void desktop(showNotice?'ToggleTaskDock':prompt?'OpenApproval':'OpenHistory');
  const action=async(method:string,...args:unknown[])=>{
-  setBusy(true);window.clearTimeout(errorTimer.current);setError('');
+  setBusy(true);
   try{await backend(method,...args);await refresh();}
-  catch(e){
-   // A stale preview key means the underlying message changed. Fetch that
-   // message now, and keep the failure visible for a bounded time only.
-   try{await refresh();}catch{/* Preserve the original action error. */}
-   setError(e instanceof Error?e.message:t('chat.actionFailed'));
-   errorTimer.current=window.setTimeout(()=>setError(''),5000);
+  catch{
+   // Read back the original state; never replay an interrupt or expose a
+   // stale preview/transport error as an assistant message.
+   presentationWarning('bubble_action_failed');
+   try{await refresh();}catch{presentationWarning('background_read_failed');}
   }finally{setBusy(false);}
  };
  const actionText=showNotice?t('chat.bubbleOpenTasks'):prompt?t('chat.bubbleReviewAndDecide'):t('chat.bubbleOpenChat');
@@ -93,7 +92,7 @@ export function Bubble() {
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
      {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
-     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={setError} animate={visible&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={()=>presentationWarning('bubble_action_failed')} animate={visible&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
      {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>

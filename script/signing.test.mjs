@@ -104,7 +104,7 @@ test('Desktop World is mandatory for all app bundles', {skip: process.platform !
   mkdirSync(join(contents,'Resources/Plugins/desktop-world'),{recursive:true});
   assert.notEqual(verify('--allow-legacy').status,0,'unmarked payload is invalid');
   rmSync(join(contents,'Resources'),{recursive:true});
-  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisDesktopWorldVersion string v0.1.0-rc.8',plist]).status,0);
+  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisDesktopWorldVersion string v0.1.0-rc.9',plist]).status,0);
   assert.notEqual(verify('--allow-legacy').status,0,'declared but missing payload is corrupt');
  } finally {rmSync(directory,{recursive:true,force:true});}
 });

@@ -17,6 +17,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 // command persists exact bytes before dispatch. Unknown journals are read only;
@@ -82,6 +83,21 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		// Dispatch has not begun. Keep the in-memory journal consistent with
 		// the durable pre-dispatch failure so a prepared Worker can roll back.
 		delete(s.state.Operations, op)
+	}
+	if e == nil {
+		if s.dispatching == nil {
+			s.dispatching = map[string]bool{}
+		}
+		s.dispatching[op] = true
+		defer func() {
+			s.mu.Lock()
+			delete(s.dispatching, op)
+			if s.state.Operations[op].Outcome == "unknown" {
+				s.diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "caelis", Code: "operation_reconciliation_pending"})
+			}
+			s.bumpLocked()
+			s.mu.Unlock()
+		}()
 	}
 	s.bumpLocked()
 	c := s.client

@@ -263,7 +263,7 @@ func (d *macDriver) notify(id, title, body string, reminder bool) {
 func (d *macDriver) dismissNotification(id string) {
 	key := C.CString(id)
 	defer C.free(unsafe.Pointer(key))
-	application.InvokeSync(func() { C.bot_dismiss_notification(key) })
+	application.InvokeSync(func() { C.bot_dismiss_notification(d.pointer, key) })
 }
 func (d *macDriver) notificationStatus() string {
 	switch int(C.bot_notification_status(d.pointer)) {

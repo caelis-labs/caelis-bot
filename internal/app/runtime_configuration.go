@@ -78,6 +78,9 @@ func (s *runtimeSetup) RuntimeConnectionCatalog(ctx context.Context, kind string
 	return caelis.ConnectionCatalog(ctx, v, kind)
 }
 func (s *runtimeSetup) StartRuntimeConnection(ctx context.Context, r api.RuntimeConnectionInput) (api.RuntimeFlow, error) {
+	s.mu.Lock()
+	s.prepared = nil
+	s.mu.Unlock()
 	v, e := s.connectionProfile(r.Settings)
 	if e != nil {
 		return api.RuntimeFlow{}, e
@@ -85,6 +88,9 @@ func (s *runtimeSetup) StartRuntimeConnection(ctx context.Context, r api.Runtime
 	return s.connections.Start(ctx, v, r)
 }
 func (s *runtimeSetup) AdvanceRuntimeConnection(ctx context.Context, r api.RuntimeFlowAction) (api.RuntimeFlow, error) {
+	s.mu.Lock()
+	s.prepared = nil
+	s.mu.Unlock()
 	// A flow pins the explicitly chosen Host, including setup before activation.
 	return s.connections.Advance(ctx, r)
 }

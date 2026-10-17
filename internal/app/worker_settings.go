@@ -2,18 +2,21 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"os"
 	"path/filepath"
 )
 
 func (w *localWorkers) settingsOwner(ctx context.Context, runtime string) (api.WorkRuntime, error) {
 	w.mu.Lock()
 	if runtime == w.active {
+		owner := w.resident
 		w.mu.Unlock()
-		return w.resident, nil
+		return owner, nil
 	}
 	owner := w.owners[runtime]
 	if owner == nil {
@@ -177,6 +180,12 @@ func (w *localWorkers) saveSelectedModel(ctx context.Context, runtime string, va
 func (w *localWorkers) LocalWorkerSelection() (api.LocalWorkerSettings, error) {
 	w.settingsMu.Lock()
 	defer w.settingsMu.Unlock()
+	return w.selectionLocked()
+}
+
+// No runtime probes on the settings fast path. Legacy empty model selections
+// mean follow conversation, regardless of the old provider placeholder.
+func (w *localWorkers) selectionLocked() (api.LocalWorkerSettings, error) {
 	w.mu.Lock()
 	runtime := w.defaultRuntime
 	w.mu.Unlock()
@@ -187,6 +196,75 @@ func (w *localWorkers) LocalWorkerSelection() (api.LocalWorkerSettings, error) {
 	if err != nil {
 		return api.LocalWorkerSettings{}, err
 	}
-	value, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+	// Decode before validating so readable legacy preferences (for example
+	// an empty model with leftover effort) can fall back. Unreadable or corrupt
+	// files remain intact and are never mistaken for an empty preference.
+	var value api.WorkExecutionSettings
+	data, err := os.ReadFile(filepath.Join(dir, "work-execution.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	} else if err == nil {
+		err = json.Unmarshal(data, &value)
+	}
+	if err == nil && (value.Model == "" || api.ValidateExecutionSettings(value.Execution()) != nil) {
+		err = w.followConversationLocked()
+		return api.LocalWorkerSettings{Runtime: "conversation", Models: []api.ModelOption{}}, err
+	}
 	return api.LocalWorkerSettings{Runtime: runtime, Work: value, Models: []api.ModelOption{}}, err
+}
+
+// Caller holds settingsMu. Keep per-provider preferences and all original task
+// bindings; changing the default affects only requests that are not yet bound.
+func (w *localWorkers) followConversationLocked() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := localstate.Write(w.path, struct {
+		Version int    `json:"version"`
+		Runtime string `json:"runtime"`
+	}{1, "conversation"}); err != nil {
+		return err
+	}
+	w.defaultRuntime, w.loadErr = "conversation", nil
+	return nil
+}
+
+func (w *localWorkers) reconcileModelCatalog(runtime string, models []api.ModelOption) error {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	return w.reconcileModelCatalogLocked(runtime, models)
+}
+func (w *localWorkers) reconcileModelCatalogLocked(runtime string, models []api.ModelOption) error {
+	selection, err := w.selectionLocked()
+	if err != nil || selection.Runtime != runtime {
+		return err
+	}
+	if api.ValidateWorkExecution(selection.Work, models) != nil {
+		return w.followConversationLocked()
+	}
+	return nil
+}
+
+// Validate only before a new default route is frozen, never after dispatch or
+// while restoring an original route. Failed discovery is not proof of removal.
+// Caller holds settingsMu; neither catalog reads nor Connect hold w.mu.
+func (w *localWorkers) prepareDefaultModel(ctx context.Context) error {
+	selection, err := w.selectionLocked()
+	if err != nil || selection.Runtime == "conversation" {
+		return err
+	}
+	owner, err := w.settingsOwner(ctx, selection.Runtime)
+	if err != nil {
+		return nil // Preserve an explicit choice during transient unavailability.
+	}
+	catalog, ok := owner.(interface {
+		Models(context.Context) ([]api.ModelOption, error)
+	})
+	if !ok {
+		return nil
+	}
+	models, err := catalog.Models(ctx)
+	if err != nil {
+		return nil
+	}
+	return w.reconcileModelCatalogLocked(selection.Runtime, models)
 }

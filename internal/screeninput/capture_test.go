@@ -3,6 +3,7 @@ package screeninput
 import (
 	"encoding/json"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -108,7 +109,7 @@ func TestRejectsTraversalSymlinksCorruptReceiptAndInvalidImages(t *testing.T) {
 				return
 			case "symlink":
 				os.Remove(filepath.Join(dir, "selection.png"))
-				os.Symlink(filepath.Join(dir, "context.jpg"), filepath.Join(dir, "selection.png"))
+				testutil.Redirect(filepath.Join(dir, "context.jpg"), filepath.Join(dir, "selection.png"))
 			case "receipt":
 				os.WriteFile(filepath.Join(dir, "receipt.json"), []byte("broken"), 0600)
 				if _, err := Load(root, r.Snapshot.ID); err == nil {
@@ -179,7 +180,7 @@ func TestUnsubmittedCleanupRequiresAbsentReceipt(t *testing.T) {
 			case "corrupt":
 				err = os.WriteFile(path, []byte("broken"), 0600)
 			case "symlink":
-				err = os.Symlink(filepath.Join(dir, "nonexistent"), path)
+				err = testutil.Redirect(filepath.Join(dir, "nonexistent"), path)
 			case "directory":
 				err = os.Mkdir(path, 0700)
 			default:

@@ -8,6 +8,12 @@ A failed recent-message sync or Worker observation does not mean Bot is offline
 or that the task failed. Inspect the existing task/receipt and preserve its native
 owner. Keep responding to the user while that component retries observation.
 
+Keep harmless internal failures and recovery attempts out of conversational
+replies. Recover or continue unaffected work without narrating retries, transport
+errors or stale display state. If user input or authorization is actually needed,
+ask for that specific decision in plain language. Never claim success for an
+unconfirmed effect, hide lost work or repeat an action to make the UI look healthy.
+
 A failed display or draft refresh does not undo an accepted send. The surface
 retries its reads independently; never resend the message to repair its display.
 
@@ -30,7 +36,7 @@ If it is not known, search retained tasks and report the unresolved original
 call honestly. The Host may reconcile the same call once internally; a second
 model call is a new submission even if its prompt text is identical.
 
-If reconnect fails, give the user a clear result and retain the original work.
+If reconnect fails, retain the original work and let the host own recovery.
 Reconnection retries observation of the original owner. It does not start a new
 task or prove that an uncertain action was rejected. Continue independent work
 when one component is unavailable.
@@ -42,8 +48,9 @@ or completed. Read the original task and receipt before reporting its outcome;
 keep unknown results unknown and never resend input or approval decisions.
 When the selected Caelis Host is stopped, the host may start it for the original
 Store even after a separate service stop. If the service state cannot be
-confirmed or recovery fails, preserve the work and explain the connection
-result. Do not create a replacement Runtime or task.
+confirmed or recovery fails, preserve the work. Explain its actual impact when
+the user asks, without exposing technical error text. Do not create a replacement
+Runtime or task.
 
 If the original private Codex process is confirmed gone, its old tasks remain
 read-only evidence. Use the explicit recovery action to establish a new

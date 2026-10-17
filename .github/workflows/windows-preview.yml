@@ -1,0 +1,125 @@
+name: Windows preview
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Build exact candidates, or publish previously accepted candidates
+        required: true
+        type: choice
+        options: [build, publish]
+        default: build
+      tag:
+        description: Existing vX.Y.Z-windows.preview.N tag on main
+        required: true
+        type: string
+      artifact_run:
+        description: Accepted build run ID (publish only; never rebuild accepted bytes)
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: windows-preview-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - id: source
+        env:
+          WINDOWS_TAG: ${{ inputs.tag }}
+          WINDOWS_MODE: ${{ inputs.mode }}
+          WINDOWS_RUN: ${{ inputs.artifact_run }}
+        run: node script/windows-release-source.mjs
+  build:
+    needs: source
+    if: inputs.mode == 'build'
+    runs-on: windows-2025
+    timeout-minutes: 40
+    env:
+      GOWORK: 'off'
+      CGO_ENABLED: '0'
+      BOT_RELEASE_TAG: ${{ inputs.tag }}
+      WINDOWS_REVISION: ${{ needs.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: npm ci
+      - shell: pwsh
+        run: ./script/check-windows.ps1
+      - name: Build unsigned preview candidates
+        shell: pwsh
+        run: |
+          ./script/build-windows.ps1 -Channel preview -PreviewRevision ([int]$env:WINDOWS_REVISION)
+          ./script/package-nsis-windows.ps1 -SkipBuild -Channel preview
+          ./script/package-zip-windows.ps1 -SkipBuild -Channel preview
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-preview-${{ needs.source.outputs.sha }}
+          path: dist/releases/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: source
+    if: inputs.mode == 'publish' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: windows-release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      # Signer code comes from the reviewed main workflow, never the download.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-preview-${{ needs.source.outputs.sha }}
+          path: dist/windows-publication
+          run-id: ${{ inputs.artifact_run }}
+          github-token: ${{ github.token }}
+      - name: Verify evidence and sign exact update bytes
+        env:
+          WINDOWS_TAG: ${{ inputs.tag }}
+          WINDOWS_SOURCE: ${{ needs.source.outputs.sha }}
+          WINDOWS_UPDATE_PRIVATE_KEY: ${{ secrets.WINDOWS_UPDATE_PRIVATE_KEY }}
+        run: |
+          umask 077
+          key="$RUNNER_TEMP/windows-release.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$WINDOWS_UPDATE_PRIVATE_KEY" > "$key"
+          node script/windows-update-manifest.mjs create dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE" "docs/releases/windows/$WINDOWS_TAG.json" "$key"
+          node script/windows-update-manifest.mjs verify dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE"
+      - name: Publish an independent prerelease without changing Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WINDOWS_TAG: ${{ inputs.tag }}
+          WINDOWS_SOURCE: ${{ needs.source.outputs.sha }}
+        run: node script/windows-publish.mjs dist/windows-publication

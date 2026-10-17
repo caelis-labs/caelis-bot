@@ -3,6 +3,7 @@ package screeninput
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,7 +73,7 @@ func TestMediaAtomicFailureAndRootConfinement(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(files[0].Path, path); err != nil {
+	if err := testutil.Redirect(files[0].Path, path); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := m.Bytes(id, false); err == nil {
