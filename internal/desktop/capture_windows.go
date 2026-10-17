@@ -139,14 +139,29 @@ func (d *windowsDriver) restoreCaptures(records []screeninput.Record) {
 				continue
 			}
 			draft := &windowsCaptureDraft{pixels: im, snapshot: r.Snapshot, document: WindowsCaptureDocument{ID: r.Snapshot.ID, Width: im.Bounds().Dx(), Height: im.Bounds().Dy(), Image: "data:image/png;base64," + base64.StdEncoding.EncodeToString(b), Outcome: r.Outcome}}
-			d.capture.mu.Lock()
-			if d.capture.drafts[r.Snapshot.ID] == nil {
-				d.capture.drafts[r.Snapshot.ID] = draft
-			}
-			d.capture.mu.Unlock()
+			draft = d.capture.restoreDraft(draft)
 			d.capture.present(draft, image.Rectangle{})
 		}
 	}()
+}
+
+func (c *windowsCapture) restoreDraft(saved *windowsCaptureDraft) *windowsCaptureDraft {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if current := c.drafts[saved.document.ID]; current != nil {
+		return current
+	}
+	c.drafts[saved.document.ID] = saved
+	return saved
+}
+
+func (c *windowsCapture) retainedPresentation(d *windowsCaptureDraft) *application.WebviewWindow {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled || c.driver.stopped.Load() || c.drafts[d.document.ID] != d || !d.ready {
+		return nil
+	}
+	return d.window
 }
 
 func (c *windowsCapture) closeWindows() {
@@ -409,6 +424,11 @@ func (c *windowsCapture) present(d *windowsCaptureDraft, bounds image.Rectangle)
 		if assigned {
 			id, _ := json.Marshal(d.document.ID)
 			w.ExecJS("window.dispatchEvent(new CustomEvent('capture-open',{detail:" + string(id) + "}))")
+		}
+		// An unknown submission retains its ready WebView while disabled. It
+		// will not emit another first-paint receipt, so explicitly reveal it.
+		if retained := c.retainedPresentation(d); retained != nil {
+			showWindowsWindow(retained)
 		}
 	})
 }

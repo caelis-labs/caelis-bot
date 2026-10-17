@@ -166,7 +166,8 @@ func (w *hostedConsole) Confirm(ctx context.Context, pid int) error {
 		windows.CloseHandle(handle)
 		return ErrWindowIdentity
 	}
-	w.pid, w.process, w.hwnd = pid, handle, consoleHandle(uint32(pid))
+	w.pid, w.process = pid, handle
+	w.bindConsoleWindow()
 	return nil
 }
 

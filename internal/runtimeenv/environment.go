@@ -34,7 +34,7 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 func Clean(input []string) []string {
 	out := make([]string, 0, len(input))
 	for _, entry := range input {
-		key, _, ok := strings.Cut(entry, "=")
+		key, _, ok := splitEnvironment(entry)
 		key = environmentKey(key)
 		if !ok || key == "" || strings.HasPrefix(key, "CAELIS_CONTROL_") {
 			continue
@@ -51,7 +51,7 @@ func Clean(input []string) []string {
 func values(env []string) map[string]string {
 	out := map[string]string{}
 	for _, entry := range env {
-		if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
+		if key, value, ok := splitEnvironment(entry); ok && key != "" {
 			out[environmentKey(key)] = value
 		}
 	}
@@ -217,17 +217,29 @@ func mergePath(shell, inherited string) (string, int) {
 
 // Install is only called before the native host starts runtime/UI goroutines.
 func Install(env []string) error {
+	return install(env, os.Environ(), os.Setenv, os.Unsetenv)
+}
+
+func install(env, current []string, set func(string, string) error, unset func(string) error) error {
 	v := values(env)
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
+	for _, entry := range current {
+		key, _, ok := splitEnvironment(entry)
+		// Windows drive-current-directory entries are inherited OS bookkeeping.
+		// Go's Setenv/Unsetenv cannot mutate keys containing '='; leave them intact.
+		if !ok || key == "" || strings.HasPrefix(key, "=") {
+			continue
+		}
 		if _, keep := v[environmentKey(key)]; !keep {
-			if err := os.Unsetenv(key); err != nil {
+			if err := unset(key); err != nil {
 				return err
 			}
 		}
 	}
 	for key, value := range v {
-		if err := os.Setenv(key, value); err != nil {
+		if strings.HasPrefix(key, "=") {
+			continue
+		}
+		if err := set(key, value); err != nil {
 			return err
 		}
 	}

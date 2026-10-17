@@ -37,4 +37,4 @@ assert entry['ID']=='desktop-world' and entry['Version']=='0.1.0-rc.9'
 assert actual==entry['Files'], 'Desktop World signed package inventory differs'
 print(f'Verified complete signed Desktop World plugin: {len(actual)} files')
 PY
-[[ "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" == "dtw 0.1.0-rc.9 (CUA source d74a9cab3fb2)" ]]
+node "$(dirname "$0")/verify-desktop-world-version.mjs" "$BOT_DW_VERIFY_ROOT/bin/dtw"

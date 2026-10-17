@@ -100,10 +100,12 @@ type windowsDriver struct {
 	taskWindow                 *application.WebviewWindow
 	taskCount                  atomic.Int64
 	taskExpanded               atomic.Bool
+	taskPeek                   atomic.Bool
 	service                    *Service
 	placement                  Placement
 	maskBytes                  []byte
 	callback                   uintptr
+	hotkeys                    windowsHotkeys // native UI thread only
 	stopped                    atomic.Bool
 	maskReady                  bool
 	maskReported               bool
@@ -155,13 +157,14 @@ func newWindowsDriver(a *application.App, pet, bubble, history *application.Webv
 			go d.openPetMenu()
 			return 0
 		case 0x312: // WM_HOTKEY: explicit user input, never renderer-triggered.
-			if wparam == 1 {
+			logical := d.hotkeys.logical(int(wparam))
+			if logical == 1 {
 				go s.Activate()
-			} else if wparam == 2 {
+			} else if logical == 2 {
 				go s.ToggleTaskDock()
-			} else if wparam == 3 {
+			} else if logical == 3 {
 				go s.CaptureScreen()
-			} else if wparam == 4 {
+			} else if logical == 4 {
 				go s.PasteImage()
 			}
 			return 0
@@ -290,6 +293,8 @@ func (d *windowsDriver) apply(p Placement) {
 				d.diagnostic("pet_show", "native surface shown without activation")
 			}
 		} else {
+			d.taskPeek.Store(false)
+			d.taskExpanded.Store(false)
 			d.pet.Hide()
 			d.bubbleWindow.ExecJS("window.dispatchEvent(new Event('bubble-hidden'))")
 			d.bubbleWindow.Hide()
@@ -340,12 +345,20 @@ func (d *windowsDriver) setTaskDockExpanded(expanded, focus bool) {
 		if d.taskWindow == nil || d.stopped.Load() {
 			return
 		}
-		d.taskExpanded.Store(expanded)
+		d.changeTaskDockExpansion(expanded, focus)
 		d.refreshTaskDock()
 		if expanded && focus {
 			d.taskWindow.Focus()
 		}
 	})
+}
+func (d *windowsDriver) changeTaskDockExpansion(expanded, explicit bool) {
+	d.taskExpanded.Store(expanded)
+	if !expanded {
+		d.taskPeek.Store(false)
+	} else if explicit {
+		d.taskPeek.Store(true)
+	}
 }
 
 // Called only on the native UI thread. Read-only task refreshes never focus a window.
@@ -354,12 +367,15 @@ func (d *windowsDriver) refreshTaskDock() {
 		return
 	}
 	d.layout()
-	if d.placement.Visible && !d.interaction.Dragging && (d.taskCount.Load() > 0 || d.taskExpanded.Load()) {
+	if d.taskDockVisible() {
 		showWindowsWindow(d.taskWindow)
 	} else {
 		d.taskWindow.Hide()
 	}
 	d.taskWindow.ExecJS("window.dispatchEvent(new Event('tasks-changed'))")
+}
+func (d *windowsDriver) taskDockVisible() bool {
+	return (d.placement.Visible || d.taskPeek.Load()) && !d.interaction.Dragging && (d.taskCount.Load() > 0 || d.taskExpanded.Load())
 }
 func (d *windowsDriver) tasks(value string) {
 	var tasks []api.TaskPreview
@@ -392,43 +408,13 @@ func (d *windowsDriver) registerHotkey(id int, s Shortcut) error {
 	var result error
 	application.InvokeSync(func() {
 		hwnd := uintptr(d.pet.NativeWindow())
-		winUser.NewProc("UnregisterHotKey").Call(hwnd, uintptr(id))
-		if !s.Enabled {
-			return
-		}
-		mods := uint32(0x4000)
-		if s.Alt {
-			mods |= 1
-		}
-		if s.Control {
-			mods |= 2
-		}
-		if s.Shift {
-			mods |= 4
-		}
-		if s.Meta {
-			mods |= 8
-		}
-		key := uint32(0)
-		if s.Key == "Space" {
-			key = 0x20
-		} else if len(s.Key) == 4 && s.Key[:3] == "Key" {
-			key = uint32(s.Key[3])
-		} else if len(s.Key) == 6 && s.Key[:5] == "Digit" {
-			key = uint32(s.Key[5])
-		} else {
-			var f int
-			if _, e := fmt.Sscanf(s.Key, "F%d", &f); e == nil && f >= 1 && f <= 12 {
-				key = uint32(0x6f + f)
-			}
-		}
-		if key == 0 {
-			result = errors.New("unsupported shortcut key")
-			return
-		}
-		if ok, _, _ := winUser.NewProc("RegisterHotKey").Call(hwnd, uintptr(id), uintptr(mods), uintptr(key)); ok == 0 {
-			result = errors.New("shortcut is already in use")
-		}
+		result = d.hotkeys.replace(id, s, func(id int, mods, key uint32) bool {
+			ok, _, _ := winUser.NewProc("RegisterHotKey").Call(hwnd, uintptr(id), uintptr(mods), uintptr(key))
+			return ok != 0
+		}, func(id int) bool {
+			ok, _, _ := winUser.NewProc("UnregisterHotKey").Call(hwnd, uintptr(id))
+			return ok != 0
+		})
 	})
 	return result
 }
@@ -520,11 +506,22 @@ func showWindowsSurface(hwnd uintptr) error {
 }
 
 func showWindowsWindow(w *application.WebviewWindow) {
-	w.Show() // Preserve Wails' controller visibility and reload semantics.
+	// Wails Show also wakes its WebView controller, but SW_SHOW activates a
+	// normal HWND. Suppress activation for the entire native call, not after it.
+	showWindowsWithoutActivation(uintptr(w.NativeWindow()), func() { w.Show() })
 	// The first ShowWindow obeys STARTUPINFO rather than SW_SHOW. Hidden launch
 	// parameters must not suppress a user's explicit/persisted visible surface.
 	// SetWindowPos shows the owned HWND without taking keyboard focus.
 	logError(showWindowsSurface(uintptr(w.NativeWindow())))
+}
+
+func showWindowsWithoutActivation(hwnd uintptr, show func()) {
+	const noActivate = 0x08000000
+	const exStyle = ^uintptr(19) // GWL_EXSTYLE = -20
+	style, _, _ := winUser.NewProc("GetWindowLongPtrW").Call(hwnd, exStyle)
+	winUser.NewProc("SetWindowLongPtrW").Call(hwnd, exStyle, style|noActivate)
+	defer winUser.NewProc("SetWindowLongPtrW").Call(hwnd, exStyle, style)
+	show()
 }
 
 type windowsMaskRect struct{ Left, Top, Right, Bottom int32 }
@@ -563,8 +560,8 @@ func (d *windowsDriver) stop() {
 		d.cancelClick(uintptr(d.pet.NativeWindow()))
 		d.interaction.cancel()
 		winUser.NewProc("KillTimer").Call(uintptr(d.pet.NativeWindow()), windowsPetContextTimer)
-		for _, id := range []int{1, 2, 3, 4} {
-			winUser.NewProc("UnregisterHotKey").Call(uintptr(d.pet.NativeWindow()), uintptr(id))
+		for _, entry := range d.hotkeys.entries {
+			winUser.NewProc("UnregisterHotKey").Call(uintptr(d.pet.NativeWindow()), uintptr(entry.id))
 		}
 		winCommon.NewProc("RemoveWindowSubclass").Call(uintptr(d.pet.NativeWindow()), d.callback, 1)
 		d.pet.Hide()

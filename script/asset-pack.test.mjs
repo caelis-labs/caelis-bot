@@ -1,9 +1,16 @@
 import {test} from 'node:test';
+import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,copyFileSync,writeFileSync,rmSync,symlinkSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {readManifest,validateManifest,verifyPack,importPack,manifestPath} from './asset-pack.mjs';
+
+test('every byte-pinned finished asset disables checkout newline conversion',()=>{
+ const files=readManifest().files.map(f=>f.path);
+ const attrs=execFileSync('git',['check-attr','-z','--stdin','text'],{input:files.join('\0')+'\0',encoding:'utf8'}).split('\0');
+ for(let i=0;i<attrs.length-1;i+=3) assert.equal(attrs[i+2],'unset',attrs[i]);
+});
 
 test('untrusted pack cannot overwrite code, select missing resources or change contract silently',()=>{
  const mutate=f=>{const m=readManifest();f(m);return()=>validateManifest(m);};

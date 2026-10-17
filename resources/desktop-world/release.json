@@ -2,6 +2,7 @@
   "version": "v0.1.0-rc.9",
   "revision": "79a097b3b479fbf65926fdd6a58c296d8d1e1e1e",
   "cua_revision": "d74a9cab3fb2e80ab7f0cef47025ec828586ea75",
+  "cua_version": "0.35.4",
   "module": "github.com/caelis-labs/desktop-world",
   "targets": {
     "darwin-arm64": {

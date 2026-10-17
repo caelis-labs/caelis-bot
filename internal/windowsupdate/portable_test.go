@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,8 +31,32 @@ func portableFixture(t *testing.T, root, version string, extra map[string][]byte
 		t.Fatal(e)
 	}
 }
+func portableTempDir(t *testing.T) string {
+	t.Helper()
+	// macOS /var and runner temp roots may themselves be symlink aliases.
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base
+}
+
+func TestPortableStillRejectsRedirectedInstallationAncestors(t *testing.T) {
+	base := portableTempDir(t)
+	target := filepath.Join(base, "real")
+	link := filepath.Join(base, "alias")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutil.Redirect(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeDirectory(filepath.Join(link, "child")); err == nil {
+		t.Fatal("redirected ancestor accepted")
+	}
+}
 func TestPortableUpdatePreservesForeignFilesAndRefusesChangedOwnedFiles(t *testing.T) {
-	base := t.TempDir()
+	base := portableTempDir(t)
 	target := filepath.Join(base, "ZIP")
 	stage := filepath.Join(base, "new")
 	os.Mkdir(target, 0700)
@@ -68,14 +93,14 @@ func TestZIPRejectsTraversalDevicesAndCaseAliases(t *testing.T) {
 			f, _ := z.Create(name)
 			f.Write([]byte("bad"))
 			z.Close()
-			path := filepath.Join(t.TempDir(), "bad.zip")
+			path := filepath.Join(portableTempDir(t), "bad.zip")
 			os.WriteFile(path, b.Bytes(), 0600)
 			if _, e := Unpack(path, filepath.Join(filepath.Dir(path), "out"), "dev.caelis.bot.preview", "1.0.1"); e == nil {
 				t.Fatal("unsafe ZIP accepted")
 			}
 		})
 	}
-	base := t.TempDir()
+	base := portableTempDir(t)
 	var b bytes.Buffer
 	z := zip.NewWriter(&b)
 	for _, name := range []string{"FILE.txt", "file.txt"} {

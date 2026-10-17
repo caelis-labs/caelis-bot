@@ -172,11 +172,8 @@ jobs:
               $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.9') {
             throw 'Windows Desktop World plugin inventory mismatch'
           }
-          $version = & (Join-Path $package 'bin/dtw.exe') version
+          node script/verify-desktop-world-version.mjs (Join-Path $package 'bin/dtw.exe')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($version -ne 'dtw 0.1.0-rc.9 (CUA source d74a9cab3fb2)') {
-            throw 'Windows Desktop World runtime or VC dependency mismatch'
-          }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:

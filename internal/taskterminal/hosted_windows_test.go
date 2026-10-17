@@ -61,6 +61,11 @@ func TestWindowsLiveTerminalHostClaimsExactClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A GUI-subsystem test host models Bot; the launched observer/helper must
+	// remain console-subsystem executables to receive ConPTY stdio from WT.
+	if fixture := os.Getenv("CAELIS_BOT_TEST_TERMINAL_FIXTURE"); fixture != "" {
+		exe = fixture
+	}
 	pending, path := filepath.Join(root, "pending"), filepath.Join(root, "launch.command")
 	prefix := filepath.Join(root, "accepted-")
 	evidence := filepath.Join(root, "client.json")
@@ -147,5 +152,36 @@ func TestWindowsLiveTerminalHostClaimsExactClient(t *testing.T) {
 	if n, err := windows.WaitForSingleObject(handle, 0); err != nil || n != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatal("release killed host client")
 	}
-	t.Log("Terminal host executed one exact native client; stdio, Unicode argv and original process birth verified")
+	// Reopening the same verified observer must control the visible host even
+	// when GetConsoleWindow names only an invisible ConPTY message window.
+	next := &hostedConsole{descriptor: path, binary: exe}
+	defer next.Release()
+	if err := next.Confirm(ctx, pid); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if o, err := next.Observe(ctx); err == nil && o.CanCollapse {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal("visible terminal mapping not established", ctx.Err())
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if err := next.Apply(ctx, CollapseWindow); err != nil {
+		t.Fatal("collapse", err)
+	}
+	if o, err := next.Observe(ctx); err != nil || o.State != WindowCollapsed {
+		t.Fatal("collapsed readback", o, err)
+	}
+	if err := next.Apply(ctx, ShowWindow); err != nil {
+		t.Fatal("show/focus", err)
+	}
+	if err := next.Dismiss(ctx); err != nil {
+		t.Fatal("close owned window", err)
+	}
+	if o, err := next.Observe(ctx); err != nil || o.State != WindowClosed {
+		t.Fatal("closed readback", o, err)
+	}
+	t.Log("Terminal host native stdio, receipt, original process birth, reuse, collapse, focus and close verified")
 }

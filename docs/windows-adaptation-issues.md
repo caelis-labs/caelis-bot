@@ -402,3 +402,36 @@ Ctrl+S 取消保留编辑，实际保存 PNG 后关闭；Ask Bot 收到确认关
 preview.11 收紧双击为选区内触发，并区分剪贴板图片的初始提示；共享 Mac Enter/原生截图行为未改。
 preview.11 实测选区外双击保留、选区内双击复制关闭，F3 读回正确图片和新提示，Enter 复制关闭；
 自启动注册也已通过 Bot 开关迁到 preview.11，并保持原先开启意图。
+
+## PR #183 跨平台审查修复（2026-10-17）
+
+对应审查基线 `2e7e204b` 的 13 项 Findings；编号与审查逐项对应。
+下表说明代码修复与回归证据，不替代完整产品/精确发布包验收。
+
+| Finding | 修复 | 回归覆盖 |
+| --- | --- | --- |
+| 1 / P1 | Caelis Windows Host 集成测试添加 Windows build tag | Darwin arm64、Linux amd64 全包测试编译；原生 CI 继续验证 |
+| 2 / P1 | 完整 character-pack 文件范围保持 Git 原始字节 | 遍历清单检查每个资源的 checkout 属性，并执行真实资源摘要验证 |
+| 3 / P1 | 以 release pin 的 DTW/CUA 版本和 revision 生成统一版本断言 | Mac/Windows 调用同一 verifier；本机 rc.9 二进制实测通过 |
+| 4 / P2 | portable 测试先解析临时根目录的符号链接 | 保留产品拒绝重定向路径的行为，并添加祖先联接/链接拒绝测试 |
+| 5 / P2 | Windows 环境解析保留 `=C:` 记录，Install 不对系统记录调用 Setenv/Unsetenv | 盘符环境继承与正常变量清理回归 |
+| 6 / P2 | 从选定 npm 安装发现原生 EXE，支持嵌套/提升依赖和旧 vendor 布局 | npm `.cmd` 的版本检测与真实 App Server 握手；不执行 shell shim |
+| 7 / P2 | 按规范化后的完整 UTF-8 地址限制 107 字节，采用用户可写的短父目录和私有随机叶目录 | 原生 AF_UNIX 监听、长中文 TMP 下真实 Codex 握手；不依赖 8.3 别名绕过限制 |
+| 8 / P2 | 沿 ConPTY 窗口归属链取得可见宿主，校验原 observer 及宿主 PID/创建时间 | Windows Terminal 和经典 Console 真实 stdio、复用、收起、聚焦、关闭均通过 |
+| 9 / P2 | portable stage/backup 放在安装卷，事务记录仍在 AppData | C 盘下载/事务、D 盘安装的真实进程交接、替换、重启；占用及未提交交接拒绝 |
+| 10 / P2 | Wails Show 全程加 NOACTIVATE，Dock 使用非激活样式 | 原生 HWND 连续显示时前台窗口保持不变；完整 WebView 输入走查仍单列 |
+| 11 / P2 | 用第二个 native ID 预注册新键，成功后释放旧键 | 冲突保留原键、成功替换、保存失败回滚和禁用回归 |
+| 12 / P2 | 显式召回状态独立于 pet 的持久可见性 | 隐藏 pet、展开任务、收起任务后保持原隐藏偏好的状态回归 |
+| 13 / P2 | 恢复时复用原 draft，并重新显示已 ready 的保留窗口 | unknown 原回执/窗口身份不变，禁用与未绘制窗口不能显示，启用后可恢复 |
+
+Windows Terminal 使用 Microsoft 的 [ConPTY 窗口归属实现](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalApp/TerminalPage.cpp)，
+不根据窗口标题、前台窗口或进程数量猜测归属。宿主不提供可靠映射时仍明确拒绝控制。
+本机两种终端均已完成窗口生命周期实测，但缩略图仍报告 unavailable，不提升其验收状态。
+
+本轮检查了 `bot-core/references/screen-input.md` 和 `plugins.md`：修复的是既有原生生命周期、
+发现及恢复合同，没有新增 Agent 工具、权限或图片重发路径，因此无需更改 Bot Skill 指令。
+本机最终 `check-windows.ps1` 通过（全量 Go、130 项 Node 测试、前端/资源/协议检查）。
+首次并行跨编译时插件测试包触及 90 秒预算；单包复跑与最终全量检查分别在约 50 秒通过，
+保留原失败日志，没有放宽超时或跳过测试。后续 npm alias 元数据补充已通过发现矩阵与真实握手回归。
+本机原始测试日志仍在忽略的 `.cache/windows-realignment-20261016/pr183-*.log`；
+跨编译仅证明测试可编译，Mac 实机 UI、Win10/Server、多屏 DPI 和精确安装包验收继续保留。

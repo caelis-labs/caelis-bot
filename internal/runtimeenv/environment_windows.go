@@ -9,6 +9,18 @@ import (
 
 func environmentKey(key string) string { return strings.ToUpper(key) }
 
+func splitEnvironment(entry string) (string, string, bool) {
+	start := 0
+	if strings.HasPrefix(entry, "=") {
+		start = 1
+	}
+	if i := strings.IndexByte(entry[start:], '='); i >= 0 {
+		i += start
+		return entry[:i], entry[i+1:], true
+	}
+	return entry, "", false
+}
+
 // Explorer provides the account environment directly. Do not execute POSIX
 // login-shell probes or PowerShell profiles merely to start the desktop app.
 func resolvePlatform(_ context.Context, inherited []string, who account, privateHomes ...string) ([]string, Report, error) {

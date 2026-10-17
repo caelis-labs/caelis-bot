@@ -75,6 +75,17 @@ func TestNativeWindowsUpdateHandoffReplacementRelaunchAndLiveImageRefusal(t *tes
 			inUse := scenario.inUse
 			root := filepath.Join(t.TempDir(), "更新 验收")
 			target := filepath.Join(root, "ZIP")
+			if volume := os.Getenv("CAELIS_BOT_TEST_PORTABLE_VOLUME"); volume != "" {
+				if !filepath.IsAbs(volume) || strings.EqualFold(filepath.VolumeName(volume), filepath.VolumeName(root)) {
+					t.Fatal("cross-volume fixture requires another absolute drive")
+				}
+				other, err := os.MkdirTemp(volume, "bot-update-test-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { os.RemoveAll(other) })
+				target = filepath.Join(other, "ZIP 中文")
+			}
 			download := filepath.Join(root, "Updates", "download-fixture")
 			if e := os.MkdirAll(target, 0700); e != nil {
 				t.Fatal(e)

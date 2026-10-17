@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,27 @@ type Portable struct {
 	Identity string `json:"identity"`
 	Version  string `json:"version"`
 	Files    []File `json:"files"`
+}
+
+// Stage on the installation volume: Rename must remain atomic even when the
+// download/transaction directory is on another drive. Retain a failed work
+// directory so an incomplete rollback never loses the original owned bytes.
+func stagePortableArchive(target, archive, identity, version string) (string, error) {
+	if err := safeDirectory(target); err != nil {
+		return "", err
+	}
+	work, err := os.MkdirTemp(target, ".caelis-update-")
+	if err != nil {
+		return "", err
+	}
+	if err = localstate.ProtectDirectory(work); err == nil {
+		_, err = Unpack(archive, filepath.Join(work, "extracted"), identity, version)
+	}
+	if err != nil {
+		_ = os.RemoveAll(work)
+		return "", err
+	}
+	return work, nil
 }
 
 func safeName(name string) bool {

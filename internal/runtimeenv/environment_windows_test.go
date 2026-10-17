@@ -1,9 +1,34 @@
 package runtimeenv
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestWindowsDriveEnvironmentSurvivesStartupWithoutInvalidMutations(t *testing.T) {
+	inherited := []string{`=C:=C:\工作`, `=D:=D:\Apps`, "Path=C:\\tools", "CODEX_THREAD_ID=foreign", "=", "malformed"}
+	clean := Clean(inherited)
+	if values(clean)["=C:"] != `C:\工作` || values(clean)["=D:"] != `D:\Apps` {
+		t.Fatal("drive environment lost")
+	}
+	changed := map[string]string{}
+	set := func(key, value string) error {
+		if key == "" || strings.Contains(key, "=") {
+			return fmt.Errorf("invalid key %q", key)
+		}
+		changed[key] = value
+		return nil
+	}
+	unset := func(key string) error { return set(key, "<removed>") }
+	if err := install(clean, inherited, set, unset); err != nil {
+		t.Fatal(err)
+	}
+	if changed["CODEX_THREAD_ID"] != "<removed>" || changed["PATH"] != `C:\tools` {
+		t.Fatal("normal environment cleanup changed", changed)
+	}
+}
 
 func TestWindowsAccountEnvironmentDoesNotRunShell(t *testing.T) {
 	home := t.TempDir()

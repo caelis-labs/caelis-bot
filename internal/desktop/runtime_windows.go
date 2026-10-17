@@ -210,7 +210,7 @@ func Run(assets fs.FS) error {
 		dock := native.Window.NewWithOptions(application.WebviewWindowOptions{Name: "tasks", Title: s.text("native.tasksTitle", nil), Width: 280, Height: 300,
 			Frameless: true, DisableResize: true, Hidden: true, URL: "/?surface=windows-tasks", HideOnEscape: true, AlwaysOnTop: true,
 			BackgroundType: application.BackgroundTypeTransparent,
-			Windows:        application.WindowsWindow{HiddenOnTaskbar: true, DisableFramelessWindowDecorations: true, WebView2CompositionHosting: true}})
+			Windows:        application.WindowsWindow{HiddenOnTaskbar: true, DisableFramelessWindowDecorations: true, WebView2CompositionHosting: true, ExStyle: windowsPetStyle}})
 		dock.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); dock.Hide() })
 		windows := []*application.WebviewWindow{pet, bubble, history, settings, preview, dock}
 		s.configureWindowsContext(native, appName, history, settings, preview)

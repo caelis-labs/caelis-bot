@@ -22,11 +22,13 @@ var terminalKernel = windows.NewLazySystemDLL("kernel32.dll")
 var terminalUser = windows.NewLazySystemDLL("user32.dll")
 
 type consoleWindow struct {
-	mu       sync.Mutex
-	pid      int
-	process  windows.Handle
-	hwnd     uintptr
-	observer bool
+	mu        sync.Mutex
+	pid       int
+	process   windows.Handle
+	hwnd      uintptr
+	hostPID   uint32
+	hostBirth uint64
+	observer  bool
 }
 
 // LaunchConsole delivers exactly one claimed argv to a new native console.
@@ -112,7 +114,7 @@ func launchConsole(ctx context.Context, path string, newConsole bool) (Window, e
 	tick := time.NewTicker(30 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		w.hwnd = consoleHandle(uint32(w.pid))
+		w.bindConsoleWindow()
 		if w.hwnd != 0 {
 			return w, nil
 		}
@@ -170,7 +172,56 @@ func consoleHandle(pid uint32) uintptr {
 	}
 	defer terminalKernel.NewProc("FreeConsole").Call()
 	h, _, _ := terminalKernel.NewProc("GetConsoleWindow").Call()
-	return h
+	return consoleDisplayWindow(h)
+}
+
+// Windows Terminal reparents the ConPTY message window to its visible HWND.
+// Follow only that OS-owned chain, never a title, foreground window or PID scan.
+// https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalApp/TerminalPage.cpp
+func consoleDisplayWindow(console uintptr) uintptr {
+	if console == 0 {
+		return 0
+	}
+	root, _, _ := terminalUser.NewProc("GetAncestor").Call(console, 3) // GA_ROOTOWNER
+	if root == 0 {
+		return 0
+	}
+	if visible, _, _ := terminalUser.NewProc("IsWindowVisible").Call(root); visible == 0 {
+		return 0
+	}
+	return root
+}
+
+func consoleHostIdentity(hwnd uintptr) (uint32, uint64) {
+	var pid uint32
+	terminalUser.NewProc("GetWindowThreadProcessId").Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	if pid == 0 {
+		return 0, 0
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
+	if err != nil {
+		return 0, 0
+	}
+	defer windows.CloseHandle(h)
+	if state, err := windows.WaitForSingleObject(h, 0); err != nil || state != uint32(windows.WAIT_TIMEOUT) {
+		return 0, 0
+	}
+	birth, err := processBirth(h)
+	if err != nil {
+		return 0, 0
+	}
+	return pid, birth
+}
+
+func (w *consoleWindow) bindConsoleWindow() {
+	if w.hwnd != 0 {
+		return
+	}
+	hwnd := consoleHandle(uint32(w.pid))
+	pid, birth := consoleHostIdentity(hwnd)
+	if pid != 0 && birth != 0 {
+		w.hwnd, w.hostPID, w.hostBirth = hwnd, pid, birth
+	}
 }
 func (w *consoleWindow) Confirm(ctx context.Context, pid int) error {
 	w.mu.Lock()
@@ -231,6 +282,9 @@ func (w *consoleWindow) Observe(ctx context.Context) (WindowObservation, error) 
 	return o, nil
 }
 func (w *consoleWindow) validWindow() bool {
+	// A hosted terminal may publish the observer receipt before it finishes
+	// reparenting ConPTY. Reconcile may bind the original client once ready.
+	w.bindConsoleWindow()
 	if w.hwnd == 0 {
 		return false
 	}
@@ -238,7 +292,8 @@ func (w *consoleWindow) validWindow() bool {
 		return false
 	}
 	// Re-attest the OS console association instead of matching window titles/PIDs.
-	return consoleHandle(uint32(w.pid)) == w.hwnd
+	pid, birth := consoleHostIdentity(w.hwnd)
+	return pid == w.hostPID && birth == w.hostBirth && consoleHandle(uint32(w.pid)) == w.hwnd
 }
 func (w *consoleWindow) Apply(ctx context.Context, command WindowCommand) error {
 	w.mu.Lock()

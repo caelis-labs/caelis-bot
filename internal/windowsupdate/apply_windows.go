@@ -342,8 +342,11 @@ func apply(p Plan, m Manifest, work string) error {
 			return e
 		}
 	} else {
-		stage := filepath.Join(work, "extracted")
-		if _, e := Unpack(p.Archive, stage, p.Identity, m.Version); e != nil {
+		localWork, e := stagePortableArchive(p.Target, p.Archive, p.Identity, m.Version)
+		if e != nil {
+			return e
+		}
+		if e = localstate.WriteConfirmed(filepath.Join(work, "portable-work.json"), map[string]string{"directory": localWork}); e != nil {
 			return e
 		}
 		lease, e := stoppedLease(filepath.Join(p.Target, "caelis-bot.exe"))
@@ -351,14 +354,20 @@ func apply(p Plan, m Manifest, work string) error {
 			return e
 		}
 		defer lease()
-		if e = ReplacePortable(p.Target, stage, filepath.Join(work, "backup"), p.Identity, m.Version); e != nil {
+		if e = ReplacePortable(p.Target, filepath.Join(localWork, "extracted"), filepath.Join(localWork, "backup"), p.Identity, m.Version); e != nil {
 			return e
 		}
+		// Successful replacement leaves the durable receipt in AppData. Keep
+		// backups until post-install verification below has also succeeded.
+		work = localWork
 	}
 	data, e := os.ReadFile(filepath.Join(p.Target, "build.json"))
 	var build struct{ Version string }
 	if e != nil || json.Unmarshal(data, &build) != nil || build.Version != m.Version {
 		return errors.New("installed version verification failed")
+	}
+	if p.Format == "zip" {
+		_ = os.RemoveAll(work)
 	}
 	return nil
 }

@@ -22,6 +22,33 @@ func TestWindowsMissingAssetsFailBeforeProductStartup(t *testing.T) {
 	}
 }
 
+func TestWindowsPassiveShowDoesNotActivateItsWindow(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	class, _ := windows.UTF16PtrFromString("STATIC")
+	offscreen := int32(-32000)
+	hwnd, _, err := winUser.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(class)), 0, 0x80000000, uintptr(offscreen), uintptr(offscreen), 8, 8, 0, 0, 0, 0)
+	if hwnd == 0 {
+		t.Fatal(err)
+	}
+	defer winUser.NewProc("DestroyWindow").Call(hwnd)
+	winUser.NewProc("ShowWindow").Call(hwnd, 0)
+	for range 3 {
+		before, _, _ := winUser.NewProc("GetForegroundWindow").Call()
+		showWindowsWithoutActivation(hwnd, func() { winUser.NewProc("ShowWindow").Call(hwnd, 5) })
+		if err := showWindowsSurface(hwnd); err != nil {
+			t.Fatal(err)
+		}
+		after, _, _ := winUser.NewProc("GetForegroundWindow").Call()
+		if after == hwnd || before != after {
+			t.Fatal("passive refresh changed foreground")
+		}
+		if visible, _, _ := winUser.NewProc("IsWindowVisible").Call(hwnd); visible == 0 {
+			t.Fatal("passive surface still hidden")
+		}
+	}
+}
+
 func TestWindowsHiddenLauncherCannotSuppressVisibleSurface(t *testing.T) {
 	const helper = "CAELIS_TEST_HIDDEN_SURFACE"
 	if os.Getenv(helper) == "1" {

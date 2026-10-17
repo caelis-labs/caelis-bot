@@ -37,6 +37,30 @@ func TestWindowsPinGeometryPreservesImageAndMonitorBounds(t *testing.T) {
 	}
 }
 
+func TestWindowsCaptureReenableRestoresOriginalUnknownPresentation(t *testing.T) {
+	w := &application.WebviewWindow{}
+	old := &windowsCaptureDraft{window: w, ready: true, document: WindowsCaptureDocument{ID: "original", Outcome: "unknown", Presentation: 7}}
+	c := &windowsCapture{driver: &windowsDriver{}, drafts: map[string]*windowsCaptureDraft{"original": old}}
+	saved := &windowsCaptureDraft{document: WindowsCaptureDocument{ID: "original", Outcome: "unknown"}}
+	if got := c.restoreDraft(saved); got != old {
+		t.Fatal("restore replaced original receipt/UI owner")
+	}
+	if c.retainedPresentation(old) != nil {
+		t.Fatal("disabled capture revealed")
+	}
+	c.enabled = true
+	if c.retainedPresentation(old) != w || old.document.Presentation != 7 {
+		t.Fatal("ready hidden capture did not resume")
+	}
+	if c.retainedPresentation(saved) != nil {
+		t.Fatal("stale restore revealed")
+	}
+	old.ready = false
+	if c.retainedPresentation(old) != nil {
+		t.Fatal("unpainted capture revealed")
+	}
+}
+
 func TestWindowsFastCaptureEncodingIsLossless(t *testing.T) {
 	im := image.NewNRGBA(image.Rect(0, 0, 257, 129))
 	for y := range 129 {

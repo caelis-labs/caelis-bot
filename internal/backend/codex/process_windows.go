@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/localipc"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -110,15 +109,10 @@ func startProcess(ctx context.Context, opts Options) (connection, func(), error)
 	dir := ""
 	path := ""
 	if opts.Attachable {
-		dir, err = os.MkdirTemp("", "caelis-codex-")
+		dir, path, err = windowsSocketDirectory(windowsSocketRoots())
 		if err != nil {
 			return nil, nil, err
 		}
-		if err = localstate.ProtectDirectory(dir); err != nil {
-			_ = os.Remove(dir)
-			return nil, nil, err
-		}
-		path = filepath.Join(dir, "runtime.sock")
 		endpoint = "unix://" + filepath.ToSlash(path)
 	}
 	cmd := exec.Command(binary, appServerArgs(opts, endpoint)...)

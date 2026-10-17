@@ -51,6 +51,9 @@ func runtimeBinary(explicit string) (string, error) {
 // The npm entrypoint needs Node on PATH. Prefer that same installation's native
 // binary using its published package layout, so Finder launches also work.
 func installedBinary(path string) string {
+	if runtime.GOOS == "windows" {
+		return installedWindowsBinary(path)
+	}
 	real, err := filepath.EvalSymlinks(path)
 	if err != nil || filepath.Base(real) != "codex.js" {
 		return path
