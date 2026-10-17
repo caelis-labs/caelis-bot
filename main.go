@@ -4,6 +4,7 @@ import (
 	"embed"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
 	"log"
 	"os"
 
@@ -14,6 +15,18 @@ import (
 var assets embed.FS
 
 func main() {
+	if handled, err := desktop.HandleNativeArguments(os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if handled, err := windowsupdate.Run(os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--remote-terminal-smoke" {
 		if len(os.Args) != 5 {
 			log.Fatal("specify disposable data directory, owned task and terminal")

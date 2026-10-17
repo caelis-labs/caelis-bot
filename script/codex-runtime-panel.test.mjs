@@ -8,6 +8,13 @@ after(()=>server.close());
 const {CodexRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/CodexRuntimePanel.tsx');
 const {BuiltinRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/BuiltinRuntimePanel.tsx');
 const {TeamSettings}=await server.ssrLoadModule('/src/settings/runtime/TeamSettings.tsx');
+const {ConnectionsPage}=await server.ssrLoadModule('/src/settings/runtime/ConnectionsPage.tsx');
+test('model summaries start in an explicit loading state before any runtime facts arrive',()=>{
+ const html=renderToStaticMarkup(React.createElement(ConnectionsPage,{active:false}));
+ assert.equal((html.match(/aria-busy="true"/g)||[]).length,2);
+ assert.equal((html.match(/<strong>Loading/g)||[]).length,2);
+ assert.doesNotMatch(html,/Prepare a runtime first/);
+});
 const render=(state)=>renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state,busy:false,checking:false,onAction:()=>{},onDetect:()=>{}}));
 const base={state:'login',installation:{installed:true,version:'1.0',updateState:''},loginPending:false};
 test('Codex offers installation only when absent, login only after handshake, and updates independently',()=>{

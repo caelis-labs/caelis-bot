@@ -57,6 +57,7 @@
   "artifactUnavailable": "文件已不可用",
   "previewArtifact": "预览文本",
   "moreArtifactActions": "更多文件操作",
+  "revealFile": "显示文件位置",
   "openArtifact": "用默认应用打开",
   "saveArtifactAs": "另存为…",
   "copyArtifactPath": "复制路径",

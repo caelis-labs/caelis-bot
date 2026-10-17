@@ -3,6 +3,7 @@ package diagnosticlog
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestRotationBoundsConcurrentWritesAndRetainsValidRecords(t *testing.T) {
 	}
 	for _, file := range files {
 		info, _ := file.Info()
-		if info.Size() > l.maxBytes || info.Mode().Perm() != 0600 {
+		if info.Size() > l.maxBytes || !localstate.HasPrivateMode(filepath.Join(l.dir, file.Name()), info, 0600) {
 			t.Fatal("unbounded or public log")
 		}
 		f, _ := os.Open(filepath.Join(l.dir, file.Name()))
@@ -49,7 +50,7 @@ func TestRotationBoundsConcurrentWritesAndRetainsValidRecords(t *testing.T) {
 		t.Fatal(l.Status())
 	}
 	info, _ := os.Stat(l.dir)
-	if info.Mode().Perm() != 0700 {
+	if !localstate.HasPrivateMode(l.dir, info, 0700) {
 		t.Fatal("public diagnostic directory")
 	}
 }

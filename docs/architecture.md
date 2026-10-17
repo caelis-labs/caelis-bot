@@ -36,8 +36,10 @@ effect callbacks; `internal/secretstore.Store`, `localipc.Endpoint` and the
 terminal script boundary keep OS authority local to their consumers. Frontend
 feature DTOs distinguish supported, available, enabled and permission state;
 permissions never overwrite a saved product choice. Unsupported hosts fail before
-writing preferences. Windows 11 x64 native drivers, current-user Named Pipe,
-Credential Manager, Job Objects and GUI acceptance remain the next stage.
+writing preferences. Windows drivers now implement the same assembly with WebView2,
+current-user Named Pipe/SID validation, private ACL FileStore and owned Job Objects.
+The FileStore remains the current credential contract; it is not Credential Manager.
+Windows GUI and release acceptance remain separate gates in the adaptation plan.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 Runtime activation replaces the resident adapter inside the same application.
 Admission pauses while the target connects; only a successful handshake commits
@@ -712,7 +714,7 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Desktop and presentation
 
-Desktop World v0.1.0-rc.8 is an optional built-in Agent Plugins package, initially
+Desktop World v0.1.0-rc.9 is an optional built-in Agent Plugins package, initially
 enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
 offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
 package (`bin/dtw`, `libexec/cua-driver`,
@@ -728,7 +730,11 @@ sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
 catalog and approval list.
 
 The MCP `exec` tool and its private CUA worker are upstream release code. The
-worker is spawned from the plugin process under Bot's app bundle, without an
+rc.9 execution context is owned by the MCP process; callers omit a named
+`session` and recover receipts through that same originating connection. Bot's
+Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
+when an input error may follow an already applied action.
+The worker is spawned from the plugin process under Bot's app bundle, without an
 installed second app or Node runtime. The current Runtime chain starts the Bot
 MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
 signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
@@ -740,7 +746,7 @@ so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published rc.8 Mac binaries are Developer ID signed, with upstream notarization
+server, reset TCC, or infer successful input from a model reply. Published rc.9 Mac binaries are Developer ID signed, with upstream notarization
 evidence. Bot verifies those signatures before cleaning build-machine runtime
 paths and re-signing both nested binaries with its selected app identity. The
 app seals the complete resulting inventory and independently passes its own

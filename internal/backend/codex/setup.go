@@ -128,7 +128,7 @@ func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error
 		return v, e
 	}
 	for _, m := range models {
-		v.Models = append(v.Models, api.SetupChoice{Value: m.Model, Label: m.Name, Current: m.Default})
+		v.Models = append(v.Models, api.SetupChoice{Value: m.Model, Label: m.Name, Current: m.Default, Parameters: &m})
 	}
 	v.State = "ready"
 	return v, nil

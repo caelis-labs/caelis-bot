@@ -4,8 +4,11 @@ go 1.26.8
 
 require (
 	cel.dev/cel-go v0.32.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/caelis-labs/memory v0.6.1
 	github.com/coder/websocket v1.8.15
+	github.com/deploymenttheory/go-bindings-win32 v0.5.0
+	github.com/deploymenttheory/go-bindings-winrt v0.6.1
 	github.com/mymmrac/telego v1.12.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/wailsapp/wails/v3 v3.0.0-beta.28
@@ -16,7 +19,6 @@ require (
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

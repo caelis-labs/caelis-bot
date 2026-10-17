@@ -35,6 +35,7 @@ func Clean(input []string) []string {
 	out := make([]string, 0, len(input))
 	for _, entry := range input {
 		key, _, ok := strings.Cut(entry, "=")
+		key = environmentKey(key)
 		if !ok || key == "" || strings.HasPrefix(key, "CAELIS_CONTROL_") {
 			continue
 		}
@@ -51,7 +52,7 @@ func values(env []string) map[string]string {
 	out := map[string]string{}
 	for _, entry := range env {
 		if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
-			out[key] = value
+			out[environmentKey(key)] = value
 		}
 	}
 	return out
@@ -83,7 +84,7 @@ func Resolve(ctx context.Context, inherited []string, privateHomes ...string) ([
 // The native application supplies its known legacy private homes; this package
 // does not infer product storage from arbitrary directory names.
 func ResolveWithReport(ctx context.Context, inherited []string, privateHomes ...string) ([]string, Report, error) {
-	return resolve(ctx, inherited, currentAccount(), privateHomes...)
+	return resolvePlatform(ctx, inherited, currentAccount(), privateHomes...)
 }
 func resolve(ctx context.Context, inherited []string, who account, privateHomes ...string) ([]string, Report, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
@@ -219,7 +220,7 @@ func Install(env []string) error {
 	v := values(env)
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if _, keep := v[key]; !keep {
+		if _, keep := v[environmentKey(key)]; !keep {
 			if err := os.Unsetenv(key); err != nil {
 				return err
 			}

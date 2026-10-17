@@ -107,6 +107,7 @@
   "language": "Language",
   "loginAtLoginLabel": "Start at login",
   "loginAtLoginOn": "On",
+  "loginAtLoginRegistered": "Registered to start at sign-in",
   "loginAtLoginOff": "Off",
   "loginAtLoginNeedsApproval": "Off in System Settings",
   "loginAtLoginUnavailable": "Could not read the login item.",
@@ -650,5 +651,7 @@
   "setupReadyTitle": "You’re connected",
   "setupReadyHint": "Next, choose optional features and introduce your assistant.",
   "setupModelsHint": "Connect a model service and choose a model for your assistant.",
-  "setupLoginHint": "Sign in using your browser. We’ll detect when you’re ready."
+  "setupLoginHint": "Sign in using your browser. We’ll detect when you’re ready.",
+  "windowsUpdateInstall": "Restart and update",
+  "windowsUpdateInstallDescription": "Task observation terminals will close. Work continues and can be reopened after the update."
 }

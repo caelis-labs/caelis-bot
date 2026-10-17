@@ -69,6 +69,9 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	if e != nil || v.LoginPending || v.State != "ready" || len(v.Models) != 1 {
 		t.Fatal(v, e)
 	}
+	if v.Models[0].Parameters == nil || v.Models[0].Parameters.Model != "fixture" || v.Models[0].Parameters.Name != "Fixture" {
+		t.Fatal("inspection lost the negotiated model parameters")
+	}
 }
 func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
 	s := setupFixture(t, func(s *Setup, m wireMessage, c net.Conn) {

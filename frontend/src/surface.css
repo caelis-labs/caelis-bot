@@ -475,7 +475,12 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
  .settings-window .setup-flow .setup-progress { gap:8px; font-size:10px; }
 }
 .settings-window .setup-flow .runtime-program-actions .primary { order:2; }
-.settings-window .setup-flow .onboarding-models { display:flex; flex-direction:column; align-items:flex-end; gap:12px; }
+.settings-window .setup-flow .onboarding-models { display:flex; flex-direction:column; align-items:stretch; gap:12px; }
+.settings-window .setup-flow .onboarding-models > .setting-section { width:100%; min-width:0; margin:0; }
+.settings-window .setup-flow .onboarding-models > .setup-end { margin-top:8px; padding-top:12px; }
+.settings-window .setup-flow .onboarding-add-connection { width:100%; min-width:0; }
+.settings-window .setup-flow .onboarding-add-connection > summary { padding:8px 0; font-size:13px; cursor:pointer; }
+.settings-window .setup-flow .onboarding-add-connection[open] > summary { margin-bottom:12px; }
 .settings-window .setup-flow .onboarding-models > .setting-row { width:100%; border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
 .settings-window .setup-flow .onboarding-models > button { align-self:flex-end; }
 .settings-window .setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome) { padding-bottom:0; }

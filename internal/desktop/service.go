@@ -116,6 +116,7 @@ type Service struct {
 	updatePreferences      func() UpdatePreferences
 	setAutomaticUpdates    func(bool) error
 	checkNativeUpdates     func() error
+	installNativeUpdate    func() error
 	loginAtLogin           loginAtLoginController
 	loginAtLoginMu         sync.Mutex
 	pickSSHKey             func() (string, error)

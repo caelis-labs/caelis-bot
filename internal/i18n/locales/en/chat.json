@@ -57,6 +57,7 @@
   "artifactUnavailable": "File no longer available",
   "previewArtifact": "Preview text",
   "moreArtifactActions": "More file actions",
+  "revealFile": "Show in folder",
   "openArtifact": "Open with default app",
   "saveArtifactAs": "Save As…",
   "copyArtifactPath": "Copy path",

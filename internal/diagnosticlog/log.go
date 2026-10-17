@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,7 +216,7 @@ func (l *Logger) append(b []byte) error {
 	if info, err := os.Lstat(l.dir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("diagnostic directory is not a real directory")
 	}
-	if err := os.Chmod(l.dir, 0700); err != nil {
+	if err := localstate.ProtectDirectory(l.dir); err != nil {
 		return err
 	}
 	var size int64
@@ -254,7 +255,7 @@ func (l *Logger) append(b []byte) error {
 		return err
 	}
 	defer f.Close()
-	if err = f.Chmod(0600); err != nil {
+	if err = localstate.ProtectOpenFile(f); err != nil {
 		return err
 	}
 	if _, err = f.Write(b); err != nil {

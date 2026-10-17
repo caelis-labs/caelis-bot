@@ -48,7 +48,7 @@ func (s *FileStore) prepare(path string) error {
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return errors.New("unsafe_secret_directory")
 		}
-		if err := os.Chmod(dir, 0700); err != nil {
+		if err := localstate.ProtectDirectory(dir); err != nil {
 			return err
 		}
 	}
@@ -64,7 +64,7 @@ func (s *FileStore) checkDirectories(path string) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0700 {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !localstate.HasPrivateMode(dir, info, 0700) {
 			return errors.New("unsafe_secret_directory")
 		}
 	}
@@ -117,7 +117,7 @@ func (s *FileStore) read(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 260<<10 {
+	if !info.Mode().IsRegular() || !localstate.HasPrivateMode(path, info, 0600) || info.Size() > 260<<10 {
 		return "", errors.New("unsafe_secret_file")
 	}
 	f, err := os.Open(path)

@@ -6,7 +6,9 @@ export async function desktop<T = void>(method: string, ...args: unknown[]): Pro
 	return host<T>('desktop',method,...args);
 }
 export async function backend<T = void>(method: string, ...args: unknown[]): Promise<T> {
-	return host<T>('backend',method,...args);
+	const start=performance.now();
+	try{return await host<T>('backend',method,...args);}
+	finally{if(navigator.platform.toLowerCase().startsWith('win')&&['SetupProfile','InspectSetup','SetupModels','SetupOverview','ExecutionSettings','LocalWorkerSelection'].includes(method))void desktop('WindowsUIPerformance',method,performance.now()-start).catch(()=>{});}
 }
 async function host<T>(service: string,method: string,...args: unknown[]): Promise<T> {
   const url = '/wails/runtime.js';
@@ -15,7 +17,7 @@ async function host<T>(service: string,method: string,...args: unknown[]): Promi
     runtime=loading;
     void loading.catch(()=>{if(runtime===loading)runtime=undefined;});
   }
-  return nativeCall(service,method,async()=> (await runtime!).Call.ByName<T>(`github.com/caelis-labs/caelis-bot/internal/${service}.Service.${method}`, ...args));
+  return nativeCall(service,method,async()=> (await runtime!).Call.ByName<T>(`github.com/caelis-labs/caelis-bot/internal/${service}.Service.${method}`, ...args),args);
 }
 export type Placement = { x: number; y: number; scale: number; visible: boolean; positioned: boolean };
 export type DraftFile = { id: string; name: string; size: number; type: string; image: boolean; unavailable: boolean };

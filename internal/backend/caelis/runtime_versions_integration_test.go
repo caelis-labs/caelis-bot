@@ -17,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 )
 
 // This opt-in test executes the Bot adapter from its own synthetic app bundle,
@@ -26,8 +27,8 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	if old == "" || current == "" {
 		t.Skip("requires two explicitly selected Caelis binaries")
 	}
-	if runtime.GOOS != "darwin" {
-		t.Skip("macOS embedded-runtime acceptance")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("native embedded-runtime acceptance")
 	}
 	budget := 120 * time.Second
 	if os.Getenv("BOT_RUNTIME_MATRIX_CHILD") == "" {
@@ -43,20 +44,37 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		defer func() {
 			cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 			defer stop()
-			_ = exec.CommandContext(cleanup, current, "service", "stop", "--store-dir", filepath.Join(root, "store"), "--format", "json").Run()
+			command := exec.CommandContext(cleanup, current, "service", "stop", "--store-dir", filepath.Join(root, "store"), "--format", "json")
+			runtimeenv.BackgroundCommand(command)
+			_ = command.Run()
 		}()
 		contents := filepath.Join(root, "Matrix.app", "Contents")
+		child := filepath.Join(contents, "MacOS", "matrix-test")
+		helper := filepath.Join(contents, "Helpers", "caelis")
+		global := filepath.Join(root, "global", "caelis")
+		if runtime.GOOS == "windows" {
+			contents = filepath.Join(root, "Matrix")
+			child = filepath.Join(contents, "matrix-test.exe")
+			helper = filepath.Join(contents, "Helpers", "caelis.exe")
+			global += ".exe"
+		}
 		for _, dir := range []string{filepath.Join(contents, "MacOS"), filepath.Join(contents, "Helpers"), filepath.Join(root, "home"), filepath.Join(root, "global")} {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
+			}
+		}
+		if runtime.GOOS == "windows" {
+			for _, name := range []string{"Local", "Roaming"} {
+				if err := os.MkdirAll(filepath.Join(root, "home", "AppData", name), 0700); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		executable, err := os.Executable()
 		if err != nil {
 			t.Fatal(err)
 		}
-		child := filepath.Join(contents, "MacOS", "matrix-test")
-		for dst, src := range map[string]string{child: executable, filepath.Join(contents, "Helpers", "caelis"): current, filepath.Join(root, "global", "caelis"): old} {
+		for dst, src := range map[string]string{child: executable, helper: current, global: old} {
 			data, err := os.ReadFile(src)
 			if err != nil {
 				t.Fatal(err)
@@ -68,6 +86,16 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		command := exec.CommandContext(ctx, child, "-test.run=^TestBundledRuntimeVersionInterop$", "-test.v")
 		command.Dir = root
 		command.Env = []string{"BOT_RUNTIME_MATRIX_CHILD=1", "CAELIS_BOT_TEST_PREVIOUS_BINARY=" + old, "CAELIS_BOT_TEST_BINARY=" + current, "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "home"), "PATH=" + filepath.Join(root, "global") + ":/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}
+		if runtime.GOOS == "windows" {
+			// Keep only OS execution dependencies; never inherit a user's Store or
+			// model credentials into this synthetic two-release matrix.
+			command.Env = []string{"BOT_RUNTIME_MATRIX_CHILD=1", "CAELIS_BOT_TEST_PREVIOUS_BINARY=" + old, "CAELIS_BOT_TEST_BINARY=" + current,
+				"HOME=" + filepath.Join(root, "home"), "USERPROFILE=" + filepath.Join(root, "home"),
+				"APPDATA=" + filepath.Join(root, "home", "AppData", "Roaming"), "LOCALAPPDATA=" + filepath.Join(root, "home", "AppData", "Local"),
+				"PATH=" + filepath.Join(root, "global") + ";" + filepath.Join(os.Getenv("SystemRoot"), "System32"),
+				"SystemRoot=" + os.Getenv("SystemRoot"), "TEMP=" + os.TempDir(), "TMP=" + os.TempDir()}
+		}
+		runtimeenv.BackgroundCommand(command)
 		output, err := command.CombinedOutput()
 		t.Log(string(output))
 		if err != nil {
@@ -83,15 +111,22 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	cli := func(binary string, args ...string) []byte {
 		t.Helper()
 		args = append(args, "--store-dir", settings.CaelisStore, "--format", "json")
-		output, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
+		command := exec.CommandContext(ctx, binary, args...)
+		runtimeenv.BackgroundCommand(command)
+		output, err := command.CombinedOutput()
 		if err != nil {
+			if data, readErr := os.ReadFile(filepath.Join(settings.CaelisStore, "logs", "service.log")); readErr == nil {
+				t.Logf("synthetic Host diagnostics: %s", data)
+			}
 			t.Fatalf("isolated CLI failed: %v %s", err, output)
 		}
 		return output
 	}
 	cli(old, "service", "start")
 	defer func() {
-		_ = exec.Command(current, "service", "stop", "--store-dir", settings.CaelisStore, "--format", "json").Run()
+		command := exec.Command(current, "service", "stop", "--store-dir", settings.CaelisStore, "--format", "json")
+		runtimeenv.BackgroundCommand(command)
+		_ = command.Run()
 	}()
 	discovery, token, err := Discover(settings)
 	if err != nil {
@@ -118,6 +153,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	held, entered := make(chan struct{}), make(chan struct{}, 1)
 	model.set("CASE_OLD_BLOCK", modelStep{Block: held, Entered: entered, Reply: "OLD_COMPLETED"})
 	oldTask := exec.CommandContext(ctx, old, "-p", "CASE_OLD_BLOCK", "--store-dir", settings.CaelisStore, "--format", "json")
+	runtimeenv.BackgroundCommand(oldTask)
 	if err := oldTask.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +172,11 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		t.Fatal("old Session did not run")
 	}
 	found, err := caelisruntime.Find("")
-	if err != nil || !strings.Contains(found, "Contents/Helpers/caelis") {
+	wantHelper := filepath.Join(root, "Matrix.app", "Contents", "Helpers", "caelis")
+	if runtime.GOOS == "windows" {
+		wantHelper = filepath.Join(root, "Matrix", "Helpers", "caelis.exe")
+	}
+	if err != nil || found != wantHelper {
 		t.Fatalf("bundle selection: %s %v", found, err)
 	}
 	bot := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: selector, ApprovalMode: "workspace-write"}})
@@ -159,6 +199,10 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	bot.mu.Unlock()
 	model.set("CASE_BUNDLE_BEFORE", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "before"}}, modelStep{Reply: "BOT_BEFORE_COMPLETE"})
 	submitAcceptance(t, ctx, bot, "CASE_BUNDLE_BEFORE")
+	// Keep one released Client process observing the original Session through
+	// replacement. A newly launched old CLI is a separate compatibility check.
+	observeOldClient := observeMatrixClient(t, ctx, host, old, root, settings.CaelisStore, sid)
+	observeOldClient("BOT_BEFORE_COMPLETE")
 	still, _, err := Discover(settings)
 	if err != nil || still.InstanceID != discovery.InstanceID {
 		t.Fatal("running Session was interrupted", err)
@@ -185,6 +229,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	}
 	model.set("CASE_BUNDLE_AFTER", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "after"}}, modelStep{Reply: "BOT_AFTER_COMPLETE"})
 	submitAcceptance(t, ctx, bot, "CASE_BUNDLE_AFTER")
+	observeOldClient("BOT_AFTER_COMPLETE")
 	if effects.Load() != 2 {
 		t.Fatal("callback count", effects.Load())
 	}

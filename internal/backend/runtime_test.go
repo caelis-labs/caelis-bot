@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,7 +48,7 @@ func TestRuntimeSettingsPersistOnlyAfterValidation(t *testing.T) {
 	if err != nil || loaded != selected {
 		t.Fatal("next startup lost the validated path", err)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
+	if info, err := os.Stat(path); err != nil || !localstate.HasPrivateMode(path, info, 0600) {
 		t.Fatal("settings permissions")
 	}
 	if _, err := s.SaveRuntimeSettings(context.Background(), initial); err != nil {

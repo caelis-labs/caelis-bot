@@ -9,6 +9,7 @@ type Preview = { text: string; truncated: boolean };
 
 export function ArtifactPreviewWindow() {
  const { t } = useI18n();
+ const webChrome = new URLSearchParams(location.search).get('chrome') === 'web';
  const [selection,setSelection] = useState<Selection | null>(null);
  const [preview,setPreview] = useState<Preview | null>(null);
  const [error,setError] = useState('');
@@ -56,6 +57,11 @@ export function ArtifactPreviewWindow() {
  },[t]);
  const isMarkdown=/\.(md|markdown)$/i.test(selection?.name??'');
  return <main className="artifact-preview-window">
+  {webChrome&&<nav className="artifact-preview-web-toolbar" aria-label={t('chat.previewArtifact')}>
+   {(['open','save','path','content','reveal'] as const).map(action=><button key={action} disabled={!selection} onClick={()=>{
+    if(selection)window.dispatchEvent(new CustomEvent('artifact-preview-toolbar-action',{detail:{action,...selection}}));
+   }}>{t(({open:'chat.openArtifact',save:'chat.saveArtifactAs',path:'chat.copyArtifactPath',content:'chat.copyArtifactContent',reveal:'chat.revealFile'} as const)[action])}</button>)}
+  </nav>}
   {actionError&&<p className="artifact-preview-error" role="alert">{actionError}</p>}
   <section className="artifact-preview-scroll" aria-label={selection?.name??t('chat.previewArtifact')}>
    {error?<p className="artifact-preview-error" role="alert">{error}</p>:preview?

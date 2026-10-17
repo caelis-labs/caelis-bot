@@ -4,7 +4,7 @@ import {SettingsToolbarContext} from '../SettingsToolbar';
 import {useContext,useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import {useI18n} from '../../i18n';
-import type {ExecutionSettings,LocalWorkerSettings,ModelOption,RuntimeSettings,RuntimeConfiguration,SetupState,SetupRequest,WorkExecutionSettings,SetupOverview} from '../../backend/contract';
+import type {ModelOption,RuntimeSettings,RuntimeConfiguration,SetupState,SetupRequest,WorkExecutionSettings} from '../../backend/contract';
 import {SettingGroup,SettingRow} from '../../SettingsUI';
 import {SettingsChevron} from '../../SettingsIcons';
 import {BuiltinRuntimePanel} from './BuiltinRuntimePanel';
@@ -17,6 +17,7 @@ import {ConnectionWizard} from './ConnectionWizard';
 import {TeamSettings} from './TeamSettings';
 import {createRuntimeSettingsClient,ConfigurationError} from './client';
 import {setupStatusKey} from './setup-status';
+import {loadConnections} from './connections-loader';
 import type {ConnectionKind,ConnectChoice} from './types';
 import './runtime.css';
 
@@ -33,7 +34,9 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  const toolbar=useContext(SettingsToolbarContext);
  const [route,setRoute]=useState<Route>({page:'home'}),[views,setViews]=useState<Partial<Record<ID,RuntimeView>>>({}),[failures,setFailures]=useState<Partial<Record<ID,string>>>({});
  const [bot,setBot]=useState<WorkExecutionSettings>(emptyModel),[worker,setWorker]=useState<WorkExecutionSettings>(emptyModel),[botID,setBotID]=useState(''),[workerID,setWorkerID]=useState('');
- const [config,setConfig]=useState<RuntimeConfiguration|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);
+ const [config,setConfig]=useState<RuntimeConfiguration|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+ const [selectionLoaded,setSelectionLoaded]=useState(false),[selectionFailed,setSelectionFailed]=useState(false);
+ const lastRefresh=useRef(0),refreshing=useRef<Promise<void>|null>(null);
  const [editing,setEditing]=useState<'conversation'|'work'|null>(null),[providerList,setProviderList]=useState<Array<ConnectChoice&{kind:ConnectionKind}>>([]),[providerError,setProviderError]=useState('');
  const [removing,setRemoving]=useState<{id:string;name:string;action:string}|null>(null),[removeError,setRemoveError]=useState('');
  const [notice,setNotice]=useState(''),[operation,setOperation]=useState(''),[operationError,setOperationError]=useState('');
@@ -43,19 +46,24 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  const textError=(e:unknown)=>e instanceof Error?e.message:t('runtime.actionFailed');
  const go=(next:Route)=>{if(action.current)return;setError('');setNotice('');setRoute(next);};
  const back=()=>go(route.page==='runtime'?{page:'home'}:route.page==='connect'||route.page==='provider'?{page:'providers',id}:{page:'runtime',id});
- const refresh=async()=>{
+ const refresh=async(force=true)=>{
+  if(refreshing.current)return refreshing.current;
+  const inspect=force||Date.now()-lastRefresh.current>30000;
   const seq=++generation.current;setLoading(true);
-  const results=await Promise.all((['caelis','codex'] as const).map(async runtime=>{try{const profile=await backend<RuntimeSettings>('SetupProfile',runtime);const state=await backend<SetupState>('InspectSetup',profile);const models=state.state==='ready'?await backend<ModelOption[]>('SetupModels',runtime):[];return {runtime,view:{profile,state,models}};}catch(e){return {runtime,error:textError(e)};}}));
-  if(seq!==generation.current)return;
-  const next:Partial<Record<ID,RuntimeView>>={},fails:Partial<Record<ID,string>>={};for(const r of results){if(r.view)next[r.runtime]=r.view;else fails[r.runtime]=r.error;}setViews(next);setFailures(fails);
-  const current=await Promise.allSettled([backend<SetupOverview>('SetupOverview'),backend<ExecutionSettings>('ExecutionSettings'),backend<LocalWorkerSettings>('LocalWorkerSelection')]);
+  const pending=loadConnections(backend,current=>{
   if(seq!==generation.current)return;
   if(current[0].status==='fulfilled')setBotID(current[0].value.hasRuntimeChoice?current[0].value.active:'');
   if(current[1].status==='fulfilled')setBot(current[1].value);
   if(current[2].status==='fulfilled'){setWorkerID(current[2].value.runtime);setWorker(current[2].value.work);}
-  setLoading(false);
+  setSelectionLoaded(true);setSelectionFailed(current.some(r=>r.status==='rejected'));
+  },(runtime,result)=>{
+   if(seq!==generation.current)return;
+   if(result instanceof Error){setFailures(v=>({...v,[runtime]:textError(result)}));setViews(v=>({...v,[runtime]:undefined}));}
+   else{setViews(v=>({...v,[runtime]:result}));setFailures(v=>({...v,[runtime]:undefined}));}
+  },inspect).finally(()=>{if(seq===generation.current){setLoading(false);if(inspect)lastRefresh.current=Date.now();}refreshing.current=null;});
+  refreshing.current=pending;return pending;
  };
- useEffect(()=>{if(active)void refresh();return()=>{generation.current++}},[active,refreshKey]);
+ useEffect(()=>{let live=true;queueMicrotask(()=>{if(live&&active)void refresh(false);});return()=>{live=false}},[active,refreshKey]);
  useEffect(()=>{root.current?.closest('.settings-content')?.scrollTo(0,0)},[route.page]);
  useEffect(()=>{
   if(route.page==='home')return;
@@ -79,11 +87,11 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   }
  });
  useEffect(()=>{if(!active||route.page!=='runtime'||!view?.state.loginPending)return;const timer=setInterval(()=>{if(!action.current)void refresh()},2500);return()=>clearInterval(timer)},[active,route.page,view?.state.loginPending]);
- const models=Object.entries(views).flatMap(([runtime,v])=>v.state.state==='ready'?v.models.map(m=>({...m,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})):[]);
+ const models=Object.entries(views).flatMap(([runtime,v])=>v?.state.state==='ready'?v.models.map(m=>({...m,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})):[]);
  const followModel=encode('conversation','');
  const pickerModels:ModelOption[]=editing==='work'?[{model:followModel,name:t('runtime.followConversationModel'),description:'',default:false,defaultEffort:'',efforts:[],serviceTiers:[],imageInput:null},...models]:models;
  const modelValue=(scope:'conversation'|'work')=>{const saved=scope==='conversation'?bot:worker,runtime=scope==='conversation'?botID:workerID;const effective=saved.model||(scope==='conversation'?views[runtime as ID]?.state.selectedModel:'');return {...saved,...(scope==='work'&&!effective?{effort:'',serviceTier:''}:{}),model:runtime&&(effective||scope==='work')?encode(runtime,effective||''):''}};
- const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),runtime=scope==='conversation'?botID:workerID,saved=scope==='conversation'?bot:worker;return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}} disabled={loading}><span><strong>{(runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{runtime&&runtime!=='conversation'&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}</span><SettingsChevron/></button>};
+ const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),runtime=scope==='conversation'?botID:workerID,saved=scope==='conversation'?bot:worker;return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}} disabled={loading||selectionFailed} aria-busy={!selectionLoaded}><span><strong>{!selectionLoaded?t('common.loading'):selectionFailed?t('runtime.loadRuntimeFailed'):(runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{selectionLoaded&&runtime&&runtime!=='conversation'&&views[runtime as ID]&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{selectionLoaded&&!selectionFailed&&!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}</span><SettingsChevron/></button>};
  const stateText=(runtime:ID)=>views[runtime]?t(setupStatusKey(views[runtime]!.state)):failures[runtime]?t('runtime.loadRuntimeFailed'):t('runtime.detecting');
  const topError=<>{error&&<p className="inline-error" role="alert">{error}</p>}{notice&&<p className="settings-note" role="status">{notice}</p>}</>;
  return <section ref={root} className="connections-page">

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,7 +59,7 @@ func TestWorkExecutionPersistsIndependentlyAndOnlyAfterAcceptance(t *testing.T) 
 		t.Fatal("work configuration changed Bot")
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
+	if !localstate.HasPrivateMode(path, info, 0600) {
 		t.Fatal("settings not private")
 	}
 	s.workExecutionFile = path + "/cannot-write"

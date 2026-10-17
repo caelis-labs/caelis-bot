@@ -1,16 +1,22 @@
 import './theme/display';
 import './style.css';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './i18n';
 import { desktop } from './desktop';
-import { History } from './Panel';
-import { Settings } from './Settings';
-import { ContextWindow } from './ContextWindow';
 import './surface.css';
-import { Bubble } from './Bubble';
 import { SurfaceBoundary } from './SurfaceBoundary';
-import { ArtifactPreviewWindow } from './ArtifactPreviewWindow';
+import { WindowsTaskDock } from './WindowsTaskDock';
+import { WindowsCapture } from './WindowsCapture';
+import './windows.css';
+
+// Each native surface loads only its own UI. In particular, an explicit screen
+// capture must not parse chat, markdown, settings and provider configuration.
+const History=lazy(()=>import('./Panel').then(m=>({default:m.History})));
+const Settings=lazy(()=>import('./Settings').then(m=>({default:m.Settings})));
+const ContextWindow=lazy(()=>import('./ContextWindow').then(m=>({default:m.ContextWindow})));
+const ArtifactPreviewWindow=lazy(()=>import('./ArtifactPreviewWindow').then(m=>({default:m.ArtifactPreviewWindow})));
+const Bubble=lazy(()=>import('./Bubble').then(m=>({default:m.Bubble})));
 
 function Pet() {
   const { t } = useI18n();
@@ -55,4 +61,6 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
-createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);
+// Presentation only: native capabilities and authorization stay with the host.
+document.documentElement.dataset.platform = navigator.platform.toLowerCase().startsWith('win') ? 'windows' : 'other';
+createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary><Suspense fallback={null}>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'capture' ? <WindowsCapture /> : surface === 'windows-tasks' ? <WindowsTaskDock /> : surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</Suspense></SurfaceBoundary></I18nProvider>);

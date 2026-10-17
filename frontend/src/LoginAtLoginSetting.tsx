@@ -2,13 +2,8 @@ import {useEffect, useRef, useState} from 'react';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
 import {SettingGroup, SettingRow} from './SettingsUI';
-
-export type LoginAtLoginStatus = {
- supported:boolean;
- state:'on'|'off'|'needsApproval'|'unavailable'|'unsupported';
- enabled:boolean;
- registered:boolean;
-};
+import {loginAtLoginMessage,type LoginAtLoginStatus} from './login-at-login';
+export type {LoginAtLoginStatus} from './login-at-login';
 
 export function LoginAtLoginSetting({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
@@ -60,9 +55,10 @@ export function LoginAtLoginSetting({active,focusVersion}:{active:boolean;focusV
   catch{errorKind.current='load';setError(t('settings.loginAtLoginLoadFailed'));}
  };
  const state=status?.state;
- const message=error||(!status?t('common.loading'):state==='on'?t('settings.loginAtLoginOn'):state==='off'?t('settings.loginAtLoginOff'):state==='needsApproval'?t('settings.loginAtLoginNeedsApproval'):state==='unavailable'?t('settings.loginAtLoginUnavailable'):t('settings.loginAtLoginUnsupported'));
+ const message=error||(!status?t('common.loading'):t(loginAtLoginMessage(status)));
  return <SettingGroup><SettingRow label={t('settings.loginAtLoginLabel')} htmlFor={status?.supported?'login-at-login':undefined} description={<span role={error?'alert':'status'}>{message}</span>}>
   {status?.supported&&state!=='unavailable'?<><input id="login-at-login" className="settings-switch" role="switch" type="checkbox" checked={status.enabled} disabled={busy} onChange={event=>void change(event.target.checked)}/>
+   {state==='registered'&&<button className="text-action" disabled={busy} onClick={()=>void open()}>{t('settings.openSystemSettings')}</button>}
    {state==='needsApproval'&&<><button className="text-action" disabled={busy} onClick={()=>void open()}>{t('settings.openSystemSettings')}</button><button className="text-action" disabled={busy} onClick={()=>void change(false)}>{t('settings.loginAtLoginRemove')}</button></>}</>:state==='unavailable'||!status&&!!error?<button disabled={busy} onClick={()=>void retry()}>{t('settings.retry')}</button>:null}
  </SettingRow></SettingGroup>;
 }

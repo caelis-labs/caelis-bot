@@ -1,5 +1,17 @@
 # Development and verification
 
+Windows native implementation is being rebuilt from main / v0.14.0. See the
+[adaptation plan](windows-adaptation-plan.md) and [Windows baseline issues](windows-adaptation-issues.md)
+for the preserved legacy branch, current scope and verification results. This
+implementation does not yet qualify a public Windows release.
+
+On Windows use `script/check-windows.ps1`, `script/smoke-windows.ps1` and
+`script/build-windows.ps1`; they use the same locked toolchain and retain native
+platform checks. Launch through `script/build_and_run-windows.ps1` with an isolated
+`-DataDirectory` for review. Setup/ZIP, preview CI and key reuse are in
+[Windows releases](windows-release.md). Mac `make check/smoke/build` remain required
+on a Mac; Darwin CGO-free cross-compilation does not replace AppKit acceptance.
+
 Build from this public repository with pinned `toolchain.json`, `go.mod`, npm lockfiles and protocol manifests.
 No private asset checkout or sibling Core imports. `script/env.sh` selects Node 24, local caches, GOWORK=off
 and the macOS deployment target without changing the user's shell. Ordinary builds do not regenerate schemas.
@@ -43,7 +55,7 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-Desktop World is pinned to the published [v0.1.0-rc.8](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.8)
+Desktop World is pinned to the published [v0.1.0-rc.9](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.9)
 single executable. `resources/desktop-world/release.json` fixes each platform
 artifact SHA-256, BUILD provenance, CUA commit, worker and license inventory.
 The build validates the downloaded executable before running the offline
@@ -65,7 +77,7 @@ exporter through the same verifier, retains the full plugin inventory and
 checks `dtw.exe version` on the Windows runner. The Windows artifact is unsigned
 and needs the VC runtime. These jobs do not establish Windows GUI acceptance.
 Historical rc.3 and rc.2 records retain their original versions under
-`docs/evidence/`; the previous rc.4 GUI evidence below does not qualify rc.8.
+`docs/evidence/`; the previous rc.4 GUI evidence below does not qualify rc.9.
 
 
 ## Native development
@@ -161,7 +173,7 @@ Skill、唯一 `exec` 和停用撤销。
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
 `CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
-`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.8 版本目录；分别给 Codex
+`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.9 版本目录；分别给 Codex
 测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
 `CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
 验证 Skill、单 `exec` 和停用撤销；它不执行 GUI 操作。

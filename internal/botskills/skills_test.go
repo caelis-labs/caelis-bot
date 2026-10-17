@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+func TestSkillMetadataAcceptsCheckoutLineEndings(t *testing.T) {
+	for _, ending := range []string{"\n", "\r\n"} {
+		body := strings.Join([]string{"---", "name: bot-core", "description: On-demand guidance.", "---", "# Body"}, ending)
+		name, description := metadata(body)
+		if name != "bot-core" || description != "On-demand guidance." {
+			t.Fatal("metadata changed with line ending", name, description)
+		}
+	}
+}
+
 func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "custom-guide"} {

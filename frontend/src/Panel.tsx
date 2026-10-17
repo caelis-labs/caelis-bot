@@ -1,4 +1,5 @@
 import { surfaceReady, surfaceMounted } from './surface-ready';
+import { useConnectionNotice } from './use-connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
@@ -577,7 +578,8 @@ export function History() {
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
- const connection=snapshot&&snapshot.connection!=='ready'&&!snapshot.introductionPending;
+ const pendingConnection=snapshot&&snapshot.connection!=='ready'&&!snapshot.introductionPending;
+ const connection=useConnectionNotice(snapshot);
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';
@@ -611,10 +613,10 @@ export function History() {
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {(connection||!pendingConnection&&!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className="message assistant state-bubble">
-   {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
+   {connection&&snapshot&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>
     <div className="connection-actions">

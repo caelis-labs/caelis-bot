@@ -6,25 +6,18 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localipc"
 )
 
 type fakeEngine struct {
 	view        api.Snapshot
 	outcome     string
 	submissions []api.Submission
-}
-
-func requireNativeIPC(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows Named Pipe adapter is explicitly unsupported until native acceptance")
-	}
 }
 
 func (f *fakeEngine) Snapshot() api.Snapshot { return f.view }
@@ -176,7 +169,6 @@ func TestDailyScheduleUsesZoneAcrossDST(t *testing.T) {
 	}
 }
 func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
-	requireNativeIPC(t)
 	r, _, _ := fixture(t)
 	b, e := Serve(r)
 	if e != nil {
@@ -209,10 +201,16 @@ func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
 	if len(lines) != 3 || len(r.State().Schedules) != 1 || lines[2]["result"].(map[string]any)["isError"] != false {
 		t.Fatal("MCP invocation did not reach host")
 	}
-	info, e := os.Stat(endpoint)
-	if e != nil || info.Mode().Perm() != 0600 {
-		t.Fatal("socket permissions")
+	if b.listener.Address().Transport == localipc.UnixSocket {
+		info, e := os.Stat(endpoint)
+		if e != nil || info.Mode().Perm() != 0600 {
+			t.Fatal("socket permissions")
+		}
+	} else if b.listener.Address().Transport != localipc.NamedPipe {
+		t.Fatal("unknown private transport")
 	}
+	// The round trip above exercises localipc.Dial's native peer check on
+	// Windows; Named Pipe DACL and PID/SID checks have their own native tests.
 }
 func TestGestureAllowlist(t *testing.T) {
 	r, _, _ := fixture(t)
@@ -227,7 +225,6 @@ func TestGestureAllowlist(t *testing.T) {
 }
 
 func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
-	requireNativeIPC(t)
 	r, _, _ := fixture(t)
 	b, err := Serve(r)
 	if err != nil {

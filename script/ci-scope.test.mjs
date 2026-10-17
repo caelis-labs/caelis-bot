@@ -56,6 +56,7 @@ test('packaging changes exercise the DMG while an ordinary transport change does
   }
   assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false});
   assert.deepEqual(scope(['internal/desktop/runtime_windows.go']), {kind: 'windows', preview: false});
+  for(const path of ['script/build-windows.ps1','script/package-nsis-windows.ps1','.github/workflows/windows-preview.yml'])assert.deepEqual(scope([path]),{kind:'windows',preview:false});
   assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind: 'shared', preview: false});
   assert.deepEqual(scope(['unknown-path']), {kind: 'full', preview: false});
 });

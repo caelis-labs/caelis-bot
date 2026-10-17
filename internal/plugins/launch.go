@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 )
 
 func RuntimeName(packageID, server string) string {
@@ -172,6 +174,9 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 		return err
 	}
 	cmd := exec.CommandContext(guardedCtx, s.Command, s.Args...)
+	// MCP owns byte streams, never a user-facing terminal. The platform helper
+	// leaves macOS unchanged and prevents a new console for Windows CLI plugins.
+	runtimeenv.BackgroundCommand(cmd)
 	cmd.Dir = s.CWD
 	cmd.Stdin, cmd.Stdout = pipeReader, out
 	cmd.Stderr = diagnostics

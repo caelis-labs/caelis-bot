@@ -1,0 +1,13 @@
+import {execFileSync} from 'node:child_process';
+import {appendFileSync} from 'node:fs';
+import {previewVersion} from './windows-update-manifest.mjs';
+const tag=process.env.WINDOWS_TAG,version=previewVersion(tag);
+if(!['build','publish'].includes(process.env.WINDOWS_MODE))throw Error('Invalid Windows release mode');
+if(process.env.WINDOWS_MODE==='publish'&&!/^[1-9]\d*$/.test(process.env.WINDOWS_RUN??''))throw Error('Accepted candidate run ID required');
+const git=args=>execFileSync('git',args,{encoding:'utf8'}).trim();
+const sha=git(['rev-parse',`${tag}^{commit}`]);
+if(!/^[a-f0-9]{40}$/.test(sha))throw Error('Invalid tag source');
+git(['merge-base','--is-ancestor',sha,'HEAD']);
+const pkg=JSON.parse(git(['show',`${sha}:package.json`]));
+if(version.split('-')[0]!==pkg.version)throw Error('Windows tag base differs from the selected main source');
+appendFileSync(process.env.GITHUB_OUTPUT,`sha=${sha}\nrevision=${version.split('.').at(-1)}\n`);

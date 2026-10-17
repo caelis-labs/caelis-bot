@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,7 +39,7 @@ func TestDurableDraftRestoresAndOnlyAcceptedSubmissionClears(t *testing.T) {
 				t.Fatal("draft not restored")
 			}
 			info, err := os.Stat(path)
-			if err != nil || info.Mode().Perm() != 0600 {
+			if err != nil || !localstate.HasPrivateMode(path, info, 0600) {
 				t.Fatal("draft not private", err)
 			}
 			if _, err := restored.Submit(context.Background(), api.Submission{ID: "attempt", Text: d.Text, ReferenceIDs: d.ReferenceIDs}); err != nil {
