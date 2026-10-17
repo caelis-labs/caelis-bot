@@ -17,14 +17,13 @@ import {ConnectionWizard} from './ConnectionWizard';
 import {TeamSettings} from './TeamSettings';
 import {createRuntimeSettingsClient,ConfigurationError} from './client';
 import {setupStatusKey} from './setup-status';
-import {loadConnections} from './connections-loader';
+import {loadConnections,encodeModel as encode,followConversationModel,workerPickerValue} from './connections-loader';
 import type {ConnectionKind,ConnectChoice} from './types';
 
 type ID='caelis'|'codex';
 type Route={page:'home'}|{page:'runtime'|'providers'|'team';id:ID}|{page:'connect';id:ID;kind:ConnectionKind;choice:string}|{page:'provider';id:ID;group:string};
 type RuntimeView={profile:RuntimeSettings;state:SetupState;models:ModelOption[]};
 const providerName=(id:string,label:string)=>({codex:'Codex',grok:'Grok',deepseek:'DeepSeek',xiaomi:'Xiaomi MiMo',magpie:'Magpie',ollama:'Ollama',custom:'Custom'}[id]||label||id);
-const encode=(id:string,model:string)=>JSON.stringify([id,model]);
 const decode=(value:string):[ID,string]=>JSON.parse(value);
 const emptyModel={model:'',effort:'',serviceTier:''};
 export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refreshKey?:number}){
@@ -86,11 +85,11 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   }
  });
  useEffect(()=>{if(!active||route.page!=='runtime'||!view?.state.loginPending)return;const timer=setInterval(()=>{if(!action.current)void refresh()},2500);return()=>clearInterval(timer)},[active,route.page,view?.state.loginPending]);
- const models=Object.entries(views).flatMap(([runtime,v])=>v?.state.state==='ready'?v.models.map(m=>({...m,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})):[]);
- const followModel=encode('conversation','');
+ const models=Object.entries(views).flatMap(([runtime,v])=>v?.state.state==='ready'?v.models.filter(m=>m.model.trim()).map(m=>({...m,name:m.name||m.model,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})):[]);
+ const followModel=followConversationModel;
  const pickerModels:ModelOption[]=editing==='work'?[{model:followModel,name:t('runtime.followConversationModel'),description:'',default:false,defaultEffort:'',efforts:[],serviceTiers:[],imageInput:null},...models]:models;
- const modelValue=(scope:'conversation'|'work')=>{const saved=scope==='conversation'?bot:worker,runtime=scope==='conversation'?botID:workerID;const effective=saved.model||(scope==='conversation'?views[runtime as ID]?.state.selectedModel:'');return {...saved,...(scope==='work'&&!effective?{effort:'',serviceTier:''}:{}),model:runtime&&(effective||scope==='work')?encode(runtime,effective||''):''}};
- const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),runtime=scope==='conversation'?botID:workerID,saved=scope==='conversation'?bot:worker;return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}} disabled={loading||selectionFailed} aria-busy={!selectionLoaded}><span><strong>{!selectionLoaded?t('common.loading'):selectionFailed?t('runtime.loadRuntimeFailed'):(runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{selectionLoaded&&runtime&&runtime!=='conversation'&&views[runtime as ID]&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{selectionLoaded&&!selectionFailed&&!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}</span><SettingsChevron/></button>};
+ const modelValue=(scope:'conversation'|'work')=>{if(scope==='work')return workerPickerValue(workerID,worker,views);const effective=bot.model||views[botID as ID]?.state.selectedModel;return {...bot,model:botID&&effective?encode(botID,effective):''}};
+ const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),runtime=scope==='conversation'?botID:workerID,saved=scope==='conversation'?bot:worker;return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}} disabled={loading||selectionFailed} aria-busy={!selectionLoaded}><span><strong>{!selectionLoaded?t('common.loading'):selectionFailed?t('runtime.loadRuntimeFailed'):(scope==='work'&&v.model===followModel?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{selectionLoaded&&runtime&&runtime!=='conversation'&&views[runtime as ID]&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{selectionLoaded&&!selectionFailed&&!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}</span><SettingsChevron/></button>};
  const stateText=(runtime:ID)=>views[runtime]?t(setupStatusKey(views[runtime]!.state)):failures[runtime]?t('runtime.loadRuntimeFailed'):t('runtime.detecting');
  const topError=<>{error&&<p className="inline-error" role="alert">{error}</p>}{notice&&<p className="settings-note" role="status">{notice}</p>}</>;
  return <section ref={root} className="connections-page">
@@ -114,6 +113,6 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
    {operationError&&<div className="setup-end"><button onClick={()=>{setOperation('');setOperationError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void apply(operation)}>{t('settings.runtimeTryAgain')}</button></div>}
   </SettingsDialog>}
   {removing&&<SettingsDialog title={t('runtime.removeModelPrompt',{name:removing.name})} busy={busy} onClose={()=>setRemoving(null)}><p className="settings-note">{t('runtime.removeModelNote')}</p>{removeError&&<p role="alert" className="inline-error">{removeError}</p>}<div className="setup-end"><button disabled={busy} onClick={()=>setRemoving(null)}>{t('common.cancel')}</button><button disabled={busy||!!removeError} onClick={()=>void run(async()=>{try{const result=await backend<import('../../backend/contract').RuntimeMutationResult>('ChangeProfileConfiguration',id,{action:removing.action,id:removing.id,expectedRevision:config?.revision});if(result.outcome!=='committed')throw new ConfigurationError(result);setRemoving(null);await refresh()}catch(e){setRemoveError(textError(e))}})}>{t('runtime.remove')}</button></div></SettingsDialog>}
-  {editing&&<ModelPicker description={!models.length?t('settings.connectionPrepareFirst'):undefined} showSources sourceLabels={Object.fromEntries(pickerModels.filter(m=>decode(m.model)[0]==='codex').map(m=>[m.model,'Codex']))} anchor={anchor.current} title={t(editing==='conversation'?'settings.connectionBotModel':'settings.connectionWorkModel')} value={modelValue(editing)} models={pickerModels} onReload={refresh} onClose={()=>setEditing(null)} onSave={async value=>{const [runtime,model]=decode(value.model);await backend('SaveSelectedModel',editing,runtime,{...value,model});await refresh()}}/>}
+  {editing&&<ModelPicker description={!models.length?t('settings.connectionPrepareFirst'):undefined} showSources sourceLabels={Object.fromEntries(pickerModels.filter(m=>decode(m.model)[0]==='codex').map(m=>[m.model,'Codex']))} anchor={anchor.current} title={t(editing==='conversation'?'settings.connectionBotModel':'settings.connectionWorkModel')} value={modelValue(editing)} missingModelLabel={(editing==='work'?worker:bot).model||t('runtime.selectModel')} models={pickerModels} onReload={refresh} onClose={()=>setEditing(null)} onSave={async value=>{const [runtime,model]=decode(value.model);await backend('SaveSelectedModel',editing,runtime,{...value,model});await refresh()}}/>}
  </section>
 }

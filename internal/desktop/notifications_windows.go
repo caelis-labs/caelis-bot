@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"github.com/caelis-labs/caelis-bot/internal/windowsnotifications"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"golang.org/x/sys/windows"
 	"log"
 	"os"
@@ -28,14 +29,26 @@ func (d *windowsDriver) startNotifications(root, name string) {
 	d.notifications = windowsnotifications.New(windowsnotifications.Config{Root: root, Executable: executable, Name: name, Shortcut: shortcut, Icon: appIcon}, func(err error) { log.Printf("Native notification unavailable: %v", err) })
 }
 func (d *windowsDriver) dismissNotification(id string) {
-	if d.notifications != nil && !d.stopped.Load() {
-		d.notifications.Dismiss(id)
-	}
+	application.InvokeAsync(func() {
+		if d.notifications != nil && !d.stopped.Load() {
+			d.notifications.Dismiss(id)
+		}
+	})
 }
-func (d *windowsDriver) notify(id, title, body string, _ bool) {
-	if d.notifications != nil && !d.stopped.Load() {
+func (d *windowsDriver) notify(id, title, body string, reminder bool) {
+	// Service.mu can be held here. Read native presentation on the UI thread
+	// without waiting on it, and serialize delivery with later dismissals.
+	application.InvokeAsync(func() {
+		if d.notifications == nil || d.stopped.Load() {
+			return
+		}
+		front, _, _ := winUser.NewProc("GetForegroundWindow").Call()
+		chatFocused := d.history != nil && front == uintptr(d.history.NativeWindow())
+		if !shouldDeliverNotification(chatFocused, d.placement.Visible, reminder) {
+			return
+		}
 		d.notifications.Notify(id, title, body)
-	}
+	})
 }
 func (d *windowsDriver) notificationStatus() string {
 	if d.notifications == nil {

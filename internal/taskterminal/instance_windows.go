@@ -145,6 +145,12 @@ func consoleEnvironment(overrides map[string]string) ([]uint16, error) {
 		}
 		env[k] = v
 	}
+	// Bot may inherit headless-agent color suppression. This child has a real
+	// console (classic or ConPTY); let the TUI negotiate its native colors.
+	delete(env, "NO_COLOR")
+	if strings.EqualFold(env["TERM"], "dumb") {
+		delete(env, "TERM")
+	}
 	keys := make([]string, 0, len(env))
 	for k := range env {
 		keys = append(keys, k)

@@ -157,6 +157,9 @@ func TestWorkerFollowConversationUsesCurrentModelAndKeepsOldRoutes(t *testing.T)
 		t.Fatal(selected, err)
 	}
 	pool.defaultRuntime = "caelis"
+	if err := localstate.Write(filepath.Join(dir, "work-execution.json"), api.WorkExecutionSettings{Model: "caelis-model"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.StartWork(t.Context(), api.WorkStart{ID: "explicit"}); err != nil {
 		t.Fatal(err)
 	}

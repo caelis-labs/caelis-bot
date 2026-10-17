@@ -34,6 +34,7 @@ type localWorkers struct {
 	resident       api.WorkRuntime
 	owners         map[string]retainedWorker
 	routes         map[string]string
+	followRoutes   map[string]bool // frozen when a new request is bound
 	open           func(string) (retainedWorker, error)
 }
 
@@ -42,7 +43,7 @@ func (a *Application) configureWorkers() error {
 	a.localWork = &localWorkers{active: active, resident: a.currentEngine().(api.WorkRuntime), routes: map[string]string{}, owners: map[string]retainedWorker{}}
 	a.localWork.root = a.root
 	a.localWork.path = filepath.Join(a.root, "worker-runtime.json")
-	a.localWork.defaultRuntime = active
+	a.localWork.defaultRuntime = "conversation"
 	if b, err := os.ReadFile(a.localWork.path); err == nil {
 		var v struct {
 			Version int    `json:"version"`
@@ -62,7 +63,7 @@ func (a *Application) configureWorkers() error {
 			if err = localstate.Write(a.localWork.path, struct {
 				Version int    `json:"version"`
 				Runtime string `json:"runtime"`
-			}{1, active}); err != nil {
+			}{1, "conversation"}); err != nil {
 				a.localWork.loadErr = err
 			}
 		}
@@ -153,7 +154,17 @@ func (w *localWorkers) DefaultRuntime() string {
 	defer w.mu.Unlock()
 	return w.defaultRuntime
 }
-func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime string) (string, error) {
+func (w *localWorkers) BindWork(ctx context.Context, in api.TaskStart, id, runtime string) (string, error) {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	newDefault := runtime == "" && w.routes[id] == ""
+	w.mu.Unlock()
+	if newDefault {
+		if err := w.prepareDefaultModel(ctx); err != nil {
+			return "", err
+		}
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.reloadSettingsLocked()
@@ -166,6 +177,7 @@ func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime
 		}
 		return old, nil
 	}
+	follow := runtime == "" && w.defaultRuntime == "conversation"
 	if runtime == "" {
 		runtime = w.defaultRuntime
 		if in.LocalRuntime || runtime == "conversation" {
@@ -185,6 +197,10 @@ func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime
 		}
 	}
 	w.routes[id] = runtime
+	if w.followRoutes == nil {
+		w.followRoutes = map[string]bool{}
+	}
+	w.followRoutes[id] = follow
 	return runtime, nil
 }
 func (w *localWorkers) WorkAdmission(ctx context.Context) error {
@@ -252,7 +268,7 @@ func (w *localWorkers) StartWork(ctx context.Context, in api.WorkStart) (api.Tas
 		return api.Task{}, err
 	}
 	w.mu.Lock()
-	follow := w.defaultRuntime == "conversation"
+	follow := w.followRoutes[in.ID]
 	w.mu.Unlock()
 	if follow {
 		source, ok := owner.(interface {

@@ -30,6 +30,38 @@ func setupFixture(t *testing.T, handler func(*Setup, wireMessage, net.Conn)) *Se
 	t.Cleanup(s.Close)
 	return s
 }
+
+func TestPreparedHomeRequiresTheSameLiveManagementClient(t *testing.T) {
+	s := setupFixture(t, func(_ *Setup, m wireMessage, c net.Conn) {
+		result := `{}`
+		if m.Method == "account/read" {
+			result = `{"account":{"type":"chatgpt"},"requiresOpenaiAuth":true}`
+		}
+		if m.Method == "model/list" {
+			result = `{"data":[{"model":"fixture"}]}`
+		}
+		writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(result)})
+	})
+	if _, ok := s.PreparedHome("/fixture"); ok {
+		t.Fatal("preparation started a client")
+	}
+	if _, err := s.Inspect(t.Context(), "/fixture"); err != nil {
+		t.Fatal(err)
+	}
+	s.op.Lock()
+	s.client.home = t.TempDir()
+	s.op.Unlock()
+	if home, ok := s.PreparedHome("/fixture"); !ok || home == "" {
+		t.Fatal("live management client not reusable")
+	}
+	if _, ok := s.PreparedHome("/different"); ok {
+		t.Fatal("different executable accepted")
+	}
+	s.Close()
+	if _, ok := s.PreparedHome("/fixture"); ok {
+		t.Fatal("closed management client reusable")
+	}
+}
 func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	const id = "setup-login"
 	logged := false

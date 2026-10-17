@@ -61,6 +61,8 @@ func TestWindowsLiveTerminalHostClaimsExactClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("TERM", "dumb")
 	// A GUI-subsystem test host models Bot; the launched observer/helper must
 	// remain console-subsystem executables to receive ConPTY stdio from WT.
 	if fixture := os.Getenv("CAELIS_BOT_TEST_TERMINAL_FIXTURE"); fixture != "" {
@@ -97,9 +99,10 @@ func TestWindowsLiveTerminalHostClaimsExactClient(t *testing.T) {
 	}
 	defer window.Release()
 	var result struct {
-		Args    []string
-		Console bool
-		Home    string
+		Args            []string
+		Console         bool
+		Home            string
+		ColorSuppressed bool
 	}
 	for result.Args == nil {
 		data, _ := os.ReadFile(evidence)
@@ -132,7 +135,7 @@ func TestWindowsLiveTerminalHostClaimsExactClient(t *testing.T) {
 	}
 	defer windows.CloseHandle(handle)
 	defer windows.TerminateProcess(handle, 0)
-	if !result.Console || result.Home != root || len(result.Args) != 2 || result.Args[0] != "中文 path" || result.Args[1] != "literal\"quote" {
+	if !result.Console || result.ColorSuppressed || result.Home != root || len(result.Args) != 2 || result.Args[0] != "中文 path" || result.Args[1] != "literal\"quote" {
 		t.Fatal("host lost real stdio or argv", result)
 	}
 	if err = window.Confirm(ctx, pid); err != nil {

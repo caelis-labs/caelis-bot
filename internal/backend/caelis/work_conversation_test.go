@@ -67,3 +67,37 @@ func TestWorkerConversationRejectsUnreadableNativeHistory(t *testing.T) {
 		t.Fatal("unreadable native history became empty success", messages, err)
 	}
 }
+
+func TestWorkerConversationAcceptsExactPageCursorsAndRejectsMismatchedSSEID(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprint(mismatch), func(t *testing.T) {
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				b, _ := json.Marshal(wire.SessionState{SessionId: "work", ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1"})
+				fmt.Fprintf(w, "event: caelis.control.bootstrap\ndata: %s\n\n", b)
+				for i, event := range []wire.Envelope{workerHistoryMessage("u", "t", "user_message_chunk", "question", true), workerHistoryMessage("a", "t", "agent_message_chunk", "answer", true)} {
+					cursor := fmt.Sprint(i + 1)
+					id := cursor
+					if mismatch {
+						id = "wrong"
+					}
+					b, _ = json.Marshal(wire.SessionFeedDelivery{Kind: "append_page", Source: "exact", NextCursor: &cursor, Events: []wire.Envelope{event}})
+					fmt.Fprintf(w, "id: %s\nevent: caelis.control.delivery\ndata: %s\n\n", id, b)
+				}
+				b, _ = json.Marshal(wire.SessionFeedDelivery{Kind: "sync", Source: "exact", NextCursor: pointer("2")})
+				fmt.Fprintf(w, "id: 2\nevent: caelis.control.delivery\ndata: %s\n\n", b)
+			})
+			s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.SessionBinding{SessionId: "work"}}
+			messages, err := s.ReadWorkConversation(t.Context(), "task")
+			if mismatch {
+				if err == nil || messages != nil {
+					t.Fatal("mismatched cursor accepted")
+				}
+				return
+			}
+			if err != nil || len(messages) != 2 || messages[1].Text != "answer" {
+				t.Fatal("exact native pages unreadable", err, len(messages))
+			}
+		})
+	}
+}

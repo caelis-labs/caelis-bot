@@ -141,7 +141,7 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 		}
 		if err == nil {
 			if first {
-				err = a.localWork.SelectFirstRuntime(settings.Runtime)
+				err = a.localWork.SelectFirstRuntime("conversation")
 				workerDefaultChanged = err == nil
 			}
 		}

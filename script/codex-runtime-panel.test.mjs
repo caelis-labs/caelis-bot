@@ -63,9 +63,9 @@ test('existing Caelis models can continue without a new provider connection',asy
  const renderExisting=(selectedModel,disabled=false)=>renderToStaticMarkup(React.createElement(ExistingSetupModels,{models:[{value:'custom/existing',label:'Existing custom model',noAuth:false},{value:'unavailable',label:'No credentials',noAuth:true}],selectedModel,disabled,onSelect:()=>{},onContinue:()=>{}}));
  const ready=renderExisting('custom/existing');
  assert.match(ready,/Existing custom model/);
- assert.match(ready,/<button class="primary">Continue<\/button>/);
- assert.doesNotMatch(ready,/No credentials|API Key/);
- for(const html of [renderExisting('unavailable'),renderExisting(''),renderExisting('custom/existing',true)])assert.match(html,/<button class="primary" disabled="">Continue<\/button>/);
+ assert.match(ready,/<button class="setup-button primary"><span class="setup-button-label">Next<\/span><\/button>/);
+ assert.doesNotMatch(ready,/No credentials|API Key|Add connection/);
+ for(const html of [renderExisting('unavailable'),renderExisting(''),renderExisting('custom/existing',true)])assert.match(html,/<button class="setup-button primary" disabled=""><span class="setup-button-label">Next<\/span><\/button>/);
 });
 
 
@@ -75,4 +75,77 @@ test('bundled Caelis needs no installation or self-update, while Host activation
  const html=panel(bundled);
  assert.match(html,/updated with the app/);assert.doesNotMatch(html,/Check for updates|Install|New version available/);
  assert.match(panel({...bundled,serviceUpdateAvailable:true}),/Enable installed version/);
+});
+
+const {existingModelChoice,activateExistingModel}=await server.ssrLoadModule('/src/settings/runtime/onboarding-models.ts');
+const modelSetup={state:'ready',selectedModel:'saved/one',models:[{value:'saved/one',label:'One',noAuth:false},{value:'saved/two',label:'Two',noAuth:false},{value:'locked',label:'Needs credentials',noAuth:true}]};
+test('onboarding reuses authenticated models even before a default model is selected',()=>{
+ assert.deepEqual(existingModelChoice(null),{models:[],selected:''});
+ assert.equal(existingModelChoice({...modelSetup,state:'models',selectedModel:''}).selected,'saved/one');
+ assert.equal(existingModelChoice(modelSetup,'saved/two').selected,'saved/two');
+ assert.equal(existingModelChoice(modelSetup,'locked').selected,'saved/one');
+ assert.equal(existingModelChoice({...modelSetup,models:[modelSetup.models[2]]}).models.length,0);
+ assert.equal(existingModelChoice({...modelSetup,state:'service'}).models.length,0);
+ assert.equal(existingModelChoice({...modelSetup,loginPending:true}).models.length,0);
+ assert.equal(existingModelChoice({...modelSetup,state:'login'}).models.length,0);
+});
+
+test('Codex confirms its selected model before activation without repeating installation or login',async()=>{
+ const calls=[];
+ const profile={runtime:'codex',cliPath:'existing-codex.exe'};
+ await activateExistingModel(async(method,arg)=>{
+  calls.push([method,arg]);
+  return {...modelSetup,selectedModel:'saved/two'};
+ },profile,modelSetup,'saved/two');
+ assert.deepEqual(calls.map(([method])=>method),['ApplySetup','ActivateRuntime']);
+ assert.deepEqual(calls[0][1],{settings:profile,action:'use-model',model:'saved/two',provider:'',baseUrl:'',apiKey:''});
+ assert.deepEqual(calls[1][1],profile);
+ let activated=false;
+ await assert.rejects(activateExistingModel(async()=>{activated=true},profile,{...modelSetup,state:'login'},'saved/one'));
+ assert.equal(activated,false);
+});
+
+test('selector placeholders stay in the trigger, while real empty and unavailable choices remain in the menu',async()=>{
+ globalThis.HTMLElement ??= class HTMLElement {};
+ const {SettingsSelect}=await server.ssrLoadModule('/src/SettingsSelect.tsx');
+ const option=(value,label,props={})=>React.createElement('option',{value,...props},label);
+ const render=children=>renderToStaticMarkup(React.createElement(SettingsSelect,{value:'',placeholder:'Choose model',onChange:()=>{}},children));
+ const placeholder=render([option('','Choose model',{disabled:true}),option('one','One')]);
+ const menu=placeholder.slice(placeholder.indexOf('role="menu"'));
+ assert.match(placeholder,/Choose model/);assert.doesNotMatch(menu,/Choose model/);
+ assert.equal((menu.match(/role="menuitemradio"/g)||[]).length,1);
+ const defaults=render([option('','Default'),option('unavailable','Unavailable',{disabled:true})]);
+ assert.match(defaults,/role="menuitemradio" aria-label="Default" aria-checked="true"/);
+ assert.match(defaults,/role="menuitemradio" aria-label="Unavailable" aria-checked="false" disabled/);
+ const explicit=render([option('one','One')]);
+ assert.match(explicit,/Choose model/);assert.equal((explicit.match(/Choose model/g)||[]).length,1);
+});
+test('Next reuses current authentication and awaits actual activation without another configuration write',async()=>{
+ const calls=[];let release;
+ const ready=new Promise(resolve=>{release=resolve});
+ const result=activateExistingModel(async method=>{calls.push(method);await ready;},{runtime:'caelis'},modelSetup,'saved/one');
+ let advanced=false;void result.then(()=>{advanced=true});
+ await Promise.resolve();assert.equal(advanced,false);
+ assert.deepEqual(calls,['ActivateRuntime']);release();await result;assert.equal(advanced,true);
+});
+test('a different model is confirmed before activation; failed or uncertain writes are never replayed',async()=>{
+ const calls=[];
+ await activateExistingModel(async(method,request)=>{calls.push([method,request]);return {...modelSetup,selectedModel:'saved/two'};},{runtime:'caelis'},modelSetup,'saved/two');
+ assert.deepEqual(calls.map(c=>c[0]),['ApplySetup','ActivateRuntime']);assert.equal(calls[0][1].model,'saved/two');
+ for(const response of [new Error('lost receipt'),modelSetup]){
+  const methods=[];
+  await assert.rejects(activateExistingModel(async method=>{methods.push(method);if(response instanceof Error)throw response;return response;},{runtime:'caelis'},modelSetup,'saved/two'));
+  assert.deepEqual(methods,['ApplySetup']);
+ }
+ let called=false;
+ await assert.rejects(activateExistingModel(async()=>{called=true;},{runtime:'caelis'},modelSetup,'locked'));
+ assert.equal(called,false);
+});
+test('onboarding progress retains the action label and disables repeated submission',async()=>{
+ const {SetupButton,SetupLoading}=await server.ssrLoadModule('/src/SetupLoading.tsx');
+ const button=renderToStaticMarkup(React.createElement(SetupButton,{busy:true},'Next'));
+ assert.match(button,/disabled="" aria-busy="true"/);assert.match(button,/>Next</);assert.match(button,/setup-spinner/);
+ const page=renderToStaticMarkup(React.createElement(SetupLoading));
+ assert.match(page,/role="status"/);assert.match(page,/aria-busy="true"/);
+ assert.doesNotMatch(page,/Ready|Continue|Connecting/);
 });

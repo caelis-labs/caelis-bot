@@ -182,6 +182,9 @@ func TestFailedRuntimeActivationPreservesDraftSavedAfterSnapshot(t *testing.T) {
 
 func TestRuntimeActivationKeepsExistingTaskRoute(t *testing.T) {
 	a, root, engines := newSwitchFixture(t, true, nil)
+	if err := a.localWork.SelectFirstRuntime("codex"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +206,9 @@ func TestRuntimeActivationKeepsExistingTaskRoute(t *testing.T) {
 
 func TestBotAndNewWorkSelectionsRemainIndependentInAllFourCombinations(t *testing.T) {
 	a, _, _ := newSwitchFixture(t, true, nil)
+	if err := a.localWork.SelectFirstRuntime("codex"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}

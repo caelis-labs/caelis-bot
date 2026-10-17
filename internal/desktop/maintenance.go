@@ -51,7 +51,7 @@ func (s *Service) ExportDiagnostics() (string, error) {
 // prose, a stack containing private data, paths, credentials or conversation text.
 func (s *Service) ReportPresentationWarning(code string) {
 	switch code {
-	case "surface_render_failed", "bubble_action_failed", "background_read_failed":
+	case "surface_render_failed", "bubble_action_failed", "background_read_failed", "setup_activation_failed":
 	default:
 		return
 	}

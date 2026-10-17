@@ -39,16 +39,30 @@ func init() {
 		}
 	}
 	b, _ := json.Marshal(struct {
-		Args    []string
-		Home    string
-		Console bool
-	}{os.Args[3:], os.Getenv("CODEX_HOME"), console})
+		Args            []string
+		Home            string
+		Console         bool
+		ColorSuppressed bool
+	}{os.Args[3:], os.Getenv("CODEX_HOME"), console, os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"})
 	if os.WriteFile(os.Args[2], b, 0600) != nil {
 		os.Exit(9)
 	}
 	_, _ = os.Stdout.WriteString("Caelis owned terminal preview acceptance\r\n")
 	time.Sleep(time.Minute)
 	os.Exit(0)
+}
+
+func TestConsoleEnvironmentKeepsActualTerminalCapabilities(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	block, err := consoleEnvironment(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(utf16.Decode(block))
+	if !strings.Contains(text, "TERM=xterm-256color\x00") || !strings.Contains(text, "COLORTERM=truecolor\x00") {
+		t.Fatal("terminal capabilities were overwritten")
+	}
 }
 
 func TestWindowsConsoleClaimsOncePreservesUnicodeArgvAndOwnsOnlyHandles(t *testing.T) {
@@ -152,13 +166,15 @@ func TestWindowsRemoteTerminalNeverRetargetsLocalOwner(t *testing.T) {
 func TestConsoleEnvironmentDropsCallerIdentityAndRejectsUnknownOverrides(t *testing.T) {
 	t.Setenv("codex_thread_id", "foreign-owner")
 	t.Setenv("Caelis_Control_Token", "PRIVATE_SENTINEL")
+	t.Setenv("no_color", "1")
+	t.Setenv("TERM", "dumb")
 	block, e := consoleEnvironment(map[string]string{"CODEX_HOME": t.TempDir()})
 	if e != nil {
 		t.Fatal(e)
 	}
 	for _, part := range strings.Split(string(utf16.Decode(block)), "\x00") {
 		key, _, _ := strings.Cut(part, "=")
-		if strings.EqualFold(key, "CODEX_THREAD_ID") || strings.HasPrefix(strings.ToUpper(key), "CAELIS_CONTROL_") {
+		if strings.EqualFold(key, "CODEX_THREAD_ID") || strings.HasPrefix(strings.ToUpper(key), "CAELIS_CONTROL_") || strings.EqualFold(key, "NO_COLOR") || strings.EqualFold(key, "TERM") {
 			t.Fatal("caller authority inherited")
 		}
 	}

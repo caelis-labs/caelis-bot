@@ -705,7 +705,7 @@ func (a *Application) startRuntime() error {
 						}
 					}
 					recovery := a.Backend.RecoveryState()
-					if a.host.Notify != nil && !recovery.Automatic && !recovery.InProgress {
+					if !recovery.Automatic && !recovery.InProgress {
 						ids, err := manager.ClaimUnknownNotices()
 						if err != nil {
 							if a.host.ReportError != nil {
@@ -713,8 +713,10 @@ func (a *Application) startRuntime() error {
 							}
 							continue
 						}
-						for _, id := range ids {
-							a.host.Notify("task-unknown-"+id, a.text("host.taskUnknownTitle", map[string]any{"id": id}), a.text("host.taskUnknownBody"), true)
+						// Keep the original uncertainty and durable deduplication. It
+						// is diagnostic state, not a new user-facing notification.
+						if len(ids) > 0 && a.host.ReportError != nil {
+							a.host.ReportError(errors.New("warning: task outcome remains unconfirmed; original receipts retained"))
 						}
 					}
 				}

@@ -7,6 +7,13 @@ type notificationDriver interface {
 	configureNotifications()
 }
 
+// Matches AppKit's native delivery policy: a focused conversation needs no OS
+// alert, and the visible pet already presents decisions. Due reminders may still
+// attract attention while the pet is visible, but never while chat is focused.
+func shouldDeliverNotification(chatFocused, petVisible, reminder bool) bool {
+	return !chatFocused && (reminder || !petVisible)
+}
+
 func (s *Service) DismissNotification(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

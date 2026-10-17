@@ -1,26 +1,40 @@
 /* Windows-only contextual surfaces. Native Mac chrome keeps its own layout. */
 body[data-surface=windows-tasks] { background:transparent; }
-.windows-task-compact { display:flex; align-items:center; justify-content:center; gap:5px; width:100%; height:100dvh; margin:0; padding:0; border:0; border-radius:14px; background:transparent; box-shadow:none; color:var(--ink); font-size:8px; cursor:pointer; }
-.windows-task-compact:hover { background:var(--caelis-hover); }
+.windows-task-compact { display:flex; align-items:center; justify-content:center; gap:5px; width:100%; height:100dvh; margin:0; padding:0; border:0; border-radius:14px; background:transparent; box-shadow:none; color:#fff; text-shadow:0 1px 2px #000b; font-size:8px; cursor:pointer; }
+.windows-task-compact:hover { background:#0002; }
 .windows-task-compact[data-running=true] span { animation:windows-task-pulse 1.6s ease-in-out infinite; }
 .windows-task-compact span:nth-child(2) { animation-delay:.15s; }
 .windows-task-compact span:nth-child(3) { animation-delay:.3s; }
 @keyframes windows-task-pulse { 0%,100% { opacity:.45; transform:translateY(0); } 50% { opacity:1; transform:translateY(-2px); } }
 @media (prefers-reduced-motion:reduce) { .windows-task-compact[data-running=true] span { animation:none; } }
-.windows-task-dock { height:100dvh; box-sizing:border-box; overflow:auto; padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--caelis-raised); color:var(--ink); }
-.windows-task-dock header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.windows-task-dock h2 { margin:0; font-size:13px; }
-.windows-task-dock ol { list-style:none; margin:12px 0 0; padding:0; }
-.windows-task-dock li { padding:10px 0; border-top:1px solid var(--line); }
+.windows-task-dock { position:relative; width:100%; height:100dvh; box-sizing:border-box; overflow:hidden; padding:0; border:0; background:transparent; color:#fff; }
+.windows-task-dock ol { position:absolute; inset:0; list-style:none; margin:0; padding:0; }
+.windows-task-dock[data-vertical] ol { bottom:48px; }
+.windows-task-dock li { position:absolute; margin:0; padding:0; border:0; }
 .windows-task-dock li.dragging { opacity:.55; }
-.windows-task-dock li.drop-before { border-top:2px solid var(--ink); }
-.windows-task-dock .task-drag-handle { float:right; width:26px; text-align:center; cursor:grab; touch-action:none; user-select:none; }
-.windows-task-dock li>button { width:100%; text-align:left; background:transparent; padding:4px 0; }
-.windows-task-dock li strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:12px; }
-.windows-task-dock li span { display:block; margin-top:5px; color:var(--muted); font-size:11px; }
-.windows-task-dock li>div { display:flex; gap:8px; margin-top:8px; }
-.windows-task-dock button { font-size:11px; border:0; border-radius:6px; padding:5px 8px; }
-.windows-task-dock .task-thumbnail { width:100%; max-height:110px; object-fit:contain; margin-top:6px; border-radius:6px; }
+.windows-task-dock button { box-sizing:border-box; border:0; padding:0; box-shadow:none; color:inherit; background:transparent; font:inherit; }
+.windows-task-dock .task-preview { position:absolute; inset:0; width:100%; height:100%; display:flex; flex-direction:column; text-align:left; touch-action:none; user-select:none; cursor:pointer; }
+.windows-task-dock .task-preview-image { display:flex; align-items:center; justify-content:center; position:absolute; inset:6px 9px 49px; overflow:hidden; border:1px solid #ffffff30; border-radius:14px; background:#191919a8; box-shadow:0 2px 6px #0003; }
+.windows-task-dock li[data-prominent] .task-preview-image { inset-inline:3px; background:#191919bd; }
+.windows-task-dock li.drop-before .task-preview-image { outline:2px solid #b8b6ff; outline-offset:-2px; }
+.windows-task-dock .task-preview-image>svg { width:48px; height:48px; opacity:.8; }
+.windows-task-dock .task-preview-image img { display:block; width:100%; height:100%; object-fit:contain; }
+.windows-task-dock[data-vertical] .task-preview-image { bottom:6px; }
+.windows-task-dock .task-caption { position:absolute; left:10px; right:10px; bottom:5px; height:38px; text-shadow:0 1px 3px #000,0 0 4px #000b; pointer-events:none; }
+.windows-task-dock .task-caption strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:500; line-height:20px; }
+.windows-task-dock .task-caption small { display:block; font-size:10px; line-height:16px; color:#ffffffe0; }
+.windows-task-dock li:not([data-prominent]) .task-caption { visibility:hidden; }
+.windows-task-dock .task-stack-caption { left:18px; right:40px; bottom:4px; }
+.windows-task-dock .task-card-actions { position:absolute; top:11px; right:13px; display:flex; gap:4px; opacity:0; pointer-events:none; }
+.windows-task-dock li[data-prominent]:hover .task-card-actions,.windows-task-dock li:focus-within .task-card-actions { opacity:1; pointer-events:auto; }
+.windows-task-dock .task-card-actions button,.windows-task-dock .task-clear { display:grid; place-items:center; width:26px; height:26px; border-radius:7px; background:#10101050; }
+.windows-task-dock .task-card-actions button:hover,.windows-task-dock .task-clear:hover { background:#101010a0; }
+.windows-task-dock button:disabled { opacity:.4; cursor:default; }
+.windows-task-dock button:focus-visible { outline:2px solid #c6c4ff; outline-offset:-2px; }
+.windows-task-dock .task-card-actions svg,.windows-task-dock .task-clear svg { width:16px; height:16px; }
+.windows-task-dock .task-clear { position:absolute; right:2px; bottom:4px; z-index:1001; opacity:0; }
+.windows-task-dock:hover .task-clear,.windows-task-dock:focus-within .task-clear { opacity:1; }
+.windows-task-dock .task-empty,.windows-task-dock .task-dock-notice { position:absolute; bottom:8px; left:8px; right:8px; margin:0; padding:8px 12px; border-radius:10px; background:#191919c9; font-size:12px; }
 .artifact-preview-web-toolbar { display:flex; flex-wrap:wrap; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); }
 .artifact-preview-web-toolbar button { font-size:12px; border-radius:6px; padding:5px 9px; }
 body[data-surface=capture] { background:var(--caelis-content); }

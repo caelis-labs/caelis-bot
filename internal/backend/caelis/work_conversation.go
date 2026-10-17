@@ -55,7 +55,9 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 				return nil
 			}
 			var delivery wire.SessionFeedDelivery
-			if f.event != "caelis.control.delivery" || json.Unmarshal(f.data, &delivery) != nil || f.id != "" && f.id != value(delivery.NextCursor) || delivery.Kind != "sync" && delivery.HistoryBefore != nil || delivery.Kind != "sync" && value(delivery.NextCursor) != "" {
+			// Exact history pages carry continuation cursors before the final
+			// sync. Only sync carries the boundary for older history traversal.
+			if f.event != "caelis.control.delivery" || json.Unmarshal(f.data, &delivery) != nil || f.id != "" && f.id != value(delivery.NextCursor) || delivery.Kind != "sync" && delivery.HistoryBefore != nil || delivery.Kind != "sync" && delivery.Kind != "append_page" && value(delivery.NextCursor) != "" {
 				return errors.New("original Worker history delivery is invalid")
 			}
 			switch delivery.Kind {

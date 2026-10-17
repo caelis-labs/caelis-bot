@@ -1,8 +1,38 @@
 #import <Cocoa/Cocoa.h>
 #include <assert.h>
+#import <objc/runtime.h>
 #import "../internal/desktop/capture_darwin.m"
 static NSUInteger deliveries;
 static NSString *deliveredID;
+static NSUInteger permissionRequests;
+@interface BotCaptureConsentFixture : NSObject
++ (void)getShareableContentExcludingDesktopWindows:(BOOL)exclude onScreenWindowsOnly:(BOOL)only completionHandler:(void (^)(SCShareableContent *,NSError *))completion;
+@end
+@implementation BotCaptureConsentFixture
++ (void)getShareableContentExcludingDesktopWindows:(BOOL)exclude onScreenWindowsOnly:(BOOL)only completionHandler:(void (^)(SCShareableContent *,NSError *))completion {
+    permissionRequests++;
+    completion(nil,[NSError errorWithDomain:SCStreamErrorDomain code:SCStreamErrorUserDeclined userInfo:nil]);
+}
+@end
+static void checkConsentAtUse(void) {
+    if(@available(macOS 14.0,*)) {
+        SEL selector=@selector(getShareableContentExcludingDesktopWindows:onScreenWindowsOnly:completionHandler:);
+        Method original=class_getClassMethod(SCShareableContent.class,selector);
+        Method fixture=class_getClassMethod(BotCaptureConsentFixture.class,selector);
+        method_exchangeImplementations(original,fixture);
+        BotCapture *capture=[BotCapture new];
+        assert(permissionRequests==0); // Construction must not ask for access.
+        capture.enabled=NO;[capture capture];assert(permissionRequests==0);
+        capture.enabled=YES;bot_screen_capture_set_denied(0);
+        [capture capture];assert(permissionRequests==1);
+        NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:1];
+        while(capture.preparing&&deadline.timeIntervalSinceNow>0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        assert(!capture.preparing&&!capture.overlay&&bot_screen_capture_denied());
+        [capture stop];bot_screen_capture_set_denied(0);
+        method_exchangeImplementations(original,fixture);
+    }
+}
 void desktopCaptureEvent(uintptr_t handle,int kind,char *text) {
     if(kind==21){deliveries++;deliveredID=[NSString stringWithUTF8String:text];}
 }
@@ -152,6 +182,7 @@ int main(int argc,char **argv) {
         if(live){[NSApp run];return 0;}
         checkToolbarAppearance(owner.canvas,argc>1?[NSString stringWithUTF8String:argv[1]]:nil);
         checkInteraction(root);
+        checkConsentAtUse();
         [owner.overlay makeKeyAndOrderFront:nil];
         [owner.canvas displayIfNeeded];
         NSBitmapImageRep *preview=[owner.canvas bitmapImageRepForCachingDisplayInRect:owner.canvas.bounds];

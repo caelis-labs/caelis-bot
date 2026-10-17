@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -71,6 +72,32 @@ func InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, e
 		}
 	}
 	return out, nil
+}
+
+// SetupRevision cheaply invalidates UI preparation after a Host replacement or
+// configuration/auth change. It does not replace the Bot connection handshake.
+func SetupRevision(ctx context.Context, v api.RuntimeSettings) (string, error) {
+	// Cache validation is optional; an unhealthy observation must not add the
+	// ordinary 30-second RPC timeout before the authoritative connection path.
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	d, token, err := Discover(v)
+	if err != nil {
+		return "", err
+	}
+	c, err := newClient(d.Endpoint, token)
+	if err != nil {
+		return "", err
+	}
+	defer c.http.CloseIdleConnections()
+	var status wire.StatusSnapshot
+	if err = c.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
+		return "", err
+	}
+	if d.InstanceID == "" || status.Configuration.Revision == "" {
+		return "", errors.New("Caelis configuration revision unavailable")
+	}
+	return d.InstanceID + ":" + d.PrincipalID + ":" + string(status.Configuration.Revision), nil
 }
 func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupChoice, error) {
 	var candidates []wire.SlashArgCandidate

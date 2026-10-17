@@ -12,7 +12,8 @@ import (
 	"path/filepath"
 )
 
-// Catalog inspection never selects a conversation or Worker Runtime.
+// Catalog inspection never selects a conversation. A confirmed obsolete Worker
+// default may fall back to following that conversation.
 func (s *runtimeSetup) SetupModels(ctx context.Context, id string) ([]api.ModelOption, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -31,10 +32,25 @@ func (s *runtimeSetup) profileModels(ctx context.Context, p api.RuntimeSettings)
 		return []api.ModelOption{}, nil
 	}
 	if p.Runtime == "codex" {
-		return s.codex.Models(ctx, state.Installation.Path)
+		models, err := s.codex.Models(ctx, state.Installation.Path)
+		if err == nil {
+			s.reconcileWorkerModels(p.Runtime, models)
+		}
+		return models, err
 	}
 	config, e := caelis.ReadRuntimeConfiguration(ctx, p)
+	if e == nil {
+		s.reconcileWorkerModels(p.Runtime, config.Models)
+	}
 	return config.Models, e
+}
+
+func (s *runtimeSetup) reconcileWorkerModels(runtime string, models []api.ModelOption) {
+	if s.app.localWork != nil {
+		if err := s.app.localWork.reconcileModelCatalog(runtime, models); err != nil && s.app.host.ReportError != nil {
+			s.app.host.ReportError(err)
+		}
+	}
 }
 func (s *runtimeSetup) SaveSelectedModel(ctx context.Context, scope, id string, v api.WorkExecutionSettings) error {
 	s.mu.Lock()

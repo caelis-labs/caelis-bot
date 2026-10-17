@@ -19,16 +19,20 @@ import (
 )
 
 type runtimeSetup struct {
-	progressMu      sync.Mutex
-	progress        api.SetupInstallProgress
-	operationMu     sync.Mutex
-	operationCancel context.CancelFunc
-	mu              sync.Mutex
-	app             *Application
-	codex           *codex.Setup
-	connections     caelis.Connections
-	pending         string
-	fresh           bool
+	progressMu        sync.Mutex
+	progress          api.SetupInstallProgress
+	operationMu       sync.Mutex
+	operationCancel   context.CancelFunc
+	mu                sync.Mutex
+	app               *Application
+	codex             *codex.Setup
+	connections       caelis.Connections
+	pending           string
+	fresh             bool
+	prepared          map[string]*setupPreparation
+	activePreparation *setupPreparation
+	activeEngine      api.Engine
+	reconnectRequired bool
 }
 
 func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
@@ -111,10 +115,35 @@ func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
 func (s *runtimeSetup) Inspect(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delete(s.prepared, v.Runtime) // Explicit recheck always observes the Runtime.
 	return s.inspect(ctx, v)
 }
-func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
-	out := api.SetupState{Settings: v, State: "missing", Models: []api.SetupChoice{}}
+func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out api.SetupState, err error) {
+	defer func() {
+		if err == nil {
+			s.rememberPreparation(ctx, out)
+			// Reuse the successful inspection; settings must not launch another
+			// probe just to reconcile the default worker model.
+			if out.State == "ready" && s.app.localWork != nil {
+				models := []api.ModelOption{}
+				complete := true
+				for _, choice := range out.Models {
+					if choice.NoAuth {
+						continue
+					}
+					if choice.Parameters == nil {
+						complete = false
+						break
+					}
+					models = append(models, *choice.Parameters)
+				}
+				if complete {
+					s.reconcileWorkerModels(v.Runtime, models)
+				}
+			}
+		}
+	}()
+	out = api.SetupState{Settings: v, State: "missing", Models: []api.SetupChoice{}}
 	if e := validSetup(v); e != nil {
 		return out, e
 	}
@@ -192,12 +221,22 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	if e := validSetup(r.Settings, s.app.locale()); e != nil {
 		return api.SetupState{}, e
 	}
+	if r.Action == "prepare" {
+		return s.prepare(ctx, r.Settings)
+	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
 	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
 			return api.SetupState{}, e
 		}
+	}
+	if r.Action == "use-model" {
+		return s.selectModel(ctx, r)
+	}
+	delete(s.prepared, r.Settings.Runtime)
+	if r.Settings == s.app.Backend.RuntimeSettings() && r.Action != "check-update" && r.Action != "cancel-login" {
+		s.reconnectRequired = true
 	}
 	var e error
 	message := ""
@@ -255,8 +294,6 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 		if e == nil {
 			message = s.app.text("configSavedToCaelisNoCalls", nil)
 		}
-	case "use-model":
-		e = s.useModel(ctx, r)
 	default:
 		e = errors.New(s.app.text("unsupportedRuntimeOperation", nil))
 	}
@@ -274,23 +311,28 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	return out, e
 }
-func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
-	out, e := s.inspect(ctx, r.Settings)
+func (s *runtimeSetup) selectModel(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
+	out, e := s.preparedState(ctx, r.Settings)
 	if e != nil {
-		return e
+		return out, e
 	}
 	found := false
+	var effort string
 	for _, m := range out.Models {
 		if m.Value == r.Model && !m.NoAuth {
 			found = true
+			if m.Parameters != nil {
+				effort = m.Parameters.DefaultEffort
+			}
 		}
 	}
 	if !found {
-		return errors.New(s.app.text("selectAvailableModel", nil))
+		return out, errors.New(s.app.text("selectAvailableModel", nil))
 	}
+	delete(s.prepared, r.Settings.Runtime)
 	if r.Settings.Runtime == "caelis" {
 		if e = caelis.ApplySetup(ctx, r); e != nil {
-			return e
+			return out, e
 		}
 	}
 	dir, _ := providerDirectory(s.app.root, r.Settings.Runtime)
@@ -300,26 +342,25 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 	}
 	preferences, e := backend.LoadExecutionSettings(filepath.Join(dir, "execution.json"), defaults)
 	if e != nil {
-		return e
+		return out, e
 	}
 	preferences.Model = r.Model
 	preferences.ServiceTier = ""
 	preferences.Effort = ""
 	if r.Settings.Runtime == "codex" {
-		models, err := s.codex.Models(ctx, out.Installation.Path)
-		if err != nil {
-			return err
-		}
-		for _, m := range models {
-			if m.Model == r.Model {
-				preferences.Effort = m.DefaultEffort
-			}
-		}
+		preferences.Effort = effort
 	}
-	if s.app.currentEngine().(api.Provider).ProviderInfo().ID == r.Settings.Runtime && s.app.currentEngine().Snapshot().Connection == "ready" {
-		return s.app.Backend.SaveExecutionSettings(ctx, preferences)
+	if s.app.Backend.RuntimeSettings() == r.Settings && s.app.currentEngine().Snapshot().Connection == "ready" {
+		e = s.app.Backend.SaveExecutionSettings(ctx, preferences)
+	} else {
+		e = localstate.Write(filepath.Join(dir, "execution.json"), preferences)
 	}
-	return localstate.Write(filepath.Join(dir, "execution.json"), preferences)
+	if e == nil {
+		out.SelectedModel = r.Model
+		// Native mutation confirmed; do not query the same catalog a second time.
+		s.rememberPreparation(ctx, out)
+	}
+	return out, e
 }
 func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) error {
 	s.mu.Lock()
@@ -327,7 +368,7 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	if e := s.app.guardRuntimeChange(); e != nil {
 		return e
 	}
-	out, e := s.inspect(ctx, v)
+	out, e := s.preparedState(ctx, v)
 	if e != nil {
 		return e
 	}
@@ -335,9 +376,18 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
 	}
 
+	if !s.reconnectRequired && s.canReuseRuntime(v) {
+		s.pending, s.fresh = "", false
+		return nil
+	}
 	if e = s.app.activateRuntime(ctx, v, !s.app.HasRuntimeChoice()); e != nil {
+		delete(s.prepared, v.Runtime)
 		return e
 	}
+	s.reconnectRequired = false
+	s.rememberPreparation(ctx, out)
+	s.activePreparation = s.prepared[v.Runtime]
+	s.activeEngine = s.app.currentEngine()
 	s.pending = ""
 	s.fresh = false
 	return nil

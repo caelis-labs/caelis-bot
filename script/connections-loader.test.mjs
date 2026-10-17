@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectedModels,loadConnections} from '../frontend/src/settings/runtime/connections-loader.ts';
+import {inspectedModels,loadConnections,workerPickerValue,followingWorkerModel,encodeModel} from '../frontend/src/settings/runtime/connections-loader.ts';
 
 const option={model:'test',name:'Test',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],imageInput:true};
 const ready={state:'ready',models:[{value:'test',noAuth:false,parameters:option}]};
@@ -41,4 +41,34 @@ test('selection failures remain explicit and an older adapter gets a catalog fal
  assert.equal(values[1].status,'rejected');assert.equal(fallbacks,1);
  assert.ok(runtime.find(([id])=>id==='codex')[1] instanceof Error);
  assert.deepEqual(runtime.find(([id])=>id==='caelis')[1].models,[option]);
+});
+
+test('legacy empty Worker models use the named follow-conversation choice for both runtimes',()=>{
+ for(const runtime of ['caelis','codex']) {
+  const value=workerPickerValue(runtime,{model:'',effort:'high',serviceTier:'priority'},{});
+  assert.deepEqual(value,followingWorkerModel);
+  assert.notEqual(value.model,encodeModel(runtime,''));
+ }
+});
+
+test('confirmed unavailable Worker choices fall back without treating loading or offline as removal',()=>{
+ const saved={model:'removed',effort:'high',serviceTier:''};
+ const view={state:ready,models:[option]};
+ assert.deepEqual(workerPickerValue('caelis',saved,{caelis:view}),followingWorkerModel);
+ assert.equal(workerPickerValue('caelis',saved,{}).model,encodeModel('caelis','removed'));
+ assert.equal(workerPickerValue('caelis',saved,{caelis:{...view,state:{state:'offline'}}}).model,encodeModel('caelis','removed'));
+ assert.equal(workerPickerValue('caelis',{...saved,model:'test'},{caelis:view}).model,encodeModel('caelis','test'));
+ assert.deepEqual(workerPickerValue('caelis',{...saved,model:'test',effort:'unsupported'},{caelis:view}),followingWorkerModel);
+});
+
+test('settings reads back a repaired Worker default after catalog inspection',async()=>{
+ let inspected=false;
+ const choices=[];
+ await loadConnections(async(method,id)=>{
+  if(method==='LocalWorkerSelection')return inspected?{runtime:'conversation',work:{model:''}}:{runtime:'codex',work:{model:'removed'}};
+  if(method==='SetupProfile')return {runtime:id};
+  if(method==='InspectSetup'){inspected=true;return ready;}
+  return {};
+ },values=>choices.push(values[2].value.runtime),()=>{});
+ assert.deepEqual(choices,['codex','conversation']);
 });

@@ -238,7 +238,7 @@ func Run(assets fs.FS) error {
 		d.startNotifications(root, appName)
 		updaterMu.Lock()
 		stopUpdater = s.startWindowsUpdater(root, core, terminalGate.pause, terminalWindows.CloseClientsForUpdate, quit, func() {
-			s.Notify("windows-update-ready", appName, s.text("native.windowsUpdateReady", nil), false)
+			s.Notify("windows-update-ready", appName, s.text("native.windowsUpdateReady", nil), true)
 		})
 		if quitting.Load() {
 			stopUpdater()

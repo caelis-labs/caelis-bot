@@ -639,7 +639,7 @@
   "providerAccountHint": "连接账号后选择可用模型。",
   "providerConnectedModels": "已连接：{models}",
   "setupStartChat": "开始聊天",
-  "setupStartHint": "开始聊天时，会把名字和描述发送给助手。",
+  "setupReturnToConnection": "返回连接设置",
   "setupRuntimeLead": "先选择一种方式，之后也可在设置中添加另一种。",
   "runtimeVerifying": "下载完成，正在校验文件…",
   "runtimeFinishing": "正在安装并检查运行环境…",
@@ -653,5 +653,14 @@
   "setupModelsHint": "连接模型服务，选择助手使用的模型。",
   "setupLoginHint": "在浏览器中完成登录，完成后会自动继续检查。",
   "windowsUpdateInstall": "重启并更新",
-  "windowsUpdateInstallDescription": "将关闭任务观察终端。工作继续执行，更新后可重新打开终端。"
+  "windowsUpdateInstallDescription": "将关闭任务观察终端。工作继续执行，更新后可重新打开终端。",
+  "setupNext": "下一步",
+  "setupChooseModel": "选择模型",
+  "setupChooseModelHint": "使用已连接的模型，之后可在设置中更换。",
+  "setupConnectModel": "连接模型",
+  "setupConnectModelHint": "选择模型服务，完成认证后即可开始。",
+  "setupConnectAndContinue": "连接并继续",
+  "setupSavedCredentials": "使用已保存的凭据",
+  "setupMoreOptions": "更多选项",
+  "setupLoading": "加载中…"
 }

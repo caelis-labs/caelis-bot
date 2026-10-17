@@ -3,7 +3,9 @@ package backend
 import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNativeNotificationObserverIgnoresRestoredHistoryAndDeduplicates(t *testing.T) {
@@ -25,24 +27,24 @@ func TestNativeNotificationObserverIgnoresRestoredHistoryAndDeduplicates(t *test
 	v.CanInterrupt = false
 	o.Observe(v)
 	o.Observe(v)
-	if len(delivered) != 2 || delivered[0] != "approval-decision" || delivered[1] != "result-new" {
+	if len(delivered) != 1 || delivered[0] != "approval-decision" {
 		t.Fatal(delivered)
 	}
 }
 
-func TestExhaustedRecoveryNoticeUsesOriginalKeyOnceAndClearsOnReady(t *testing.T) {
+func TestRecoveryIsSilentAndClearsLegacyNoticeOnce(t *testing.T) {
 	var sent, cleared []string
 	o := NotificationObserver{Notify: func(id, _, _ string, _ bool) { sent = append(sent, id) }, Dismiss: func(id string) { cleared = append(cleared, id) }}
 	v := api.Snapshot{Connection: "offline", Phase: "unknown", RecoveryNoticeKey: "original-request"}
 	o.Observe(v)
 	o.Observe(v)
-	if len(sent) != 1 || sent[0] != "runtime-recovery" {
-		t.Fatal("recovery repeated or hidden", sent)
+	if len(sent) != 0 {
+		t.Fatal("technical recovery escaped into OS notification", sent)
 	}
 	v.Connection, v.RecoveryNoticeKey, v.Phase = "ready", "", "completed"
 	o.Observe(v)
 	o.Observe(v)
-	if len(cleared) != 1 || cleared[0] != "runtime-recovery" || len(sent) != 1 {
+	if len(cleared) != 1 || cleared[0] != "runtime-recovery" || len(sent) != 0 {
 		t.Fatal("stale recovery notice survived", sent, cleared)
 	}
 }
@@ -52,6 +54,9 @@ func TestScheduledNotificationsOnlyAnnounceVisibleResultOnce(t *testing.T) {
 	o := NotificationObserver{Notify: func(id, title, body string, reminder bool) {
 		if !reminder {
 			t.Error("scheduled result must reach a visible pet")
+		}
+		if body != "water" {
+			t.Errorf("reminder did not carry its content: %q", body)
 		}
 		ids = append(ids, id)
 	}}
@@ -81,8 +86,8 @@ func TestScheduledNotificationsOnlyAnnounceVisibleResultOnce(t *testing.T) {
 	v.Phase = "failed"
 	v.Items = nil
 	o.Observe(v)
-	if len(ids) != 2 {
-		t.Fatal("failure hidden")
+	if len(ids) != 1 {
+		t.Fatal("technical failure became a notification")
 	}
 }
 
@@ -94,10 +99,86 @@ func TestScheduledNotificationAfterReconnectDuringExecution(t *testing.T) {
 	v.Phase = "completed"
 	v.CanInterrupt = false
 	v.Quiet = false
+	v.Items = []api.Item{{Kind: "assistant", TurnKey: "ongoing", Text: "A useful reminder"}}
 	o.Observe(v)
 	o.Observe(v)
 	if delivered != 1 {
 		t.Fatalf("completion after reconnect: %d notifications", delivered)
+	}
+}
+
+func TestOrdinaryRepliesNeverNotifyEvenWhenHistoryOrPhaseChanges(t *testing.T) {
+	var delivered int
+	o := NotificationObserver{Notify: func(string, string, string, bool) { delivered++ }}
+	o.Observe(api.Snapshot{Connection: "ready", Phase: "idle"})
+	for _, phase := range []string{"working", "completed", "failed", "unknown", "completed"} {
+		o.Observe(api.Snapshot{Connection: "ready", Phase: phase, CurrentTurn: "new", Items: []api.Item{
+			{ID: "user", Kind: "user", TurnKey: "new", Text: "Name yourself"},
+			{ID: "reply", Kind: "assistant", TurnKey: "new", Text: "Remembered"},
+		}})
+	}
+	if delivered != 0 {
+		t.Fatal("ordinary reply generated an OS alert")
+	}
+}
+
+func TestDecisionNotificationClearsOnlyAfterAuthoritativeResolution(t *testing.T) {
+	var delivered, dismissed []string
+	o := NotificationObserver{
+		Notify:  func(id, _, _ string, _ bool) { delivered = append(delivered, id) },
+		Dismiss: func(id string) { dismissed = append(dismissed, id) },
+	}
+	v := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "original", Status: "pending"}}}
+	o.Observe(v)
+	o.Observe(api.Snapshot{Connection: "offline"})
+	if len(dismissed) != 1 || dismissed[0] != "runtime-recovery" {
+		t.Fatal("lost connection dismissed a pending decision", dismissed)
+	}
+	o.Observe(v)
+	v.Approvals[0].Status = "resolved"
+	o.Observe(v)
+	o.Observe(v)
+	if len(delivered) != 1 || len(dismissed) != 2 || dismissed[1] != "approval-original" {
+		t.Fatal(delivered, dismissed)
+	}
+}
+
+func TestScheduledNotificationDoesNotLeakEarlierMessagesOrToolOutput(t *testing.T) {
+	var bodies []string
+	o := NotificationObserver{Notify: func(_, _, body string, _ bool) { bodies = append(bodies, body) }}
+	o.Observe(api.Snapshot{Connection: "ready", Phase: "idle"})
+	v := api.Snapshot{Connection: "ready", Phase: "completed", Scheduled: true, CurrentTurn: "current", Items: []api.Item{
+		{Kind: "assistant", TurnKey: "old", Text: "Private old reply"},
+		{Kind: "tool", TurnKey: "current", Text: "Tool output"},
+	}}
+	o.Observe(v)
+	v.Items = append(v.Items, api.Item{Kind: "assistant", TurnKey: "current", Text: api.SilentReminder})
+	o.Observe(v)
+	if len(bodies) != 0 {
+		t.Fatal("notified content without a current visible message", bodies)
+	}
+	v.Items[len(v.Items)-1].Text = "**站起来活动一下。**"
+	o.Observe(v)
+	o.Observe(v)
+	if len(bodies) != 1 || bodies[0] != "站起来活动一下。" {
+		t.Fatal(bodies)
+	}
+}
+
+func TestNotificationPreviewIsBoundedPlainText(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"## Break\n\n**Stand up** &amp; stretch.\n[Open notes](https://example.com/private)", "Break Stand up & stretch. Open notes"},
+		{"Reminder\n\n```sh\nprivate command\n```\n\nNext step", "Reminder Next step"},
+		{"\x00A\nB\tC", "A B C"},
+		{"![private image](https://example.com/image)", ""},
+	} {
+		if got := notificationPreview(tc.input); got != tc.want {
+			t.Errorf("preview = %q, want %q", got, tc.want)
+		}
+	}
+	got := notificationPreview(strings.Repeat("提醒🌸", 100))
+	if !utf8.ValidString(got) || len([]rune(got)) != 180 || !strings.HasSuffix(got, "…") {
+		t.Fatal("invalid or unbounded Unicode preview")
 	}
 }
 

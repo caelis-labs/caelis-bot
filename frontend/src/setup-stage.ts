@@ -1,4 +1,5 @@
-// Runtime readiness gates optional choices and the first introduction.
-export function setupStage(runtimeReady:boolean,featuresPending:boolean,permissionsPending:boolean) {
- return !runtimeReady?'runtime':featuresPending?'features':permissionsPending?'permissions':'identity';
+// A confirmed model unlocks optional choices and editing the introduction.
+// Actual activation is awaited separately before submitting the first message.
+export function setupStage(runtimeSelected:boolean,featuresPending:boolean) {
+ return !runtimeSelected?'runtime':featuresPending?'features':'identity';
 }

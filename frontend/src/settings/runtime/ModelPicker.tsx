@@ -16,8 +16,8 @@ export function ModelSummary({ value, models, disabled, onClick, label, unbound 
  return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={event => onClick(event.currentTarget)}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><SettingsChevron/></button>;
 }
 
-export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault, selectInitialModel=false, sourceLabels={} }: {
- sourceLabels?: Record<string,string>; selectInitialModel?: boolean; emptyMessage?: string; showSources?: boolean; title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean; anchor?: HTMLElement | null; runtimeDefault?: ModelSelection | null;
+export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault, selectInitialModel=false, sourceLabels={}, missingModelLabel }: {
+ missingModelLabel?:string; sourceLabels?: Record<string,string>; selectInitialModel?: boolean; emptyMessage?: string; showSources?: boolean; title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean; anchor?: HTMLElement | null; runtimeDefault?: ModelSelection | null;
  onSave: (value: ModelSelection) => Promise<void>; onClose: () => void; onConnect?: () => void; onReset?: () => Promise<void>; onReload?: () => Promise<void>;
 }) {
  const { t } = useI18n();
@@ -41,7 +41,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
     <span>{t('runtime.model')}</span>
     <SettingsSelect searchable aria-label={t('runtime.model')} disabled={busy||blocked} value={draft.model} onChange={event=>{const selected=models.find(item=>item.model===event.target.value);setDraft(selected?chooseModel(selected):inheritedSelection);setError('');}}>
      {(!draft.model||inherited)&&<option value="">{t('runtime.default')}</option>}
-     {draft.model&&!model&&<option value={draft.model}>{draft.model}</option>}
+     {draft.model&&!model&&<option value={draft.model}>{missingModelLabel||draft.model}</option>}
      {models.map(item=><option key={item.model} value={item.model} data-badge={sourceLabels[item.model]}>{item.name||item.model}</option>)}
     </SettingsSelect>
     {fastTier(model)&&<button className="runtime-compact-fast" title={t('runtime.fastMode')} aria-label={t('runtime.fastMode')} aria-pressed={serviceTier===fastTier(model)!.id} disabled={busy||blocked} onClick={()=>change({serviceTier:serviceTier===fastTier(model)!.id?'':fastTier(model)!.id})}><LightningIcon aria-hidden="true" size={18}/></button>}

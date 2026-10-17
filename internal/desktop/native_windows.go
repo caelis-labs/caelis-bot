@@ -100,6 +100,7 @@ type windowsDriver struct {
 	taskWindow                 *application.WebviewWindow
 	taskCount                  atomic.Int64
 	taskExpanded               atomic.Bool
+	taskLayout                 atomic.Value
 	taskPeek                   atomic.Bool
 	service                    *Service
 	placement                  Placement
@@ -319,21 +320,14 @@ func (d *windowsDriver) layout() {
 	}
 	d.bubbleWindow.SetPosition(bx, by)
 	if d.taskWindow != nil {
-		tw, th := 52, 28
-		if d.taskExpanded.Load() {
-			tw, th = 280, 300
-		}
-		d.taskWindow.SetSize(tw, th)
-		tx, ty := x+w/2-tw/2, y+h+6
-		if d.taskExpanded.Load() {
-			ty -= th - 28
-		}
+		area := application.Rect{Width: 800, Height: 600}
 		if screen != nil {
-			r := screen.WorkArea
-			tx = max(r.X, min(tx, r.X+r.Width-tw))
-			ty = max(r.Y, min(ty, r.Y+r.Height-th))
+			area = screen.WorkArea
 		}
-		d.taskWindow.SetPosition(tx, ty)
+		layout := windowsTaskPlacement(application.Rect{X: x, Y: y, Width: w, Height: h}, area, int(d.taskCount.Load()), d.taskExpanded.Load())
+		d.taskLayout.Store(layout)
+		d.taskWindow.SetSize(layout.Width, layout.Height)
+		d.taskWindow.SetPosition(layout.X, layout.Y)
 	}
 }
 

@@ -208,6 +208,22 @@ func (s *Setup) Models(ctx context.Context, path string) ([]api.ModelOption, err
 	}
 	return c.models(ctx)
 }
+
+// PreparedHome identifies the live management client for short-lived setup
+// snapshots. It exposes no credentials and never starts or authorizes a client.
+func (s *Setup) PreparedHome(path string) (string, bool) {
+	s.op.Lock()
+	defer s.op.Unlock()
+	if s.closed || s.client == nil || s.binary != path {
+		return "", false
+	}
+	select {
+	case <-s.client.Done():
+		return "", false
+	default:
+	}
+	return s.client.home, true
+}
 func (s *Setup) Close() {
 	s.op.Lock()
 	defer s.op.Unlock()

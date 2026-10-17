@@ -640,7 +640,7 @@
   "providerAccountHint": "Connect your account, then choose models.",
   "providerConnectedModels": "Connected: {models}",
   "setupStartChat": "Start chatting",
-  "setupStartHint": "Your assistant will receive this name and description when you start chatting.",
+  "setupReturnToConnection": "Return to connection setup",
   "setupRuntimeLead": "Start with one option. You can add the other in Settings later.",
   "runtimeVerifying": "Download complete. Verifying files…",
   "runtimeFinishing": "Installing and checking the runtime…",
@@ -654,5 +654,14 @@
   "setupModelsHint": "Connect a model service and choose a model for your assistant.",
   "setupLoginHint": "Sign in using your browser. We’ll detect when you’re ready.",
   "windowsUpdateInstall": "Restart and update",
-  "windowsUpdateInstallDescription": "Task observation terminals will close. Work continues and can be reopened after the update."
+  "windowsUpdateInstallDescription": "Task observation terminals will close. Work continues and can be reopened after the update.",
+  "setupNext": "Next",
+  "setupChooseModel": "Choose a model",
+  "setupChooseModelHint": "Your connected models are ready to use. You can change this later in Settings.",
+  "setupConnectModel": "Connect a model",
+  "setupConnectModelHint": "Choose a service, sign in, and select a model to get started.",
+  "setupConnectAndContinue": "Connect and continue",
+  "setupSavedCredentials": "Using saved credentials",
+  "setupMoreOptions": "More options",
+  "setupLoading": "Loading…"
 }
