@@ -2,7 +2,7 @@
 // No application data, native backend connection or model requests.
 import {createServer} from 'node:http';
 import {readFileSync,writeFileSync} from 'node:fs';
-import {resolve,extname} from 'node:path';
+import {resolve,extname,sep} from 'node:path';
 
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
@@ -237,15 +237,17 @@ if(['control-ux','control-ux-question'].includes(previewParams.get('fixture'))){
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 window.fixtureSendSetup=mode=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;
+ draftFiles=mode.startsWith('attachments-')?[{id:'send-fixture-file',name:'review-notes.pdf',size:1024,type:'application/pdf',image:false,unavailable:false}]:[];
  draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
  Object.assign(snapshot,{items:[],phase:'idle',currentTurn:'',activity:null,canInterrupt:false,canSteer:false,canSend:true,approvals:[],reviews:[],message:'',quiet:false,maintenance:'',lastReceipt:{id:'',outcome:'',message:''}});
  window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),50);
+ window.dispatchEvent(new Event('files-changed'));
 };
-window.fixtureSendRegression=async()=>{
+window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','attachments-rejected','rejected','unknown','draft-failure'])=>{
  const results=[];
  const wait=async(test)=>{const deadline=performance.now()+8000;while(!test()){if(performance.now()>deadline)throw Error('send fixture timeout');await delay(20);}};
  try{
-  for(const mode of ['accepted','rejected','unknown','draft-failure']){
+  for(const mode of modes){
    window.fixtureSendSetup(mode);
    await wait(()=>!!document.querySelector('textarea:not(:disabled)')&&snapshot.canSend);
    await delay(550);
@@ -256,26 +258,40 @@ window.fixtureSendRegression=async()=>{
    const frames=[],started=performance.now();let recording=true;
    const record=()=>{
     const users=[...document.querySelectorAll('.message-row.user')],reply=document.querySelector('.message-row.assistant .markdown-body');
-    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,emptyReply:!!reply&&!reply.textContent,editor:editor.value,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),reply:reply?.textContent??''});
+    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,emptyReply:!!reply&&!reply.textContent,editor:editor.value,files:document.querySelectorAll('.composer-context .attachments li').length,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),loading:!!document.querySelector('.working-message .loading-dots'),delivery:document.querySelector('.message-row.user .message-delivery')?.textContent??'',reply:reply?.textContent??''});
     if(recording)requestAnimationFrame(record);
    };requestAnimationFrame(record);
    document.querySelector('.send').click();
    await delay(3500);recording=false;
    if(sendCount!==1)throw Error(mode+' dispatched '+sendCount+' submissions');
    if(frames.some(frame=>frame.users>1))throw Error(mode+' duplicated the outgoing message');
-   const heights=frames.filter(frame=>frame.users).map(frame=>frame.userHeight);
+   const first=frames.find(frame=>frame.users);
+   if(!first||first.editor!==''||first.files||!first.loading||first.delivery)throw Error(mode+' did not hand off editor/message/loading in the first visible frame');
+   if(frames.filter(frame=>frame.time<500&&frame.users).some(frame=>frame.editor!==''||frame.files||!frame.loading||frame.delivery))throw Error(mode+' flashed the original draft or sending status before receipt');
+   const heights=frames.filter(frame=>frame.users&&(mode.endsWith('accepted')||mode==='draft-failure'||frame.time<500)).map(frame=>frame.userHeight);
    if(Math.max(...heights)-Math.min(...heights)>1)throw Error(mode+' acknowledgement resized the outgoing bubble');
    if(frames.some(frame=>frame.emptyReply))throw Error(mode+' showed an empty reply bubble');
-   if(mode==='accepted'){
+   if(mode.endsWith('accepted')){
     if(acceptedReads!==1)throw Error('accepted draft read '+acceptedReads+' times');
     if(editor.value!=='')throw Error('accepted draft was restored');
     const settled=frames.findIndex(frame=>frame.editor==='');
     if(frames.slice(settled).some(frame=>frame.editor!==''))throw Error('cleared draft flashed back');
     if(!frames.some(frame=>frame.stop&&!frame.disabled))throw Error('stop action never became available');
     if(!document.querySelector('.markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
+    if(document.querySelector('.composer-context .attachments li'))throw Error('accepted attachments reappeared');
    }else if(mode==='draft-failure'){
     if(editor.disabled||!document.querySelector('.input-error')?.textContent.includes('消息已发送')||!document.querySelector('.compose-area > .quiet')||!document.querySelector('.composer-stop'))throw Error('accepted draft failure lost its local recovery path');
-   }else if(editor.value!==text)throw Error(mode+' lost the unsent draft');
+   }else if(editor.value!==text)throw Error(mode+' lost the unaccepted draft');
+   if(mode==='attachments-rejected'&&document.querySelectorAll('.composer-context .attachments li').length!==1)throw Error('rejected attachment was not restored');
+   if(mode==='unknown'){
+    if(document.querySelector('.send:not(:disabled)'))throw Error('unknown request can be sent again');
+    document.querySelector('.compose-area > .quiet')?.click();await delay(350);
+    if(document.querySelector('.send:not(:disabled)')||sendCount!==1)throw Error('local cleanup unlocked an uncertain native request');
+    // A later authoritative rejection ends uncertainty without another send.
+    snapshot.lastReceipt={...snapshot.lastReceipt,outcome:'rejected'};
+    await wait(()=>!!document.querySelector('.send:not(:disabled)'));
+    if(sendCount!==1||editor.value!==text)throw Error('late refusal replayed or lost the original draft');
+   }
    results.push({mode,sendCount,acceptedReads,frames});
   }
   return window.fixtureSendResult={ok:true,results};
@@ -295,11 +311,13 @@ export const Call={ByName:async(name,...args)=>{
  }
  if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
  if(method==='Submit'){
-  sendCount++;const input=args[0],outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[outgoing];
+  sendCount++;const input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:[input.text,...selected.map(file=>file.name)].join('\n'),quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[outgoing];
+  if(sendMode.startsWith('attachments-')){if(selected.length!==1)throw Error('original attachment missing');setTimeout(()=>window.dispatchEvent(new Event('files-changed')),100);}
   await delay(600);
-  const outcome=sendMode==='rejected'?'rejected':sendMode==='unknown'?'unknown':'accepted';
+  const outcome=sendMode.endsWith('rejected')?'rejected':sendMode==='unknown'?'unknown':'accepted';
   snapshot.lastReceipt={id:input.id,outcome,message:outcome==='accepted'?'':'合成发送未确认'};outgoing.status=outcome;
   if(outcome==='accepted'){
+   draftFiles=draftFiles.filter(file=>!input.fileIds.includes(file.id));
    draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
    Object.assign(snapshot,{phase:'working',currentTurn:input.id,canInterrupt:true,canSend:false,canSteer:true});
    snapshot.items=[{...outgoing,id:'native-user:'+input.id,status:'completed'}];
@@ -328,7 +346,7 @@ const server=createServer((req,res)=>{
  const path=new URL(req.url,'http://127.0.0.1').pathname;
  if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replace('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v1/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64')));return;}
  const file=resolve(root,'.'+(path==='/'?'/index.html':path));
- if(!file.startsWith(root+'/')){res.writeHead(403);res.end();return;}
+ if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });

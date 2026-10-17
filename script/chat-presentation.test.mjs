@@ -104,6 +104,21 @@ test('chat editor uses native send/steer capability and optimistic inputs merge 
  assert.deepEqual(withOutgoing([{id:'foreign',text:'same'}],[first]),[{id:'foreign',text:'same'},first]);
 });
 
+test('the local outbox starts thinking before Runtime polling and yields to authoritative replies',()=>{
+ const idle={...running,phase:'completed',currentTurn:'',canSend:true,canSteer:false,canInterrupt:false};
+ const pending={id:'local',requestId:'original',kind:'user',text:'hello',status:'sending'};
+ assert.equal(chatActivity(idle,[pending]),'thinking');
+ assert.equal(chatActivity({...idle,items:[pending]}),'thinking','native outbox continues the same indicator');
+ assert.equal(chatActivity({...idle,items:[{...pending,id:'native',status:'accepted'}]},[pending]),null,'native confirmation supersedes stale optimistic status');
+ assert.equal(chatActivity({...idle,connection:'offline'},[pending]),null);
+ assert.equal(chatActivity({...idle,approvals:[{status:'pending'}]},[pending]),null);
+ assert.equal(chatActivity({...idle,phase:'interrupting'},[pending]),'stopping');
+ const reply={id:'reply',turnKey:'current',kind:'assistant',text:'hello back',status:'inProgress'};
+ assert.equal(chatActivity({...running,items:[reply]},[pending]),null,'streaming reply already communicates progress');
+ for(const status of ['accepted','rejected','unknown'])assert.equal(chatActivity(idle,[{...pending,status}]),null,'receipt must end optimistic waiting: '+status);
+ assert.equal(idle.canInterrupt,false,'presentation never grants stop authority');
+});
+
 
 test('new completed replies animate even when no in-progress snapshot was observed',()=>{
  const history={...running,phase:'completed',currentTurn:'',items:[{id:'old',kind:'assistant',text:'历史',status:'completed'}]};

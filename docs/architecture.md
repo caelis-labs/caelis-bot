@@ -48,6 +48,16 @@ Existing task routes and the independent worker default keep their original
 provider. Native windows, the menu bar and the Bot identity stay alive. Only first
 activation carries unsent attachments into an empty target; ordinary switches and
 rollback load the original provider-scoped selection.
+Onboarding preparation keeps a process-local, 30-second setup snapshot. Explicit
+recheck and connection mutations invalidate it; executable/preferences/auth-file
+changes, a closed Codex management client, and Caelis Host/configuration changes
+prevent reuse. No credential contents enter the snapshot. Bundled service preparation
+and resident activation share Core's existing recovery coordinator. An unchanged,
+ready resident activated by this setup controller can be reused without rebinding
+tools or rebuilding plugins; ordinary switching, admission and rollback remain intact.
+Confirmed model selection may advance the renderer to extras/introduction while
+activation runs. The first introduction still awaits activation and native readiness;
+changing pages cannot submit work or turn stale completion into authority.
 `GOWORK=off`; no sibling private imports.
 
 The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
@@ -457,6 +467,13 @@ only Workers, never its resident conversation or Bot callbacks. The current resi
 still validates native delegation authority before any start or continuation. Per-
 provider settings preserve store identity, models and account ownership. Task backend
 bindings survive a resident change and remain visible if their owner is unavailable.
+New local defaults follow the conversation. Empty legacy preferences are migrated
+without a runtime probe; a successfully read catalog can also invalidate an explicit
+model/parameter choice and persist that fallback. Failed discovery preserves the
+choice. Reconciliation runs during settings inspection and before a new route is
+bound. The follow-conversation decision is frozen with that route; changing defaults
+does not reinterpret a reserved or dispatched request. Per-provider preferences and
+existing native task bindings are retained.
 
 Remote v1 routes migrate once from their locked profile runtime to a durable per-task
 backend map. Observation caches are keyed by machine and backend; reading, sending,
@@ -712,6 +729,19 @@ A confirmed exited TUI client can reconnect in the same owned GUI instance; do n
 No automatic reconnect, task prompt replay or idle instance cleanup. Closing a terminal does not stop a Worker.
 Hide/show, placement and still preview are optional driver capabilities; unsupported actions preserve ownership.
 
+Windows uses its own console/ConPTY adapter and verified client receipt, while
+retaining the same Worker ownership contract. At the final interactive child
+launch, remove inherited `NO_COLOR` and `TERM=dumb` from headless parent tools;
+preserve genuine terminal capability variables and the allowlisted runtime home.
+Task preview geometry is computed in native monitor-relative DIP coordinates;
+the renderer paints the bounded fan/side stack without changing task bindings.
+
+Caelis Worker history accepts exact `append_page` continuation cursors before
+the final `sync`. SSE IDs must still match their delivery cursor, and only the
+completed sync supplies the older-history boundary. Replacement transactions,
+original Session ownership and bounded traversal remain mandatory; an unreadable
+stream must not become an empty successful conversation.
+
 ## Desktop and presentation
 
 Desktop World v0.1.0-rc.9 is an optional built-in Agent Plugins package, initially
@@ -827,11 +857,11 @@ gate does not govern ordinary chat images or Desktop World task observation and
 capture. Screen Recording remains a separate macOS permission; preference reads
 and disabling never request it.
 First-run feature selection has its own native completion marker, separate from
-the permission guide. New installs save the chosen capture gate before marking
+the legacy permission guide. New installs save the chosen capture gate before marking
 the feature step complete; an old completed permission guide migrates without
-repeating the feature step or changing existing capture preferences. The
-permission step reads the confirmed gate only to omit an unnecessary Screen
-Recording prompt. A ready Runtime can resume setup after both markers complete.
+repeating the feature step or changing existing capture preferences. Onboarding
+does not read or complete the legacy permission marker: a ready Runtime proceeds
+from feature choices directly to introduction, regardless of existing OS grants.
 
 Ordinary received images have a separate App-owned presentation store keyed by
 the original submission ID. Local and remote submissions save bounded bytes before
@@ -845,6 +875,34 @@ PNG/JPEG/GIF tiles use a bounded retained JPEG thumbnail and load original bytes
 only when opened. WebP uses its retained original for both views because the
 renderer decodes it directly. Missing or invalid images show an unavailable tile.
 
+Chat immediately stages a user message and removes the submitted content from
+the editor's local view. The outbox drives the existing thinking indicator before
+the next Runtime poll; it does not grant execution, steer or interrupt authority.
+The native draft remains durable until the original receipt accepts it. Refusal
+or uncertainty restores its presentation without overwriting a newer edit, and an
+uncertain original request blocks another submission until reconciled. Native echo
+replacement uses request identity, not text. Slow draft/file reads are fenced so
+consumed inputs cannot flash back while acceptance is settling.
+
 System permissions are independent fresh OS facts. Explicit requests may prompt; background reads/capture never
 request consent. Ordinary enable does not reset TCC; the separate repair action requires a checkbox and targets
 one category/current bundle. No Full Disk Access request or direct TCC database edits.
+The first user-initiated F1 capture uses ScreenCaptureKit's native consent flow;
+refusal pauses automatic attempts. A real notification may request notification
+consent once per process while undetermined; pending events retain their IDs and
+can be dismissed before delivery. Denial never opens System Settings automatically.
+Windows keeps its native capture/notification availability rules; do not simulate
+macOS permission prompts on systems that do not require them.
+
+OS notification policy is shared in `backend.NotificationObserver`: only native
+pending decisions and new, non-quiet, successfully completed scheduled turns with
+current-turn assistant content qualify. Ordinary replies, completion-only events,
+failed/unknown work and recovery state never emit OS alerts. Reminder bodies use
+a bounded plain-text excerpt; tool output, earlier turns, link destinations and
+code blocks are not previews. Approval payloads remain private to the app.
+Decision IDs deduplicate delivery and remove resolved notifications. Task outcome
+uncertainty retains original receipts and durable diagnostic deduplication, without
+an OS alert or retry. Native adapters suppress notifications while the conversation
+window is focused and decisions while the pet is visible. Reminders and downloaded
+updates may attract attention with a visible pet. Windows queues delivery and
+dismissal on the UI thread in order, without waiting while holding `Service.mu`.

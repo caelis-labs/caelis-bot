@@ -12,6 +12,25 @@ platform checks. Launch through `script/build_and_run-windows.ps1` with an isola
 [Windows releases](windows-release.md). Mac `make check/smoke/build` remain required
 on a Mac; Darwin CGO-free cross-compilation does not replace AppKit acceptance.
 
+Worker parity checks (Windows, 2026-10-18): `check-windows.ps1`,
+`smoke-windows.ps1` and the Dev build passed. The GUI-subsystem terminal test host
+ran `TestWindowsLiveTerminalHostClaimsExactClient` against Windows Terminal and
+classic Console Host with inherited `NO_COLOR=1` / `TERM=dumb`; both real console
+children received clean color capability settings and passed original-client
+receipt, reuse, collapse, focus and close checks. This validates launch conditions,
+not every Runtime's theme or terminal thumbnail availability.
+
+For read-only Caelis acceptance, set `CAELIS_BOT_WORKER_HISTORY_PROFILE` to an
+existing Bot profile and run `go test ./internal/backend/caelis -run
+TestExistingWorkerConversations -count=1 -v`. The test discovers the original Host,
+checks its identity and reads retained Worker history without submitting work.
+Only message counts and timing are logged. The three reported completed Workers
+were unreadable before the cursor fix and readable afterward in 31–88 ms each.
+The native DevBot menu was inspected for a shared left-aligned content column;
+the transparent side-stack was observed with the existing tasks. Automated geometry
+checks cover dense lists, screen edges and negative monitor coordinates; Mac native
+visual behavior and all multi-monitor/DPI combinations still require hardware review.
+
 Build from this public repository with pinned `toolchain.json`, `go.mod`, npm lockfiles and protocol manifests.
 No private asset checkout or sibling Core imports. `script/env.sh` selects Node 24, local caches, GOWORK=off
 and the macOS deployment target without changing the user's shell. Ordinary builds do not regenerate schemas.
@@ -242,6 +261,18 @@ rejection, an unknown receipt, and accepted submission followed by a failed draf
 Capture records `send.ok`, submission/draft-read counts and frame samples in the same JSON.
 It checks one displayed user message, stable message height, no empty first-reply bubble,
 preserved uncertain drafts, and blocked duplicate sending after draft synchronization fails.
+The first visible frame must also have an empty editor/context, exactly one user
+message and the Bot thinking indicator, with no separate Sending label. Attachment
+acceptance/refusal cases include a stale selection event during dispatch; original
+file IDs remain submitted once, disappear on acceptance and return on refusal.
+Late authoritative rejection unlocks an uncertain draft without another Submit.
+This browser fixture runs on Windows too; its synthetic bridge is not a live
+Runtime or native WebKit acceptance. The send handoff changes presentation only;
+Bot tools and the existing recovery guidance require no additional skill changes.
+The Windows 2026-10-18 run passed all six synthetic send scenarios and a real
+Caelis echo through the rebuilt DevBot: the immediate native screenshot showed
+one user message, an empty composer and thinking dots; the subsequent reply
+replaced the dots. This does not establish macOS WebKit/IME acceptance.
 These are synthetic native WebKit failure paths; qualify actual model interaction separately
 with an isolated Bot profile. Draft writes coalesce only pending full replacements, while
 submission waits for the newest saved draft. Snapshot reads are fenced by request order and
@@ -750,7 +781,10 @@ advanced setting, not a shared execution setting.
 
 Model choices carry their runtime source and include only ready runtimes.
 `SetupModels` inspects a profile without selecting it; `LocalWorkerSelection`
-reads saved preferences without opening an offline worker. `SaveSelectedModel`
+reads saved preferences without opening an offline worker and migrates empty legacy
+Worker selections to follow conversation. Successfully read model catalogs reconcile
+obsolete Worker choices; temporary discovery failures preserve them. The picker uses
+human-readable model labels, never serialized runtime/model keys. `SaveSelectedModel`
 validates against the selected runtime's catalog before committing the use.
 Existing work retains its original owner. Conversation runtime changes retain
 the idle/receipt guards and native adapter handshake.
@@ -758,8 +792,8 @@ Codex discovers its existing installation and authentication; provider setup is
 exclusive to built-in. Magpie obtains model choices from its gateway.
 Profile-scoped connection removal preserves admission, usage and revision checks.
 
-This changes user settings navigation, not Bot tools or capabilities; no Bot core
-skill update is needed. Native acceptance must use the isolated Dev profile and
+These navigation changes do not add Bot tools. The local Worker fallback policy
+is covered in the Bot core tasks reference. Native acceptance uses the isolated Dev profile and
 must not be inferred from the fixture/Go checks.
 
 Codex settings distinguish missing installation, handshake failure, login and ready
@@ -799,10 +833,23 @@ Do not copy credentials or existing Runtime stores into it. macOS permissions
 remain system-owned. Global `/opt/homebrew/bin` or `/usr/local/bin` Runtime installs
 may still be discovered; inspect those before claiming a missing-Runtime scenario.
 
-First-run order is Runtime detection/preparation and authentication/model connection,
-optional features, optional permissions, then name/description. Only the final
-Start chatting action journals the introduction. Installation waits for its native
+First-run order is Runtime detection/preparation and authentication/model selection,
+optional features, then name/description. System permissions are requested at use.
+Resident activation overlaps the later pages; only the final Start chatting action,
+after real readiness, journals the introduction. Installation waits for its native
 result; built-in download progress reports observed bytes and speed, with an
 indeterminate animation when no total is known. Cancellation stops the installer
 process group and the UI waits for the original request. Changes here are setup
 presentation/installation only; Bot-facing skill guidance does not change.
+
+Windows onboarding timing and validation for the shared preparation path are
+recorded in [the performance check](windows-onboarding-performance.md). Native
+macOS acceptance remains a separate gate from portable tests and cross-compilation.
+
+The introduction uses the route screen's avatar/title and an open name/optional
+description column, with borders only on inputs. Windows native review covered the existing-auth route, required
+name/button state and retaining the draft through Back/Next. Notification observer
+tests cover ordinary-reply silence, current-turn reminder excerpts, restored/quiet/
+failed results, decision deduplication and resolution cleanup. The Windows native
+toast fixture verified shell-history persistence and selective dismissal; it does
+not stand in for popup/click acceptance or macOS native notification validation.
