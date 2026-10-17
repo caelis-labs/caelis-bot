@@ -7,7 +7,6 @@ import { SettingsDialog } from './SettingsDialog';
 import { TeamSettings } from './TeamSettings';
 import { ConnectionWizard } from './ConnectionWizard';
 import { useI18n } from '../../i18n';
-import './runtime.css';
 import {SettingsChevron, ArrowClockwiseIcon} from '../../SettingsIcons';
 import {backend} from '../../desktop';
 import {botSessionStatusKey,setupStatusKey} from './setup-status';

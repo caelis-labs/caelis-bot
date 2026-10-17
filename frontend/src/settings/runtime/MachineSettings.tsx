@@ -6,7 +6,6 @@ import type { Machine, MachineInput, RuntimeMutationResult } from '../../backend
 import type { RuntimeSettingsClient } from './types';
 import { TeamSettings } from './TeamSettings';
 import { runtimeSettingsClient, ConfigurationError } from './client';
-import './machines.css';
 import {ModelPicker, ModelSummary} from './ModelPicker';
 import {SettingsChevron, DesktopTowerIcon, XIcon, ArrowClockwiseIcon, ArrowSquareOutIcon} from '../../SettingsIcons';
 

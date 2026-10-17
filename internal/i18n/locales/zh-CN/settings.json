@@ -175,6 +175,7 @@
   "packRemove": "移除",
   "shortcutTitle": "聊天快捷键",
   "shortcutLoadFailed": "暂时无法读取快捷键",
+  "shortcutChooseAnother": "请选择其他快捷键，或从菜单打开此功能。",
   "shortcutSaved": "已保存",
   "shortcutDisabled": "已关闭全局快捷键",
   "shortcutSaveFailed": "快捷键未能保存",

@@ -40,6 +40,7 @@ type Session struct {
 	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
 	sendingScheduled      string
+	dispatching           map[string]bool // Live POSTs; durable unknown journals also survive crashes.
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
 	mu                    sync.Mutex

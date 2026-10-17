@@ -9,6 +9,27 @@ const {CodexRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/Code
 const {BuiltinRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/BuiltinRuntimePanel.tsx');
 const {TeamSettings}=await server.ssrLoadModule('/src/settings/runtime/TeamSettings.tsx');
 const {ConnectionsPage}=await server.ssrLoadModule('/src/settings/runtime/ConnectionsPage.tsx');
+
+test('renderer recovery retries once, then offers feedback and reopen without exception prose',async(t)=>{
+ const {SurfaceBoundary}=await server.ssrLoadModule('/src/SurfaceBoundary.tsx');
+ t.mock.timers.enable({apis:['setTimeout']});
+ const boundary=new SurfaceBoundary({children:'original surface'});
+ boundary.setState=patch=>Object.assign(boundary.state,patch);
+ Object.assign(boundary.state,SurfaceBoundary.getDerivedStateFromError());
+ boundary.componentDidCatch(new Error('PRIVATE_SENTINEL'));
+ assert.equal(boundary.render(),null);
+ t.mock.timers.tick(300);
+ assert.equal(boundary.render(),'original surface');
+ Object.assign(boundary.state,SurfaceBoundary.getDerivedStateFromError());
+ boundary.componentDidCatch(new Error('PRIVATE_SENTINEL'));
+ const recovery=renderToStaticMarkup(boundary.render());
+ assert.match(recovery,/Copy feedback/);
+ assert.match(recovery,/Reopen window/);
+ assert.doesNotMatch(recovery,/PRIVATE_SENTINEL|Reconnect|stack/i);
+ t.mock.timers.tick(30000);
+ assert.equal(boundary.state.fatal,true);
+ boundary.componentWillUnmount();
+});
 test('model summaries start in an explicit loading state before any runtime facts arrive',()=>{
  const html=renderToStaticMarkup(React.createElement(ConnectionsPage,{active:false}));
  assert.equal((html.match(/aria-busy="true"/g)||[]).length,2);

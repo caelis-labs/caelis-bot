@@ -19,7 +19,6 @@ import {createRuntimeSettingsClient,ConfigurationError} from './client';
 import {setupStatusKey} from './setup-status';
 import {loadConnections} from './connections-loader';
 import type {ConnectionKind,ConnectChoice} from './types';
-import './runtime.css';
 
 type ID='caelis'|'codex';
 type Route={page:'home'}|{page:'runtime'|'providers'|'team';id:ID}|{page:'connect';id:ID;kind:ConnectionKind;choice:string}|{page:'provider';id:ID;group:string};

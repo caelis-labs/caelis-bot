@@ -2,7 +2,6 @@ import {useEffect,useRef,useState} from 'react';
 import {backend,desktop} from './desktop';
 import type {ScreenImage,ScreenPresentation} from './backend/contract';
 import {useI18n} from './i18n';
-import './screen-message.css';
 
 function useImage(id:string,thumbnail:boolean) {
  const [url,setURL]=useState(''),[failed,setFailed]=useState(false);

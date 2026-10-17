@@ -1,4 +1,9 @@
 {
+  "recoveringProgress": "Restoring progress…",
+  "surfaceRestartNeeded": "This window needs to reopen. Your work is kept.",
+  "copyFeedback": "Copy feedback details",
+  "feedbackCopied": "Copied",
+  "restartSurface": "Reopen window",
   "statusWorking": "Working",
   "statusSending": "Sending",
   "statusAttention": "Attention needed",

@@ -578,7 +578,6 @@ export function History() {
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
- const pendingConnection=snapshot&&snapshot.connection!=='ready'&&!snapshot.introductionPending;
  const connection=useConnectionNotice(snapshot);
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
@@ -591,7 +590,7 @@ export function History() {
   snapshot?.connectionIssue==='resource_exhausted'?t('chat.resourceConnection'):
   snapshot?.connectionIssue==='existing_server'?t('chat.existingServerConnection'):
   snapshot?.connectionIssue==='connection'?t('chat.offlineConnection'):
-  snapshot?.message||t('chat.offlineConnection');
+  t('chat.offlineConnection');
  useLayoutEffect(()=>{
   const el=scroll.current;if(!el||!active)return;
   if(prepend.current){
@@ -613,7 +612,7 @@ export function History() {
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(connection||!pendingConnection&&!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {connection&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className="message assistant state-bubble">
    {connection&&snapshot&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
@@ -627,10 +626,6 @@ export function History() {
      {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
-   {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
-   {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
-    <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
-   </div>}
     </div>
    </article>}
    {!!(error||connectionError)&&<p className="inline-error" role="alert">{error||connectionError}</p>}

@@ -1,5 +1,4 @@
 import { surfaceReady, surfaceMounted } from './surface-ready';
-import './settings/settings.css';
 import {SettingsToolbarContext} from './settings/SettingsToolbar';
 import { SettingsNavIcon } from './SettingsNavIcon';
 import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';

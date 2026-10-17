@@ -24,7 +24,7 @@ export function composerAction(snapshot: Snapshot | null, hasContent: boolean) {
  return snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
 }
 
-export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming';
+export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming' | 'recovering';
 // Older adapter snapshots may omit turnKey. Native Codex projections always
 // provide it, so a Worker decision cannot preempt the resident reply.
 export function belongsToTurn(value: {turnKey?: string}, turn: string) { return !value.turnKey || value.turnKey === turn; }
@@ -66,6 +66,7 @@ export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
  if (snapshot.approvals.some(p => p.status !== 'resolved' && belongsToTurn(p,snapshot.currentTurn))) return null;
  if (snapshot.maintenance === 'dreaming' && snapshot.phase === 'working' && !snapshot.message) return 'dreaming';
  if (snapshot.quiet) return null;
+ if (snapshot.phase === 'unknown') return 'recovering';
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;
  // A visible streaming answer already communicates progress. Empty started
  // items, completed commentary and tool work still need a waiting indicator.

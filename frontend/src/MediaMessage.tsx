@@ -2,7 +2,6 @@ import {useEffect,useRef,useState} from 'react';
 import {backend} from './desktop';
 import type {MediaImage,MediaPresentation} from './backend/contract';
 import {useI18n} from './i18n';
-import './media-message.css';
 
 function Image({value}:{value:MediaImage}) {
  const {t}=useI18n(),[url,setURL]=useState(''),[failed,setFailed]=useState(false),[open,setOpen]=useState(false),[full,setFull]=useState(''),[fullFailed,setFullFailed]=useState(false),dialog=useRef<HTMLDialogElement>(null);

@@ -29,9 +29,10 @@ test('empty running input stops; text or attachments switch back to send without
 test('waiting excludes approvals, recovery and terminal states, even with a remaining interrupt capability', () => {
  assert.equal(chatActivity(running),'thinking');
  assert.equal(chatActivity({...running,phase:'sending'}),'thinking');
- for(const phase of ['completed','failed','interrupted','unknown','unconfirmed','attention']) {
+ for(const phase of ['completed','failed','interrupted','unconfirmed','attention']) {
   assert.equal(chatActivity({...running,phase}),null,phase);
  }
+ assert.equal(chatActivity({...running,phase:'unknown',canSend:false,canSteer:false}),'recovering');
  assert.equal(chatActivity({...running,connection:'disconnected'}),null);
  for(const status of ['pending','sending','sent','unknown','unavailable']) {
   assert.equal(chatActivity({...running,approvals:[{status}]}),null,status);

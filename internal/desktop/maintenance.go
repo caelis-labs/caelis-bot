@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -44,4 +45,50 @@ func (s *Service) ExportDiagnostics() (string, error) {
 		return "", errors.New(s.text("native.saveDiagnosticReportFailed", nil))
 	}
 	return s.text("native.diagnosticSaved", nil), nil
+}
+
+// Renderer diagnostics accept only product-owned classifications, never error
+// prose, a stack containing private data, paths, credentials or conversation text.
+func (s *Service) ReportPresentationWarning(code string) {
+	switch code {
+	case "surface_render_failed", "bubble_action_failed", "background_read_failed":
+	default:
+		return
+	}
+	s.mu.Lock()
+	if s.presentationWarnings == nil {
+		s.presentationWarnings = map[string]bool{}
+	}
+	first := !s.presentationWarnings[code]
+	s.presentationWarnings[code] = true
+	report := s.presentationWarning
+	s.mu.Unlock()
+	if first && report != nil {
+		report(code)
+	}
+}
+
+func (s *Service) CopyDiagnostics() error {
+	if s.diagnosticReport == nil || s.copyText == nil {
+		return errors.New("diagnostics unavailable")
+	}
+	data, err := s.diagnosticReport()
+	if err != nil || !json.Valid(data) || len(data) > 1024*1024 {
+		return errors.New("diagnostics unavailable")
+	}
+	s.mu.Lock()
+	codes := make([]string, 0, len(s.presentationWarnings))
+	for code := range s.presentationWarnings {
+		codes = append(codes, code)
+	}
+	s.mu.Unlock()
+	slices.Sort(codes)
+	feedback, err := json.MarshalIndent(struct {
+		Product      json.RawMessage `json:"product"`
+		Presentation []string        `json:"presentationWarnings"`
+	}{data, codes}, "", "  ")
+	if err != nil {
+		return errors.New("diagnostics unavailable")
+	}
+	return s.CopyText(string(feedback))
 }
