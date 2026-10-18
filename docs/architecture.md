@@ -805,13 +805,15 @@ stream must not become an empty successful conversation.
 ## Desktop and presentation
 
 Desktop World v0.1.0 is an optional built-in Agent Plugins package, initially
-enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
-offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
-package (`bin/dtw`, `libexec/cua-driver`,
-`LICENSING/` and its Skill) into the signed app, then installs an immutable
+enabled. Bot verifies the pinned slim Plugin archive and BUILD provenance,
+extracts ordinary relative files without executing the download, and verifies the
+complete inventory, runtime, worker and licensing digests. The package
+(`bin/dtw`, `libexec/cua-driver`, `LICENSING/` and its Skill) is staged into the
+signed app, which installs an immutable
 reviewed copy on first launch or upgrade. A saved disabled choice survives the
 upgrade. Bot lists it first as Computer Use / 电脑操控 while retaining the
-`desktop-world` package ID and upstream manifest bytes. The existing
+`desktop-world` package ID. The reviewed icon extension is applied after upstream
+verification and included in Bot’s final sealed inventory. The existing
 PluginManager and both Runtime adapters project its Skill
 metadata and one stdio MCP server; Skill body and CUA API load on demand. Neither
 renderer nor model selects the native executable path. Disable and update revoke
@@ -836,8 +838,8 @@ exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
 server, reset TCC, or infer successful input from a model reply. Published v0.1.0 Mac binaries are Developer ID signed, with upstream notarization
-evidence. Bot verifies those signatures before cleaning build-machine runtime
-paths and re-signing both nested binaries with its selected app identity. The
+evidence. Bot verifies those signatures before re-signing both nested binaries with its
+selected app identity. The
 app seals the complete resulting inventory and independently passes its own
 notarization and Gatekeeper gates; upstream tickets do not qualify Bot.
 Windows package verification and cross-build are separate from Windows GUI
