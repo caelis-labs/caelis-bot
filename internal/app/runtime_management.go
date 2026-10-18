@@ -49,7 +49,7 @@ func (a *Application) guardRuntimeChange() error {
 	if tasks != nil {
 		for _, t := range tasks.ListTasks() {
 			switch t.Status {
-			case "completed", "failed", "cancelled", "interrupted":
+			case "completed", "failed", "cancelled", "interrupted", "unavailable":
 			default:
 				return errors.New(a.text("activeWorkRemaining", nil))
 			}
@@ -65,7 +65,7 @@ func (a *Application) guardConversationChange() error {
 	v := a.currentEngine().Snapshot()
 	pendingApproval := false
 	for _, approval := range v.Approvals {
-		if approval.Status != "resolved" {
+		if approval.Owner != "task" && approval.Status != "resolved" {
 			pendingApproval = true
 			break
 		}

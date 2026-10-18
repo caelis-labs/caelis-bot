@@ -650,5 +650,9 @@
   "setupReadyTitle": "You’re connected",
   "setupReadyHint": "Next, choose optional features and introduce your assistant.",
   "setupModelsHint": "Connect a model service and choose a model for your assistant.",
-  "setupLoginHint": "Sign in using your browser. We’ll detect when you’re ready."
+  "setupLoginHint": "Sign in using your browser. We’ll detect when you’re ready.",
+  "modelSelectionSaving": "Saving your choice…",
+  "modelSelectionPending": "Choice saved. Applying automatically…",
+  "modelSelectionRecovering": "Your choice is saved and will apply when the connection is ready.",
+  "modelCatalogRecovering": "Connecting. Your model list will return automatically."
 }

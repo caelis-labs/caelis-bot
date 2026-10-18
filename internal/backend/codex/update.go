@@ -101,6 +101,34 @@ func (s *Session) PrepareDetachForUpdate(ctx context.Context) error {
 	return s.prepareDetachLocked()
 }
 
+// Rebind the Bot tool bridge on rollback without stopping the native owner.
+func (s *Session) PrepareRuntimeRebind(ctx context.Context) error {
+	if err := s.lockUpdateOperation(ctx); err != nil {
+		return err
+	}
+	defer s.op.Unlock()
+	if err := s.prepareDetachLocked(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	c := s.client
+	s.client = nil
+	s.epoch++ // the detached event loop cannot mark the replacement offline
+	s.reconnectSeq++
+	if s.reconnectCancel != nil {
+		s.reconnectCancel()
+	}
+	s.reconnectActive = false
+	s.reconnectCancel = nil
+	s.state.Connection = "offline"
+	s.update()
+	s.mu.Unlock()
+	if c != nil {
+		c.detachForReconnect()
+	}
+	return nil
+}
+
 // DetachForUpdate closes only this observer transport. It neither interrupts a
 // turn nor invokes the retained owner's stop closure. A new process reconnects
 // to binding.OwnerEndpoint and reads the original thread and task receipts.

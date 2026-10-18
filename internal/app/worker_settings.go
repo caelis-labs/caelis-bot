@@ -6,14 +6,20 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"path/filepath"
 )
 
 func (w *localWorkers) settingsOwner(ctx context.Context, runtime string) (api.WorkRuntime, error) {
 	w.mu.Lock()
-	if runtime == w.active {
+	if runtime == w.switching && runtime != w.active {
 		w.mu.Unlock()
-		return w.resident, nil
+		return nil, errors.New("worker observer handoff in progress")
+	}
+	if runtime == w.active {
+		resident := w.resident
+		w.mu.Unlock()
+		return resident, nil
 	}
 	owner := w.owners[runtime]
 	if owner == nil {
@@ -146,7 +152,9 @@ func (w *localWorkers) saveModel(ctx context.Context, runtime string, value api.
 
 // Save the model before committing the default Runtime. Existing tasks retain their owners.
 func (w *localWorkers) saveSelectedModel(ctx context.Context, runtime string, value api.WorkExecutionSettings) error {
-	w.settingsMu.Lock()
+	if err := lockwait.Lock(ctx, &w.settingsMu); err != nil {
+		return err
+	}
 	defer w.settingsMu.Unlock()
 	v, e := w.inspect(ctx, runtime)
 	if e != nil {
@@ -175,8 +183,6 @@ func (w *localWorkers) saveSelectedModel(ctx context.Context, runtime string, va
 
 // LocalWorkerSelection reads the saved choice even when its Runtime is offline.
 func (w *localWorkers) LocalWorkerSelection() (api.LocalWorkerSettings, error) {
-	w.settingsMu.Lock()
-	defer w.settingsMu.Unlock()
 	w.mu.Lock()
 	runtime := w.defaultRuntime
 	w.mu.Unlock()

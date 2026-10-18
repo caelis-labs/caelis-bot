@@ -13,6 +13,7 @@ import (
 // receives the question through its private host report and asks the user in
 // ordinary chat only when it needs more information.
 func (a *Application) observeWorkerQuestions(ctx context.Context) {
+	a.observeWorkerApprovalNotice(ctx, a.allApprovalSnapshot())
 	for _, state := range a.localWork.WorkStates() {
 		for _, item := range state.AsyncQuestions {
 			_, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID)

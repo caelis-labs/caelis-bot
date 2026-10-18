@@ -1,10 +1,11 @@
+import {ModelSelectionDelivery} from './model-selection';
 import {ProviderLogo} from './OnboardingProviders';
 import {createPortal} from 'react-dom';
 import {SettingsToolbarContext} from '../SettingsToolbar';
 import {useContext,useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import {useI18n} from '../../i18n';
-import type {ExecutionSettings,LocalWorkerSettings,ModelOption,RuntimeSettings,RuntimeConfiguration,SetupState,SetupRequest,WorkExecutionSettings,SetupOverview} from '../../backend/contract';
+import type {ModelSelectionState,ExecutionSettings,LocalWorkerSettings,ModelOption,RuntimeSettings,RuntimeConfiguration,SetupState,SetupRequest,WorkExecutionSettings,SetupOverview} from '../../backend/contract';
 import {SettingGroup,SettingRow} from '../../SettingsUI';
 import {SettingsChevron} from '../../SettingsIcons';
 import {BuiltinRuntimePanel} from './BuiltinRuntimePanel';
@@ -26,12 +27,14 @@ type RuntimeView={profile:RuntimeSettings;state:SetupState;models:ModelOption[]}
 const providerName=(id:string,label:string)=>({codex:'Codex',grok:'Grok',deepseek:'DeepSeek',xiaomi:'Xiaomi MiMo',magpie:'Magpie',ollama:'Ollama',custom:'Custom'}[id]||label||id);
 const encode=(id:string,model:string)=>JSON.stringify([id,model]);
 const decode=(value:string):[ID,string]=>JSON.parse(value);
+const modelDelivery=new ModelSelectionDelivery(backend);
 const emptyModel={model:'',effort:'',serviceTier:''};
 export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refreshKey?:number}){
  const {t}=useI18n();
  const name=(id:string)=>id==='caelis'?t('runtime.builtinOnboardingTitle'):'Codex';
  const toolbar=useContext(SettingsToolbarContext);
  const [route,setRoute]=useState<Route>({page:'home'}),[views,setViews]=useState<Partial<Record<ID,RuntimeView>>>({}),[failures,setFailures]=useState<Partial<Record<ID,string>>>({});
+ const [selections,setSelections]=useState<ModelSelectionState[]>([]);
  const [bot,setBot]=useState<WorkExecutionSettings>(emptyModel),[worker,setWorker]=useState<WorkExecutionSettings>(emptyModel),[botID,setBotID]=useState(''),[workerID,setWorkerID]=useState('');
  const [config,setConfig]=useState<RuntimeConfiguration|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);
  const [editing,setEditing]=useState<'conversation'|'work'|null>(null),[providerList,setProviderList]=useState<Array<ConnectChoice&{kind:ConnectionKind}>>([]),[providerError,setProviderError]=useState('');
@@ -47,7 +50,7 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   const seq=++generation.current;setLoading(true);
   const results=await Promise.all((['caelis','codex'] as const).map(async runtime=>{try{const profile=await backend<RuntimeSettings>('SetupProfile',runtime);const state=await backend<SetupState>('InspectSetup',profile);const models=state.state==='ready'?await backend<ModelOption[]>('SetupModels',runtime):[];return {runtime,view:{profile,state,models}};}catch(e){return {runtime,error:textError(e)};}}));
   if(seq!==generation.current)return;
-  const next:Partial<Record<ID,RuntimeView>>={},fails:Partial<Record<ID,string>>={};for(const r of results){if(r.view)next[r.runtime]=r.view;else fails[r.runtime]=r.error;}setViews(next);setFailures(fails);
+  const next:Partial<Record<ID,RuntimeView>>={},fails:Partial<Record<ID,string>>={};for(const r of results){if(r.view)next[r.runtime]=r.view;else fails[r.runtime]=r.error;}setViews(previous=>{for(const runtime of ['caelis','codex'] as const){const incoming=next[runtime];if(incoming&&!incoming.models.length&&previous[runtime]?.models.length)incoming.models=previous[runtime]!.models;}return {...previous,...next};});setFailures(fails);
   const current=await Promise.allSettled([backend<SetupOverview>('SetupOverview'),backend<ExecutionSettings>('ExecutionSettings'),backend<LocalWorkerSettings>('LocalWorkerSelection')]);
   if(seq!==generation.current)return;
   if(current[0].status==='fulfilled')setBotID(current[0].value.hasRuntimeChoice?current[0].value.active:'');
@@ -56,6 +59,14 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   setLoading(false);
  };
  useEffect(()=>{if(active)void refresh();return()=>{generation.current++}},[active,refreshKey]);
+ useEffect(()=>{if(!active)return;let alive=true;const read=async()=>{try{const saved=await backend<ModelSelectionState[]>('ModelSelections');if(alive)setSelections([...saved.filter(v=>!modelDelivery.snapshot().some(p=>p.scope===v.scope)),...modelDelivery.snapshot()]);}catch{if(alive)setSelections(old=>[...old.filter(v=>!modelDelivery.snapshot().some(p=>p.scope===v.scope)),...modelDelivery.snapshot()]);}};void read();const timer=setInterval(()=>void read(),1000);return()=>{alive=false;clearInterval(timer)}},[active]);
+ useEffect(()=>{
+  if(!active||loading)return;
+  const retry=Object.values(failures).some(Boolean)||(['caelis','codex'] as const).some(runtime=>!views[runtime]||views[runtime]!.state.state!=='ready');
+  if(!retry)return;
+  const timer=setTimeout(()=>void refresh(),10000);
+  return()=>clearTimeout(timer);
+ },[active,loading,views,failures]);
  useEffect(()=>{root.current?.closest('.settings-content')?.scrollTo(0,0)},[route.page]);
  useEffect(()=>{
   if(route.page==='home')return;
@@ -79,11 +90,11 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   }
  });
  useEffect(()=>{if(!active||route.page!=='runtime'||!view?.state.loginPending)return;const timer=setInterval(()=>{if(!action.current)void refresh()},2500);return()=>clearInterval(timer)},[active,route.page,view?.state.loginPending]);
- const models=Object.entries(views).flatMap(([runtime,v])=>v.state.state==='ready'?v.models.map(m=>({...m,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})):[]);
+ const models=Object.entries(views).flatMap(([runtime,v])=>v.models.map(m=>({...m,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})));
  const followModel=encode('conversation','');
  const pickerModels:ModelOption[]=editing==='work'?[{model:followModel,name:t('runtime.followConversationModel'),description:'',default:false,defaultEffort:'',efforts:[],serviceTiers:[],imageInput:null},...models]:models;
- const modelValue=(scope:'conversation'|'work')=>{const saved=scope==='conversation'?bot:worker,runtime=scope==='conversation'?botID:workerID;const effective=saved.model||(scope==='conversation'?views[runtime as ID]?.state.selectedModel:'');return {...saved,...(scope==='work'&&!effective?{effort:'',serviceTier:''}:{}),model:runtime&&(effective||scope==='work')?encode(runtime,effective||''):''}};
- const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),runtime=scope==='conversation'?botID:workerID,saved=scope==='conversation'?bot:worker;return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}} disabled={loading}><span><strong>{(runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{runtime&&runtime!=='conversation'&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}</span><SettingsChevron/></button>};
+ const modelValue=(scope:'conversation'|'work')=>{const selected=selections.find(v=>v.scope===scope),saved=selected?.selection??(scope==='conversation'?bot:worker),runtime=selected?.runtime??(scope==='conversation'?botID:workerID);const effective=saved.model||(scope==='conversation'?views[runtime as ID]?.state.selectedModel:'');return {...saved,...(scope==='work'&&!effective?{effort:'',serviceTier:''}:{}),model:runtime&&(effective||scope==='work')?encode(runtime,effective||''):''}};
+ const summary=(scope:'conversation'|'work')=>{const v=modelValue(scope),found=models.find(m=>m.model===v.model),selected=selections.find(v=>v.scope===scope),runtime=selected?.runtime??(scope==='conversation'?botID:workerID),saved=selected?.selection??(scope==='conversation'?bot:worker);return <button className="runtime-model-summary" onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}}><span><strong>{(runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{runtime&&runtime!=='conversation'&&views[runtime as ID]?.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}{selected&&selected.state!=='applied'&&<small role="status">{t(selected.state==='saving'?'settings.modelSelectionSaving':selected.state==='recovering'?'settings.modelSelectionRecovering':'settings.modelSelectionPending')}</small>}</span><SettingsChevron/></button>};
  const stateText=(runtime:ID)=>views[runtime]?t(setupStatusKey(views[runtime]!.state)):failures[runtime]?t('runtime.loadRuntimeFailed'):t('runtime.detecting');
  const topError=<>{error&&<p className="inline-error" role="alert">{error}</p>}{notice&&<p className="settings-note" role="status">{notice}</p>}</>;
  return <section ref={root} className="connections-page">
@@ -107,6 +118,6 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
    {operationError&&<div className="setup-end"><button onClick={()=>{setOperation('');setOperationError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void apply(operation)}>{t('settings.runtimeTryAgain')}</button></div>}
   </SettingsDialog>}
   {removing&&<SettingsDialog title={t('runtime.removeModelPrompt',{name:removing.name})} busy={busy} onClose={()=>setRemoving(null)}><p className="settings-note">{t('runtime.removeModelNote')}</p>{removeError&&<p role="alert" className="inline-error">{removeError}</p>}<div className="setup-end"><button disabled={busy} onClick={()=>setRemoving(null)}>{t('common.cancel')}</button><button disabled={busy||!!removeError} onClick={()=>void run(async()=>{try{const result=await backend<import('../../backend/contract').RuntimeMutationResult>('ChangeProfileConfiguration',id,{action:removing.action,id:removing.id,expectedRevision:config?.revision});if(result.outcome!=='committed')throw new ConfigurationError(result);setRemoving(null);await refresh()}catch(e){setRemoveError(textError(e))}})}>{t('runtime.remove')}</button></div></SettingsDialog>}
-  {editing&&<ModelPicker description={!models.length?t('settings.connectionPrepareFirst'):undefined} showSources sourceLabels={Object.fromEntries(pickerModels.filter(m=>decode(m.model)[0]==='codex').map(m=>[m.model,'Codex']))} anchor={anchor.current} title={t(editing==='conversation'?'settings.connectionBotModel':'settings.connectionWorkModel')} value={modelValue(editing)} models={pickerModels} onReload={refresh} onClose={()=>setEditing(null)} onSave={async value=>{const [runtime,model]=decode(value.model);await backend('SaveSelectedModel',editing,runtime,{...value,model});await refresh()}}/>}
+  {editing&&<ModelPicker unavailableLabel={modelValue(editing).model?(decode(modelValue(editing).model)[1]||t('runtime.default')):t('runtime.default')} catalogPending={!modelValue(editing).model||views[decode(modelValue(editing).model)[0]]?.state.state!=='ready'||Boolean(failures[decode(modelValue(editing).model)[0]])} showSources sourceLabels={Object.fromEntries(pickerModels.filter(m=>decode(m.model)[0]==='codex').map(m=>[m.model,'Codex']))} anchor={anchor.current} title={t(editing==='conversation'?'settings.connectionBotModel':'settings.connectionWorkModel')} value={modelValue(editing)} models={pickerModels} onReload={refresh} onClose={()=>setEditing(null)} onSave={async value=>{const [runtime,model]=decode(value.model);modelDelivery.save(editing,runtime,{...value,model});setSelections(old=>[...old.filter(v=>v.scope!==editing),{scope:editing,runtime,selection:{...value,model},revision:0,state:'saving'}])}}/>}
  </section>
 }

@@ -736,18 +736,24 @@ built-in Team configuration are full pages with a back path; only short model
 edits and destructive confirmations use dialogs. Team is an optional built-in
 advanced setting, not a shared execution setting.
 
-Model choices carry their runtime source and include only ready runtimes.
+Model choices carry their runtime source; previously loaded catalogs remain available during a transient outage.
 `SetupModels` inspects a profile without selecting it; `LocalWorkerSelection`
-reads saved preferences without opening an offline worker. `SaveSelectedModel`
-validates against the selected runtime's catalog before committing the use.
-Existing work retains its original owner. Conversation runtime changes retain
-the idle/receipt guards and native adapter handshake.
+reads saved preferences without opening an offline worker. The selection
+coordinator validates against the selected runtime's catalog before applying.
+Existing work retains its original owner. `SaveSelectedModel` journals user
+intent without waiting for catalog inspection, task completion or handshake.
+`ModelSelections` distinguishes saving, pending, applying, recovering and applied
+states. The coordinator retries bounded attempts and resumes pending choices on
+restart; original receipts remain authoritative. Conversation handoff fences
+pending sends internally, while Worker activity never blocks preference saves.
+The UI keeps cached catalog choices during failed refresh and retries delivery
+of selection intent without replaying any model/tool/approval operation.
 Codex discovers its existing installation and authentication; provider setup is
 exclusive to built-in. Magpie obtains model choices from its gateway.
 Profile-scoped connection removal preserves admission, usage and revision checks.
 
-This changes user settings navigation, not Bot tools or capabilities; no Bot core
-skill update is needed. Native acceptance must use the isolated Dev profile and
+Bot recovery guidance describes independent task ownership and automatic settings
+recovery. Native acceptance must use the isolated Dev profile and
 must not be inferred from the fixture/Go checks.
 
 Codex settings distinguish missing installation, handshake failure, login and ready

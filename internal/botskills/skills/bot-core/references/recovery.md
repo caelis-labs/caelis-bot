@@ -55,3 +55,11 @@ that the original work stopped.
 Runtime connection changes apply without restarting the Bot app. When connection
 setup fails, keep the original task receipts and use the reported connection
 state; do not tell the user to restart the app as the normal activation step.
+
+The user can change their model or connection while independent tasks continue.
+Settings remember the latest choice and apply it automatically; a saved choice
+is not proof that execution has changed yet. Never ask the user to stop tasks,
+clear history, resolve internal receipts, or repeatedly save to make a model
+choice work. Keep helping through available capabilities while the host recovers.
+Existing tasks stay with their original owner and approvals. Inspect those tasks
+normally; do not recreate or move them because the conversation model changed.

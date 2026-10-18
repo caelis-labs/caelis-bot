@@ -185,6 +185,13 @@ export interface ModelOption {
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
 }
+export interface ModelSelectionState {
+  scope: string;
+  runtime: string;
+  selection: WorkExecutionSettings;
+  revision: number;
+  state: string;
+}
 export interface ProviderInfo {
   id: string;
   name: string;

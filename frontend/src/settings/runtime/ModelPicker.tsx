@@ -16,8 +16,8 @@ export function ModelSummary({ value, models, disabled, onClick, label, unbound 
  return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={event => onClick(event.currentTarget)}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><SettingsChevron/></button>;
 }
 
-export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault, selectInitialModel=false, sourceLabels={} }: {
- sourceLabels?: Record<string,string>; selectInitialModel?: boolean; emptyMessage?: string; showSources?: boolean; title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean; anchor?: HTMLElement | null; runtimeDefault?: ModelSelection | null;
+export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault, selectInitialModel=false, sourceLabels={}, unavailableLabel, catalogPending=false }: {
+ unavailableLabel?:string; catalogPending?:boolean; sourceLabels?: Record<string,string>; selectInitialModel?: boolean; emptyMessage?: string; showSources?: boolean; title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean; anchor?: HTMLElement | null; runtimeDefault?: ModelSelection | null;
  onSave: (value: ModelSelection) => Promise<void>; onClose: () => void; onConnect?: () => void; onReset?: () => Promise<void>; onReload?: () => Promise<void>;
 }) {
  const { t } = useI18n();
@@ -41,7 +41,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
     <span>{t('runtime.model')}</span>
     <SettingsSelect searchable aria-label={t('runtime.model')} disabled={busy||blocked} value={draft.model} onChange={event=>{const selected=models.find(item=>item.model===event.target.value);setDraft(selected?chooseModel(selected):inheritedSelection);setError('');}}>
      {(!draft.model||inherited)&&<option value="">{t('runtime.default')}</option>}
-     {draft.model&&!model&&<option value={draft.model}>{draft.model}</option>}
+     {draft.model&&!model&&<option value={draft.model}>{unavailableLabel||draft.model}</option>}
      {models.map(item=><option key={item.model} value={item.model} data-badge={sourceLabels[item.model]}>{item.name||item.model}</option>)}
     </SettingsSelect>
     {fastTier(model)&&<button className="runtime-compact-fast" title={t('runtime.fastMode')} aria-label={t('runtime.fastMode')} aria-pressed={serviceTier===fastTier(model)!.id} disabled={busy||blocked} onClick={()=>change({serviceTier:serviceTier===fastTier(model)!.id?'':fastTier(model)!.id})}><LightningIcon aria-hidden="true" size={18}/></button>}
@@ -49,7 +49,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
    <ModelParameters hideFast model={model} value={{...draft,effort,serviceTier}} disabled={busy||blocked} onChange={change}/>
    {onConnect&&<button className="text-action runtime-model-connect" onClick={onConnect}>{t('runtime.connectOtherModels')}</button>}
 
-   {draft.model && (!model || !validSelection(draft,models,inherited)) && <p role="alert" className="inline-error">{t('runtime.modelUnavailable')}</p>}
+   {draft.model && !model && catalogPending ? <p role="status" className="settings-note">{t('settings.modelCatalogRecovering')}</p> : draft.model && (!model || !validSelection(draft,models,inherited)) && <p role="alert" className="inline-error">{t('runtime.modelUnavailable')}</p>}
    {error && <div role="alert" className="inline-error"><p>{error}</p>{onReload && <button disabled={busy} className="text-action" onClick={() => { void onReload().then(() => { setError(''); setBlocked(false); }).catch(e => setError(messageOf(e,t('runtime.actionFailed')))); }}>{t('runtime.reloadKeepSelection')}</button>}</div>}
    <div className="setup-end runtime-model-actions">{model && <button disabled={busy || blocked} className="text-action runtime-reset-parameters" onClick={() => { setDraft(draft.model ? chooseModel(model) : inheritedSelection); setError(''); }}><ArrowClockwiseIcon aria-hidden="true" size={13}/>{t('runtime.resetParameters')}</button>}{!model && <span/>}<button disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={busy || blocked || !dirty || !validSelection(draft,models,inherited) || requireEffort && !draft.effort} onClick={() => void save()}>{busy ? t('runtime.saving') : t('common.save')}</button></div>
    {onReset && <button disabled={busy || blocked} className="text-action runtime-reset-binding" onClick={() => void save(true)}>{t('runtime.resetRoleDefaultBinding')}</button>}

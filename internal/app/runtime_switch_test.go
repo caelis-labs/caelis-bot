@@ -242,6 +242,9 @@ func TestCancelledRuntimeActivationRestoresOriginalClient(t *testing.T) {
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
+	if err := a.Backend.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := a.activateRuntime(ctx, api.RuntimeSettings{Runtime: "caelis"}, false); !errors.Is(err, context.Canceled) {

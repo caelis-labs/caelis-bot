@@ -262,6 +262,13 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
+	if owner, ok := s.localWorkers.(interface {
+		RetainedApprovalState() ([]api.Approval, uint64)
+	}); ok {
+		approvals, revision := owner.RetainedApprovalState()
+		v.Approvals = append(v.Approvals, approvals...)
+		v.Revision += revision
+	}
 	// Native automatic-review facts remain in adapter history and diagnostics.
 	// They are not an independent user message or an actionable approval.
 	v.Reviews = nil
@@ -399,6 +406,12 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	}
 	if source, ok := s.currentEngine().(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
 		combined := source.Revision() + localRevision
+		if owner, ok := s.localWorkers.(interface {
+			RetainedApprovalState() ([]api.Approval, uint64)
+		}); ok {
+			_, workerRevision := owner.RetainedApprovalState()
+			combined += workerRevision
+		}
 		if s.chat != nil {
 			combined += s.chat.Revision()
 		}
@@ -751,6 +764,13 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	return s.currentEngine().Interrupt(ctx)
 }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error {
+	if owner, ok := s.localWorkers.(interface {
+		DecideRetainedApproval(context.Context, api.Decision) (bool, error)
+	}); ok {
+		if handled, err := owner.DecideRetainedApproval(ctx, d); handled {
+			return err
+		}
+	}
 	return s.currentEngine().Decide(ctx, d)
 }
 func (s *Service) Login(ctx context.Context) error {
@@ -782,6 +802,16 @@ func (s *Service) RevealArtifact(id string) error {
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
+	if owner, ok := s.localWorkers.(interface {
+		RetainedApprovalURL(string) (string, bool, error)
+	}); ok {
+		if url, handled, err := owner.RetainedApprovalURL(id); handled {
+			if err != nil {
+				return err
+			}
+			return s.openURL(url)
+		}
+	}
 	navigator, ok := s.currentEngine().(api.ApprovalNavigator)
 	if !ok {
 		return errors.New("当前后端不支持打开外部审批")

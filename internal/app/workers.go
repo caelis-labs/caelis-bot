@@ -9,6 +9,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,16 +26,21 @@ type retainedWorker interface {
 // The resident remains the admission authority. Inactive providers expose only
 // their owned Workers, with no Bot conversation or tool callbacks.
 type localWorkers struct {
-	settingsMu     sync.Mutex
-	path, root     string
-	defaultRuntime string
-	loadErr        error
-	mu             sync.Mutex
-	active         string
-	resident       api.WorkRuntime
-	owners         map[string]retainedWorker
-	routes         map[string]string
-	open           func(string) (retainedWorker, error)
+	detachMu            sync.Mutex
+	settingsMu          sync.Mutex
+	path, root          string
+	defaultRuntime      string
+	approvalFingerprint string
+	approvalRevision    uint64
+	loadErr             error
+	mu                  sync.Mutex
+	active              string
+	switching           string
+	resident            api.WorkRuntime
+	owners              map[string]retainedWorker
+	retiring            map[string]bool
+	routes              map[string]string
+	open                func(string) (retainedWorker, error)
 }
 
 func (a *Application) configureWorkers() error {
@@ -104,33 +110,89 @@ func (w *localWorkers) SwitchResident(id string, engine api.Engine) retainedWork
 	defer w.mu.Unlock()
 	retained := w.owners[id]
 	delete(w.owners, id)
+	delete(w.retiring, id)
 	w.active = id
 	w.resident = engine.(api.WorkRuntime)
 	return retained
 }
 
-func (w *localWorkers) RestoreRetained(id string, owner retainedWorker) {
-	if owner == nil {
-		return
+func (w *localWorkers) RetainResident(id string, engine api.Engine) {
+	if owner, ok := engine.(retainedWorker); ok {
+		w.mu.Lock()
+		w.owners[id] = owner
+		w.mu.Unlock()
 	}
-	w.mu.Lock()
-	w.owners[id] = owner
-	w.mu.Unlock()
 }
 
-func (w *localWorkers) CanSwitchResident(id string) error {
+// DetachTarget serializes ledger handoffs without holding the UI routing lock
+// while an observer flushes its original receipts.
+func (w *localWorkers) DetachTarget(ctx context.Context, id string) error {
+	if err := lockwait.Lock(ctx, &w.detachMu); err != nil {
+		return err
+	}
+	defer w.detachMu.Unlock()
+	w.mu.Lock()
+	if id == w.active {
+		w.mu.Unlock()
+		return nil
+	}
+	owner := w.owners[id]
+	if owner == nil {
+		delete(w.retiring, id)
+		w.mu.Unlock()
+		return nil
+	}
+	w.mu.Unlock()
+	if err := detachRuntimeObserver(ctx, owner); err != nil {
+		return err
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if owner := w.owners[id]; owner != nil {
-		for _, state := range owner.WorkStates() {
+	if w.owners[id] == owner {
+		delete(w.owners, id)
+		delete(w.retiring, id)
+	}
+	return nil
+}
+
+func (w *localWorkers) RetireResident(ctx context.Context, id string) error {
+	w.mu.Lock()
+	if w.retiring == nil {
+		w.retiring = map[string]bool{}
+	}
+	w.retiring[id] = true
+	w.mu.Unlock()
+	return w.DetachTarget(ctx, id)
+}
+
+func (w *localWorkers) BeginResidentSwitch(ctx context.Context, id string) error {
+	w.mu.Lock()
+	w.switching = id
+	w.mu.Unlock()
+	if err := w.DetachTarget(ctx, id); err != nil {
+		w.EndResidentSwitch()
+		return err
+	}
+	return nil
+}
+func (w *localWorkers) EndResidentSwitch() { w.mu.Lock(); w.switching = ""; w.mu.Unlock() }
+
+func detachRuntimeObserver(ctx context.Context, owner interface{ Close(context.Context) error }) error {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	if detacher, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+		return detacher.DetachForUpdate(ctx)
+	}
+	if worker, ok := owner.(api.WorkRuntime); ok {
+		for _, state := range worker.WorkStates() {
 			switch state.Task.Status {
-			case "completed", "failed", "cancelled", "interrupted":
+			case "completed", "failed", "cancelled", "interrupted", "unavailable":
 			default:
-				return errors.New("该执行方式还有进行中的工作，请完成后再切换")
+				return errors.New("runtime observer cannot detach active work")
 			}
 		}
 	}
-	return nil
+	return owner.Close(ctx)
 }
 
 func (w *localWorkers) SelectFirstRuntime(id string) error {
@@ -176,7 +238,7 @@ func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime
 	if !w.OwnsWork(runtime) {
 		return "", errors.New("original_task_runtime_unavailable")
 	}
-	if runtime != w.active && w.owners[runtime] == nil {
+	if runtime != w.active && runtime != w.switching && w.owners[runtime] == nil {
 		owner, err := w.open(runtime)
 		// Missing/corrupt inactive owners cannot hide the ledger or prevent the
 		// current Bot from starting. Access retries only this exact owner.
@@ -219,6 +281,10 @@ func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, 
 	owner := w.owners[runtime]
 	resident := w.resident
 	active := w.active
+	if runtime == w.switching && runtime != active {
+		w.mu.Unlock()
+		return nil, errors.New("worker observer handoff in progress")
+	}
 	if runtime != "" && runtime != active && owner == nil {
 		var err error
 		owner, err = w.open(runtime)
@@ -345,10 +411,10 @@ func (w *localWorkers) WorkMessageRecorded(in api.TaskMessage) bool {
 	w.mu.Lock()
 	runtime := w.routes[in.ID]
 	owner := api.WorkRuntime(w.owners[runtime])
-	w.mu.Unlock()
 	if runtime == w.active {
 		owner = w.resident
 	}
+	w.mu.Unlock()
 	p, ok := owner.(api.RecordedWorkMessage)
 	return ok && p.WorkMessageRecorded(in)
 }
@@ -357,9 +423,21 @@ func (w *localWorkers) Observe(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		w.mu.Lock()
+		retiring := []string{}
+		for id := range w.retiring {
+			retiring = append(retiring, id)
+		}
+		w.mu.Unlock()
+		for _, id := range retiring {
+			_ = w.DetachTarget(ctx, id)
+		}
+		w.mu.Lock()
 		w.reloadSettingsLocked()
 		owners := []retainedWorker{}
-		for _, owner := range w.owners {
+		for id, owner := range w.owners {
+			if w.retiring[id] {
+				continue
+			}
 			owners = append(owners, owner)
 		}
 		w.mu.Unlock()
@@ -418,7 +496,7 @@ func (w *localWorkers) CanDetachForUpdate() error {
 		}
 		for _, state := range owner.WorkStates() {
 			switch state.Task.Status {
-			case "completed", "failed", "cancelled", "interrupted":
+			case "completed", "failed", "cancelled", "interrupted", "unavailable":
 			default:
 				return errors.New("原任务 Runtime 无法保存活跃工作以完成更新")
 			}
@@ -439,7 +517,7 @@ func (w *localWorkers) CloseForUpdate() error {
 			busy := false
 			for _, state := range owner.WorkStates() {
 				switch state.Task.Status {
-				case "completed", "failed", "cancelled", "interrupted":
+				case "completed", "failed", "cancelled", "interrupted", "unavailable":
 				default:
 					busy = true
 				}

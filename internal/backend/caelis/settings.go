@@ -8,6 +8,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 func (s *Session) ExecutionOptions() api.ExecutionOptions {
@@ -33,14 +34,28 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	if v.ApprovalMode != "workspace-write" {
 		return errors.New("当前会话的审批策略在创建时固定；模型和推理设置可实时更改")
 	}
-	s.step.Lock()
+	if e := lockwait.Lock(ctx, &s.step); e != nil {
+		return e
+	}
 	defer s.step.Unlock()
+	// Reconcile original receipts before another settings mutation. A retry
+	// must not turn an unknown write into a new operation with a different ID.
+	if e := s.recoverConfigurations(ctx); e != nil {
+		return e
+	}
 	s.mu.Lock()
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	current, e := s.configuration(ctx, sid)
 	if e != nil {
 		return e
+	}
+	if current.Profile.Model == v.Model && value(current.Profile.ReasoningEffort) == v.Effort && value(current.Profile.ServiceTier) == v.ServiceTier {
+		if e := persist(); e != nil {
+			return e
+		}
+		s.execution = v
+		return nil
 	}
 	_, e = s.updateConfiguration(ctx, sid, "settings-"+rand.Text(), string(current.Revision), map[string]any{"model": v.Model, "reasoning_effort": v.Effort, "service_tier": v.ServiceTier})
 	if e != nil {

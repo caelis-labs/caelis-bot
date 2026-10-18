@@ -40,12 +40,30 @@ writing preferences. Windows 11 x64 native drivers, current-user Named Pipe,
 Credential Manager, Job Objects and GUI acceptance remain the next stage.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 Runtime activation replaces the resident adapter inside the same application.
+User model selections first enter a host-owned, durable last-choice journal,
+independent of setup/network locks. A cancellable coordinator applies them with
+bounded backoff; storage failures retain an explicit in-memory saving state.
+The settings surface reads this small journal independently of Runtime catalogs,
+keeps cached choices usable during refresh, and distinguishes saved from applied.
+Model preferences affect subsequent execution; existing turns retain their
+native execution snapshot and approvals. Cross-provider conversation handoff
+reconciles its original pending send internally while the current connection
+remains usable. Worker activity never gates a user's preference.
 Admission pauses while the target connects; only a successful handshake commits
 the active selection. Failed activation restores the original adapter and draft.
 Existing task routes and the independent worker default keep their original
 provider. Native windows, the menu bar and the Bot identity stay alive. Only first
 activation carries unsent attachments into an empty target; ordinary switches and
 rollback load the original provider-scoped selection.
+Inactive Worker observers are detached before reading their ledger into a new
+resident. The outgoing resident remains the single Worker owner until commit,
+then detaches without interrupting native execution. Failed handoff restores the
+original connection and draft; no ordinary Codex Close is used to stop Workers
+as a side effect of a settings change. Caelis preference retries reconcile the
+original configuration receipt and read back state before issuing a newer write.
+Retained Worker approvals remain visible to the current Bot and chat surface;
+decisions and external approval navigation route to the exact original adapter.
+Worker approval revisions refresh chat even when the resident has no new events.
 `GOWORK=off`; no sibling private imports.
 
 The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
