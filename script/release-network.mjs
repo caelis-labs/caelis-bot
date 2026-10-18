@@ -8,13 +8,13 @@ export function transientNetwork(error) {
   if (/certificate|SSL|TLS|unauthorized|forbidden|invalid|mismatch|revoked|rejected|HTTP(?:\/\d[.\d]*)?\s+(?:400|401|403|404|422)\b/i.test(output)) return false;
   const apple = [...output.matchAll(/Domain=NSURLErrorDomain\s+Code=(-?\d+)/g)].map(m => Number(m[1]));
   if (apple.length) return apple.every(code => [-1001, -1004, -1005].includes(code));
-  return /ECONNRESET|ETIMEDOUT|EAI_AGAIN|connection (?:reset|refused|was lost)|network connection was lost|unexpected EOF|i\/o timeout|Could not (?:resolve host|connect to server)|Failed to connect|Operation timed out|HTTP(?:\/\d[.\d]*)?\s+(?:429|500|502|503|504)\b/i.test(output);
+  return /ECONNRESET|ETIMEDOUT|EAI_AGAIN|connection (?:(?:was )?reset|refused|was lost)|network connection was lost|unexpected EOF|Empty reply from server|transfer closed with .* outstanding|end of response with .* missing|i\/o timeout|Could not (?:resolve host|connect to server)|Failed to connect|Operation timed out|HTTP(?:\/\d[.\d]*)?\s+(?:429|500|502|503|504)\b/i.test(output);
 }
 export function safeNetworkRead(command, args) {
   if (command === 'xcrun') return args[0] === 'notarytool' && ['info','log'].includes(args[1]);
   if (command === 'gh') return args[0] === 'api' && !args.some(a => ['-X','--method','-f','-F','--field','--raw-field','--input'].includes(a)) ||
     args[0] === 'release' && args[1] === 'download' && args.includes('--clobber');
-  if (command === 'curl') return args.includes('--fail') && !args.some(a => ['-X','--request','-d','--data','-T','--upload-file','-k','--insecure'].includes(a));
+  if (command === 'curl' || command === 'curl.exe') return args.includes('--fail') && !args.some(a => ['-X','--request','-d','--data','-T','--upload-file','-k','--insecure'].includes(a));
   return false;
 }
 // Only reads are replayed. Uploads and publication mutations reconcile their

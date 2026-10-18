@@ -16,3 +16,10 @@ for(const text of ['HTTP 403 Forbidden','TLS certificate failure','signature mis
 test('persistent interruption exhausts the budget and keeps failure',()=>{
  let calls=0;assert.throws(()=>releaseCommand('gh',['api','x'],{},()=>{calls++;throw reset;},()=>{}),/connection reset/);assert.equal(calls,5);
 });
+
+for(const diagnostic of ['curl: (18) end of response with 1024 bytes missing','curl: (56) Recv failure: Connection was reset'])test(`Windows download resumes the same temporary target after ${diagnostic}`,()=>{
+ let calls=0;
+ const args=['--fail','--location','https://example.test/pinned.zip','--output','same.partial'];
+ assert.equal(releaseCommand('curl.exe',args,{},(_cmd,actual)=>{assert.deepEqual(actual,args);if(++calls===1)throw Object.assign(new Error(diagnostic),{stderr:diagnostic});return '';},()=>{}),'');
+ assert.equal(calls,2);
+});

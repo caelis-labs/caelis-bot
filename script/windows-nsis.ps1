@@ -4,7 +4,7 @@ $taskNSISRoot = Join-Path $taskBotRoot ".cache/tools/nsis-$($taskNSISPin.version
 $taskNSISArchive = "$taskNSISRoot.tar.gz"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $taskNSISRoot) | Out-Null
 if (-not (Test-Path -LiteralPath $taskNSISArchive)) {
-  Invoke-WebRequest -Uri $taskNSISPin.url -OutFile "$taskNSISArchive.download"
+  Invoke-BotCommand node (Join-Path $PSScriptRoot 'release-network.mjs') curl.exe --fail --silent --show-error --location $taskNSISPin.url --output "$taskNSISArchive.download"
   if ((Get-FileHash -Algorithm SHA256 -LiteralPath "$taskNSISArchive.download").Hash.ToLowerInvariant() -ne $taskNSISPin.sha256) { throw 'NSIS archive checksum mismatch' }
   Move-Item -LiteralPath "$taskNSISArchive.download" -Destination $taskNSISArchive
 }

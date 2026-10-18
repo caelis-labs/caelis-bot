@@ -224,7 +224,7 @@ User-facing download and installation steps are in [English installation](instal
 
 
 Release network recovery also covers safe Apple `info`/`log` reads, the pinned Apple
-intermediate download, and GitHub release/API downloads via `release-network.mjs`.
+intermediate download, pinned Caelis/Windows NSIS/SDK/Desktop World downloads, and GitHub release/API downloads via `release-network.mjs`.
 Only recognized transient connection/timeout/service failures retry, within five
 attempts and a 180-second per-read timeout. Authentication, TLS, digest/signature,
 unknown errors and notary submission never enter that retry loop. GitHub upload
