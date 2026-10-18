@@ -1,3 +1,5 @@
+import {Recovery} from './SurfaceBoundary';
+import {recoverRead} from './read-recovery';
 import {SetupButton,SetupLoading} from './SetupLoading';
 import {SetupBack} from './SetupBack';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -13,11 +15,10 @@ import { useI18n } from './i18n';
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone,active=true }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
- const {t}=useI18n();
  const [pending,setPending]=useState<{features:boolean;runtime:boolean}|null>(null);
- const [failed,setFailed]=useState(false);
- useEffect(()=>{if(!active)return;let live=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')]).then(([features,overview,snapshot])=>{if(live)setPending({features,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
- if(pending===null)return failed?<p role="status">{t('settings.permissionLoadFailed')}</p>:<SetupLoading/>;
+ const [failed,setFailed]=useState(false),[readAttempt,setReadAttempt]=useState(0);
+ useEffect(()=>{if(!active)return;let live=true;void recoverRead(()=>Promise.all([desktop<boolean>('FeatureGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')])).then(([features,overview,snapshot])=>{if(live)setPending({features,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active,readAttempt]);
+ if(pending===null)return failed?<Recovery onRetry={()=>{setFailed(false);setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
  return <BotIntroductionSetup runtimeInitiallyReady={pending.runtime} active={active} featuresPending={pending.features} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onDone={onDone}/>;
 }
 function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPending,onFeaturesDone,onFeaturesBack }: { runtimeInitiallyReady:boolean;onDone: () => void;active:boolean;featuresPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void }) {
@@ -41,24 +42,25 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [readAttempt,setReadAttempt]=useState(0);
   const opening = useRef(false), latestDone = useRef(onDone);
   latestDone.current = onDone;
 
   useEffect(() => {
     if(!active||state&&!['pending','dispatching','unknown'].includes(state.status))return;
-    let alive = true;
+    let alive = true, timer:ReturnType<typeof setTimeout>;
+    const controller=new AbortController();
     const load = async () => {
       try {
-        const value = await backend<BotInitialization>('BotInitialization');
-        if (alive) setState(value);
+        const value = await recoverRead(()=>backend<BotInitialization>('BotInitialization'),controller.signal);
+        if (alive) {setState(value);setError('');timer=setTimeout(()=>void load(),1500);}
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed'));
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 1500);
-    return () => { alive = false; clearInterval(timer); };
-  }, [active,state?.status,t]);
+    return () => { alive = false;controller.abort();clearTimeout(timer); };
+  }, [active,state?.status,t,readAttempt]);
 
   useEffect(() => {
     if (!active || !runtimeReady || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || opening.current) return;
@@ -115,20 +117,18 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
     } finally { setBusy(false); }
   };
 
-  if (!state) return error?<section className="runtime-welcome" role="status">{t('settings.permissionLoadFailed')}</section>:<SetupLoading/>;
+  if (!state) return error?<Recovery onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
   const stage=setupStage(runtimeSelected,featuresPending);
   if(stage==='runtime')return <div className="setup-flow"><RuntimeSettings onboarding active={active} onActivating={work=>activateInBackground(async()=>{try{await work()}catch(e){presentationWarning('setup_activation_failed');throw e}})}/></div>;
   if (state.status === 'rejected' || state.status === 'unknown') return <section className="bot-introduction">
     <h1>{t('chat.setupIncompleteTitle')}</h1>
-    <p className="setup-lead" role="status">{state.message}</p>
+    <Recovery onRetry={state.status==='rejected'?()=>{if(!busy)void retry()}:()=>{setError('');setReadAttempt(v=>v+1)}}/>
     <div className="setup-actions">
-      {state.status === 'rejected' && <button disabled={busy} onClick={() => void retry()}>{t('chat.setupRetry')}</button>}
       <button onClick={() => void openConversation()}>{t('chat.setupOpenChat')}</button>
     </div>
-    {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
   if (stage==='features') return <div className="setup-flow"><SetupExtras onBack={selectRuntime} onDone={onFeaturesDone}/></div>;
-  if (!state.required) return <section className="runtime-welcome" role="status">{state.message||t('chat.setupPreparing')}<button onClick={()=>void openConversation()}>{t('chat.setupOpenChat')}</button></section>;
+  if (!state.required) return <section className="runtime-welcome" role="status">{t('chat.setupPreparing')}<button onClick={()=>void openConversation()}>{t('chat.setupOpenChat')}</button></section>;
 
   return <div className="setup-flow"><section className="bot-introduction">
     <SetupBack disabled={busy} onClick={onFeaturesBack}/>
@@ -147,7 +147,7 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
       </div>
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {error && <Recovery onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>}
       <div className="setup-end">
         {needsConnection?<button type="button" className="primary" onClick={selectRuntime}>{t('settings.setupReturnToConnection')}</button>:<SetupButton className="primary" type="submit" busy={busy} disabled={!name.trim()}>{t('settings.setupStartChat')}</SetupButton>}
       </div>

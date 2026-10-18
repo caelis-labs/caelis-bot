@@ -663,5 +663,9 @@
   "setupConnectAndContinue": "Connect and continue",
   "setupSavedCredentials": "Using saved credentials",
   "setupMoreOptions": "More options",
-  "setupLoading": "Loading…"
+  "setupLoading": "Loading…",
+  "modelSelectionSaving": "Saving your choice…",
+  "modelSelectionPending": "Choice saved. Applying automatically…",
+  "modelSelectionRecovering": "Your choice is saved and will apply when the connection is ready.",
+  "modelCatalogRecovering": "Connecting. Your model list will return automatically."
 }

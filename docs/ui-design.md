@@ -32,12 +32,15 @@ The prototype's simulated catalog, account states and controls do not establish 
   Selecting a service opens its required authentication and one model selection;
   **Connect and continue** advances after authentication and model confirmation,
   without a redundant confirmation screen. Reused credentials have no
-  editable empty key field. Optional model parameters stay collapsed.
+  editable empty key field. Supported reasoning effort stays visible directly
+  below the model selector; selecting it must not require opening advanced options.
+  Use compact, equal-width segments with a small consistent inset around the
+  selected background.
 - Codex follows installation (when missing), authentication (when needed), then
   the same model confirmation row. Authentication alone does not finish setup;
   there is no empty ready/continue screen. Use the runtime's actual model catalog.
-- Shared selectors left-align their value and menu labels. When a menu has spare
-  width, center one shared content column while keeping all labels on the same
+- Shared selectors left-align their value and menu labels. When a control has spare
+  width, center the same content column in both trigger and menu, keeping all labels on the same
   leading edge; badges and checks occupy consistent trailing columns. Do not
   center each label independently. Placeholders appear only in the trigger, never as disabled
   menu rows; meaningful empty choices such as Default remain selectable.

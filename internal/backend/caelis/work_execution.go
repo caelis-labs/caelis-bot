@@ -6,10 +6,13 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
-	s.step.Lock()
+	if err := lockwait.Lock(ctx, &s.step); err != nil {
+		return err
+	}
 	defer s.step.Unlock()
 	var catalog []api.ModelOption
 	if v.Model != "" {

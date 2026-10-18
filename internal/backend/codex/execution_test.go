@@ -47,6 +47,7 @@ func TestExecutionSettingsReachNewTurnsAndRejectInvalidChanges(t *testing.T) {
 	before := s.Snapshot()
 	executionBefore := v
 	v.ServiceTier = ""
+	v.ApprovalMode = "read-only"
 	if err = s.ChangeExecution(testContext(t), v, persist); err == nil {
 		t.Fatal("changed policy during active work")
 	}
@@ -140,6 +141,51 @@ func TestExecutionModesPreserveAcceptanceSandbox(t *testing.T) {
 		if p["sandbox"] != "workspace-write" || q["approvalPolicy"] != "untrusted" || q["approvalsReviewer"] != "user" {
 			t.Fatal("acceptance flag weakened", mode, p, q)
 		}
+	}
+}
+
+func TestModelPreferencesChangeDuringActiveTurnWithoutChangingItsReceipt(t *testing.T) {
+	s, f := sessionPair(t, "")
+	f.mu.Lock()
+	f.modelPages = map[string]any{"": map[string]any{"data": []any{catalogEntry()}}}
+	f.mu.Unlock()
+	v := api.ExecutionSettings{Model: "test-model", Effort: "high", ApprovalMode: "ask"}
+	if err := s.ChangeExecution(testContext(t), v, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Submit(testContext(t), api.Submission{ID: "model-switch-active", Text: "synthetic"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	before := s.Snapshot()
+	v.ServiceTier = "fast"
+	if err := s.ChangeExecution(testContext(t), v, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	after := s.Snapshot()
+	if before.LastReceipt != after.LastReceipt || before.CurrentTurn != after.CurrentTurn || !after.CanSteer {
+		t.Fatal("preference change interrupted or replaced the running turn")
+	}
+	if _, err := s.Submit(testContext(t), api.Submission{ID: "model-switch-steer", Text: "synthetic"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	_, changed := f.lastParams["model"]
+	f.mu.Unlock()
+	if changed {
+		t.Fatal("steering changed the running turn model")
+	}
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
+	if _, err := s.Submit(testContext(t), api.Submission{ID: "model-switch-next", Text: "synthetic"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	tier := string(f.lastParams["serviceTier"])
+	f.mu.Unlock()
+	if tier != `"fast"` {
+		t.Fatal("next turn did not use latest preference", tier)
 	}
 }
 func TestModelPaginationRejectsCycle(t *testing.T) {

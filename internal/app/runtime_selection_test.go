@@ -30,7 +30,7 @@ func TestMissingRuntimeCatalogDoesNotSelectOrExposeModels(t *testing.T) {
 		if len(models) != 0 || a.HasRuntimeChoice() {
 			t.Fatal("inspection exposed unavailable models or selected a runtime", models)
 		}
-		if err := a.setup.SaveSelectedModel(t.Context(), "conversation", id, api.WorkExecutionSettings{Model: "not-available"}); err == nil {
+		if err := a.setup.applySelectedModel(t.Context(), "conversation", id, api.WorkExecutionSettings{Model: "not-available"}); err == nil {
 			t.Fatal("unready model accepted")
 		}
 	}

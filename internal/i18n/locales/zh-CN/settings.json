@@ -662,5 +662,9 @@
   "setupConnectAndContinue": "连接并继续",
   "setupSavedCredentials": "使用已保存的凭据",
   "setupMoreOptions": "更多选项",
-  "setupLoading": "加载中…"
+  "setupLoading": "加载中…",
+  "modelSelectionSaving": "正在记住你的选择…",
+  "modelSelectionPending": "已记住你的选择，正在自动切换…",
+  "modelSelectionRecovering": "已记住你的选择，连接就绪后会自动生效。",
+  "modelCatalogRecovering": "正在连接，模型列表会自动恢复。"
 }

@@ -1,4 +1,5 @@
 {
+  "surfaceRetryNeeded": "Please try again. Your work is kept.",
   "recoveringProgress": "Restoring progress…",
   "surfaceRestartNeeded": "This window needs to reopen. Your work is kept.",
   "copyFeedback": "Copy feedback details",

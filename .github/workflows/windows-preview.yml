@@ -2,19 +2,14 @@ name: Windows preview
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: Build exact candidates, or publish previously accepted candidates
-        required: true
-        type: choice
-        options: [build, publish]
-        default: build
       tag:
         description: Existing vX.Y.Z-windows.preview.N tag on main
         required: true
         type: string
-      artifact_run:
-        description: Accepted build run ID (publish only; never rebuild accepted bytes)
-        type: string
+      publish_updates:
+        description: Also publish signed automatic updates (requires the existing Windows update key)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -38,12 +33,9 @@ jobs:
       - id: source
         env:
           WINDOWS_TAG: ${{ inputs.tag }}
-          WINDOWS_MODE: ${{ inputs.mode }}
-          WINDOWS_RUN: ${{ inputs.artifact_run }}
         run: node script/windows-release-source.mjs
   build:
     needs: source
-    if: inputs.mode == 'build'
     runs-on: windows-2025
     timeout-minutes: 40
     env:
@@ -81,8 +73,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
-    needs: source
-    if: inputs.mode == 'publish' && github.ref == 'refs/heads/main'
+    needs: [source, build]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: windows-release
@@ -102,24 +94,31 @@ jobs:
         with:
           name: windows-preview-${{ needs.source.outputs.sha }}
           path: dist/windows-publication
-          run-id: ${{ inputs.artifact_run }}
-          github-token: ${{ github.token }}
-      - name: Verify evidence and sign exact update bytes
+      - name: Verify exact package bytes
+        env:
+          WINDOWS_TAG: ${{ inputs.tag }}
+          WINDOWS_SOURCE: ${{ needs.source.outputs.sha }}
+        run: node script/windows-update-manifest.mjs qualify dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE"
+      - name: Sign exact automatic update bytes
+        if: inputs.publish_updates
         env:
           WINDOWS_TAG: ${{ inputs.tag }}
           WINDOWS_SOURCE: ${{ needs.source.outputs.sha }}
           WINDOWS_UPDATE_PRIVATE_KEY: ${{ secrets.WINDOWS_UPDATE_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
+          test -n "$WINDOWS_UPDATE_PRIVATE_KEY"
           umask 077
           key="$RUNNER_TEMP/windows-release.pem"
           trap 'rm -f "$key"' EXIT
           printf '%s' "$WINDOWS_UPDATE_PRIVATE_KEY" > "$key"
-          node script/windows-update-manifest.mjs create dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE" "docs/releases/windows/$WINDOWS_TAG.json" "$key"
+          node script/windows-update-manifest.mjs create dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE" "$key"
           node script/windows-update-manifest.mjs verify dist/windows-publication "$WINDOWS_TAG" "$WINDOWS_SOURCE"
       - name: Publish an independent prerelease without changing Latest
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          WINDOWS_PUBLISH_UPDATES: ${{ inputs.publish_updates }}
           WINDOWS_TAG: ${{ inputs.tag }}
           WINDOWS_SOURCE: ${{ needs.source.outputs.sha }}
         run: node script/windows-publish.mjs dist/windows-publication

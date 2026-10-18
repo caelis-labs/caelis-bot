@@ -24,6 +24,8 @@ textarea::placeholder { color:var(--muted); }
 .send:not(:disabled):active { background:var(--caelis-action-pressed); }
 .send:not(:disabled) img { opacity:1; }
 .composer-stop { width:11px; height:11px; border-radius:2px; background:var(--on-accent); }
+.composer-progress { display:block; width:18px; height:18px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:activity-spin .8s linear infinite; }
+@media(prefers-reduced-motion:reduce) { .composer-progress { animation:none; } }
 /* Portalled menus never participate in the composer layout. */
 .attachment-menu { position:fixed; z-index:50; width:344px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:14px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b,0 1px 4px #00000012; }
 .attachment-menu-row { display:flex; align-items:center; gap:10px; width:100%; min-height:34px; padding:7px 9px; border:0; border-radius:8px; background:transparent; text-align:left; font-size:13px; }

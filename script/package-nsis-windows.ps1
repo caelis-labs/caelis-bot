@@ -18,8 +18,8 @@ if ($env:BOT_RELEASE_TAG) {
   $currentSource=& git -c "safe.directory=$taskBotGitRoot" rev-parse HEAD
   if ($LASTEXITCODE -ne 0 -or $currentSource -ne $tagSource -or (& git -c "safe.directory=$taskBotGitRoot" status --porcelain)) {throw 'Tagged packaging requires the clean tagged checkout'}
 }
-$name=if($Channel -eq 'preview') {'Caelis Bot Preview'} else {'Caelis Bot Dev'}
-$identity=if($Channel -eq 'preview') {'dev.caelis.bot.preview'} else {'dev.caelis.bot.dev'}
+$name=if($build.identity -eq 'windows-preview') {'Caelis Bot Preview'} else {'Caelis Bot Dev'}
+$identity=if($build.identity -eq 'windows-preview') {'dev.caelis.bot.preview'} else {'dev.caelis.bot.dev'}
 $releaseDir=Join-Path $taskBotRoot 'dist/releases'
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 $suffix=if($env:BOT_RELEASE_TAG) {"-$Channel"} else {"-$Channel-local"}

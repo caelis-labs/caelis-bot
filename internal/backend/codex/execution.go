@@ -117,10 +117,15 @@ func (c *Client) models(ctx context.Context) ([]api.ModelOption, error) {
 	return nil, errors.New("模型目录分页异常，请刷新")
 }
 func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, persist func() error) error {
-	s.op.Lock()
+	if err := s.lockUpdateOperation(ctx); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
 	s.mu.Lock()
-	busy := s.run != "" || len(s.childRuns) > 0 || s.binding.Pending != nil || len(s.prompts) > 0 || s.closed || s.closing || s.state.Phase == "unknown"
+	// Model preferences apply to the next turn; a running turn already owns
+	// its execution snapshot. Only a policy change needs the authority fence.
+	policyChange := v.ApprovalMode != s.opts.Execution.ApprovalMode
+	busy := s.closed || s.closing || policyChange && (s.run != "" || len(s.childRuns) > 0 || s.binding.Pending != nil || len(s.prompts) > 0 || s.state.Phase == "unknown")
 	s.mu.Unlock()
 	if busy {
 		return errors.New("请先结束当前工作并处理待确认事项，再保存模型与权限设置")

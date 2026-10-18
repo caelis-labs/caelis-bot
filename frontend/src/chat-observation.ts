@@ -37,7 +37,7 @@ export class SubmissionProgress {
  outcome = 'sending';
  private completion: Promise<void> | null = null;
  observe(outcome: string) {
-  if (this.outcome !== 'accepted') this.outcome = outcome || 'unknown';
+  if (this.outcome !== 'accepted' && this.outcome !== 'rejected') this.outcome = outcome || 'unknown';
   return this.outcome;
  }
  synchronize(action: () => Promise<void>) {
@@ -73,10 +73,10 @@ export function visibleDraftFiles<T extends {id:string}>(files: readonly T[], dr
 // Only retry observations. Cancellation fences late results, and success stops
 // the loop. Native sends, approvals and draft writes do not use this helper.
 export function retryRead<T>(read:()=>Promise<T>,accept:(value:T)=>void,failed:()=>void=()=>{},delay=3000) {
- let active=true,timer:ReturnType<typeof setTimeout>|undefined;
+ let active=true,attempts=0,timer:ReturnType<typeof setTimeout>|undefined;
  const attempt=async()=>{
   try{const value=await read();if(active)accept(value);}
-  catch{if(active){failed();timer=setTimeout(()=>void attempt(),delay);}}
+  catch{if(active){failed();if(++attempts<3)timer=setTimeout(()=>void attempt(),delay);}}
  };
  void attempt();
  return()=>{active=false;if(timer!==undefined)clearTimeout(timer);};

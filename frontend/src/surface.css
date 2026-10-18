@@ -1,5 +1,7 @@
 /* Shared presentation: one quiet contextual surface, native chrome and materials. */
-.surface-recovery { min-height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:32px; text-align:center; background:var(--caelis-content); color:var(--ink); }
+.surface-recovery { min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:20px; text-align:center; background:var(--caelis-content); color:var(--ink); }
+.surface-recovery.is-fullscreen { min-height:100dvh; padding:32px; }
+.surface-recovery button { border:1px solid var(--line); border-radius:8px; padding:6px 12px; color:inherit; background:var(--wash); font:inherit; font-size:13px; }
 .surface-recovery p { max-width:360px; margin:0; font-size:14px; line-height:1.6; }
 .surface-recovery>div { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
 body[data-surface=context] { background:var(--caelis-chat); }
@@ -336,7 +338,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .permission-reset-consent input { flex:none; width:16px; height:16px; margin:2px 0 0; }
 
 /* Shared settings menus: use app surfaces instead of platform select chrome. */
-.settings-select { position:relative; min-width:0; width:100%; }
+.settings-select { position:relative; min-width:0; width:100%; font-size:12px; }
 .settings-select-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:38px; text-align:left; }
 .settings-select-trigger>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .settings-select-trigger svg { flex:none; }
@@ -670,7 +672,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-flow .onboarding-connection details[open] > summary svg { transform:rotate(90deg); }
 .settings-window .setup-flow .onboarding-connection summary:focus-visible { outline:2px solid var(--caelis-focus); outline-offset:4px; }
 .settings-window .provider-single-model { padding:8px 12px; color:var(--ink); }
-.settings-select-menu .settings-select-detail { display:block; font-size:11px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; margin-top:2px; }
+.settings-select-detail { display:block; font-size:11px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; white-space:normal; margin-top:2px; }
 @media(max-width:540px) { .settings-window .setup-flow .onboarding-connection .provider-field-hint { margin-left:0; } }
 
 .settings-window .setup-flow .onboarding-connection .provider-plan-row { display:grid; grid-template-columns:110px minmax(0,1fr); align-items:center; gap:16px; padding:14px 0; border-bottom:1px solid var(--line); font-size:13px; }
@@ -688,12 +690,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
  .settings-window .setup-flow .onboarding-connection details .runtime-model-options-row { grid-template-columns:1fr; }
 }
 
-/* Keep model choices compact and centered independently of the menu contents. */
-.onboarding-connection .provider-config-group > label > .settings-select { width:min(100%,280px); justify-self:end; }
-.onboarding-connection .provider-config-group > label > .settings-select .settings-select-trigger { position:relative; padding-right:30px; text-align:left; }
-.onboarding-connection .provider-config-group > label > .settings-select .settings-select-trigger svg { position:absolute; right:14px; }
-
-
 /* One control column across provider credentials, models and parameter choices. */
 .settings-window .setup-flow .onboarding-connection .provider-config-group { --provider-control-width:100%; }
 .settings-window .setup-flow .onboarding-connection .provider-config-group > label > input,
@@ -702,7 +698,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-flow .onboarding-connection .provider-plan-row .provider-plan-switch {
  width:min(100%,var(--provider-control-width)); box-sizing:border-box; justify-self:end;
 }
-.settings-window .setup-flow .onboarding-connection .provider-config-group .runtime-effort-segments > label { flex:1 0 auto; min-width:0; }
+.settings-window .setup-flow .onboarding-connection .provider-config-group .runtime-effort-segments > label { flex:1 1 0; min-width:0; margin:0; padding:0; }
 .settings-window .setup-flow .onboarding-connection .provider-config-group .runtime-effort-segments > label > span { display:block; text-align:center; }
 .settings-window .setup-flow .onboarding-connection .provider-plan-row .provider-plan-switch > button { flex:1; min-width:0; }
 @media(max-width:540px) {
@@ -776,20 +772,28 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-select-value>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .settings-source-badge { flex:none; display:inline-flex; align-items:center; padding:2px 6px; border-radius:5px; font-size:10px; font-weight:550; line-height:16px; color:var(--accent); background:var(--caelis-selected); white-space:nowrap; }
 .settings-select-value .settings-source-badge { margin-left:auto; }
-.settings-select-centered .settings-select-value { justify-content:flex-start; }
-.settings-select-centered .settings-select-trigger { position:relative; padding-right:30px; text-align:left; }
+.settings-select-centered .settings-select-trigger { position:relative; padding-inline:17px; text-align:left; }
 .settings-select-centered .settings-select-trigger svg { position:absolute; right:14px; }
 .settings-select-menu .settings-select-badge { display:flex; align-items:center; }
 /* Center one shared content column when space permits. Every label starts on
    the same left edge; badges and checks have their own aligned columns. */
+.settings-select-centered .settings-select-value,
 .settings-select-menu-centered .settings-select-options { display:grid; grid-template-columns:minmax(0,1fr) fit-content(100%) auto 14px minmax(0,1fr); column-gap:8px; }
-.settings-select-menu-centered .settings-select-options button { display:grid; grid-template-columns:subgrid; grid-column:1/-1; text-align:left; column-gap:8px; }
+.settings-select-menu-centered .settings-select-options { padding-inline:12px; }
+.settings-select-centered .settings-select-value > .settings-select-option-copy { grid-column:2; grid-row:1; text-align:left; }
+.settings-select-centered .settings-select-value > .settings-source-badge { grid-column:3; grid-row:1; margin:0; }
+.settings-select-measure { display:contents; }
+.settings-select-measure > span { grid-row:1; visibility:hidden; height:0; min-width:0; overflow:hidden; pointer-events:none; }
+.settings-select-measure > .settings-select-option-copy { grid-column:2; }
+.settings-select-measure > .settings-select-badge { grid-column:3; }
+.settings-select-menu-centered .settings-select-options button { display:grid; grid-template-columns:subgrid; grid-column:1/-1; text-align:left; column-gap:8px; padding-inline:0; }
 .settings-select-menu-centered .settings-select-option-copy { grid-column:2; }
 .settings-select-menu-centered .settings-select-badge { grid-column:3; }
 .settings-select-menu-centered .settings-select-check { grid-column:4; }
 
 /* Keep the model identity and its runtime badge on one shared baseline. */
-.settings-window .connections-page .runtime-model-summary > span:first-child { display:flex; flex-direction:row; align-items:center; gap:10px; flex:1; min-width:0; }
+.settings-window .connections-page .runtime-model-summary > span:first-child { display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:6px 10px; flex:1; min-width:0; }
+.settings-window .connections-page .runtime-model-summary small:not(.settings-source-badge) { flex:0 0 100%; text-align:left; white-space:normal; margin:0; }
 .settings-window .connections-page .runtime-model-summary strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .settings-window .connections-page .runtime-model-summary .settings-source-badge { flex:none; width:auto; margin:0; }
 
@@ -804,5 +808,3 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 @media(prefers-reduced-motion:reduce) { .setup-spinner { animation:none; } }
 @media(max-width:540px) { .settings-window .setup-flow .onboarding-model-choice { grid-template-columns:1fr; gap:10px; } }
 .settings-window .setup-flow .onboarding-connection .provider-saved-credentials { color:var(--muted); font-size:12px; margin:0 0 16px; }
-.settings-window .setup-flow .onboarding-connection .provider-advanced { padding:14px 0; }
-.settings-window .setup-flow .onboarding-connection .provider-advanced .model-parameters { border-top:0; margin:12px 0 0; padding:0; }

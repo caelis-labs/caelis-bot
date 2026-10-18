@@ -239,12 +239,13 @@ window.fixtureSendSetup=mode=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;
  draftFiles=mode.startsWith('attachments-')?[{id:'send-fixture-file',name:'review-notes.pdf',size:1024,type:'application/pdf',image:false,unavailable:false}]:[];
  draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
- Object.assign(snapshot,{items:[],phase:'idle',currentTurn:'',activity:null,canInterrupt:false,canSteer:false,canSend:true,approvals:[],reviews:[],message:'',quiet:false,maintenance:'',lastReceipt:{id:'',outcome:'',message:''}});
+ const history=mode.startsWith('history-')?[{id:'send-history:'+mode,requestId:'',turnKey:'earlier',kind:'assistant',text:'这是一条已有的历史消息。',status:'completed',artifacts:[],seenAt:Date.now()*1000-(mode==='history-gap-accepted'?600e6:mode==='history-boundary-accepted'?295e6:60e6)}]:[];
+ Object.assign(snapshot,{items:history,phase:'idle',currentTurn:'',activity:null,canInterrupt:false,canSteer:false,canSend:true,approvals:[],reviews:[],message:'',quiet:false,maintenance:'',lastReceipt:{id:'',outcome:'',message:''}});
  window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),50);
  window.dispatchEvent(new Event('files-changed'));
 };
-window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','attachments-rejected','rejected','unknown','draft-failure'])=>{
- const results=[];
+window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','attachments-rejected','rejected','unknown','history-gap-accepted','history-recent-accepted','history-boundary-accepted','draft-failure'])=>{
+ const results=[];let activeCase;
  const wait=async(test)=>{const deadline=performance.now()+8000;while(!test()){if(performance.now()>deadline)throw Error('send fixture timeout');await delay(20);}};
  try{
   for(const mode of modes){
@@ -255,10 +256,13 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
    const text='检查发送体验。\n多行内容也应稳定。';
    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,text);editor.dispatchEvent(new Event('input',{bubbles:true}));
    await wait(()=>!!document.querySelector('.send:not(:disabled)'));
-   const frames=[],started=performance.now();let recording=true;
+   const frames=[],started=performance.now();let recording=true;activeCase={mode,frames};
    const record=()=>{
-    const users=[...document.querySelectorAll('.message-row.user')],reply=document.querySelector('.message-row.assistant .markdown-body');
-    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,emptyReply:!!reply&&!reply.textContent,editor:editor.value,files:document.querySelectorAll('.composer-context .attachments li').length,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),loading:!!document.querySelector('.working-message .loading-dots'),delivery:document.querySelector('.message-row.user .message-delivery')?.textContent??'',reply:reply?.textContent??''});
+    const users=[...document.querySelectorAll('.message-row.user')],reply=document.querySelector('[data-message-id^="reply:"] .markdown-body');
+    const composer=document.querySelector('.compose-area'),capsule=document.querySelector('.capsule'),group=users[0]?.closest('.history-message-group'),divider=group?.querySelector('.history-time-divider'),spinner=composer.querySelector('.composer-progress,.setup-spinner'),button=document.querySelector('.send');
+    const spinnerRect=spinner?.getBoundingClientRect(),buttonRect=button.getBoundingClientRect();
+    const spinnerInButton=!spinner||button.contains(spinner)&&parseFloat(getComputedStyle(spinner).width)<=18&&parseFloat(getComputedStyle(spinner).height)<=18&&spinnerRect.left>=buttonRect.left&&spinnerRect.right<=buttonRect.right&&spinnerRect.top>=buttonRect.top&&spinnerRect.bottom<=buttonRect.bottom;
+    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,userTop:users[0]?.getBoundingClientRect().top??0,groupHeight:group?.getBoundingClientRect().height??0,divider:divider?.querySelector('time')?.dateTime??'',dividerBeforeUser:!divider||!!(divider.compareDocumentPosition(users[0])&Node.DOCUMENT_POSITION_FOLLOWING),dividers:document.querySelectorAll('.history-time-divider').length,composerExtraHeight:composer.getBoundingClientRect().height-capsule.getBoundingClientRect().height,spinner:!!spinner,spinnerInButton,emptyReply:!!reply&&!reply.textContent,editor:editor.value,files:document.querySelectorAll('.composer-context .attachments li').length,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),loading:!!document.querySelector('.working-message .loading-dots'),delivery:document.querySelector('.message-row.user .message-delivery')?.textContent??'',reply:reply?.textContent??''});
     if(recording)requestAnimationFrame(record);
    };requestAnimationFrame(record);
    document.querySelector('.send').click();
@@ -271,16 +275,23 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
    const heights=frames.filter(frame=>frame.users&&(mode.endsWith('accepted')||mode==='draft-failure'||frame.time<500)).map(frame=>frame.userHeight);
    if(Math.max(...heights)-Math.min(...heights)>1)throw Error(mode+' acknowledgement resized the outgoing bubble');
    if(frames.some(frame=>frame.emptyReply))throw Error(mode+' showed an empty reply bubble');
+   const visible=frames.filter(frame=>frame.users),expectedDividers=mode==='history-gap-accepted'?1:0;
+   if(visible.some(frame=>frame.dividers!==expectedDividers||!frame.dividerBeforeUser||frame.divider!==first.divider))throw Error(mode+' inserted, removed or relabelled a time divider after the first user frame');
+   if(frames.some(frame=>!frame.spinnerInButton||frame.stop&&frame.spinner))throw Error(mode+' misplaced progress or obscured Stop');
+   if(mode.endsWith('accepted')||mode==='draft-failure'){
+    if(visible.some(frame=>frame.composerExtraHeight>3))throw Error(mode+' draft reconciliation added composer height');
+    if(Math.max(...visible.map(frame=>frame.userTop))-Math.min(...visible.map(frame=>frame.userTop))>1)throw Error(mode+' late acknowledgement shifted the message list');
+   }
    if(mode.endsWith('accepted')){
     if(acceptedReads!==1)throw Error('accepted draft read '+acceptedReads+' times');
     if(editor.value!=='')throw Error('accepted draft was restored');
     const settled=frames.findIndex(frame=>frame.editor==='');
     if(frames.slice(settled).some(frame=>frame.editor!==''))throw Error('cleared draft flashed back');
     if(!frames.some(frame=>frame.stop&&!frame.disabled))throw Error('stop action never became available');
-    if(!document.querySelector('.markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
+    if(!document.querySelector('[data-message-id^="reply:"] .markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
     if(document.querySelector('.composer-context .attachments li'))throw Error('accepted attachments reappeared');
    }else if(mode==='draft-failure'){
-    if(editor.disabled||!document.querySelector('.input-error')?.textContent.includes('消息已发送')||!document.querySelector('.compose-area > .quiet')||!document.querySelector('.composer-stop'))throw Error('accepted draft failure lost its local recovery path');
+    if(editor.disabled||document.querySelector('.input-error')||document.querySelector('.compose-area .setup-spinner,.compose-area .composer-progress')||!document.querySelector('.composer-stop'))throw Error('accepted draft recovery interrupted the composer or exposed a technical alert');
    }else if(editor.value!==text)throw Error(mode+' lost the unaccepted draft');
    if(mode==='attachments-rejected'&&document.querySelectorAll('.composer-context .attachments li').length!==1)throw Error('rejected attachment was not restored');
    if(mode==='unknown'){
@@ -295,7 +306,7 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
    results.push({mode,sendCount,acceptedReads,frames});
   }
   return window.fixtureSendResult={ok:true,results};
- }catch(error){return window.fixtureSendResult={ok:false,error:String(error),results};}
+ }catch(error){return window.fixtureSendResult={ok:false,error:String(error),results,failed:activeCase};}
 };
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
@@ -311,7 +322,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
  if(method==='Submit'){
-  sendCount++;const input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:[input.text,...selected.map(file=>file.name)].join('\n'),quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[outgoing];
+  sendCount++;const history=[...snapshot.items],input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:[input.text,...selected.map(file=>file.name)].join('\n'),quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[...history,outgoing];
   if(sendMode.startsWith('attachments-')){if(selected.length!==1)throw Error('original attachment missing');setTimeout(()=>window.dispatchEvent(new Event('files-changed')),100);}
   await delay(600);
   const outcome=sendMode.endsWith('rejected')?'rejected':sendMode==='unknown'?'unknown':'accepted';
@@ -320,7 +331,11 @@ export const Call={ByName:async(name,...args)=>{
    draftFiles=draftFiles.filter(file=>!input.fileIds.includes(file.id));
    draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
    Object.assign(snapshot,{phase:'working',currentTurn:input.id,canInterrupt:true,canSend:false,canSteer:true});
-   snapshot.items=[{...outgoing,id:'native-user:'+input.id,status:'completed'}];
+   const confirmed={...outgoing,id:'native-user:'+input.id,status:'completed'};
+   snapshot.items=[...history,confirmed];
+   // Timestamp enrichment intentionally arrives after the native row. The
+   // boundary case crosses five minutes only at acknowledgement, not at send.
+   setTimeout(()=>{confirmed.seenAt=sendMode==='history-boundary-accepted'?history[0].seenAt+301e6:Date.now()*1000;},1000);
    setTimeout(()=>{snapshot.items.push({id:'reply:'+input.id,turnKey:input.id,kind:'assistant',text:'这是合成回复。发送和首段回复现在可以连续衔接。',status:'inProgress',artifacts:[]});},2000);
   }
   await delay(300);return {...snapshot.lastReceipt};

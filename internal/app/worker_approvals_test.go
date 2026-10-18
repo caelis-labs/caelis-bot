@@ -15,6 +15,44 @@ type workerApprovalEngine struct {
 	reportOutcome string
 }
 
+func (e *workerApprovalEngine) WorkTerminal(context.Context, string) (api.TerminalTarget, error) {
+	return api.TerminalTarget{}, nil
+}
+
+func TestRetainedWorkerApprovalRemainsVisibleAndUsesOriginalOwner(t *testing.T) {
+	current := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
+	a, _ := fixtureApp(t, current, Host{})
+	worker := api.Approval{ID: "old-worker-request", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allowOnce", Scope: "once"}}}
+	old := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Approvals: []api.Approval{worker, {ID: "old-bot-request", Owner: "conversation", Status: "pending"}}}}
+	a.localWork.mu.Lock()
+	a.localWork.owners["codex"] = old
+	a.localWork.mu.Unlock()
+	if got := a.WorkerApprovals(); len(got) != 1 || got[0].ID != worker.ID {
+		t.Fatal(got)
+	}
+	if got := a.Backend.Snapshot().Approvals; len(got) != 1 || got[0].ID != worker.ID {
+		t.Fatal("old Bot approval leaked or Worker disappeared", got)
+	}
+	if _, err := a.DecideWorkerApproval(t.Context(), api.Decision{ID: worker.ID, Choice: "allowOnce"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(current.decisions) != 0 || len(old.decisions) != 1 || old.decisions[0].ID != worker.ID {
+		t.Fatal("decision moved to new Runtime")
+	}
+}
+
+func TestConversationGuardDoesNotTreatWorkerApprovalAsConversationWork(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Approvals: []api.Approval{{ID: "worker", Owner: "task", Status: "pending"}}}}
+	a, _ := fixtureApp(t, e, Host{})
+	if err := a.guardConversationChange(); err != nil {
+		t.Fatal(err)
+	}
+	e.snapshot.Approvals = append(e.snapshot.Approvals, api.Approval{ID: "bot", Owner: "conversation", Status: "pending"})
+	if err := a.guardConversationChange(); err == nil {
+		t.Fatal("pending original conversation authority ignored")
+	}
+}
+
 func (e *workerApprovalEngine) Snapshot() api.Snapshot { return e.snapshot }
 func (e *workerApprovalEngine) Decide(_ context.Context, decision api.Decision) error {
 	e.decisions = append(e.decisions, decision)
@@ -121,5 +159,27 @@ func TestWorkerApprovalUnacceptedNoticeRetainsOriginalUserCard(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func (e *workerApprovalEngine) Revision() uint64 { return e.snapshot.Revision }
+
+func TestRetainedApprovalChangesReachChatWithoutResidentRevision(t *testing.T) {
+	current := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Revision: 10}}
+	a, _ := fixtureApp(t, current, Host{})
+	old := &workerApprovalEngine{testEngine: newTestEngine()}
+	a.localWork.owners["codex"] = old
+	first := a.Backend.ChatSnapshot(0, "")
+	old.snapshot.Approvals = []api.Approval{{ID: "retained", Owner: "task", Status: "pending"}}
+	next := a.Backend.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus)
+	if !next.Changed || len(next.Snapshot.Approvals) != 1 {
+		t.Fatal("retained approval did not wake chat", next)
+	}
+	if a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus).Changed {
+		t.Fatal("unchanged retained approvals keep waking chat")
+	}
+	old.snapshot.Approvals = nil
+	if !a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus).Changed {
+		t.Fatal("resolved retained approval remained visible")
 	}
 }

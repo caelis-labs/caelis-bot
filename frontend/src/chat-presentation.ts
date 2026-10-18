@@ -6,7 +6,14 @@ export function canSubmit(snapshot: Snapshot | null) {
 
 export function withOutgoing(items: Item[], outgoing: Item[]): Item[] {
  const known = new Set(items.map(item => item.requestId).filter(Boolean));
- return [...items, ...outgoing.filter(item => !known.has(item.requestId))];
+ const staged = new Map(outgoing.filter(item=>item.requestId).map(item=>[item.requestId,item]));
+ // A very fast acknowledgement can arrive before the optimistic row commits.
+ // Retain its local display time while all authoritative content/status wins.
+ const confirmed=items.map(item=>{
+  const local=staged.get(item.requestId);
+  return local?.seenAt?{...item,seenAt:local.seenAt}:item;
+ });
+ return [...confirmed, ...outgoing.filter(item => !known.has(item.requestId))];
 }
 
 // Older stored projections can still say inProgress after their turn ended.

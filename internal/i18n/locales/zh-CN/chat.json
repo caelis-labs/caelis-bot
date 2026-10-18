@@ -1,4 +1,5 @@
 {
+  "surfaceRetryNeeded": "可以稍后重试，原有工作会保留。",
   "recoveringProgress": "正在恢复进度…",
   "surfaceRestartNeeded": "需要重新打开此窗口，原有工作会保留。",
   "copyFeedback": "复制反馈信息",

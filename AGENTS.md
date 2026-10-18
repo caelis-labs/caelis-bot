@@ -113,6 +113,9 @@
 ## Verification
 
 - Use `make check`, `make smoke`, and `make build` for the affected preparation paths.
+- Release gates use exact-source CI and platform artifact verification; cross-platform
+  manual hardware acceptance is not a publishing prerequisite. Preserve mandatory
+  macOS signing/notarization checks and never label CI as native GUI acceptance.
 - Native launch goes through `script/build_and_run.sh`; inspect the actual window
   before claiming visual behavior. Add contract/lifecycle tests with real behavior.
 - Never log credentials or full private conversation content in smoke output.

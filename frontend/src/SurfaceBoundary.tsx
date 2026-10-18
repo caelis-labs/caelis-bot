@@ -3,15 +3,15 @@ import { desktop } from './desktop';
 import { useI18n } from './i18n';
 import { presentationWarning } from './presentation-warning';
 
-function Recovery() {
+export function Recovery({onRetry,fullscreen=false}:{onRetry?:()=>void;fullscreen?:boolean}={}) {
   const { t } = useI18n();
   const [copied,setCopied]=useState(false);
   const copy=async()=>{try{await desktop('CopyDiagnostics');setCopied(true);}catch{presentationWarning('background_read_failed');}};
-  return <main className="surface-recovery" role="status">
-    <p>{t('chat.surfaceRestartNeeded')}</p>
-    <div><button onClick={()=>void copy()}>{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
-    <button className="primary" onClick={()=>window.location.reload()}>{t('chat.restartSurface')}</button></div>
-  </main>;
+  return <section className={`surface-recovery${fullscreen?' is-fullscreen':''}`} role="status">
+    <p>{t(onRetry?'chat.surfaceRetryNeeded':'chat.surfaceRestartNeeded')}</p>
+    <div><button type="button" onClick={()=>void copy()}>{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
+    <button type="button" className="primary" onClick={()=>onRetry?onRetry():window.location.reload()}>{t(onRetry?'settings.runtimeTryAgain':'chat.restartSurface')}</button></div>
+  </section>;
 }
 
 // A failed renderer belongs to this window. Native Runtime observation and the
@@ -28,5 +28,5 @@ export class SurfaceBoundary extends React.Component<React.PropsWithChildren, { 
     this.timer=setTimeout(()=>this.setState({failed:false}),300);
   }
   componentWillUnmount() { clearTimeout(this.timer); }
-  render() { return this.state.failed ? this.state.fatal?<Recovery/>:null : this.props.children; }
+  render() { return this.state.failed ? this.state.fatal?<Recovery fullscreen/>:null : this.props.children; }
 }

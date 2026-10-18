@@ -13,7 +13,7 @@ if(Test-Path -LiteralPath $taskPackage){if($env:BOT_RELEASE_TAG -or -not $Replac
 $taskWork=Join-Path $taskBotRoot ('.cache/zip-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $taskWork|Out-Null
 try{
  Copy-Item -Path (Join-Path $taskApp '*') -Destination $taskWork -Recurse
- $taskIdentity=if($Channel -eq 'preview'){'dev.caelis.bot.preview'}else{'dev.caelis.bot.dev'}
+ $taskIdentity=if($taskBuild.identity -eq 'windows-preview'){'dev.caelis.bot.preview'}else{'dev.caelis.bot.dev'}
  Invoke-BotCommand node script/windows-portable.mjs $taskWork $taskIdentity $taskBuild.version $taskPackage
  $taskHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $taskPackage).Hash.ToLowerInvariant()
  "$taskHash  $([IO.Path]::GetFileName($taskPackage))"|Set-Content -LiteralPath "$taskPackage.sha256" -Encoding utf8NoBOM

@@ -7,12 +7,17 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"os"
 	"path/filepath"
 )
 
 func (w *localWorkers) settingsOwner(ctx context.Context, runtime string) (api.WorkRuntime, error) {
 	w.mu.Lock()
+	if runtime == w.switching && runtime != w.active {
+		w.mu.Unlock()
+		return nil, errors.New("worker observer handoff in progress")
+	}
 	if runtime == w.active {
 		owner := w.resident
 		w.mu.Unlock()
@@ -149,7 +154,9 @@ func (w *localWorkers) saveModel(ctx context.Context, runtime string, value api.
 
 // Save the model before committing the default Runtime. Existing tasks retain their owners.
 func (w *localWorkers) saveSelectedModel(ctx context.Context, runtime string, value api.WorkExecutionSettings) error {
-	w.settingsMu.Lock()
+	if err := lockwait.Lock(ctx, &w.settingsMu); err != nil {
+		return err
+	}
 	defer w.settingsMu.Unlock()
 	v, e := w.inspect(ctx, runtime)
 	if e != nil {

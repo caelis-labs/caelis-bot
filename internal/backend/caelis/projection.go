@@ -971,7 +971,9 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	previousContext, previousReceipt := clone(s.state.Context), s.state.LastReceipt
 	s.state.Operations[id] = j
 	s.state.Context.Resolve(id, productOutcome(op.Outcome))
-	if j.Path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+	mainInput := "/sessions/" + idPath(s.state.Session.SessionId)
+	if !j.Scheduled && (j.Path == mainInput+"/prompt" || j.Path == mainInput+"/steer") &&
+		(s.state.LastReceipt.ID == "" || s.state.LastReceipt.ID == id) {
 		s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
 	}
 	if err := s.saveLocked(); err != nil {

@@ -317,12 +317,6 @@ func (s *Service) refreshCapture() {
 	}
 }
 func (s *Service) sendCapture(id string) {
-	s.mu.Lock()
-	stopped := s.stopped || !s.capture.preferences.Enabled
-	s.mu.Unlock()
-	if stopped {
-		return
-	}
 	s.capture.mu.Lock()
 	if s.capture.sending[id] {
 		s.capture.mu.Unlock()

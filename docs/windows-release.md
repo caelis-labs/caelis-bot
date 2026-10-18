@@ -21,7 +21,8 @@ Server 2022+ 有交互式桌面的环境单独验收；没有承诺 Server Core 
 ./script/package-zip-windows.ps1 -SkipBuild -Channel preview -ApplicationDirectory dist/windows-preview-2
 ```
 
-未设置 `BOT_RELEASE_TAG` 的包带 `-local`，不会进入更新 feed。preview 构建目录必须是新的，
+未设置 `BOT_RELEASE_TAG` 的内部版本和包名均带 `-local`，使用 Dev 安装与数据身份，且禁用公开发行更新。
+只有干净、精确匹配发行 tag 的构建设置 `releaseUpdates=true`。本地候选不会冒充同编号发行 preview。preview 构建目录必须是新的，
 避免旧文件混入；开发启动使用 `script/build_and_run-windows.ps1 -DataDirectory <隔离目录>`。
 新代码、编译、原生组件测试、完整 GUI 和精确包生命周期是不同证据，见[实施状态](windows-adaptation-plan.md)。
 
@@ -38,51 +39,30 @@ go test ./internal/app -run '^TestWindowsCaelisApplicationUpdatePreservesActiveW
 
 ## GitHub CI
 
-`.github/workflows/windows-preview.yml` 只接受从 main 手动运行，分两次：
+PR 的 scope job 始终执行 actionlint，不依赖 macOS 分流。Windows 原生、资源及构建/打包输入变化触发
+独立候选构建：EXE、Setup、ZIP 和源版本/摘要验证全部成功后才能通过 product 聚合门。候选使用
+本地 Dev 身份，无发布密钥；构建通过不能代替 Windows GUI 或准确发行包验收。Windows 侧后续
+对齐见 [#185](https://github.com/caelis-labs/caelis-bot/issues/185) 和 [#186](https://github.com/caelis-labs/caelis-bot/issues/186)，不阻塞共享修复合并。
 
-1. 创建或选择已落在 main 上的独立 Windows tag，运行 `mode=build` 和该 tag。
-   CI 校验源版本，运行 Windows 检查，生成两种包及 `.sha256/.build.json`。
-   构建 job 无发布私钥；Actions artifact 保留 30 天，应及时验收/归档。
-2. 下载本次**准确字节**做原生验收，将短记录保存到
-   `docs/releases/windows/vX.Y.Z-windows.preview.N.json` 并合入 main。
-   再运行 `mode=publish`，提供同一 tag 和原 `artifact_run`。发布 job 不重建验收包。
+`.github/workflows/windows-preview.yml` 只接受从 main 手动运行，一次完成：
 
-记录格式（摘要、长度、系统、时间填实际值；未通过的检查保持 false）：
+1. 创建 `vX.Y.Z-windows.preview.N` tag，指向已通过 PR CI、已合入 main 且基础版本一致的提交。
+2. 运行 workflow 并提供 tag。Windows runner 执行检查，构建 unsigned Setup/ZIP，生成 `.sha256/.build.json`。
+3. 发布 job 只下载本次 build 的准确字节，重新核验源码、版本、干净构建、摘要和文件长度，创建 GitHub prerelease，`latest=false`。不修改 Mac appcast、latest.json 或 R2。
 
-```json
-{
-  "schema": 1,
-  "tag": "v0.14.0-windows.preview.1",
-  "source": "exact-40-character-source-sha",
-  "channel": "preview",
-  "platform": "windows-amd64",
-  "os": "actual system and build",
-  "testedAt": "actual ISO-8601 date",
-  "artifacts": [
-    {"format":"nsis","file":"Caelis-Bot-0.14.0-windows.preview.1-windows-amd64-preview-Setup.exe","sha256":"actual-sha256","length":0},
-    {"format":"zip","file":"Caelis-Bot-0.14.0-windows.preview.1-windows-amd64-preview.zip","sha256":"actual-sha256","length":0}
-  ],
-  "checks": {
-    "nativeShell": false,
-    "runtimeAndComputerUse": false,
-    "activeTaskHandoff": false,
-    "oldClientReconnect": false,
-    "setupLifecycle": false,
-    "zipLifecycle": false,
-    "autostart": false,
-    "dataPreserved": false
-  }
-}
+```sh
+gh workflow run windows-preview.yml --ref main -f tag=vX.Y.Z-windows.preview.N
 ```
 
-`nativeShell` 覆盖桌宠、气泡、聊天/设置、附件/图片、审批、任务卡片、通知和快捷键；
-`runtimeAndComputerUse` 包括两 Runtime 的核心工作和 Caelis 下真实 DTW 桌面任务；
-handoff/reconnect 覆盖活跃任务、原回执和旧 Client；生命周期覆盖安装、升级、卸载/原位更新、
-Unicode 路径。不得把组件测试填成完整链路通过，保留未通过明细与复现日志。
+CI 的检查、构建与产物完整性是发布门槛；不再要求手工跨平台实机验收或提交原生验收 JSON。
+原生 GUI、安装生命周期和真实账号测试作为定向开发验证，证据如实记录，不能把 CI 成功称为实机通过。
 
-只创建 GitHub prerelease，`latest=false`；不修改 Mac appcast、latest.json 或 R2。
-现有 release 会阻止重写；上传中途失败会留下 draft，核对已有文件后处理，不能覆盖已公开字节。
-尚未配置远端 environment/Secret，也没有运行或发布本 workflow。
+默认只发布安装包。只有显式设置 `publish_updates=true` 才使用 `windows-release` 环境中现有的
+`WINDOWS_UPDATE_PRIVATE_KEY`，签署并发布自动更新清单；缺失或不匹配的密钥会使该模式失败，
+不会降级为 unsigned 更新。未带签名清单的 prerelease 不进入客户端自动更新候选。
+构建 job 不读取密钥，不为新版本生成或替换更新身份。Actions artifact 保留 30 天。
+
+现有 release 会阻止重写；上传中途失败保留 draft，核对已有文件后处理，不能覆盖已公开字节。
 
 ## 签名资料
 
@@ -93,7 +73,7 @@ Unicode 路径。不得把组件测试填成完整链路通过，保留未通过
 本机独立备份目录 README 记录用途；私钥不进入源码、日志、缓存 artifact 或发布包。
 
 ```text
-node script/windows-update-manifest.mjs create DIST TAG SOURCE_SHA ACCEPTANCE_JSON PRIVATE_KEY_PATH
+node script/windows-update-manifest.mjs create DIST TAG SOURCE_SHA PRIVATE_KEY_PATH
 node script/windows-update-manifest.mjs verify DIST TAG SOURCE_SHA
 ```
 
@@ -117,4 +97,4 @@ ZIP 在安装目录内创建当前用户私有的暂存/备份目录，按归属
 
 两版本 Host/TUI、完整 Application 带活跃对话/Worker 的重开换 Host，以及安装组件测试已通过；
 它们尚未串成 GUI 安装 App→App 带任务升级验收。真实登录、低磁盘、
-下载中断与完整 UI 仍需按[实施台账](windows-adaptation-issues.md)验收，不能据此提前发布。
+下载中断与完整 UI 的定向验证继续记录在[实施台账](windows-adaptation-issues.md)，不作为跨平台版本发布的人工门槛。

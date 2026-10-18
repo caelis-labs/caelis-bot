@@ -14,6 +14,9 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
 )
 
+// Only a clean exact release-tag build enables public update subscriptions.
+var windowsReleaseUpdates = "false"
+
 type windowsUpdateCore interface {
 	PrepareUpdate() error
 	CancelUpdate()
@@ -47,7 +50,7 @@ func (s *Service) startWindowsUpdater(root string, core windowsUpdateCore, pause
 	if e != nil {
 		return func() {}
 	}
-	if buildChannel == "development" {
+	if windowsReleaseUpdates != "true" || buildChannel == "development" {
 		return func() {}
 	}
 	if buildChannel == "release" {
@@ -244,7 +247,7 @@ func (u *windowsUpdater) apply(offer *windowsupdate.Offer, archive string) {
 		}
 	}()
 	if e := u.core.PrepareUpdate(); e != nil {
-		u.finish("ready", e.Error())
+		u.finish("ready", u.service.text("native.windowsUpdateRecovery", nil))
 		return
 	}
 	ctx, cancel := context.WithTimeout(u.context, 15*time.Second)
@@ -264,14 +267,14 @@ func (u *windowsUpdater) apply(offer *windowsupdate.Offer, archive string) {
 	pending := filepath.Join(u.root, "windows-update-pending.json")
 	if e := localstate.Write(pending, map[string]string{"directory": filepath.Dir(archive)}); e != nil {
 		u.core.CancelUpdate()
-		u.finish("ready", e.Error())
+		u.finish("ready", u.service.text("native.windowsUpdateRecovery", nil))
 		return
 	}
 	transaction, e := windowsupdate.Start(u.root, u.target, u.identity, updates.Version, offer, archive)
 	if e != nil {
 		_ = os.Remove(pending)
 		u.core.CancelUpdate()
-		u.finish("failed", e.Error())
+		u.finish("failed", u.service.text("native.windowsUpdateRecovery", nil))
 		return
 	}
 	u.mu.Lock()
@@ -285,7 +288,7 @@ func (u *windowsUpdater) apply(offer *windowsupdate.Offer, archive string) {
 		e = windowsupdate.Commit(transaction, offer.Manifest.Version)
 	}
 	if e != nil {
-		u.finish("failed", e.Error())
+		u.finish("failed", u.service.text("native.windowsUpdateRecovery", nil))
 	}
 	u.quit()
 }

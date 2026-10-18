@@ -1,3 +1,4 @@
+import {recoverRead} from '../../read-recovery';
 import { backend } from '../../desktop';
 import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupChoice, SetupOverview, SetupRequest, SetupState, Snapshot, WorkExecutionSettings, RuntimeConfiguration, RuntimeMutationResult, RuntimeFlow } from '../../backend/contract';
 import { groupLegacyModels, withWorkUsage } from './state';
@@ -23,8 +24,8 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
   let current=initial;
   void (async()=>{
    while(!signal.aborted && !['complete','failed','unknown'].includes(current.stage)) {
-    try { const next=await invoke<RuntimeFlow>('WaitRuntimeConnection',current.id,current.sequence);if(signal.aborted)return;current=next;progress(projectFlow(next)); }
-    catch { if(!signal.aborted)progress({...projectFlow(current),stage:'unknown',title:'连接状态暂时无法确认',message:'请关闭面板并刷新连接，核对结果后再操作。'});return; }
+    try { const next=await recoverRead(()=>invoke<RuntimeFlow>('WaitRuntimeConnection',current.id,current.sequence),signal);if(signal.aborted)return;current=next;progress(projectFlow(next)); }
+    catch { if(!signal.aborted)progress({...projectFlow(current),stage:'unknown',title:'',message:''});return; }
    }
   })();
   return projectFlow(initial);

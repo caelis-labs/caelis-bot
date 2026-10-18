@@ -1,3 +1,6 @@
+import {recoverRead} from '../../read-recovery';
+import {Recovery} from '../../SurfaceBoundary';
+import {presentationWarning} from '../../presentation-warning';
 import appIcon from '../../../../internal/desktop/assets/app-icon.png';
 import type { ModelOption } from '../../backend/contract';
 import { ModelParameters } from './ModelPicker';
@@ -37,6 +40,7 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
  const [flow, setFlow] = useState<ConnectionFlow | null>(null), [code, setCode] = useState(''), [method, setMethod] = useState(''), [destination, setDestination] = useState(''), [manual, setManual] = useState(false);
  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [canceling, setCanceling] = useState(false), [now, setNow] = useState(Date.now()), [optionsRefresh, setOptionsRefresh] = useState(0);
  const [optionsFor,setOptionsFor]=useState('');
+ const [catalogAttempt,setCatalogAttempt]=useState(0),[catalogFailed,setCatalogFailed]=useState(false);
  const optionsClient=useRef(client);
  const [accountModels,setAccountModels]=useState<ConnectionFlow['models']>([]);
  const reportBusy=useEffectEvent((value:boolean)=>onBusyChange?.(value));
@@ -46,17 +50,26 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
  useEffect(() => { const clear = () => { setAPIKey(''); setCode(''); }; window.addEventListener('settings-close', clear); return () => window.removeEventListener('settings-close', clear); }, []);
  useEffect(() => { alive.current = true; return () => { alive.current = false; serial.current++; abort.current?.abort(); }; }, []);
  useEffect(() => {
-  let valid = true; setLoading(true); setCatalog(emptyCatalog); setChoice(null); setFlow(null); setAPIKey(''); setOptionsFor(''); setError('');
-  void client.catalog(kind).then(value => { if (valid) {setCatalog(value);if(initialChoice){const found=value.choices.find(c=>c.id===initialChoice);if(found){setChoice(found);setBaseUrl(found.id==='magpie'?'http://127.0.0.1:3425/v1':'');}}} }).catch(e => { if (valid) setError(messageOf(e, actionFailed())); }).finally(() => { if (valid) setLoading(false); });
-  return () => { valid = false; };
- }, [client, kind]);
+  let valid = true; const controller=new AbortController();
+  setLoading(true);setCatalogFailed(false);setCatalog(emptyCatalog);setChoice(null);setFlow(null);setAPIKey('');setOptionsFor('');setError('');accountStarted.current=false;
+  void recoverRead(async()=>{
+   const value=await client.catalog(kind);
+   if(value.unavailable||!value.choices.length||initialChoice&&!value.choices.some(c=>c.id===initialChoice))throw new Error('catalog_unavailable');
+   return value;
+  },controller.signal).then(value=>{
+   if(!valid)return;setCatalog(value);
+   const found=value.choices.find(c=>c.id===initialChoice);
+   if(found){setChoice(found);setBaseUrl(found.id==='magpie'?'http://127.0.0.1:3425/v1':'');}
+  }).catch(()=>{if(valid){setCatalogFailed(true);presentationWarning('background_read_failed');}}).finally(()=>{if(valid)setLoading(false);});
+  return()=>{valid=false;controller.abort();};
+ },[client,kind,initialChoice,catalogAttempt]);
  useEffect(() => {
   if (!choice || kind !== 'api-key') return;
   const key=`${choice.id}:${baseUrl}:${optionsRefresh}`;
   if(optionsClient.current===client&&optionsFor===key)return;
   const seq = ++optionsSerial.current;
   setLoading(true); setAPIKey(''); setError('');
-  const timer = window.setTimeout(() => { void client.apiKeyOptions(choice.id, baseUrl).then(value => {
+  const timer = window.setTimeout(() => { void recoverRead(()=>client.apiKeyOptions(choice.id, baseUrl)).then(value => {
    if (!alive.current || seq !== optionsSerial.current) return;
    setOptions(value);
    optionsClient.current=client;
@@ -131,7 +144,7 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
   return()=>{valid=false;};
  },[client,onboarding,choice,baseUrl,selectedID]);
  const modelParameters=<ModelParameters model={selectedCapability||undefined} value={parameters} disabled={busy||loading||onboarding&&flow?.stage==='complete'} onChange={patch=>setParameters(current=>({...current,...patch}))}/>;
- const parameterControls=onboarding?(selectedCapability&&<details className="provider-advanced"><summary>{t('settings.setupMoreOptions')}</summary>{modelParameters}</details>):modelParameters;
+ const parameterControls=modelParameters;
  const finish = async () => { if(onboarding){try{setBusy(true);await onConnected(selectedModels[0]||model,parameters);}catch(e){setError(messageOf(e,actionFailed()));}finally{if(alive.current)setBusy(false);}}else{onClose();await onConnected();} };
  const completed = useRef(false);
  useEffect(()=>{if(onboarding&&flow?.stage==='complete'&&!busy&&!completed.current){completed.current=true;void finish();}},[onboarding,flow?.stage,busy]);
@@ -155,15 +168,15 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
  const showModels=flow?.stage==='models'||completing&&kind==='account';
  const modelChoices=completing?accountModels:flow?.models;
  if(onboarding&&!flow&&!error&&(!choice&&loading||choice&&kind==='api-key'&&!optionsFor.startsWith(`${choice.id}:`)))return <SetupLoading/>;
- if(onboarding&&kind==='account'&&(!flow||flow.stage==='preparing'))return <SetupLoading/>;
- return <Surface hideHeader={hideHeader} className={`provider-connection${onboarding ? ' onboarding-connection' : ''}${oauthPage ? ' provider-oauth-page' : ''}`} title={onboarding&&choice?<span className="provider-brand-title"><ProviderLogo id={choice.id}/>{providerNames[choice.id]||(choice.id==='custom'?t('runtime.providerCustom'):choice.name)}</span>:flow?.title||((inline&&choice)?providerNames[choice.id]||choice.name:t('connections.addConnection'))} description={inline||flow?.stage==='complete'?undefined:flow?.message || undefined} busy={busy || canceling} onClose={close}>
-  {inline&&!onboarding&&flow&&<section className="provider-flow-status" role="status"><h3>{flow.title}</h3>{flow.stage!=='complete'&&flow.message&&<p>{flow.message}</p>}</section>}
-  {onboarding&&!oauthPage&&flow&&!['preparing','models','complete'].includes(flow.stage)&&flow.message&&<p className="settings-note" role="status">{flow.message}</p>}
+ if(onboarding&&kind==='account'&&!catalogFailed&&!error&&(loading||busy&&!flow||flow?.stage==='preparing'))return <SetupLoading/>;
+ return <Surface hideHeader={hideHeader} className={`provider-connection${onboarding ? ' onboarding-connection' : ''}${oauthPage ? ' provider-oauth-page' : ''}`} title={onboarding&&choice?<span className="provider-brand-title"><ProviderLogo id={choice.id}/>{providerNames[choice.id]||(choice.id==='custom'?t('runtime.providerCustom'):choice.name)}</span>:(flow&&!['failed','unknown'].includes(flow.stage)?flow.title:'')||((inline&&choice)?providerNames[choice.id]||choice.name:t('connections.addConnection'))} description={inline||flow?.stage==='failed'||flow?.stage==='unknown'||flow?.stage==='complete'?undefined:flow?.message || undefined} busy={busy || canceling} onClose={close}>
+  {inline&&!onboarding&&flow&&!['failed','unknown'].includes(flow.stage)&&<section className="provider-flow-status" role="status"><h3>{flow.title}</h3>{flow.stage!=='complete'&&flow.message&&<p>{flow.message}</p>}</section>}
+  {onboarding&&!oauthPage&&flow&&!['preparing','models','complete','failed','unknown'].includes(flow.stage)&&flow.message&&<p className="settings-note" role="status">{flow.message}</p>}
   {(!flow||keepAPIForm) && <>
    {choice&&!onboarding&&<div className="provider-config-intro">{!onboarding&&<ProviderLogo id={choice.id}/>}<p>{t(onboarding&&kind==='api-key'?(gateway?'runtime.onboardingGatewayIntro':ollama?'runtime.onboardingOllamaIntro':choice.id==='custom'?'runtime.connectCustomIntro':'runtime.onboardingApiIntro'):kind==='account'?(choice.id==='grok'?'runtime.connectGrokIntro':'runtime.connectCodexIntro'):choice.id==='magpie'?'runtime.connectGatewayIntro':choice.id==='ollama'?'runtime.connectOllamaIntro':choice.id==='custom'?'runtime.connectCustomIntro':'runtime.connectApiIntro')}</p></div>}
    {!choice && !inline && <div className="runtime-segments" aria-label={t('connections.connectionTypeAria')}>{(onboarding ? ['api-key','account'] as const : ['api-key','account','agent'] as const).map(value=><button key={value} disabled={busy} aria-pressed={kind===value} onClick={()=>setKind(value)}>{t(value==='api-key'?'connections.modelService':value==='account'?'connections.accountLogin':'connections.externalAgent')}</button>)}</div>}
    {loading && !choice && <p role="status">{t('connections.loadingChoices')}</p>}
-   {catalog.unavailable && <p className="settings-note" role="status">{catalog.unavailable}</p>}
+
    {!loading && !catalog.unavailable && !catalog.choices.length && <p className="settings-note">{t('connections.noChoices')}</p>}
    {!choice ? <div className="runtime-connect-catalog">{[...catalog.choices].sort((a,b)=>Number(b.id==='magpie')-Number(a.id==='magpie')).map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><ProviderLogo id={c.id}/><span><strong>{providerNames[c.id] || c.name}</strong>{c.id==='magpie'&&<small>{t('connections.magpieHint')}</small>}</span><SettingsChevron/></button>)}</div> : <>
     {!inline && !initialChoice && <><button className="text-action" disabled={busy} onClick={() => { optionsSerial.current++; setLoading(false); setChoice(null); setAPIKey(''); setError(''); }}>{t('connections.backToChoices')}</button>
@@ -230,6 +243,6 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
 
   {flow && (!onboarding||flow.stage!=='complete') && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
   {!onboarding&&flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? t('connections.canceling') : t('connections.cancelConnection')}</button>}
-  {error && <p role="alert" className="inline-error">{error}</p>}
+  {(error||catalogFailed||flow&&['failed','unknown'].includes(flow.stage))&&<Recovery onRetry={catalogFailed?()=>setCatalogAttempt(v=>v+1):undefined}/>}
  </Surface>;
 }

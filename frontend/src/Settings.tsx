@@ -117,7 +117,7 @@ function Updates({version,active,focusVersion}:{version:string;active:boolean;fo
   try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
   catch{setError(t('settings.updatePreferencesSaveFailed'));}finally{setBusy(false);}
  };
- const updateStatus=preferences?.state==='failed'?`${t('settings.updateHandoffFailed')}: ${preferences.message||t('settings.updateCheckFailed')}`:
+ const updateStatus=preferences?.state==='failed'?t('chat.surfaceRestartNeeded'):
   preferences?.state==='preparing'?t('settings.updatePreparing'):
   preferences?.state==='closing'?t('settings.updateClosing'):
   preferences?.state==='restarting'?t('settings.updateRestarting'):

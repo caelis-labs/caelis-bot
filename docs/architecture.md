@@ -42,6 +42,15 @@ The FileStore remains the current credential contract; it is not Credential Mana
 Windows GUI and release acceptance remain separate gates in the adaptation plan.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 Runtime activation replaces the resident adapter inside the same application.
+User model selections first enter a host-owned, durable last-choice journal,
+independent of setup/network locks. A cancellable coordinator applies them with
+bounded backoff; storage failures retain an explicit in-memory saving state.
+The settings surface reads this small journal independently of Runtime catalogs,
+keeps cached choices usable during refresh, and distinguishes saved from applied.
+Model preferences affect subsequent execution; existing turns retain their
+native execution snapshot and approvals. Cross-provider conversation handoff
+reconciles its original pending send internally while the current connection
+remains usable. Worker activity never gates a user's preference.
 Admission pauses while the target connects; only a successful handshake commits
 the active selection. Failed activation restores the original adapter and draft.
 Existing task routes and the independent worker default keep their original
@@ -58,6 +67,15 @@ tools or rebuilding plugins; ordinary switching, admission and rollback remain i
 Confirmed model selection may advance the renderer to extras/introduction while
 activation runs. The first introduction still awaits activation and native readiness;
 changing pages cannot submit work or turn stale completion into authority.
+Inactive Worker observers are detached before reading their ledger into a new
+resident. The outgoing resident remains the single Worker owner until commit,
+then detaches without interrupting native execution. Failed handoff restores the
+original connection and draft; no ordinary Codex Close is used to stop Workers
+as a side effect of a settings change. Caelis preference retries reconcile the
+original configuration receipt and read back state before issuing a newer write.
+Retained Worker approvals remain visible to the current Bot and chat surface;
+decisions and external approval navigation route to the exact original adapter.
+Worker approval revisions refresh chat even when the resident has no new events.
 `GOWORK=off`; no sibling private imports.
 
 The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
@@ -147,7 +165,12 @@ bounded best-effort queue. Optional feature assembly runs after native surfaces 
 ready and retries without quitting the application. Invalid native identities or
 receipt journals are preserved and reopened after repair; they never authorize
 replacement owners or uncertain-effect replay. Window rendering failures remount
-presentation independently of native work and other windows.
+presentation independently of native work and other windows. Account catalog reads use three bounded attempts,
+including unavailable, empty and missing-choice results. Exhaustion ends loading and preserves Back,
+feedback and retry; retrying this catalog never repeats a connection mutation. Composer cleanup observes
+original receipts and drafts automatically with a finite budget, never resending a message.
+First-run and artifact reads also use bounded recovery; settings, approval and preview surfaces keep
+exception text out of presentation. Local retry preserves mounted inputs and cannot submit an enclosing form.
 
 Telegram checkpoints each received update and its original input in a durable
 inbox before advancing its polling offset. Callback, control and ordinary-input
@@ -280,6 +303,13 @@ The IM record stores the original user body and a separate bounded quote for a
 collapsed preview; opening the preview never resolves a control request.
 Older records without quote metadata cannot be reconstructed. Local chat timestamps come
 from persisted message times and are grouped by local day or a five-minute gap.
+The first visible message has no divider. A local send decides its time boundary
+with the optimistic message before the first paint; exact-request acknowledgement
+keeps that display time and boundary stable. Late timestamp enrichment must not
+insert a divider above an already visible row. Loading earlier history can add
+a boundary at the new adjacency. Draft reconciliation stays silent while work
+continues; send preparation uses the existing action button without adding height
+or replacing an available Stop action.
 Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
 model context. Quote metadata grants no permission and does not imply a second
 Bot conversation or a transport-aware Bot.
@@ -532,7 +562,7 @@ A displayed message, task card, gesture, tool discovery or accepted dispatch nev
 
 Persist mutation intent and stable request ID before dispatch. Accepted/rejected/unknown remain distinct.
 Unknown operations only reconcile the original receipt; never resend with a fresh ID or switch Runtime.
-Early terminal events win over late acceptance. Replayed items replace/deduplicate facts; old history pages
+Early terminal events win over late responses. Main prompt and steer receipt recovery both update the original Composer receipt; scheduled/Worker receipts cannot replace a newer human receipt. Replayed items replace/deduplicate facts; old history pages
 cannot replay approvals, create workers or overwrite live state. Callback dispatch uses the original catalog,
 configuration revision, tools version and invocation; an unavailable old handler fails rather than rerouting.
 

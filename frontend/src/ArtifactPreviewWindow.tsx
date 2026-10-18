@@ -1,3 +1,5 @@
+import {Recovery} from './SurfaceBoundary';
+import {recoverRead} from './read-recovery';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -18,11 +20,11 @@ export function ArtifactPreviewWindow() {
  const load=useCallback(() => {
   const current=++generation.current;
   setSelection(null);setPreview(null);setError('');setActionError('');
-  void desktop<Selection>('CurrentArtifactPreview').then(async value => {
+  void recoverRead(()=>desktop<Selection>('CurrentArtifactPreview')).then(async value => {
    if(current!==generation.current)return;
    setSelection(value);
    try {
-    const content=await desktop<Preview>('PreviewArtifact',value.id);
+    const content=await recoverRead(()=>desktop<Preview>('PreviewArtifact',value.id));
     if(current===generation.current)setPreview(content);
    } catch (failure) {
     if(current===generation.current)setError(failure instanceof Error?failure.message:t('chat.artifactUnavailable'));
@@ -62,9 +64,9 @@ export function ArtifactPreviewWindow() {
     if(selection)window.dispatchEvent(new CustomEvent('artifact-preview-toolbar-action',{detail:{action,...selection}}));
    }}>{t(({open:'chat.openArtifact',save:'chat.saveArtifactAs',path:'chat.copyArtifactPath',content:'chat.copyArtifactContent',reveal:'chat.revealFile'} as const)[action])}</button>)}
   </nav>}
-  {actionError&&<p className="artifact-preview-error" role="alert">{actionError}</p>}
+  {actionError&&!error&&<Recovery/>}
   <section className="artifact-preview-scroll" aria-label={selection?.name??t('chat.previewArtifact')}>
-   {error?<p className="artifact-preview-error" role="alert">{error}</p>:preview?
+   {error?<Recovery onRetry={load}/>:preview?
     <article className={isMarkdown?'artifact-preview-markdown markdown-body':'artifact-preview-plain'}>
      {isMarkdown?<Markdown skipHtml remarkPlugins={[remarkGfm]} components={{
       a:({children})=><span>{children}</span>,

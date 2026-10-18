@@ -4,7 +4,9 @@ import type { ConnectionFlow, ConnectionGroup, ModelSelection, RuntimeView } fro
 export const inheritedSelection: ModelSelection = { model: '', effort: '', serviceTier: '' };
 export const effortName: Record<string, string> = { none: 'none', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' };
 export const tierName = (id: string, name: string) => id === 'fast' || name.toLowerCase() === 'fast' ? 'Fast' : name || id;
-export const messageOf = (error: unknown, fallback = '操作未完成，请稍后重试') => error instanceof Error ? error.message : fallback;
+// Exceptions are diagnostics, never product copy. Keep receipts on their typed
+// owner; callers render a recovery surface without forwarding exception prose.
+export const messageOf = (_error: unknown, fallback = '操作未完成，请稍后重试') => fallback;
 
 export function getEffortName(effort: string, t?: (key: any) => string): string {
  if (t && effort) {

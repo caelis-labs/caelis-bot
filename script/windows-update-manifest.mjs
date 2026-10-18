@@ -25,20 +25,17 @@ export function collectArtifacts(directory,tag,source){
   const file=`Caelis-Bot-${version}-windows-amd64-preview${suffix}`,path=join(directory,file);
   const bytes=readFileSync(path),build=JSON.parse(readFileSync(path+'.build.json','utf8'));
   if(build.schema!==1||build.version!==version||build.channel!=='preview'||build.platform!=='windows-amd64'||build.format!==format||build.dirty!==false||build.source!==source||build.sha256!==sha256(bytes)||build.signed!==false||build.signingPolicy!=='unsigned-preview'||bytes.length===0||bytes.length>512*1024*1024)throw Error('Exact clean unsigned preview artifacts required');
+  if(readFileSync(path+'.sha256','utf8').trim()!==`${sha256(bytes)}  ${file}`)throw Error('Artifact checksum sidecar mismatch');
   return {format,file,sha256:sha256(bytes),length:bytes.length};
  });
 }
-// A short source-controlled acceptance record binds manual native checks to the
-// exact downloaded CI bytes. A build or a signature alone is not qualification.
-export function qualify(directory,tag,source,acceptancePath){
- const artifacts=collectArtifacts(directory,tag,source);
- const record=JSON.parse(readFileSync(acceptancePath,'utf8'));
- const required=['nativeShell','runtimeAndComputerUse','activeTaskHandoff','oldClientReconnect','setupLifecycle','zipLifecycle','autostart','dataPreserved'];
- if(record.schema!==1||record.tag!==tag||record.source!==source||record.platform!=='windows-amd64'||record.channel!=='preview'||!record.os||!record.testedAt||required.some(key=>record.checks?.[key]!==true)||record.artifacts?.length!==2||artifacts.some(a=>!record.artifacts.some(b=>b.format===a.format&&b.file===a.file&&b.sha256===a.sha256&&b.length===a.length)))throw Error('Windows native acceptance missing or does not match the exact artifacts');
- return {schema:1,version:previewVersion(tag),tag,channel:'preview',platform:'windows-amd64',source,qualified:true,artifacts};
+// The protected workflow runs Windows checks and packages the exact main tag.
+// Qualification here binds those immutable bytes; it does not claim native GUI acceptance.
+export function qualify(directory,tag,source){
+ return {schema:1,version:previewVersion(tag),tag,channel:'preview',platform:'windows-amd64',source,qualified:true,qualification:'ci-build-checks',artifacts:collectArtifacts(directory,tag,source)};
 }
-export function create(directory,tag,source,acceptancePath,privatePath,keyPath=publicKeyPath){
- const manifest=qualify(directory,tag,source,acceptancePath);
+export function create(directory,tag,source,privatePath,keyPath=publicKeyPath){
+ const manifest=qualify(directory,tag,source);
  const bytes=Buffer.from(JSON.stringify(manifest,null,2)+'\n');
  const key=createPrivateKey(readFileSync(privatePath));
  if(key.asymmetricKeyType!=='ed25519')throw Error('Ed25519 private key required');

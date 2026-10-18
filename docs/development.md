@@ -261,6 +261,11 @@ rejection, an unknown receipt, and accepted submission followed by a failed draf
 Capture records `send.ok`, submission/draft-read counts and frame samples in the same JSON.
 It checks one displayed user message, stable message height, no empty first-reply bubble,
 preserved uncertain drafts, and blocked duplicate sending after draft synchronization fails.
+Empty-history, recent-history, older-history and delayed-timestamp cases also
+require the time boundary in the first visible user frame, stable divider labels
+and message positions through native acknowledgement, and no divider for the
+first message. Composer progress must stay inside its action button, preserve
+Stop and add no height during background draft recovery.
 The first visible frame must also have an empty editor/context, exactly one user
 message and the Bot thinking indicator, with no separate Sending label. Attachment
 acceptance/refusal cases include a stale selection event during dispatch; original
@@ -779,21 +784,24 @@ built-in Team configuration are full pages with a back path; only short model
 edits and destructive confirmations use dialogs. Team is an optional built-in
 advanced setting, not a shared execution setting.
 
-Model choices carry their runtime source and include only ready runtimes.
+Model choices carry their runtime source; previously loaded catalogs remain available during a transient outage.
 `SetupModels` inspects a profile without selecting it; `LocalWorkerSelection`
-reads saved preferences without opening an offline worker and migrates empty legacy
-Worker selections to follow conversation. Successfully read model catalogs reconcile
-obsolete Worker choices; temporary discovery failures preserve them. The picker uses
-human-readable model labels, never serialized runtime/model keys. `SaveSelectedModel`
-validates against the selected runtime's catalog before committing the use.
-Existing work retains its original owner. Conversation runtime changes retain
-the idle/receipt guards and native adapter handshake.
+reads saved preferences without opening an offline worker and migrates empty or confirmed obsolete Worker choices to follow conversation. Temporary catalog failures preserve explicit choices. The selection
+coordinator validates against the selected runtime's catalog before applying.
+Existing work retains its original owner. `SaveSelectedModel` journals user
+intent without waiting for catalog inspection, task completion or handshake.
+`ModelSelections` distinguishes saving, pending, applying, recovering and applied
+states. The coordinator retries bounded attempts and resumes pending choices on
+restart; original receipts remain authoritative. Conversation handoff fences
+pending sends internally, while Worker activity never blocks preference saves.
+The UI keeps cached catalog choices during failed refresh and retries delivery
+of selection intent without replaying any model/tool/approval operation.
 Codex discovers its existing installation and authentication; provider setup is
 exclusive to built-in. Magpie obtains model choices from its gateway.
 Profile-scoped connection removal preserves admission, usage and revision checks.
 
-These navigation changes do not add Bot tools. The local Worker fallback policy
-is covered in the Bot core tasks reference. Native acceptance uses the isolated Dev profile and
+Bot recovery guidance describes independent task ownership and automatic settings
+recovery. Native acceptance must use the isolated Dev profile and
 must not be inferred from the fixture/Go checks.
 
 Codex settings distinguish missing installation, handshake failure, login and ready
@@ -853,3 +861,13 @@ tests cover ordinary-reply silence, current-turn reminder excerpts, restored/qui
 failed results, decision deduplication and resolution cleanup. The Windows native
 toast fixture verified shell-history persistence and selective dismissal; it does
 not stand in for popup/click acceptance or macOS native notification validation.
+
+### Mounted recovery regression
+
+Run `node script/runtime-recovery-preview.mjs` with the pinned Node runtime and open the printed loopback URL.
+The “Run recovery regression” button mounts the production account wizard with disposable catalogs: rejected,
+empty, removed choice, unavailable and transient failure. It checks finite reads, Back/retry, one authentication
+start after recovery, absence of private error text, and recovery buttons that cannot submit an enclosing form. It also exercises first-run and artifact-preview read exhaustion and ensures local recovery stays within the affected panel.
+The fixture has no account or real mutation authority.
+`script/build_and_run.sh --chat-preview` also retains the mounted send/refusal/unknown/draft-read scenarios.
+These browser/WebKit fixtures do not prove real-account authentication or Windows native behavior.

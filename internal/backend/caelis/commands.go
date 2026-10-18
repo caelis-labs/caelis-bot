@@ -329,6 +329,12 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		receipt.Message = e.Error()
 	}
 	s.mu.Lock()
+	// Original-owner reconciliation may finish before this call returns. Do not
+	// replace its durable terminal receipt with a late transport timeout.
+	if settled, ok := s.state.Operations[in.ID]; ok && receipt.Outcome == "unknown" && settled.Outcome != "unknown" {
+		receipt.Outcome = productOutcome(wire.Outcome(settled.Outcome))
+		receipt.Message = ""
+	}
 	s.state.LastReceipt = receipt
 	save := s.saveLocked()
 	s.bumpLocked()

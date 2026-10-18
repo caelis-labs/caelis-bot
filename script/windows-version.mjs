@@ -8,11 +8,11 @@ export function windowsVersion(base,channel,tag='',revision=1){
  if(!Number.isSafeInteger(revision)||revision<1)throw Error('Invalid Windows preview revision');
  if(channel==='development'){
   if(tag)throw Error('Development builds cannot publish a release tag');
-  return {version:`${base}-dev`,channel:'development',identity:'development'};
+  return {version:`${base}-dev`,channel:'development',identity:'development',releaseUpdates:false};
  }
  const version=`${base}-windows.preview.${revision}`;
  if(tag&&tag!==`v${version}`)throw Error('Windows release tag must match product base and preview revision');
- return {version,channel:'preview',identity:'windows-preview'};
+ return {version:tag?version:`${version}-local`,channel:'preview',identity:tag?'windows-preview':'development',releaseUpdates:!!tag};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'));

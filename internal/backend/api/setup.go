@@ -2,6 +2,16 @@ package api
 
 import "context"
 
+// ModelSelectionState distinguishes a user's saved preference from confirmed
+// Runtime application. It contains no native error, credentials or task IDs.
+type ModelSelectionState struct {
+	Scope     string                `json:"scope"`
+	Runtime   string                `json:"runtime"`
+	Selection WorkExecutionSettings `json:"selection"`
+	Revision  uint64                `json:"revision"`
+	State     string                `json:"state"` // saving, pending, applying, recovering, applied
+}
+
 // Setup is a user-only management surface. It is never exposed to model tools.
 // Secrets are write-only arguments and must not enter settings or operation journals.
 type SetupRequest struct {
