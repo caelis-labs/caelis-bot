@@ -3,6 +3,7 @@ package codex
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +129,7 @@ func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
 		t.Fatal(v)
 	}
 	info, err := os.Stat(v.Workspace)
-	if err != nil || info.Mode().Perm() != 0700 {
+	if err != nil || !localstate.HasPrivateMode(v.Workspace, info, 0700) {
 		t.Fatal("private workspace missing", err)
 	}
 	f.mu.Lock()

@@ -6,6 +6,11 @@
     "darwin-arm64": {
       "artifact": "caelis_0.72.2_darwin_arm64.tar.gz",
       "sha256": "7c39452f942c5830398a79c396d78087ec351341c0065c913f091242db428a49"
+    },
+    "windows-amd64": {
+      "artifact": "caelis_0.72.2_windows_amd64.tar.gz",
+      "sha256": "4188b5a36b78492b08830bc7c7a968b5b76b170c59af0991c0d566b63e112ad5",
+      "binary_sha256": "d8c96eea1271e4a92e35b7431f640d115f04a70f2f44e90669678e55c2a0ae56"
     }
   }
 }

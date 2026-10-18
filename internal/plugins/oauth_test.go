@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -158,7 +159,7 @@ func TestOAuthOldRelaySurvivesUnconfirmedReplacement(t *testing.T) {
 	outReader, outWriter := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- runStdio(t.Context(), f.manager, "fixture", "docs", inReader, outWriter, io.Discard, selected.Root[strings.LastIndex(selected.Root, "/")+1:], fmt.Sprint(old))
+		done <- runStdio(t.Context(), f.manager, "fixture", "docs", inReader, outWriter, io.Discard, filepath.Base(selected.Root), fmt.Sprint(old))
 		outWriter.Close()
 	}()
 	responses := bufio.NewScanner(outReader)
@@ -168,6 +169,11 @@ func TestOAuthOldRelaySurvivesUnconfirmedReplacement(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !responses.Scan() || !strings.Contains(responses.Text(), `"id":`+fmt.Sprint(id)) || !strings.Contains(responses.Text(), "fixture result") {
+			select {
+			case err := <-done:
+				t.Fatal("old relay exited", err)
+			default:
+			}
 			t.Fatal("old relay lost authenticated call", responses.Text(), responses.Err())
 		}
 	}
@@ -352,7 +358,7 @@ func TestOAuthDiscoveryCallbackAndRelay(t *testing.T) {
 	selected := f.manager.Selection().Servers[0]
 	var out bytes.Buffer
 	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
-	err := runStdio(t.Context(), f.manager, "fixture", "docs", strings.NewReader(input), &out, io.Discard, selected.Root[strings.LastIndex(selected.Root, "/")+1:], fmt.Sprint(selected.ConnectionRevision))
+	err := runStdio(t.Context(), f.manager, "fixture", "docs", strings.NewReader(input), &out, io.Discard, filepath.Base(selected.Root), fmt.Sprint(selected.ConnectionRevision))
 	if err != nil || !strings.Contains(out.String(), "find") || strings.Contains(out.String(), "ACCESS") {
 		t.Fatal("OAuth relay failed", err, out.String())
 	}

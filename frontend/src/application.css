@@ -1,0 +1,11 @@
+/* Load the shared cascade once, before any lazy surface mounts. Component CSS
+   must not arrive after surface.css and overwrite its grid/control contracts. */
+@import './style.css';
+@import './settings/settings.css';
+@import './settings/runtime/runtime.css';
+@import './settings/runtime/machines.css';
+@import './settings/plugins.css';
+@import './media-message.css';
+@import './screen-message.css';
+@import './surface.css';
+@import './windows.css';

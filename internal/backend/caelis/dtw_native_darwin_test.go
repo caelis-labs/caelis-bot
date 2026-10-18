@@ -17,7 +17,7 @@ import (
 )
 
 // Opt-in native Core acceptance uses a private Host and synthetic model. The
-// signed DevBot binary and installed rc.8 package are supplied by the caller.
+// signed DevBot binary and installed rc.9 package are supplied by the caller.
 func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	bin := os.Getenv("CAELIS_BOT_TEST_BINARY")
 	bot := os.Getenv("CAELIS_BOT_TEST_BOT_BINARY")
@@ -27,8 +27,8 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Skip("set private Core, DevBot, Desktop World package and plugin store paths")
 	}
 	p, err := plugins.Load(packageRoot)
-	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.0-rc.8" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
-		t.Fatal("invalid installed rc.8 package", err)
+	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.0-rc.9" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
+		t.Fatal("invalid installed rc.9 package", err)
 	}
 	var saved struct {
 		Installed map[string]struct {
@@ -38,7 +38,7 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	}
 	state, err := os.ReadFile(filepath.Join(pluginStore, "state.json"))
 	if err != nil || json.Unmarshal(state, &saved) != nil || !saved.Installed["desktop-world"].Enabled || filepath.Base(packageRoot) != saved.Installed["desktop-world"].Root {
-		t.Fatal("supplied rc.8 package is not the enabled generation", err)
+		t.Fatal("supplied rc.9 package is not the enabled generation", err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
@@ -98,7 +98,7 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		return err == nil && detail.State == "connected" && len(detail.Tools) == 1
 	})
 	if detail.Tools[0].Name != "exec" {
-		t.Fatal("rc.8 must expose only exec", detail.Tools)
+		t.Fatal("rc.9 must expose only exec", detail.Tools)
 	}
 	var directory wire.SessionMCPStatus
 	sid := session.ConversationState().Session
@@ -112,13 +112,13 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		}
 	}
 	if !ready {
-		t.Fatal("rc.8 Skill missing from native Core", directory.Skills)
+		t.Fatal("rc.9 Skill missing from native Core", directory.Skills)
 	}
 	if err := session.UpdateBotPlugins(ctx, plugins.Selection{Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err = session.BotPluginServer(ctx, name)
 	if err != nil || detail.State != "not_configured" || len(detail.Tools) != 0 {
-		t.Fatal("disabled rc.8 tool remained in Core", detail, err)
+		t.Fatal("disabled rc.9 tool remained in Core", detail, err)
 	}
 }

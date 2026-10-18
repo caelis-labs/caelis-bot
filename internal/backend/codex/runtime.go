@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeinstall"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"io"
@@ -27,6 +28,7 @@ func InspectRuntime(ctx context.Context, path string) (api.RuntimeStatus, error)
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, p, "--version")
+	runtimeenv.BackgroundCommand(cmd)
 	cmd.Stderr = io.Discard
 	b, e := cmd.Output()
 	if e != nil || len(b) > 4096 || !strings.HasPrefix(string(b), "codex-cli ") {

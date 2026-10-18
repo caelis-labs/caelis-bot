@@ -2,9 +2,12 @@ package secretstore
 
 import (
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 func TestFileStoreMigratesOnceAndSeparatesConsumers(t *testing.T) {
@@ -36,11 +39,11 @@ func TestFileStoreMigratesOnceAndSeparatesConsumers(t *testing.T) {
 		}
 		path, _ := store.path("same-id")
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0600 {
+		if err != nil || !localstate.HasPrivateMode(path, info, 0600) {
 			t.Fatalf("private file permissions: %v %v", info, err)
 		}
 		parent, err := os.Stat(filepath.Dir(path))
-		if err != nil || parent.Mode().Perm() != 0700 {
+		if err != nil || !localstate.HasPrivateMode(filepath.Dir(path), parent, 0700) {
 			t.Fatalf("private directory permissions: %v %v", parent, err)
 		}
 	}
@@ -94,7 +97,7 @@ func TestFileStoreNewSaveDeletesLegacyAndRefusesUnsafePath(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(root, "other"), path); err != nil {
+	if err := testutil.Redirect(filepath.Join(root, "other"), path); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save("token", "changed"); err == nil {
@@ -108,7 +111,7 @@ func TestFileStoreRejectsSymlinkedNamespace(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "plugins")); err != nil {
+	if err := testutil.Redirect(outside, filepath.Join(root, "plugins")); err != nil {
 		t.Fatal(err)
 	}
 	store := &FileStore{Root: root, Namespace: "plugins"}

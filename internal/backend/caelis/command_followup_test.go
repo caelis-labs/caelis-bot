@@ -176,10 +176,10 @@ func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
 				}
 				var err error
 				s.state, err = loadBinding(s.path)
-				s.state.Views["main"].CommandCaughtUp = true
 				if err != nil {
 					t.Fatal(err)
 				}
+				s.state.Views["main"].CommandCaughtUp = true
 			}
 			f := s.state.CommandFollowups["call"]
 			if outcome == "committed" {

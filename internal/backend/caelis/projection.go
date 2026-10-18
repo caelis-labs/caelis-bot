@@ -198,6 +198,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		}
 	}
 	unknown := v != nil && value(v.State.Run.Status) == "unknown"
+	dispatching := false
 	if s.pluginConfigurationUnconfirmedLocked() {
 		unknown = true
 	}
@@ -210,17 +211,24 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			}
 		}
 		if j.Outcome == "unknown" && id != s.sendingScheduled && !workerOperation {
-			unknown = true
-			break
+			if s.dispatching[id] {
+				dispatching = true
+			} else {
+				unknown = true
+			}
 		}
+	}
+	if dispatching && !unknown && s.connected && out.Phase != "waiting_approval" {
+		// Journaling an in-flight effect as unknown is crash safety, not a
+		// product failure. Keep admission fenced while showing normal progress.
+		out.Phase = "sending"
 	}
 	if unknown && s.connected {
 		out.Phase = "unknown"
-		out.Message = "有一次操作的结果尚未确认，正在核对；不会自动重发。"
 	}
-	out.CanSend = s.connected && !s.closed && !unknown && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
+	out.CanSend = s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
-	out.CanSteer = s.connected && !s.closed && !unknown && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
+	out.CanSteer = s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	if v != nil {
 		var past []api.Item
 		for _, sid := range s.state.PastSessions {
@@ -963,7 +971,9 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	previousContext, previousReceipt := clone(s.state.Context), s.state.LastReceipt
 	s.state.Operations[id] = j
 	s.state.Context.Resolve(id, productOutcome(op.Outcome))
-	if j.Path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+	mainInput := "/sessions/" + idPath(s.state.Session.SessionId)
+	if !j.Scheduled && (j.Path == mainInput+"/prompt" || j.Path == mainInput+"/steer") &&
+		(s.state.LastReceipt.ID == "" || s.state.LastReceipt.ID == id) {
 		s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
 	}
 	if err := s.saveLocked(); err != nil {

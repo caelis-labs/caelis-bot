@@ -25,6 +25,28 @@
 - Backend capability is broader than visible UI. Current Caelis Bot Mode limits
   are implementation status, not the product's permanent capability ceiling.
 
+## Product error handling
+
+- Absorb technical failures at their owning boundary. Harmless/transient failures
+  stay silent; record sanitized, deduplicated warnings only when useful for diagnosis.
+  Never forward raw errors, exception text, protocol states or internal retry notices
+  into chat, pet bubbles, notifications or settings alerts.
+- Recover automatically within bounded time and retry budgets, then degrade only the
+  affected capability. Preserve responsive UI, drafts, completed work and unaffected
+  features. Do not turn a local failure into an app-wide interruption.
+- Recovery must preserve original request identities and receipts. Retry safe reads;
+  reconcile uncertain effects instead of replaying them. Silence must never imply
+  success, erase uncertainty, bypass approval or lose user data.
+- Present ordinary loading/progress in place when needed. Ask only for an actual
+  user decision, missing input or authorization, with a clear next action; these are
+  product interactions, not technical error reports. Avoid fleeting recovery cards.
+- After automatic recovery is exhausted and the product cannot continue safely,
+  show one calm recovery surface offering copyable, privacy-safe feedback details
+  and restart. Keep diagnostic causes in the copied report, preserve original work,
+  and never trap the user in an endless restart loop.
+- Verify failure and recovery paths alongside success: no warning flashes during
+  normal work, no duplicate effects, no silent data loss and no leaked credentials.
+
 ## Architecture
 
 - macOS is the shipped product. Prepare the shared foundation and native Windows
@@ -91,6 +113,9 @@
 ## Verification
 
 - Use `make check`, `make smoke`, and `make build` for the affected preparation paths.
+- Release gates use exact-source CI and platform artifact verification; cross-platform
+  manual hardware acceptance is not a publishing prerequisite. Preserve mandatory
+  macOS signing/notarization checks and never label CI as native GUI acceptance.
 - Native launch goes through `script/build_and_run.sh`; inspect the actual window
   before claiming visual behavior. Add contract/lifecycle tests with real behavior.
 - Never log credentials or full private conversation content in smoke output.

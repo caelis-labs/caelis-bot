@@ -1,3 +1,5 @@
+import {Recovery} from './SurfaceBoundary';
+import {recoverRead} from './read-recovery';
 import { SettingsSelect } from './SettingsSelect';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import {useEffect,useRef,useState} from 'react';
@@ -13,7 +15,6 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const {t}=useI18n();
  const [ready,setReady]=useState(false),[limit,setLimit]=useState(''),[terminal,setTerminal]=useState('system'),[choices,setChoices]=useState<Choice[]>([]);
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
- const [saveError,setSaveError]=useState('');
  const [custom,setCustom]=useState(''),[terminalOpen,setTerminalOpen]=useState(false);
  const customSaved=useRef(''),savingCustom=useRef(false);
  const closeTerminal=()=>{saver.current?.discardTerminal();savingCustom.current=false;setTerminalOpen(false);setError('');};
@@ -21,10 +22,10 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const flush=()=>{if(timer.current)clearTimeout(timer.current);timer.current=null;void saver.current?.flush();};
  useEffect(()=>{
   let active=true;
-  const read=()=>call<TaskPreferences>('TaskPreferences');
+  const read=()=>recoverRead(()=>call<TaskPreferences>('TaskPreferences'));
   void Promise.all([read(),call<Choice[]>('TerminalChoices')]).then(([p,c])=>{
    if(!active)return;
-   saver.current=new TaskPreferencesSaver(p,read,p=>call<TaskPreferences>('SaveTaskPreferences',p),(state,cause)=>{if(active){setBusy(state==='saving');setError(state==='failed'?'settings.taskPreferencesSaveFailed':'');setSaveError(state==='failed'&&cause instanceof Error?cause.message:'');}},p=>{if(active){setTerminal(p.terminal);customSaved.current=p.customCommand??'';if(savingCustom.current){savingCustom.current=false;setTerminalOpen(false);}}});
+   saver.current=new TaskPreferencesSaver(p,read,p=>call<TaskPreferences>('SaveTaskPreferences',p),state=>{if(active){setBusy(state==='saving');setError(state==='failed'?'settings.taskPreferencesSaveFailed':'');}},p=>{if(active){setTerminal(p.terminal);customSaved.current=p.customCommand??'';if(savingCustom.current){savingCustom.current=false;setTerminalOpen(false);}}});
    setLimit(String(p.maxRunning));setTerminal(p.terminal);customSaved.current=p.customCommand??'';setChoices(c);setReady(true);
   }).catch(()=>{if(active)setError('settings.taskPreferencesLoadFailed');});
   return()=>{active=false;flush();};
@@ -50,7 +51,7 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
   {terminalOpen&&<SettingsDialog title={t('settings.customTerminal')} busy={busy} onClose={closeTerminal}>
    <form onSubmit={event=>{event.preventDefault();if(busy||!custom.trim())return;savingCustom.current=true;saver.current?.change({terminal:'custom',customCommand:custom.trim()});flush();}}>
     <input className="custom-terminal-input" aria-label={t('settings.customTerminalCommand')} value={custom} disabled={busy} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onChange={event=>{setCustom(event.target.value);setError('');}}/>
-    {error&&<p className="inline-error" role="alert">{saveError||t(error)}</p>}
+    {error&&<Recovery onRetry={()=>{void recoverRead(()=>call<TaskPreferences>('TaskPreferences')).then(()=>setError('')).catch(()=>{});}}/>}
     <div className="setup-end"><button type="button" disabled={busy} onClick={closeTerminal}>{t('common.cancel')}</button><button type="submit" className="primary" disabled={busy||!custom.trim()}>{t('common.save')}</button></div>
    </form>
   </SettingsDialog>}

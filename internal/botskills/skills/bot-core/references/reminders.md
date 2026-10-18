@@ -34,6 +34,13 @@ useful next action. If the reminder calls for substantial work, read
 is already underway. Keep routine progress quiet unless there is a result,
 meaningful change, blocker, or decision the user should know about.
 
+Lead a useful reminder with its actual message and relevant next action. The app
+may use a short excerpt as a system notification, so make the opening self-contained
+and omit credentials or sensitive diagnostic details. Ordinary chat replies are
+shown in conversation and the pet bubble without a duplicate system notification.
+Do not create a shell notification or a second reminder to compensate; system
+delivery depends on the user's permissions and whether they are already chatting.
+
 For care that depends on computer use, foreground app changes, or another
 registered data source, read [Proactive care](proactive-care.md). Use its local
 conditions to avoid waking a model just to check whether anything is relevant.

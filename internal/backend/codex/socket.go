@@ -20,7 +20,7 @@ var errExistingServer = errors.New("existing app server unavailable")
 // Prefer an already listening standard control socket. This does not launch an
 // app or daemon, inspect private app IPC, or require a CLI binary to connect.
 func connectExisting(ctx context.Context, path string) (connection, error) {
-	if runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && path != "") {
+	if runtime.GOOS == "darwin" || ((runtime.GOOS == "linux" || runtime.GOOS == "windows") && path != "") {
 		if path == "" {
 			home := os.Getenv("CODEX_HOME")
 			if home == "" {
@@ -82,7 +82,7 @@ func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	// Native tool payload size does not limit Bot availability. Stream frames;
 	// the wire projector discards tool bytes before allocating an envelope.
 	ws.SetReadLimit(-1)
-	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path, peer: peer.Load().(socketPeerIdentity)}, nil
+	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + filepath.ToSlash(path), peer: peer.Load().(socketPeerIdentity)}, nil
 }
 
 func (s *socketConnection) terminalEndpoint() string { return s.endpoint }

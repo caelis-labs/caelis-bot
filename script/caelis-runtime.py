@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -75,5 +76,56 @@ def verify(bundle):
     check_version(binary, expected)
 
 
+def stage_windows(bundle):
+    manifest = json.loads((ROOT / 'resources/caelis-runtime/release.json').read_text())
+    target = manifest['targets']['windows-amd64']
+    cache = ROOT / '.cache/caelis-runtime' / manifest['version']
+    cache.mkdir(parents=True, exist_ok=True)
+    archive = cache / target['artifact']
+    if not archive.exists():
+        # NamedTemporaryFile cannot be reopened by another process on Windows.
+        # Download closed bytes and verify before publishing or executing.
+        with tempfile.TemporaryDirectory(dir=cache) as directory:
+            downloaded = pathlib.Path(directory) / 'download.tar.gz'
+            url = 'https://github.com/caelis-labs/caelis/releases/download/' + manifest['version'] + '/' + target['artifact']
+            with urllib.request.urlopen(url, timeout=180) as response, downloaded.open('wb') as out:
+                shutil.copyfileobj(response, out)
+            if hashlib.sha256(downloaded.read_bytes()).hexdigest() != target['sha256']:
+                raise ValueError('Caelis archive checksum mismatch')
+            downloaded.replace(archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != target['sha256']:
+        raise ValueError('Cached Caelis archive checksum mismatch')
+    with tempfile.TemporaryDirectory(dir=cache) as directory:
+        temporary = pathlib.Path(directory)
+        with tarfile.open(archive) as tar:
+            for name in ['caelis.exe', 'LICENSE']:
+                matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
+                if len(matches) != 1 or not matches[0].isfile():
+                    raise ValueError('Invalid Caelis release member: ' + name)
+                (temporary / name).write_bytes(tar.extractfile(matches[0]).read())
+        binary = temporary / 'caelis.exe'
+        if hashlib.sha256(binary.read_bytes()).hexdigest() != target['binary_sha256']:
+            raise ValueError('Caelis executable checksum mismatch')
+        check_version(binary, manifest)
+        helpers, resources = bundle / 'Helpers', bundle / 'Resources'
+        helpers.mkdir(parents=True, exist_ok=True)
+        resources.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(binary, helpers / 'caelis.exe')
+        shutil.copyfile(temporary / 'LICENSE', resources / 'Caelis-Runtime-LICENSE')
+        shutil.copyfile(ROOT / 'resources/caelis-runtime/release.json', resources / 'Caelis-Runtime.json')
+
+
+def verify_windows(bundle):
+    expected = json.loads((ROOT / 'resources/caelis-runtime/release.json').read_text())
+    if json.loads((bundle / 'Resources/Caelis-Runtime.json').read_text()) != expected:
+        raise ValueError('Embedded CLI manifest differs from release pin')
+    binary = bundle / 'Helpers/caelis.exe'
+    if binary.is_symlink() or not binary.is_file() or hashlib.sha256(binary.read_bytes()).hexdigest() != expected['targets']['windows-amd64']['binary_sha256']:
+        raise ValueError('Embedded CLI executable checksum mismatch')
+    if not (bundle / 'Resources/Caelis-Runtime-LICENSE').is_file():
+        raise ValueError('Embedded CLI license missing')
+    check_version(binary, expected)
+
+
 if __name__ == '__main__':
-    {'stage': stage, 'verify': verify}[sys.argv[1]](pathlib.Path(sys.argv[2]))
+    {'stage': stage, 'verify': verify, 'stage-windows': stage_windows, 'verify-windows': verify_windows}[sys.argv[1]](pathlib.Path(sys.argv[2]))

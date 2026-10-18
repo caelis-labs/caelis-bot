@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -106,5 +107,92 @@ func TestMainPromptRetryWhileBusyKeepsOriginalOperation(t *testing.T) {
 	}
 	if posts.Load() != 1 {
 		t.Fatal("retry dispatched an additional operation")
+	}
+}
+
+func TestMainSteerLostResponseSettlesOriginalReceipt(t *testing.T) {
+	for _, outcome := range []wire.Outcome{"committed", "rejected"} {
+		for _, attached := range []bool{false, true} {
+			t.Run(string(outcome)+map[bool]string{false: "/text", true: "/attachment"}[attached], func(t *testing.T) {
+				var posts atomic.Int32
+				s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" {
+						if !strings.HasSuffix(r.URL.Path, "/steer") {
+							t.Errorf("unexpected mutation: %s", r.URL.Path)
+						}
+						posts.Add(1)
+						drop(w)
+						return
+					}
+					if !strings.HasSuffix(r.URL.Path, "/operations/original-steer") {
+						t.Errorf("changed receipt: %s", r.URL.Path)
+					}
+					writeFixture(w, wire.CommandResult{OperationId: "original-steer", Outcome: outcome})
+				})
+				s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("handle"), RunId: pointer("run"), TurnId: pointer("turn-original")}
+				var files []api.InputFile
+				if attached {
+					path := filepath.Join(t.TempDir(), "image.png")
+					if err := os.WriteFile(path, []byte("fixture image"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					files = []api.InputFile{{Path: path, Name: "image.png"}}
+				}
+				in := api.Submission{ID: "original-steer", Text: "guide"}
+				receipt, err := s.Submit(t.Context(), in, files)
+				if err != nil || receipt.Outcome != "unknown" {
+					t.Fatal(receipt, err)
+				}
+				if err := s.recoverOperations(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				got := s.Snapshot().LastReceipt
+				if got.ID != in.ID || got.Outcome != productOutcome(outcome) {
+					t.Fatalf("composer receipt: %+v", got)
+				}
+				if posts.Load() != 1 {
+					t.Fatal("recovery replayed mutation", posts.Load())
+				}
+				restored := New(Options{Directory: filepath.Dir(s.path)})
+				if restored.state.LastReceipt != got {
+					t.Fatal("settled receipt not durable")
+				}
+			})
+		}
+	}
+}
+
+func TestMainSteerRecoveryWinsLateTransportFailure(t *testing.T) {
+	for _, outcome := range []wire.Outcome{"committed", "rejected"} {
+		t.Run(string(outcome), func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var posts atomic.Int32
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "POST" {
+					posts.Add(1)
+					close(entered)
+					<-release
+					drop(w)
+					return
+				}
+				writeFixture(w, wire.CommandResult{OperationId: "late-steer", Outcome: outcome})
+			})
+			s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("t")}
+			done := make(chan api.Receipt, 1)
+			go func() {
+				receipt, _ := s.Submit(t.Context(), api.Submission{ID: "late-steer", Text: "guide"}, nil)
+				done <- receipt
+			}()
+			<-entered
+			err := s.recoverOperation(t.Context(), "late-steer")
+			close(release)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt := <-done
+			if receipt.Outcome != productOutcome(outcome) || s.Snapshot().LastReceipt.Outcome != receipt.Outcome || posts.Load() != 1 {
+				t.Fatalf("late response downgraded original receipt: %+v", receipt)
+			}
+		})
 	}
 }

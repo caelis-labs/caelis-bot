@@ -32,7 +32,7 @@ func TerminalArguments(t api.TerminalTarget) (LaunchArguments, error) {
 	result := LaunchArguments{Binary: t.Binary, Directory: t.Directory, Env: map[string]string{}}
 	switch t.Runtime {
 	case "codex":
-		if !strings.HasPrefix(t.Endpoint, "unix:///") || t.Thread == "" || strings.HasPrefix(t.Thread, "-") {
+		if !validLocalEndpoint(t.Endpoint) || t.Thread == "" || strings.HasPrefix(t.Thread, "-") {
 			return LaunchArguments{}, errors.New("invalid Codex terminal target")
 		}
 		if t.CodexHome != "" {
@@ -44,7 +44,7 @@ func TerminalArguments(t api.TerminalTarget) (LaunchArguments, error) {
 		if err != nil || u.Scheme != "http" || !net.ParseIP(u.Hostname()).IsLoopback() || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || t.Session == "" || strings.HasPrefix(t.Session, "-") || !filepath.IsAbs(t.Store) || !filepath.IsAbs(t.TokenFile) {
 			return LaunchArguments{}, errors.New("invalid Caelis terminal target")
 		}
-		result.Args = []string{"attach", "--control-url", t.Endpoint, "--session", t.Session, "--store-dir", t.Store, "--control-token-file", t.TokenFile}
+		result.Args = caelisTerminalArguments(t)
 	case "setup":
 		result.Args = []string{}
 	default:

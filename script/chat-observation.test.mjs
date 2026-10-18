@@ -181,3 +181,11 @@ test('a failed draft write rejects the send and window-switch barrier',async()=>
  queue.enqueue(async()=>{});
  await queue.flush();
 });
+
+test('a confirmed refusal cannot be downgraded by a late timeout',()=>{
+ const progress=new SubmissionProgress();
+ assert.equal(progress.observe('rejected'),'rejected');
+ assert.equal(progress.observe('unknown'),'rejected');
+ assert.equal(progress.observe(''),'rejected');
+ assert.throws(()=>progress.synchronize(async()=>{}));
+});

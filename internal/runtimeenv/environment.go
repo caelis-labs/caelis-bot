@@ -34,7 +34,8 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 func Clean(input []string) []string {
 	out := make([]string, 0, len(input))
 	for _, entry := range input {
-		key, _, ok := strings.Cut(entry, "=")
+		key, _, ok := splitEnvironment(entry)
+		key = environmentKey(key)
 		if !ok || key == "" || strings.HasPrefix(key, "CAELIS_CONTROL_") {
 			continue
 		}
@@ -50,8 +51,8 @@ func Clean(input []string) []string {
 func values(env []string) map[string]string {
 	out := map[string]string{}
 	for _, entry := range env {
-		if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
-			out[key] = value
+		if key, value, ok := splitEnvironment(entry); ok && key != "" {
+			out[environmentKey(key)] = value
 		}
 	}
 	return out
@@ -83,7 +84,7 @@ func Resolve(ctx context.Context, inherited []string, privateHomes ...string) ([
 // The native application supplies its known legacy private homes; this package
 // does not infer product storage from arbitrary directory names.
 func ResolveWithReport(ctx context.Context, inherited []string, privateHomes ...string) ([]string, Report, error) {
-	return resolve(ctx, inherited, currentAccount(), privateHomes...)
+	return resolvePlatform(ctx, inherited, currentAccount(), privateHomes...)
 }
 func resolve(ctx context.Context, inherited []string, who account, privateHomes ...string) ([]string, Report, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
@@ -216,17 +217,29 @@ func mergePath(shell, inherited string) (string, int) {
 
 // Install is only called before the native host starts runtime/UI goroutines.
 func Install(env []string) error {
+	return install(env, os.Environ(), os.Setenv, os.Unsetenv)
+}
+
+func install(env, current []string, set func(string, string) error, unset func(string) error) error {
 	v := values(env)
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if _, keep := v[key]; !keep {
-			if err := os.Unsetenv(key); err != nil {
+	for _, entry := range current {
+		key, _, ok := splitEnvironment(entry)
+		// Windows drive-current-directory entries are inherited OS bookkeeping.
+		// Go's Setenv/Unsetenv cannot mutate keys containing '='; leave them intact.
+		if !ok || key == "" || strings.HasPrefix(key, "=") {
+			continue
+		}
+		if _, keep := v[environmentKey(key)]; !keep {
+			if err := unset(key); err != nil {
 				return err
 			}
 		}
 	}
 	for key, value := range v {
-		if err := os.Setenv(key, value); err != nil {
+		if strings.HasPrefix(key, "=") {
+			continue
+		}
+		if err := set(key, value); err != nil {
 			return err
 		}
 	}

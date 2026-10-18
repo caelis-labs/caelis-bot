@@ -1,1 +1,13 @@
 internal/plugins/packages/** -text
+# These public protocol bytes are pinned by SHA256, independent of checkout OS.
+protocol/caelis/openapi.json -text
+internal/backend/codex/schema/** -text
+internal/backend/caelis/wire/control_v1.gen.go -text
+frontend/src/backend/contract.ts text eol=lf
+# Finished character resources are hashed as bytes by resources/character-pack.json.
+frontend/public/models/** -text
+frontend/public/portraits/** -text
+frontend/public/icons/** -text
+frontend/assets/caelis-avatar-v1.svg -text
+internal/desktop/assets/** -text
+resources/macos/CaelisBot.icns -text

@@ -226,7 +226,7 @@ func TestBotProjectRejectsEscapingLinksAndSymlinkDirectories(t *testing.T) {
 	}
 	other := t.TempDir()
 	alias := filepath.Join(other, ".agents")
-	if err := os.Symlink(skillDir, alias); err != nil {
+	if err := createSkillLink(skillDir, alias); err != nil {
 		t.Fatal(err)
 	}
 	if err := projectCodexWorkspace(other, &api.ToolConnection{}); err == nil {
@@ -277,7 +277,7 @@ func TestBotProjectRetargetsOwnedPluginSkillOnUpgrade(t *testing.T) {
 	project := func(skill string) *api.ToolConnection {
 		return &api.ToolConnection{Command: "/fixture/Bot", Plugins: plugins.Selection{
 			SkillRoots: []string{skill},
-			Servers: []plugins.SelectedServer{{PackageID: "sample", Name: "remote", Server: plugins.Server{Type: "streamable-http", URL: "https://example.com/mcp"}}},
+			Servers:    []plugins.SelectedServer{{PackageID: "sample", Name: "remote", Server: plugins.Server{Type: "streamable-http", URL: "https://example.com/mcp"}}},
 		}}
 	}
 	if err := projectCodexWorkspace(bot, project(oldSkill)); err != nil {
@@ -295,7 +295,7 @@ func TestBotProjectRetargetsOwnedPluginSkillOnUpgrade(t *testing.T) {
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(oldSkill, link); err != nil {
+	if err := createSkillLink(oldSkill, link); err != nil {
 		t.Fatal(err)
 	}
 	config := filepath.Join(bot, ".codex", "config.toml")

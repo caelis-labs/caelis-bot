@@ -54,14 +54,15 @@ test('packaging changes exercise the DMG while an ordinary transport change does
   for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'script/prepare-appcast.sh', 'script/publication.mjs', 'script/publish-r2.mjs', 'script/verify-release-candidate.sh', 'script/sync-github-latest.mjs', 'script/stage-desktop-world-windows.ps1', 'resources/macos/Info.plist', '.github/workflows/release.yml', '.github/workflows/promote-release.yml']) {
     assert.equal(scope([path]).preview, true);
   }
-  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false});
-  assert.deepEqual(scope(['internal/desktop/runtime_windows.go']), {kind: 'windows', preview: false});
-  assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind: 'shared', preview: false});
-  assert.deepEqual(scope(['unknown-path']), {kind: 'full', preview: false});
+  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false, windowsPreview:false});
+  assert.deepEqual(scope(['internal/desktop/runtime_windows.go']), {kind: 'windows', preview: false, windowsPreview:true});
+  for(const path of ['script/build-windows.ps1','script/package-nsis-windows.ps1','.github/workflows/windows-preview.yml'])assert.deepEqual(scope([path]),{kind:'windows',preview:false,windowsPreview:true});
+  assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind: 'shared', preview: false, windowsPreview:false});
+  assert.deepEqual(scope(['unknown-path']), {kind: 'full', preview: false, windowsPreview:false});
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {
-  const all={macos:'success',windows:'success',linux:'success',preview:'skipped'};
+  const all={macos:'success',windows:'success',linux:'success',preview:'skipped',windowsPreview:'skipped'};
   requireResults('full', 'success', all);
   requireResults('shared', 'success', all);
   requireResults('full', 'success', {...all,preview:'success'}, true);
@@ -92,12 +93,12 @@ test('CLI classifies the real git diff and writes bounded step outputs', () => {
     git(['add', '.']); git(['commit', '-qm', 'version']);
     const output = join(directory, 'output');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
-    assert.equal(readFileSync(output, 'utf8'), 'kind=release\npreview=false\n');
+    assert.equal(readFileSync(output, 'utf8'), 'kind=release\npreview=false\nwindowsPreview=false\n');
     writeFileSync(join(directory, 'runtime 变更.js'), 'changed');
     git(['add', 'runtime 变更.js']); git(['commit', '-qm', 'runtime']);
     writeFileSync(output, '');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
-    assert.equal(readFileSync(output, 'utf8'), 'kind=full\npreview=false\n');
+    assert.equal(readFileSync(output, 'utf8'), 'kind=full\npreview=false\nwindowsPreview=true\n');
   } finally {rmSync(directory, {recursive: true, force: true});}
 });
 
@@ -113,4 +114,12 @@ test('lightweight public-tree guard runs without installing the GLB validator', 
     execFileSync('git', ['init', '-q'], {cwd: directory});
     execFileSync(process.execPath, ['script/check-public-tree.mjs'], {cwd: directory, encoding: 'utf8'});
   } finally {rmSync(directory, {recursive: true, force: true});}
+});
+
+test('Windows candidate failures and missing results fail the aggregate gate',()=>{
+ const results={macos:'skipped',windows:'success',linux:'skipped',preview:'skipped',windowsPreview:'success'};
+ requireResults('windows','success',results,false,true);
+ for(const state of ['failure','cancelled','skipped',''])assert.throws(()=>requireResults('windows','success',{...results,windowsPreview:state},false,true));
+ const {windowsPreview,...missing}=results;assert.throws(()=>requireResults('windows','success',missing,false,true));
+ for(const path of ['script/package-zip-windows.ps1','script/windows-version.mjs','script/verify-windows-candidate.mjs','.github/workflows/windows-preview.yml'])assert.equal(scope([path]).windowsPreview,true);
 });

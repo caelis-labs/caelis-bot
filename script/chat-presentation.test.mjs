@@ -29,9 +29,10 @@ test('empty running input stops; text or attachments switch back to send without
 test('waiting excludes approvals, recovery and terminal states, even with a remaining interrupt capability', () => {
  assert.equal(chatActivity(running),'thinking');
  assert.equal(chatActivity({...running,phase:'sending'}),'thinking');
- for(const phase of ['completed','failed','interrupted','unknown','unconfirmed','attention']) {
+ for(const phase of ['completed','failed','interrupted','unconfirmed','attention']) {
   assert.equal(chatActivity({...running,phase}),null,phase);
  }
+ assert.equal(chatActivity({...running,phase:'unknown',canSend:false,canSteer:false}),'recovering');
  assert.equal(chatActivity({...running,connection:'disconnected'}),null);
  for(const status of ['pending','sending','sent','unknown','unavailable']) {
   assert.equal(chatActivity({...running,approvals:[{status}]}),null,status);
@@ -101,6 +102,21 @@ test('chat editor uses native send/steer capability and optimistic inputs merge 
  const native={...first,id:'native-1',status:'completed'};
  assert.deepEqual(withOutgoing([native],[first,second]),[native,second]);
  assert.deepEqual(withOutgoing([{id:'foreign',text:'same'}],[first]),[{id:'foreign',text:'same'},first]);
+});
+
+test('the local outbox starts thinking before Runtime polling and yields to authoritative replies',()=>{
+ const idle={...running,phase:'completed',currentTurn:'',canSend:true,canSteer:false,canInterrupt:false};
+ const pending={id:'local',requestId:'original',kind:'user',text:'hello',status:'sending'};
+ assert.equal(chatActivity(idle,[pending]),'thinking');
+ assert.equal(chatActivity({...idle,items:[pending]}),'thinking','native outbox continues the same indicator');
+ assert.equal(chatActivity({...idle,items:[{...pending,id:'native',status:'accepted'}]},[pending]),null,'native confirmation supersedes stale optimistic status');
+ assert.equal(chatActivity({...idle,connection:'offline'},[pending]),null);
+ assert.equal(chatActivity({...idle,approvals:[{status:'pending'}]},[pending]),null);
+ assert.equal(chatActivity({...idle,phase:'interrupting'},[pending]),'stopping');
+ const reply={id:'reply',turnKey:'current',kind:'assistant',text:'hello back',status:'inProgress'};
+ assert.equal(chatActivity({...running,items:[reply]},[pending]),null,'streaming reply already communicates progress');
+ for(const status of ['accepted','rejected','unknown'])assert.equal(chatActivity(idle,[{...pending,status}]),null,'receipt must end optimistic waiting: '+status);
+ assert.equal(idle.canInterrupt,false,'presentation never grants stop authority');
 });
 
 

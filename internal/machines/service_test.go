@@ -3,6 +3,7 @@ package machines
 import (
 	"context"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -130,7 +131,7 @@ func TestSSHControlDirectoryRejectsRedirectedAndPublicDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(dir) })
-	if err = os.Chmod(dir, 0755); err != nil {
+	if err = testutil.SetMode(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.sshArgs(profile{}, false); err == nil {
@@ -139,7 +140,7 @@ func TestSSHControlDirectoryRejectsRedirectedAndPublicDirectory(t *testing.T) {
 	if err = os.Remove(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.Symlink(t.TempDir(), dir); err != nil {
+	if err = testutil.Redirect(t.TempDir(), dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.sshArgs(profile{}, true); err == nil {

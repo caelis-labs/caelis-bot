@@ -9,6 +9,9 @@ const {setupStatusKey,botSessionStatusKey} = await server.ssrLoadModule('/src/se
 const {connectModels}=await server.ssrLoadModule('/src/settings/runtime/connect-models.ts');
 const {validCustomLimits,onboardingEffort,modelDescription,initialModelSelection,defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
+// Finish module loading before registering tests; otherwise their after hook can
+// close the SSR transport while a later top-level import is still in flight.
+const {ModelSelectionDelivery}=await server.ssrLoadModule('/src/settings/runtime/model-selection.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
 
@@ -215,4 +218,21 @@ test('custom limits require explicit positive safe token counts',()=>{
  assert.equal(validCustomLimits('128000','8192'),true);
  for(const value of ['', '0', '-1', '1.5', 'NaN', 'Infinity']) assert.equal(validCustomLimits(value,'8192'),false);
  assert.equal(validCustomLimits('128000',''),false);
+});
+
+test('model choice stays editable across a lost acknowledgement and newer choices win',async()=>{
+ let release;const blocked=new Promise(resolve=>{release=resolve});
+ const calls=[];let first=true;
+ const delivery=new ModelSelectionDelivery(async(method,scope,runtime,selection)=>{
+  calls.push([method,scope,runtime,selection.model]);
+  if(first){first=false;await blocked;throw Error('lost transport response');}
+ },async()=>{});
+ delivery.save('conversation','codex',{model:'first',effort:'',serviceTier:''});
+ delivery.save('conversation','caelis',{model:'latest',effort:'',serviceTier:''});
+ assert.equal(delivery.snapshot()[0].selection.model,'latest');
+ assert.equal(delivery.snapshot()[0].state,'saving');
+ release();
+ for(let i=0;i<20&&delivery.snapshot().length;i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls.map(v=>v[3]),['first','latest']);
+ assert.deepEqual(delivery.snapshot(),[]);
 });

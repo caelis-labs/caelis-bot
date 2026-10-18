@@ -1,5 +1,10 @@
 # Issue draft: Windows 11 x64 first native Caelis Bot product
 
+> Historical v0.8.0 foundation handoff. The active Windows work now starts from
+> main / v0.14.0; follow the [Windows adaptation plan](windows-adaptation-plan.md)
+> and [confirmed issues](windows-adaptation-issues.md). The old runtime, packaging
+> and interaction details below are not the current implementation contract.
+
 ## Source and scope
 
 - Base: `origin/main` at `cf9071982563eddb9926f1ba7a09062148f9ad26` (`v0.8.0`).

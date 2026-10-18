@@ -465,3 +465,32 @@ func TestCaptureContextPreferencePersistsAndFailsClosed(t *testing.T) {
 		t.Fatal("unreadable preference did not fail closed", v)
 	}
 }
+
+func TestCaptureDisabledBeforeAdmissionReturnsEditableDraft(t *testing.T) {
+	s, d, id := captureFixture(t)
+	s.capture.submit = func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		t.Fatal("disabled capture dispatched")
+		return api.Receipt{}, nil
+	}
+	if _, err := s.SetCaptureEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	s.sendCapture(id)
+	record, err := screeninput.Load(s.capture.root, id)
+	if err != nil || record.Outcome != "draft" || record.RequestID != "" {
+		t.Fatal(record, err)
+	}
+	if len(d.receipts) != 1 || d.receipts[0]["outcome"] != "draft" {
+		t.Fatal("editor left pending", d.receipts)
+	}
+	if _, err := s.SetCaptureEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	s.capture.submit = func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}
+	s.sendCapture(id)
+	if d.receipts[len(d.receipts)-1]["outcome"] != "accepted" {
+		t.Fatal("restored capture unusable", d.receipts)
+	}
+}

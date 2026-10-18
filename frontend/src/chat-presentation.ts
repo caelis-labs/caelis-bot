@@ -6,7 +6,14 @@ export function canSubmit(snapshot: Snapshot | null) {
 
 export function withOutgoing(items: Item[], outgoing: Item[]): Item[] {
  const known = new Set(items.map(item => item.requestId).filter(Boolean));
- return [...items, ...outgoing.filter(item => !known.has(item.requestId))];
+ const staged = new Map(outgoing.filter(item=>item.requestId).map(item=>[item.requestId,item]));
+ // A very fast acknowledgement can arrive before the optimistic row commits.
+ // Retain its local display time while all authoritative content/status wins.
+ const confirmed=items.map(item=>{
+  const local=staged.get(item.requestId);
+  return local?.seenAt?{...item,seenAt:local.seenAt}:item;
+ });
+ return [...confirmed, ...outgoing.filter(item => !known.has(item.requestId))];
 }
 
 // Older stored projections can still say inProgress after their turn ended.
@@ -24,7 +31,7 @@ export function composerAction(snapshot: Snapshot | null, hasContent: boolean) {
  return snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
 }
 
-export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming';
+export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming' | 'recovering';
 // Older adapter snapshots may omit turnKey. Native Codex projections always
 // provide it, so a Worker decision cannot preempt the resident reply.
 export function belongsToTurn(value: {turnKey?: string}, turn: string) { return !value.turnKey || value.turnKey === turn; }
@@ -59,13 +66,18 @@ export function activeReplyID(snapshot: Snapshot | null): string | null {
  }
  return null;
 }
-export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
+export function chatActivity(snapshot: Snapshot | null, outgoing: Item[] = []): ChatActivity | null {
  if(snapshot?.introductionPending)return 'thinking';
  if (!snapshot || snapshot.connection !== 'ready') return null;
  if (snapshot.phase === 'interrupting') return 'stopping';
  if (snapshot.approvals.some(p => p.status !== 'resolved' && belongsToTurn(p,snapshot.currentTurn))) return null;
+ // The visible outbox can precede the first Runtime snapshot. A local send
+ // belongs to the same waiting row, without inventing execution capabilities.
+ const sending=withOutgoing(snapshot.items,outgoing).some(item=>item.kind==='user'&&item.status==='sending');
+ if(sending&&!activeReplyID(snapshot))return 'thinking';
  if (snapshot.maintenance === 'dreaming' && snapshot.phase === 'working' && !snapshot.message) return 'dreaming';
  if (snapshot.quiet) return null;
+ if (snapshot.phase === 'unknown') return 'recovering';
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;
  // A visible streaming answer already communicates progress. Empty started
  // items, completed commentary and tool work still need a waiting indicator.

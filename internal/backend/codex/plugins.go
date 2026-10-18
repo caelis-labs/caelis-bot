@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/dirlink"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,8 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
+
+func createSkillLink(target, link string) error { return dirlink.Create(target, link) }
 
 const projectMarker = "# Managed by Caelis Bot. Bot workspace only.\n"
 
@@ -249,7 +252,7 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 		if _, err := os.Lstat(link); err == nil {
 			return errors.New("Bot skill path collision")
 		}
-		if err := os.Symlink(target, link); err != nil {
+		if err := createSkillLink(target, link); err != nil {
 			return err
 		}
 	}

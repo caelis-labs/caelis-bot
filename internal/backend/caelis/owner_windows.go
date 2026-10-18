@@ -1,6 +1,8 @@
 package caelis
 
-import "os"
+import (
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"os"
+)
 
-// Windows needs a native ACL/credential-store adapter before activation.
-func owned(os.FileInfo) bool { return false }
+func privateState(path string, _ os.FileInfo) bool { return localstate.IsPrivate(path) }

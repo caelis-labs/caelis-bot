@@ -72,6 +72,18 @@ type UpdatePreferences struct {
 	Waiting   bool   `json:"waiting"`
 	State     string `json:"state,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Format    string `json:"format,omitempty"`
+	Latest    string `json:"latest,omitempty"`
+}
+
+func (s *Service) InstallUpdate() error {
+	s.mu.Lock()
+	f := s.installNativeUpdate
+	s.mu.Unlock()
+	if f == nil {
+		return errors.New(s.text("native.autoUpdateUnavailable", nil))
+	}
+	return f()
 }
 
 func (s *Service) UpdatePreferences() UpdatePreferences {

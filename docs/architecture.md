@@ -36,16 +36,46 @@ effect callbacks; `internal/secretstore.Store`, `localipc.Endpoint` and the
 terminal script boundary keep OS authority local to their consumers. Frontend
 feature DTOs distinguish supported, available, enabled and permission state;
 permissions never overwrite a saved product choice. Unsupported hosts fail before
-writing preferences. Windows 11 x64 native drivers, current-user Named Pipe,
-Credential Manager, Job Objects and GUI acceptance remain the next stage.
+writing preferences. Windows drivers now implement the same assembly with WebView2,
+current-user Named Pipe/SID validation, private ACL FileStore and owned Job Objects.
+The FileStore remains the current credential contract; it is not Credential Manager.
+Windows GUI and release acceptance remain separate gates in the adaptation plan.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 Runtime activation replaces the resident adapter inside the same application.
+User model selections first enter a host-owned, durable last-choice journal,
+independent of setup/network locks. A cancellable coordinator applies them with
+bounded backoff; storage failures retain an explicit in-memory saving state.
+The settings surface reads this small journal independently of Runtime catalogs,
+keeps cached choices usable during refresh, and distinguishes saved from applied.
+Model preferences affect subsequent execution; existing turns retain their
+native execution snapshot and approvals. Cross-provider conversation handoff
+reconciles its original pending send internally while the current connection
+remains usable. Worker activity never gates a user's preference.
 Admission pauses while the target connects; only a successful handshake commits
 the active selection. Failed activation restores the original adapter and draft.
 Existing task routes and the independent worker default keep their original
 provider. Native windows, the menu bar and the Bot identity stay alive. Only first
 activation carries unsent attachments into an empty target; ordinary switches and
 rollback load the original provider-scoped selection.
+Onboarding preparation keeps a process-local, 30-second setup snapshot. Explicit
+recheck and connection mutations invalidate it; executable/preferences/auth-file
+changes, a closed Codex management client, and Caelis Host/configuration changes
+prevent reuse. No credential contents enter the snapshot. Bundled service preparation
+and resident activation share Core's existing recovery coordinator. An unchanged,
+ready resident activated by this setup controller can be reused without rebinding
+tools or rebuilding plugins; ordinary switching, admission and rollback remain intact.
+Confirmed model selection may advance the renderer to extras/introduction while
+activation runs. The first introduction still awaits activation and native readiness;
+changing pages cannot submit work or turn stale completion into authority.
+Inactive Worker observers are detached before reading their ledger into a new
+resident. The outgoing resident remains the single Worker owner until commit,
+then detaches without interrupting native execution. Failed handoff restores the
+original connection and draft; no ordinary Codex Close is used to stop Workers
+as a side effect of a settings change. Caelis preference retries reconcile the
+original configuration receipt and read back state before issuing a newer write.
+Retained Worker approvals remain visible to the current Bot and chat surface;
+decisions and external approval navigation route to the exact original adapter.
+Worker approval revisions refresh chat even when the resident has no new events.
 `GOWORK=off`; no sibling private imports.
 
 The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
@@ -135,7 +165,12 @@ bounded best-effort queue. Optional feature assembly runs after native surfaces 
 ready and retries without quitting the application. Invalid native identities or
 receipt journals are preserved and reopened after repair; they never authorize
 replacement owners or uncertain-effect replay. Window rendering failures remount
-presentation independently of native work and other windows.
+presentation independently of native work and other windows. Account catalog reads use three bounded attempts,
+including unavailable, empty and missing-choice results. Exhaustion ends loading and preserves Back,
+feedback and retry; retrying this catalog never repeats a connection mutation. Composer cleanup observes
+original receipts and drafts automatically with a finite budget, never resending a message.
+First-run and artifact reads also use bounded recovery; settings, approval and preview surfaces keep
+exception text out of presentation. Local retry preserves mounted inputs and cannot submit an enclosing form.
 
 Telegram checkpoints each received update and its original input in a durable
 inbox before advancing its polling offset. Callback, control and ordinary-input
@@ -268,6 +303,13 @@ The IM record stores the original user body and a separate bounded quote for a
 collapsed preview; opening the preview never resolves a control request.
 Older records without quote metadata cannot be reconstructed. Local chat timestamps come
 from persisted message times and are grouped by local day or a five-minute gap.
+The first visible message has no divider. A local send decides its time boundary
+with the optimistic message before the first paint; exact-request acknowledgement
+keeps that display time and boundary stable. Late timestamp enrichment must not
+insert a divider above an already visible row. Loading earlier history can add
+a boundary at the new adjacency. Draft reconciliation stays silent while work
+continues; send preparation uses the existing action button without adding height
+or replacing an available Stop action.
 Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
 model context. Quote metadata grants no permission and does not imply a second
 Bot conversation or a transport-aware Bot.
@@ -455,6 +497,13 @@ only Workers, never its resident conversation or Bot callbacks. The current resi
 still validates native delegation authority before any start or continuation. Per-
 provider settings preserve store identity, models and account ownership. Task backend
 bindings survive a resident change and remain visible if their owner is unavailable.
+New local defaults follow the conversation. Empty legacy preferences are migrated
+without a runtime probe; a successfully read catalog can also invalidate an explicit
+model/parameter choice and persist that fallback. Failed discovery preserves the
+choice. Reconciliation runs during settings inspection and before a new route is
+bound. The follow-conversation decision is frozen with that route; changing defaults
+does not reinterpret a reserved or dispatched request. Per-provider preferences and
+existing native task bindings are retained.
 
 Remote v1 routes migrate once from their locked profile runtime to a durable per-task
 backend map. Observation caches are keyed by machine and backend; reading, sending,
@@ -513,7 +562,7 @@ A displayed message, task card, gesture, tool discovery or accepted dispatch nev
 
 Persist mutation intent and stable request ID before dispatch. Accepted/rejected/unknown remain distinct.
 Unknown operations only reconcile the original receipt; never resend with a fresh ID or switch Runtime.
-Early terminal events win over late acceptance. Replayed items replace/deduplicate facts; old history pages
+Early terminal events win over late responses. Main prompt and steer receipt recovery both update the original Composer receipt; scheduled/Worker receipts cannot replace a newer human receipt. Replayed items replace/deduplicate facts; old history pages
 cannot replay approvals, create workers or overwrite live state. Callback dispatch uses the original catalog,
 configuration revision, tools version and invocation; an unavailable old handler fails rather than rerouting.
 
@@ -710,9 +759,22 @@ A confirmed exited TUI client can reconnect in the same owned GUI instance; do n
 No automatic reconnect, task prompt replay or idle instance cleanup. Closing a terminal does not stop a Worker.
 Hide/show, placement and still preview are optional driver capabilities; unsupported actions preserve ownership.
 
+Windows uses its own console/ConPTY adapter and verified client receipt, while
+retaining the same Worker ownership contract. At the final interactive child
+launch, remove inherited `NO_COLOR` and `TERM=dumb` from headless parent tools;
+preserve genuine terminal capability variables and the allowlisted runtime home.
+Task preview geometry is computed in native monitor-relative DIP coordinates;
+the renderer paints the bounded fan/side stack without changing task bindings.
+
+Caelis Worker history accepts exact `append_page` continuation cursors before
+the final `sync`. SSE IDs must still match their delivery cursor, and only the
+completed sync supplies the older-history boundary. Replacement transactions,
+original Session ownership and bounded traversal remain mandatory; an unreadable
+stream must not become an empty successful conversation.
+
 ## Desktop and presentation
 
-Desktop World v0.1.0-rc.8 is an optional built-in Agent Plugins package, initially
+Desktop World v0.1.0-rc.9 is an optional built-in Agent Plugins package, initially
 enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
 offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
 package (`bin/dtw`, `libexec/cua-driver`,
@@ -728,7 +790,11 @@ sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
 catalog and approval list.
 
 The MCP `exec` tool and its private CUA worker are upstream release code. The
-worker is spawned from the plugin process under Bot's app bundle, without an
+rc.9 execution context is owned by the MCP process; callers omit a named
+`session` and recover receipts through that same originating connection. Bot's
+Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
+when an input error may follow an already applied action.
+The worker is spawned from the plugin process under Bot's app bundle, without an
 installed second app or Node runtime. The current Runtime chain starts the Bot
 MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
 signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
@@ -740,7 +806,7 @@ so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published rc.8 Mac binaries are Developer ID signed, with upstream notarization
+server, reset TCC, or infer successful input from a model reply. Published rc.9 Mac binaries are Developer ID signed, with upstream notarization
 evidence. Bot verifies those signatures before cleaning build-machine runtime
 paths and re-signing both nested binaries with its selected app identity. The
 app seals the complete resulting inventory and independently passes its own
@@ -821,11 +887,11 @@ gate does not govern ordinary chat images or Desktop World task observation and
 capture. Screen Recording remains a separate macOS permission; preference reads
 and disabling never request it.
 First-run feature selection has its own native completion marker, separate from
-the permission guide. New installs save the chosen capture gate before marking
+the legacy permission guide. New installs save the chosen capture gate before marking
 the feature step complete; an old completed permission guide migrates without
-repeating the feature step or changing existing capture preferences. The
-permission step reads the confirmed gate only to omit an unnecessary Screen
-Recording prompt. A ready Runtime can resume setup after both markers complete.
+repeating the feature step or changing existing capture preferences. Onboarding
+does not read or complete the legacy permission marker: a ready Runtime proceeds
+from feature choices directly to introduction, regardless of existing OS grants.
 
 Ordinary received images have a separate App-owned presentation store keyed by
 the original submission ID. Local and remote submissions save bounded bytes before
@@ -839,6 +905,34 @@ PNG/JPEG/GIF tiles use a bounded retained JPEG thumbnail and load original bytes
 only when opened. WebP uses its retained original for both views because the
 renderer decodes it directly. Missing or invalid images show an unavailable tile.
 
+Chat immediately stages a user message and removes the submitted content from
+the editor's local view. The outbox drives the existing thinking indicator before
+the next Runtime poll; it does not grant execution, steer or interrupt authority.
+The native draft remains durable until the original receipt accepts it. Refusal
+or uncertainty restores its presentation without overwriting a newer edit, and an
+uncertain original request blocks another submission until reconciled. Native echo
+replacement uses request identity, not text. Slow draft/file reads are fenced so
+consumed inputs cannot flash back while acceptance is settling.
+
 System permissions are independent fresh OS facts. Explicit requests may prompt; background reads/capture never
 request consent. Ordinary enable does not reset TCC; the separate repair action requires a checkbox and targets
 one category/current bundle. No Full Disk Access request or direct TCC database edits.
+The first user-initiated F1 capture uses ScreenCaptureKit's native consent flow;
+refusal pauses automatic attempts. A real notification may request notification
+consent once per process while undetermined; pending events retain their IDs and
+can be dismissed before delivery. Denial never opens System Settings automatically.
+Windows keeps its native capture/notification availability rules; do not simulate
+macOS permission prompts on systems that do not require them.
+
+OS notification policy is shared in `backend.NotificationObserver`: only native
+pending decisions and new, non-quiet, successfully completed scheduled turns with
+current-turn assistant content qualify. Ordinary replies, completion-only events,
+failed/unknown work and recovery state never emit OS alerts. Reminder bodies use
+a bounded plain-text excerpt; tool output, earlier turns, link destinations and
+code blocks are not previews. Approval payloads remain private to the app.
+Decision IDs deduplicate delivery and remove resolved notifications. Task outcome
+uncertainty retains original receipts and durable diagnostic deduplication, without
+an OS alert or retry. Native adapters suppress notifications while the conversation
+window is focused and decisions while the pet is visible. Reminders and downloaded
+updates may attract attention with a visible pet. Windows queues delivery and
+dismissal on the UI thread in order, without waiting while holding `Service.mu`.

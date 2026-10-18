@@ -1,9 +1,16 @@
 import {test} from 'node:test';
+import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,copyFileSync,writeFileSync,rmSync,symlinkSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {readManifest,validateManifest,verifyPack,importPack,manifestPath} from './asset-pack.mjs';
+
+test('every byte-pinned finished asset disables checkout newline conversion',()=>{
+ const files=readManifest().files.map(f=>f.path);
+ const attrs=execFileSync('git',['check-attr','-z','--stdin','text'],{input:files.join('\0')+'\0',encoding:'utf8'}).split('\0');
+ for(let i=0;i<attrs.length-1;i+=3) assert.equal(attrs[i+2],'unset',attrs[i]);
+});
 
 test('untrusted pack cannot overwrite code, select missing resources or change contract silently',()=>{
  const mutate=f=>{const m=readManifest();f(m);return()=>validateManifest(m);};
@@ -22,7 +29,11 @@ test('verified import is exact, rejects extra source files, symlinks and corrupt
   await verifyPack(source,{strict:true});await importPack(source,dest);assert.deepEqual(readManifest(dest),m);
   const original=readFileSync(join(dest,m.files[0].path));
   writeFileSync(join(source,'authoring.blend'),'private');await assert.rejects(importPack(source,dest),/unlisted/);rmSync(join(source,'authoring.blend'));
-  const file=join(source,m.files[0].path);rmSync(file);symlinkSync(join(dest,m.files[0].path),file);await assert.rejects(importPack(source,dest),/symlink/);rmSync(file);
+  const file=join(source,m.files[0].path);rmSync(file);
+  // A directory junction exercises the same reparse rejection without requiring
+  // the Windows symlink privilege. Neither kind may enter a finished pack.
+  symlinkSync(process.platform==='win32'?dest:join(dest,m.files[0].path),file,process.platform==='win32'?'junction':'file');
+  await assert.rejects(importPack(source,dest),/symlink/);rmSync(file,{recursive:process.platform==='win32'});
   writeFileSync(file,'bad');await assert.rejects(importPack(source,dest),/hash mismatch/);
   assert.deepEqual(readFileSync(join(dest,m.files[0].path)),original);
  }finally{rmSync(dir,{recursive:true,force:true});}

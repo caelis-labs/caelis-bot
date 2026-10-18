@@ -10,7 +10,9 @@
 | [Development](development.md) | Setup/signing, tests, native verification, localization and evidence limits |
 | [Content packs](content-packs.md) | Creator format, official asset delivery, licenses and runtime responsibilities |
 | [Release](release.md) | Protected release automation, credentials, recovery and public artifact acceptance |
-| [Windows 11 handoff issue](windows-11-handoff.md) | Ordered native implementation tasks and exact acceptance gates after the Mac foundation PR |
+| [Windows adaptation plan](windows-adaptation-plan.md) | Rebuild from current main, core feature/UI parity, platform isolation and independent Windows publication |
+| [Windows baseline issues](windows-adaptation-issues.md) | Reproduced defects, missing adapters and explicit verification limits |
+| [Windows preview release](windows-release.md) | Setup/ZIP, independent CI, update signing, local key backup and exact artifact acceptance |
 
 These owner guides replace historical design plans, handoffs and repeated acceptance diaries. Earlier records
 remain in Git (`git show 43314d5:docs/<old-path>`), with implementation history in the corresponding PRs.

@@ -30,7 +30,7 @@ func TestMissingRuntimeCatalogDoesNotSelectOrExposeModels(t *testing.T) {
 		if len(models) != 0 || a.HasRuntimeChoice() {
 			t.Fatal("inspection exposed unavailable models or selected a runtime", models)
 		}
-		if err := a.setup.SaveSelectedModel(t.Context(), "conversation", id, api.WorkExecutionSettings{Model: "not-available"}); err == nil {
+		if err := a.setup.applySelectedModel(t.Context(), "conversation", id, api.WorkExecutionSettings{Model: "not-available"}); err == nil {
 			t.Fatal("unready model accepted")
 		}
 	}
@@ -157,6 +157,9 @@ func TestWorkerFollowConversationUsesCurrentModelAndKeepsOldRoutes(t *testing.T)
 		t.Fatal(selected, err)
 	}
 	pool.defaultRuntime = "caelis"
+	if err := localstate.Write(filepath.Join(dir, "work-execution.json"), api.WorkExecutionSettings{Model: "caelis-model"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.StartWork(t.Context(), api.WorkStart{ID: "explicit"}); err != nil {
 		t.Fatal(err)
 	}

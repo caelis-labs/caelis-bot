@@ -62,7 +62,7 @@ func WriteConfirmed(path string, value any) error {
 }
 
 func writeBytes(path string, body []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := EnsurePrivateDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".state-*")
@@ -70,7 +70,10 @@ func writeBytes(path string, body []byte) error {
 		return err
 	}
 	defer os.Remove(f.Name())
-	_, err = f.Write(body)
+	err = ProtectOpenFile(f)
+	if err == nil {
+		_, err = f.Write(body)
+	}
 	if err == nil {
 		err = f.Sync()
 	}

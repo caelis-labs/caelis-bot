@@ -1,0 +1,6 @@
+{
+  "package": "Microsoft.Windows.SDK.BuildTools",
+  "version": "10.0.28000.2705",
+  "sha256": "8bfdfb6ca2633f531cf80b5fa22512ba61a394d7988f0970db83baadc67929ed",
+  "bin": "bin/10.0.28000.0/x64"
+}

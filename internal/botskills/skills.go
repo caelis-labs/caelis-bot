@@ -127,6 +127,7 @@ func Instructions(skillPath string) string {
 // The bundled frontmatter deliberately uses simple single-line scalar values.
 // Keep its metadata in one source; bundle tests reject unsupported formatting.
 func metadata(body string) (name, description string) {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
 	_, front, ok := strings.Cut(body, "---\n")
 	if !ok {
 		return

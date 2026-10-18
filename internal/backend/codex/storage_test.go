@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,10 +38,10 @@ func TestAttachmentCleanupOnlyTrashesOldManagedCopiesWhenIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	linked := create("input-9101", old)
-	if err := os.Symlink(outside, filepath.Join(linked, "link")); err != nil {
+	if err := testutil.Redirect(outside, filepath.Join(linked, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Dir(outside), filepath.Join(root, "input-1112")); err != nil {
+	if err := testutil.Redirect(filepath.Dir(outside), filepath.Join(root, "input-1112")); err != nil {
 		t.Fatal(err)
 	}
 	info, err := s.AttachmentStorage()

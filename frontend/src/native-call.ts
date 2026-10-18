@@ -1,7 +1,10 @@
 // Deadlines bound host work, not the time a person spends in a native sheet.
 // An unknown result never retries the original operation.
-export async function nativeCall<T>(service:string,method:string,invoke:()=>Promise<T>):Promise<T> {
- if(service==='desktop'&&method==='PickFiles'||service==='backend'&&method==='ApplySetup')return invoke();
+export async function nativeCall<T>(service:string,method:string,invoke:()=>Promise<T>,args:unknown[]=[]):Promise<T> {
+ const captureSave=method==='ExportWindowsCapture'&&typeof args[0]==='object'&&args[0]!==null&&'action' in args[0]&&args[0].action==='save';
+ // Only native dialog paths wait for a person. Capture send/copy/pin retain
+ // their effect deadline and must never be replayed after an unknown result.
+ if(service==='desktop'&&(['PickFiles','PickRuntimeCLI','PickSSHKey','ImportContent','ExportDiagnostics','SaveArtifactAs'].includes(method)||captureSave)||service==='backend'&&method==='ApplySetup')return invoke();
  const reading=/Snapshot$|Preferences$|Status$/.test(method)||['Draft','DraftFiles','DraftImage','DraftImagePreview','HistoryVisible'].includes(method);
  let timer:ReturnType<typeof setTimeout>|undefined;
  try {

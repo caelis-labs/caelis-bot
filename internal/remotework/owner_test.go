@@ -1,6 +1,7 @@
 package remotework
 
 import (
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ func TestPrivateOwnerRejectsRedirectedAndPublicDirectory(t *testing.T) {
 		t.Fatal("accepted a public owner directory")
 	}
 	link := filepath.Join(root, "link")
-	if err := os.Symlink(root, link); err != nil {
+	if err := testutil.Redirect(root, link); err != nil {
 		t.Fatal(err)
 	}
 	if privateDir(link) == nil {

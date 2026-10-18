@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,7 +207,7 @@ func TestCorruptPackageReinstallKeepsOldVersionPath(t *testing.T) {
 func TestPrivateStoreRejectsSymlinkedDirectories(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "Plugins")
 	outside := t.TempDir()
-	if err := os.Symlink(outside, root); err != nil {
+	if err := testutil.Redirect(outside, root); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Open(root); err == nil {
@@ -219,7 +220,7 @@ func TestPrivateStoreRejectsSymlinkedDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "versions")); err != nil {
+	if err := testutil.Redirect(outside, filepath.Join(root, "versions")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Mutate(context.Background(), "markdown-work", "install", nil); err == nil {

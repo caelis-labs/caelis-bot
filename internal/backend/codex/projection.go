@@ -241,7 +241,7 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		if complete {
 			for _, match := range artifactLink.FindAllStringSubmatch(item.Text, -1) {
 				path := strings.Trim(match[2], "<>")
-				if u, err := url.Parse(path); err == nil && (u.Scheme != "" || strings.HasPrefix(path, "#")) {
+				if u, err := url.Parse(path); !filepath.IsAbs(path) && err == nil && (u.Scheme != "" || strings.HasPrefix(path, "#")) {
 					continue
 				}
 				if !filepath.IsAbs(path) {

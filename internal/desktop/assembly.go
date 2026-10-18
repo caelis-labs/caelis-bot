@@ -74,6 +74,9 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	logError(s.configureSelection(filepath.Join(core.ProviderDirectory(), "draft-files.json")))
 	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
 	s.diagnosticReport = back.DiagnosticReport
+	s.presentationWarning = func(code string) {
+		diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "renderer", Code: code})
+	}
 	s.activate = func() {
 		if core.NeedsSetup() || !core.HasRuntimeChoice() {
 			s.showSettings("setup")

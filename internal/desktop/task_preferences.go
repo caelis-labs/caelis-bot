@@ -28,7 +28,7 @@ func (s *Service) TaskPreferences() (tasks.Preferences, error) {
 }
 func (s *Service) SaveTaskPreferences(p tasks.Preferences) (tasks.Preferences, error) {
 	if p.Terminal == "custom" {
-		if _, err := taskterminal.CustomArgs(p.CustomCommand, "/private/terminal.command"); err != nil {
+		if err := taskterminal.ValidateCustomCommand(p.CustomCommand); err != nil {
 			key := "settings.terminalCommandInvalid"
 			switch {
 			case strings.Contains(err.Error(), "unfinished"):

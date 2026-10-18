@@ -12,7 +12,6 @@ import (
 )
 
 func TestPrivateMemoryPreservedButUnavailableToModel(t *testing.T) {
-	requireNativeIPC(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bot.json")
 	first, err := NewForRuntime(path, "codex", nil)

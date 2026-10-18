@@ -286,7 +286,10 @@ func loadSkills(p *Package) error {
 			p.Issues = append(p.Issues, Issue{"skill", child.Name(), err.Error()})
 			continue
 		}
-		if !strings.HasPrefix(string(body), "---\n") || !strings.Contains(string(body), "\n---\n") || !strings.Contains(string(body), "\nname:") || !strings.Contains(string(body), "\ndescription:") {
+		// Released Windows packages may use CRLF. Normalize only the metadata
+		// view; never rewrite bytes covered by the reviewed package inventory.
+		metadata := strings.ReplaceAll(string(body), "\r\n", "\n")
+		if !strings.HasPrefix(metadata, "---\n") || !strings.Contains(metadata, "\n---\n") || !strings.Contains(metadata, "\nname:") || !strings.Contains(metadata, "\ndescription:") {
 			p.Issues = append(p.Issues, Issue{"skill", child.Name(), "invalid Skill metadata"})
 			continue
 		}

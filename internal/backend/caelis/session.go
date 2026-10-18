@@ -40,6 +40,7 @@ type Session struct {
 	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
 	sendingScheduled      string
+	dispatching           map[string]bool // Live POSTs; durable unknown journals also survive crashes.
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
 	mu                    sync.Mutex
@@ -207,7 +208,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	if e != nil {
 		return discovery{}, "", e
 	}
-	raw, e := privateRead(filepath.Join(dir, "runtime/service/discovery.json"), 65536)
+	raw, e := readHostFile(filepath.Join(dir, "runtime/service/discovery.json"), 65536)
 	if e != nil {
 		return discovery{}, "", errors.New("Caelis 服务尚未就绪，请在连接设置中启动服务")
 	}
@@ -215,7 +216,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	if json.Unmarshal(raw, &d) != nil || d.Schema != "caelis.control.service-discovery/v1" || d.PrincipalID == "" {
 		return d, "", errors.New("Caelis 服务发现记录不兼容")
 	}
-	b, e := privateRead(filepath.Join(dir, "runtime/service/auth.token"), 65536)
+	b, e := readHostFile(filepath.Join(dir, "runtime/service/auth.token"), 65536)
 	if e != nil {
 		return d, "", errors.New("无法读取本机 Caelis 的受保护凭据")
 	}

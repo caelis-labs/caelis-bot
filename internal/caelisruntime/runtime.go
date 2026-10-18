@@ -55,7 +55,7 @@ func Find(path string, loc ...i18n.Locale) (string, error) {
 			return "", errors.New(text(l, "host.enterCaelisFullPath"))
 		}
 		i, e := os.Stat(path)
-		if e != nil || !i.Mode().IsRegular() || i.Mode()&0111 == 0 {
+		if e != nil || !executableFile(path, i) {
 			return "", errors.New(text(l, "host.caelisPathNotExecutable"))
 		}
 		return filepath.Clean(path), nil
@@ -91,6 +91,7 @@ func Store(path string, loc ...i18n.Locale) (string, error) {
 // run bounds output and never returns raw stderr (which can include private configuration).
 func run(ctx context.Context, loc i18n.Locale, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	runtimeenv.BackgroundCommand(cmd)
 	out := limitedBuffer{loc: loc}
 	cmd.Stdout = &out
 	diagnostic := limitedBuffer{loc: loc}
