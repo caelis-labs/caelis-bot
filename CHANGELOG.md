@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/caelis-labs/caelis-bot/compare/v0.15.1...v0.15.2) (2026-10-18)
+
+
+### Bug Fixes
+
+* **recovery:** restore desktop reconnect and refine recovery cards ([#191](https://github.com/caelis-labs/caelis-bot/issues/191)) ([d56f943](https://github.com/caelis-labs/caelis-bot/commit/d56f94332d678014e14b44f9849ae01d17da8d9d))
+
 ## [0.15.1](https://github.com/caelis-labs/caelis-bot/compare/v0.15.0...v0.15.1) (2026-10-18)
 
 
