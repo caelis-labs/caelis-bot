@@ -30,6 +30,9 @@ Tests are retained in `internal/textchannel/pr195_review_test.go` and
 Native permissions retain their separate approval path. Closing/expiry creates no
 answer or authorization. Bot/Worker English guidance was updated accordingly.
 
+The later [answered-card correction](../answered-hidden/README.md) removes the
+answered status strip; the screenshots below retain the earlier review evidence.
+
 ## Visual evidence
 
 The before images were supplied by the independent reviewer. After images are

@@ -27,3 +27,32 @@ test('pending question keeps first source and close at reading start after layou
  scroll.latest();assert.equal(viewport.scrollTop,700);
  const normal=new ChatScroll(viewport);normal.latest();assert.equal(viewport.scrollTop,700);
 });
+
+import {visibleQuestionMessages,questionIdentity} from '../frontend/src/question-presentation.ts';
+const card=(shortId,state='')=>({shortId,binding:'original-'+shortId,title:'Original '+shortId,options:[],state});
+const item=cards=>({id:'questions',kind:'assistant',text:'generated question fallback',artifacts:[],questionCards:cards});
+test('answered cards leave no row or fallback, while real conversation messages remain unchanged',()=>{
+ const user={id:'actual-answer',kind:'user',text:'Use my isolated connection',artifacts:[]};
+ const assistant={id:'actual-reply',kind:'assistant',text:'I will use that connection.',artifacts:[]};
+ const answered=item([card('Q1','answered'),card('Q2','accepted')]);
+ const input=[user,answered,assistant],before=structuredClone(input);
+ assert.deepEqual(visibleQuestionMessages(input),[user,assistant]);
+ assert.deepEqual(input,before,'display filtering must not delete authoritative terminal cards');
+ assert.equal(visibleQuestionMessages(input)[0],user,'no duplicate or synthesized answer message');
+ assert.deepEqual(visibleQuestionMessages(JSON.parse(JSON.stringify(input))),[user,assistant],'fresh history uses durable states');
+});
+test('answering one field preserves pending, unknown and closed siblings',()=>{
+ const siblings=[card('Q2'),card('Q3','unknown'),card('Q4','dismissed'),card('Q5','expired')];
+ assert.deepEqual(visibleQuestionMessages([item([card('Q1','answered'),...siblings])])[0].questionCards,siblings);
+});
+test('accepted response hides immediately during stale refresh but does not hide a reused question number',()=>{
+ const answered=card('Q1'),acknowledged=new Set([questionIdentity(answered)]);
+ assert.deepEqual(visibleQuestionMessages([item([answered])],acknowledged),[]);
+ const replacement={...answered,binding:'new-generation'};
+ assert.deepEqual(visibleQuestionMessages([item([replacement])],acknowledged),[item([replacement])]);
+});
+test('artifacts on a fully answered item survive without synthetic question text',()=>{
+ const withArtifact={...item([card('Q1','answered')]),artifacts:[{id:'real-file'}]};
+ const visible=visibleQuestionMessages([withArtifact]);
+ assert.deepEqual(visible,[{...withArtifact,text:'',questionCards:[]}]);
+});

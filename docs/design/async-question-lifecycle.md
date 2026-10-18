@@ -13,8 +13,9 @@ Decision record, 2026-10-18. Base: bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42.
   superseded outcomes. `answered` means accepted input, not model consumption.
   Unknown/dispatching answers retain their original receipt and never expire into
   permission or allow a second answer. Legacy `accepted` maps to `answered`.
-- Dismiss is an explicit durable close, independent of collapsing a panel. Closed
-  cards lose their decision controls and remain as compact history with their reason.
+- Dismiss is an explicit durable close, independent of collapsing a panel. Dismissed/expired
+  cards lose their decision controls and retain their closure reason. Answered
+  cards disappear from chat; their durable terminal records remain unchanged.
   Expiry is checked without a Runtime event, including while disconnected.
 - Explicit Worker task termination, failure, cancellation, retirement
   or an explicit stop invalidates unanswered questions. A completed native turn
@@ -65,6 +66,17 @@ Long originals remain fully visible, with normal background typography and
 full-width left-aligned options, never truncated or hidden. New source questions
 must name their object and be concise. Tab, arrows, Enter/Space, visible focus and
 narrow windows must work. Status resolves from the durable ledger at read time.
+
+### Answered-card display correction
+
+After accepted answer delivery, remove that field from the conversation immediately.
+When every field in a question item is answered, remove the entire synthetic row
+before timeline construction, including its empty bubble, avatar and timestamp.
+Keep unanswered siblings and ordinary answer messages unchanged. Do not synthesize
+an answer message or duplicate an existing one. The same projection applies to
+refreshed/restarted history, including legacy `accepted` states. Persistence, reply
+IDs, original bindings and replay tombstones remain authoritative and intact.
+Unknown delivery still requires reconciliation; it is not an answered state.
 
 ## Evidence requirements
 

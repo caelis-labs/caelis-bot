@@ -49,6 +49,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	if err := json.Unmarshal([]byte(encoded), &payload); err != nil || len(payload) != 1 || payload[0].Answer != "乙" || payload[0].Question != "选哪项？" || payload[0].QuestionItemID != `["request_user_input_async","call_native_17",0]` {
 		t.Fatalf("invalid model reply envelope: %#v %v", payload, err)
 	}
+	staleCard := card
 	reopened, err := Open(root, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +60,15 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	})
 	if feedback := reopened.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "paired", ID: "wx-2", Text: command}, snapshot); !strings.Contains(feedback, "已提交") {
 		t.Fatal(feedback)
+	}
+	projected, _ := reopened.ProjectQuestions([]api.Item{staleCard})
+	q := reopened.state.AsyncQuestions["Q1"]
+	if len(projected) != 1 || projected[0].QuestionCards[0].State != "answered" || q.State != "answered" || q.ReplyID != "tg-1" {
+		t.Fatal("stale chat history lost persisted answer state or receipt", projected, q)
+	}
+	archived := reopened.state.AsyncClosed[asyncKey(q)]
+	if archived.State != "answered" || archived.ReplyID != q.ReplyID || archived.Fingerprint != q.Fingerprint {
+		t.Fatal("answered tombstone was lost", archived)
 	}
 	card, err = reopened.AsyncCard(item, "runtime-owner-1")
 	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "answered" {

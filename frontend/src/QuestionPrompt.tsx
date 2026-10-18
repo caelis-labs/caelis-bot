@@ -2,9 +2,9 @@ import {useId,useState} from 'react';
 import type {QuestionCard} from './backend/contract';
 import {backend} from './desktop';
 import {useI18n} from './i18n';
-import {questionStatusKey,questionCopy,optionWords,displayUnits} from './question-presentation';
+import {questionAnswered,questionStatusKey,questionCopy,optionWords,displayUnits} from './question-presentation';
 
-export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
+export function QuestionPrompt({card,refresh,onAnswered}:{card:QuestionCard;refresh:()=>void;onAnswered:(card:QuestionCard)=>void}) {
  const {t,locale}=useI18n();
  const id=useId();
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -18,13 +18,14 @@ export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>voi
    const feedback=kind==='answer'
     ?await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,crypto.randomUUID())
     :await backend<string>('DismissQuestion',card.shortId,card.binding,crypto.randomUUID());
-   if(kind==='answer'&&(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。'))setSettled('answered');
+   if(kind==='answer'&&(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。')){setSettled('answered');onAnswered(card);}
    else if(kind==='dismiss'&&feedback==='问题已关闭，未提供答案。')setSettled('dismissed');
    else setError(feedback);
    refresh();
   } catch(e) {setError(e instanceof Error?e.message:t('chat.approvalFailed'));}
   finally {setBusy(false);}
  };
+ if(questionAnswered(state))return null;
  if(done)return <p className="question-result" role="status"><span>{card.title}</span><small>{t(questionStatusKey(state))}</small></p>;
  return <section data-question-pending className="question-prompt" aria-labelledby={id+'-title'} aria-busy={busy} onKeyDown={event=>{
   // macOS WebKit may skip buttons in native Tab navigation. Keep the card's

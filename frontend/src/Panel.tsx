@@ -1,11 +1,12 @@
 import {QuestionPrompt} from './QuestionPrompt';
+import {questionIdentity,visibleQuestionMessages} from './question-presentation';
 import {Recovery} from './SurfaceBoundary';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import { useConnectionNotice } from './use-connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
-import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receipt, Snapshot, Submission } from './backend/contract';
+import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receipt, Snapshot, Submission, QuestionCard } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
 import { ArtifactLink } from './ArtifactLink';
@@ -130,8 +131,8 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
-type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; refresh:()=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
-const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, refresh, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
+type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; refresh:()=>void; onQuestionAnswered:(card:QuestionCard)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
+const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, refresh, onQuestionAnswered, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   const delivery=item.kind==='user'&&['unknown','rejected'].includes(item.status)?statusLabel:'';
@@ -140,13 +141,13 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
+    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <ArtifactLink file={file} report={report} key={file.id}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
    </div>
   </article>;
-},(before,after)=>before.report===after.report&&before.onContextMenu===after.onContextMenu&&before.onQuotePreview===after.onQuotePreview&&before.refresh===after.refresh&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
+},(before,after)=>before.report===after.report&&before.onContextMenu===after.onContextMenu&&before.onQuotePreview===after.onQuotePreview&&before.refresh===after.refresh&&before.onQuestionAnswered===after.onQuestionAnswered&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
  (before.animate?before.clip===after.clip:true)&&before.item.id===after.item.id&&before.item.kind===after.item.kind&&
  before.item.text===after.item.text&&before.item.status===after.item.status&&before.item.seenAt===after.item.seenAt&&
  JSON.stringify(before.item.artifacts)===JSON.stringify(after.item.artifacts)&&
@@ -575,7 +576,9 @@ export function History() {
   resize.observe(scroll.current!);resize.observe(content.current!);
   return()=>resize.disconnect();
  },[active]);
- const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||i.kind==='controlNotice'||i.kind==='tool'&&!!i.artifacts?.length||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
+ const [answeredQuestions,setAnsweredQuestions]=useState<ReadonlySet<string>>(()=>new Set());
+ const questionAnswered=useCallback((card:QuestionCard)=>setAnsweredQuestions(previous=>new Set(previous).add(questionIdentity(card))),[]);
+ const messages=useMemo(()=>visibleQuestionMessages(withOutgoing(snapshot?.items??[],outgoing),answeredQuestions).filter(i=>i.kind==='user'||i.kind==='controlNotice'||i.kind==='tool'&&!!i.artifacts?.length||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing,answeredQuestions]);
  const timeAnchors=useRef<ReadonlyMap<string,ChatTimeAnchor>>(new Map());
  const timeline=useMemo(()=>chatTimeline(messages,timeAnchors.current),[messages]);
  useLayoutEffect(()=>{timeAnchors.current=timeline.anchors;},[timeline]);
@@ -636,7 +639,7 @@ export function History() {
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{timeline.rows.map(({key,item:i,dividerAt})=><div key={key} className="history-message-group">
     {dividerAt!==undefined&&<div className="history-time-divider"><time dateTime={new Date(dividerAt/1000).toISOString()}>{chatTimeLabel(dividerAt,locale)}</time></div>}
-    <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} refresh={refreshQuestions} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
+    <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} refresh={refreshQuestions} onQuestionAnswered={questionAnswered} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
    {connection&&<article className="message-row assistant state-message">

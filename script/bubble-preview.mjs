@@ -256,7 +256,7 @@ window.fixtureReviewCombined=()=>{fixtureReviewMulti();const second=snapshot.ite
 window.fixtureReviewFree=()=>{fixtureQuestionSetup();Object.assign(snapshot.items.find(i=>i.id==='question-item').questionCards[0],{title:'独立演示连接位于哪里？',context:'填写本机位置即可，无需密码或密钥。',options:[]});};
 if(previewParams.get('fixture')==='question-lifecycle'){
  const mode=previewParams.get('questionCase');
- if(mode==='combined')fixtureReviewCombined();else if(mode==='long')fixtureReviewLong();else if(mode==='multiple')fixtureReviewMulti();else fixtureQuestionSetup();
+ if(mode==='combined')fixtureReviewCombined();else if(mode==='long')fixtureReviewLong();else if(mode==='multiple')fixtureReviewMulti();else if(mode==='free')fixtureReviewFree();else fixtureQuestionSetup();
 }
 
 window.fixtureQuestionLayout=()=>{
@@ -276,7 +276,13 @@ window.fixtureQuestionRegression=async()=>{
   check('short complete object question',document.querySelector('.question-prompt-title').textContent==='演示视频使用哪个模型连接？');
   options[0].focus();options[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));check('arrow navigation',document.activeElement===options[1]);
   options[1].click();await wait(400);check('selected original index',window.fixtureQuestionResult?.[0]==='Q7'&&window.fixtureQuestionResult?.[2]==='2');
-  check('answered has no decision controls',!document.querySelector('.question-prompt')&&document.querySelector('.question-result')?.textContent.includes('已回答'));
+  check('answered leaves no card, status or empty message row',!document.querySelector('.question-prompt,.question-result,[data-message-id="question-item"]'));
+  check('answer state stays in authoritative snapshot',snapshot.items.find(i=>i.id==='question-item').questionCards[0].state==='answered');
+  window.dispatchEvent(new Event('history-close'));window.dispatchEvent(new Event('history-open'));await wait(400);
+  check('reopen does not restore answered card',!document.querySelector('[data-message-id="question-item"]'));
+  fixtureReviewMulti();await wait(600);document.querySelector('.question-prompt-options button').click();await wait(400);
+  check('answering Q1 keeps Q2 only',document.querySelectorAll('.question-prompt').length===1&&document.querySelector('.question-prompt-title')?.textContent==='演示视频发布到哪里？'&&!document.querySelector('.question-result'));
+  check('ordinary messages stay once each',document.querySelectorAll('[data-message-id="question-request"]').length===1&&document.querySelectorAll('[data-message-id="question-explanation"]').length===1);
   fixtureQuestionSetup();await wait(600);document.querySelector('.question-dismiss').click();await wait(400);
   check('dismissed has no decision controls',!document.querySelector('.question-prompt')&&snapshot.items.find(i=>i.id==='question-item').questionCards[0].state==='dismissed');
   window.dispatchEvent(new Event('history-close'));window.dispatchEvent(new Event('history-open'));await wait(400);
