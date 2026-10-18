@@ -1,7 +1,9 @@
 {
-  "surfaceRetryNeeded": "Please try again. Your work is kept.",
+  "surfaceRetryTitle": "Couldn't complete this",
+  "surfaceRestartTitle": "Couldn't display this content",
+  "surfaceRetryNeeded": "Try again shortly. Copy feedback details if you need help.",
   "recoveringProgress": "Restoring progress…",
-  "surfaceRestartNeeded": "This window needs to reopen. Your work is kept.",
+  "surfaceRestartNeeded": "Reopen the window to continue. Saved content will be kept.",
   "copyFeedback": "Copy feedback details",
   "feedbackCopied": "Copied",
   "restartSurface": "Reopen window",

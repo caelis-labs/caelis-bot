@@ -1,7 +1,9 @@
 {
-  "surfaceRetryNeeded": "可以稍后重试，原有工作会保留。",
+  "surfaceRetryTitle": "暂时无法完成",
+  "surfaceRestartTitle": "暂时无法显示内容",
+  "surfaceRetryNeeded": "请稍后重试。需要帮助时，可复制反馈信息。",
   "recoveringProgress": "正在恢复进度…",
-  "surfaceRestartNeeded": "需要重新打开此窗口，原有工作会保留。",
+  "surfaceRestartNeeded": "重新打开窗口以继续，已保存的内容不会清除。",
   "copyFeedback": "复制反馈信息",
   "feedbackCopied": "已复制",
   "restartSurface": "重新打开窗口",

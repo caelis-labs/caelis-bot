@@ -48,7 +48,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
  const configured = view?.setup.state === 'ready' && !choiceRequired;
  const reconnectable = configured && view?.session?.connection === 'offline' && view.session.issue !== 'setup_required';
  const sessionLabel = view ? t(botSessionStatusKey(view.setup,view.session,!choiceRequired)) : t('runtime.statusUnknown');
- const reconnect = async () => {setLoading(true);let failed=false;try {await backend('Connect');}catch {failed=true;}await refresh();if(failed)setError(t('runtime.connectionFailed'));};
+ const reconnect = async () => {setLoading(true);let failed=false;try {await backend('Reconnect');}catch {failed=true;}await refresh();if(failed)setError(t('runtime.connectionFailed'));};
  const group = view?.connections.find(entry=>entry.id===groupID);
  const selection = editing === 'conversation' ? view?.conversation : editing === 'runtime' ? view?.main : view?.work;
  return <section className="runtime-workspace">
