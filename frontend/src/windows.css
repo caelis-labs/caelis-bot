@@ -37,7 +37,8 @@ body[data-surface=windows-tasks] { background:transparent; }
 .windows-task-dock .task-empty,.windows-task-dock .task-dock-notice { position:absolute; bottom:8px; left:8px; right:8px; margin:0; padding:8px 12px; border-radius:10px; background:#191919c9; font-size:12px; }
 .artifact-preview-web-toolbar { display:flex; flex-wrap:wrap; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); }
 .artifact-preview-web-toolbar button { font-size:12px; border-radius:6px; padding:5px 9px; }
-body[data-surface=capture] { background:var(--caelis-content); }
+/* A hidden capture renderer stays clear until its decoded canvas is ready. */
+body[data-surface=capture] { background:transparent; }
 .capture-workspace { height:100dvh; display:flex; flex-direction:column; background:var(--caelis-content); color:var(--ink); }
 .capture-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); }
 .capture-toolbar button { font:inherit; font-size:12px; padding:6px 9px; border:1px solid var(--line); border-radius:6px; background:var(--caelis-raised); color:var(--ink); box-shadow:none; }

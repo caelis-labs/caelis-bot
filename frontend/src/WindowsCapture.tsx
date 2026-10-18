@@ -18,9 +18,9 @@ import {BrowserIcon} from '@phosphor-icons/react/dist/csr/Browser';
 import {MonitorIcon} from '@phosphor-icons/react/dist/csr/Monitor';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
-import {addCaptureMark,captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,moveCaptureSelection,paintCaptureMark,redoCaptureMark,undoCaptureMark} from './capture-editor';
+import {addCaptureMark,captureCommandKey,captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,moveCaptureSelection,paintCaptureMark,redoCaptureMark,undoCaptureMark} from './capture-editor';
 import type {CaptureHistory,CaptureMark,CaptureRect,Point} from './capture-editor';
-type Document={id:string;image:string;width:number;height:number;window:CaptureRect;context:boolean;contextAvailable:boolean;outcome:string;imageCapability:string;message:string;presentation:number};
+type Document={id:string;image:string;width:number;height:number;window:CaptureRect;context:boolean;contextAvailable:boolean;outcome:string;imageCapability:string;message:string;presentation:number;diagnostics?:boolean};
 const clamp=(n:number,max:number)=>Math.max(0,Math.min(n,max));
 function CaptureButton({label,children,...props}:ComponentProps<'button'>&{label:string}) {
  return <button type="button" className="capture-icon-button" title={label} aria-label={label} {...props}>{children}</button>;
@@ -44,13 +44,25 @@ function WindowsCaptureEditor({id}:{id:string}){
  const [doc,setDoc]=useState<Document|null>(null),[selection,setSelection]=useState<CaptureRect|null>(null),[history,setHistory]=useState<CaptureHistory>(emptyHistory);
  const [kind,setKind]=useState('select'),[note,setNote]=useState(''),[context,setContext]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [text,setText]=useState(''),[ink,setInk]=useState('#e63854'),[width,setWidth]=useState(3),[pointer,setPointer]=useState<Point|null>(null);
- const canvas=useRef<HTMLCanvasElement>(null),magnifier=useRef<HTMLCanvasElement>(null),source=useRef<HTMLImageElement|null>(null),drag=useRef<CaptureMark|null>(null);
+ const workspace=useRef<HTMLElement>(null),canvas=useRef<HTMLCanvasElement>(null),magnifier=useRef<HTMLCanvasElement>(null),source=useRef<HTMLImageElement|null>(null),drag=useRef<CaptureMark|null>(null);
  const initialized=useRef(false),performing=useRef(false),acknowledged=useRef(0);
  const [imageLoaded,setImageLoaded]=useState(false),[confirmed,setConfirmed]=useState(false);
  const toolbar=useRef<HTMLDivElement>(null);
  const [selecting,setSelecting]=useState(false),[toolbarPoint,setToolbarPoint]=useState<Point|null>(null),[widthOpen,setWidthOpen]=useState(false);
  const showToolbar=confirmed&&!!selection&&selection.width>0&&selection.height>0&&!selecting;
  const locked=busy||doc?.outcome==='unknown'||doc?.outcome==='accepted';
+ const report=(phase:string)=>{if(doc?.diagnostics)void desktop('WindowsCaptureInput',id,phase).catch(()=>{});};
+ useEffect(()=>{
+  if(!doc?.diagnostics)return;
+  const focus=()=>report('dom_focus'),blur=()=>report('dom_blur');
+  window.addEventListener('focus',focus);window.addEventListener('blur',blur);
+  return()=>{window.removeEventListener('focus',focus);window.removeEventListener('blur',blur);};
+ },[doc?.diagnostics]);
+ useEffect(()=>{
+  const focus=()=>workspace.current?.focus({preventScroll:true});
+  window.addEventListener('capture-focus',focus);
+  return()=>window.removeEventListener('capture-focus',focus);
+ },[]);
  useLayoutEffect(()=>{
   const panel=toolbar.current,c=canvas.current;
   if(!showToolbar||!panel||!c||!selection||!doc){setToolbarPoint(null);return;}
@@ -64,10 +76,10 @@ function WindowsCaptureEditor({id}:{id:string}){
  const refresh=async()=>{
   const d=await desktop<Document>('WindowsCaptureDocument',id);setDoc(d);
   if(!initialized.current){setContext(d.context);setSelection({x:0,y:0,width:d.width,height:d.height});setConfirmed(d.outcome!=='draft');initialized.current=true;}
-  if(source.current?.src!==d.image){setImageLoaded(false);const im=new Image();im.onload=()=>{source.current=im;setImageLoaded(true);};im.onerror=()=>setError(t('native.capture.windowsImageFailed'));im.src=d.image;}
+  if(source.current?.src!==new URL(d.image,location.href).href){setImageLoaded(false);const im=new Image();im.onload=()=>{source.current=im;setImageLoaded(true);if(d.diagnostics)void desktop('WindowsCaptureInput',id,'image_decoded').catch(()=>{});};im.onerror=()=>setError(t('native.capture.windowsImageFailed'));im.src=d.image;}
  };
  useEffect(()=>{
-  const receipt=()=>void refresh().catch(e=>setError(String(e)));receipt();window.addEventListener('capture-receipt',receipt);
+  const receipt=()=>void refresh().catch(()=>{if(!initialized.current)setError(t('native.capture.windowsImageFailed'));});receipt();window.addEventListener('capture-receipt',receipt);
   const timer=window.setInterval(()=>void desktop('RefreshWindowsCapture',id).catch(()=>{}),5000);
   return()=>{window.removeEventListener('capture-receipt',receipt);window.clearInterval(timer);};
  },[]);
@@ -79,8 +91,12 @@ function WindowsCaptureEditor({id}:{id:string}){
  const render=(d=doc)=>{
   const c=canvas.current,im=source.current;if(!c||!im||!d)return;c.width=d.width;c.height=d.height;
   const ctx=c.getContext('2d')!;ctx.drawImage(im,0,0,d.width,d.height);
+  // The initial full-screen selection is only a keyboard default. Until the
+  // user confirms or drags a region, dim the whole image to signal capture mode.
+  const highlight=selecting?(drag.current&&dragRect(drag.current)):confirmed?selection:null;
+  if(!highlight){ctx.fillStyle='#0006';ctx.fillRect(0,0,d.width,d.height);return;}
   if(selection){
-   paintSelection(ctx,selection);ctx.fillStyle='#0008';ctx.fillRect(0,0,d.width,selection.y);ctx.fillRect(0,selection.y+selection.height,d.width,d.height-selection.y-selection.height);ctx.fillRect(0,selection.y,selection.x,selection.height);ctx.fillRect(selection.x+selection.width,selection.y,d.width-selection.x-selection.width,selection.height);
+   paintSelection(ctx,selection);ctx.fillStyle='#0006';ctx.fillRect(0,0,d.width,selection.y);ctx.fillRect(0,selection.y+selection.height,d.width,d.height-selection.y-selection.height);ctx.fillRect(0,selection.y,selection.x,selection.height);ctx.fillRect(selection.x+selection.width,selection.y,d.width-selection.x-selection.width,selection.height);
    // Keep the outline visible against both light and dark pixels and inside
    // the screen edges. Its width is stable in CSS pixels at every DPI.
    const unit=d.width/Math.max(1,c.getBoundingClientRect().width),inset=Math.min(unit*1.5,selection.width/2,selection.height/2);
@@ -97,10 +113,10 @@ function WindowsCaptureEditor({id}:{id:string}){
   // the decoded image and canvas before asking native code to reveal it.
   const timer=window.setTimeout(()=>{
    acknowledged.current=doc.presentation;
-   void desktop('WindowsCaptureReady',id,doc.presentation).catch(e=>setError(String(e)));
+   void desktop('WindowsCaptureReady',id,doc.presentation).catch(()=>setError(t('native.capture.windowsImageFailed')));
   },0);
   return()=>window.clearTimeout(timer);
- },[doc,selection,history,imageLoaded]);
+ },[doc,selection,history,imageLoaded,confirmed,selecting]);
  useEffect(()=>{
   const c=magnifier.current,im=source.current;if(!c||!im||!pointer||!doc)return;
   c.width=128;c.height=128;const ctx=c.getContext('2d')!;ctx.imageSmoothingEnabled=false;ctx.fillStyle='#151922';ctx.fillRect(0,0,128,128);
@@ -112,39 +128,68 @@ function WindowsCaptureEditor({id}:{id:string}){
  const select=(r:CaptureRect)=>{setSelection(r);setConfirmed(true);setHistory(emptyHistory());setError('');};
  const perform=async(action:string)=>{
   if(!doc||!selection||selection.width<1||selection.height<1||performing.current||locked)return;
+  if(action==='send'&&(doc.imageCapability!=='supported'||doc.outcome==='pinned')){report('send_unavailable');return;}
+  report(`action_${action}`);
   performing.current=true;setBusy(true);setError('');
   try{
    if(doc.outcome==='pinned'){
     await desktop('ExportWindowsCapture',{id,selection,png:'',note:'',context:false,action});return;
    }
-   const full=document.createElement('canvas');full.width=doc.width;full.height=doc.height;const ctx=full.getContext('2d')!;
-   ctx.drawImage(source.current!,0,0);paintSelection(ctx,selection);
+   // Mosaic reads absolute image pixels. Flatten at source coordinates before
+   // cropping so its sampling and redaction match the preview at every offset.
+   const flattened=document.createElement('canvas');flattened.width=doc.width;flattened.height=doc.height;
+   const ctx=flattened.getContext('2d')!;ctx.drawImage(source.current!,0,0);paintSelection(ctx,selection);
    const crop=document.createElement('canvas');crop.width=selection.width;crop.height=selection.height;
-   crop.getContext('2d')!.drawImage(full,selection.x,selection.y,selection.width,selection.height,0,0,selection.width,selection.height);
+   crop.getContext('2d')!.drawImage(flattened,selection.x,selection.y,selection.width,selection.height,0,0,selection.width,selection.height);
    await desktop('ExportWindowsCapture',{id,selection,png:crop.toDataURL('image/png').split(',')[1],note,context,action});
    if(action==='send')await refresh();
-  }catch(e){setError(String(e));}finally{performing.current=false;setBusy(false);}
+  }catch{
+   setError(t(action==='save'?'native.capture.saveFailed':action==='send'?'native.capture.unknown':'native.capture.windowsActionUnconfirmed'));
+   if(action==='send'){
+    // A failed RPC is not evidence that dispatch failed. Keep this request
+    // locked until its native receipt makes the outcome authoritative.
+    setDoc(current=>current?{...current,outcome:'unknown'}:current);
+    void refresh().catch(()=>{});
+   }
+  }finally{performing.current=false;setBusy(false);}
  };
  useEffect(()=>{
   if(doc?.outcome!=='pinned')return;
   const action=(event:Event)=>{
    const value=(event as CustomEvent<string>).detail;
    if(value==='copy'||value==='save')void perform(value);
-   else if(value==='edit')void desktop('EditWindowsCapture',id).catch(e=>setError(String(e)));
+   else if(value==='edit')void desktop('EditWindowsCapture',id).catch(()=>setError(t('native.capture.windowsActionUnconfirmed')));
    else if(value==='close')void desktop('CloseWindowsCapture',id);
   };
   window.addEventListener('capture-pin-action',action);return()=>window.removeEventListener('capture-pin-action',action);
  },[doc,selection,busy]);
  useEffect(()=>{
+  const pin=()=>{if(doc?.outcome==='draft')void perform('pin');};
+  window.addEventListener('capture-pin',pin);
+  return()=>window.removeEventListener('capture-pin',pin);
+ },[doc,selection,history,note,context,busy]);
+ useEffect(()=>{
   const key=(e:KeyboardEvent)=>{
-   const editing=e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLSelectElement;
-   if(e.key==='Escape'){e.preventDefault();void desktop('CloseWindowsCapture',id);return;}
-   if(locked||editing)return;
-   if(e.target instanceof HTMLButtonElement&&(e.key==='Enter'||e.key===' '))return;
-   if(e.ctrlKey&&e.key.toLowerCase()==='z'){e.preventDefault();setHistory(e.shiftKey?redoCaptureMark:undoCaptureMark);}
-   else if(e.ctrlKey&&e.key.toLowerCase()==='y'){e.preventDefault();setHistory(redoCaptureMark);}
-   else if(!e.altKey&&!e.shiftKey&&captureKeyAction(e.key,e.ctrlKey)){
-    e.preventDefault();const action=captureKeyAction(e.key,e.ctrlKey)!;
+   const editing=e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLSelectElement||(e.target instanceof HTMLElement&&e.target.isContentEditable);
+   const commandKey=captureCommandKey(e,editing);
+   const action=captureKeyAction(commandKey||e.key,e.ctrlKey);
+   if(action&&action!=='all')report(`key_${action}`);
+   else if(e.keyCode===229&&['KeyC','KeyS','Enter','F3'].includes(e.code))report('key_ime');
+   if(commandKey===null)return;
+   if(commandKey==='Escape'){e.preventDefault();void desktop('CloseWindowsCapture',id);return;}
+   if(locked)return;
+   if(editing){
+    const input=e.target as HTMLInputElement;
+    if(e.key==='Enter'&&input.dataset.captureNote==='true'){e.preventDefault();void perform('send');}
+    else if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='s'){e.preventDefault();void perform('save');}
+    else if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='c'&&input.selectionStart!==null&&input.selectionStart===input.selectionEnd){e.preventDefault();void perform('copy');}
+    return;
+   }
+   if(e.target instanceof HTMLButtonElement&&(commandKey==='Enter'||commandKey===' '))return;
+   if(e.ctrlKey&&commandKey.toLowerCase()==='z'){e.preventDefault();setHistory(e.shiftKey?redoCaptureMark:undoCaptureMark);}
+   else if(e.ctrlKey&&commandKey.toLowerCase()==='y'){e.preventDefault();setHistory(redoCaptureMark);}
+   else if(!e.altKey&&!e.shiftKey&&captureKeyAction(commandKey,e.ctrlKey)){
+    e.preventDefault();const action=captureKeyAction(commandKey,e.ctrlKey)!;
     if(action==='all'&&doc)select({x:0,y:0,width:doc.width,height:doc.height});
     else if(action!=='all'&&(action!=='pin'||doc?.outcome!=='pinned'))void perform(action);
    }
@@ -154,16 +199,16 @@ function WindowsCaptureEditor({id}:{id:string}){
    }
   };window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);
  },[doc,selection,history,note,context,busy]);
- if(!doc)return <main className="capture-workspace"><p role="status">{error||t('common.loading')}</p></main>;
+ if(!doc)return error?<main className="capture-workspace"><p role="status">{error}</p></main>:null;
  const label=(key:Parameters<typeof t>[0])=>t(key).replace('⇧⌘','Ctrl+Shift+').replace('⌘','Ctrl+');
  const selectionHint=t(doc.contextAvailable?'native.capture.windowsSelect':'native.capture.windowsSelectImage');
- if(doc.outcome==='pinned')return <main className="capture-pin" style={{'--custom-contextmenu':id} as CSSProperties}
+ if(doc.outcome==='pinned')return <main ref={workspace} tabIndex={-1} className="capture-pin" style={{'--custom-contextmenu':id} as CSSProperties}
   onDoubleClick={()=>void desktop('CloseWindowsCapture',id)}
   onWheel={event=>{if(!busy&&event.deltaY)void desktop('ResizeWindowsPin',id,event.deltaY<0?1.08:1/1.08);}}>
   <img className="capture-pin-image" draggable={false} src={doc.image} alt={t('native.capture.pin')}/>
   {error&&<p className="capture-pin-error" role="alert">{error}</p>}
  </main>;
- return <main className="capture-workspace capture-editor">
+ return <main ref={workspace} tabIndex={-1} className="capture-workspace capture-editor" style={{visibility:imageLoaded?'visible':'hidden'}}>
  {showToolbar&&<div ref={toolbar} className="capture-palette" style={{left:toolbarPoint?.x??0,top:toolbarPoint?.y??0,visibility:toolbarPoint?'visible':'hidden'}}>
   <div className="capture-toolbar" role="toolbar" aria-label={t('native.capture.edit')}>
    {([['select',CursorIcon],['arrow',ArrowUpRightIcon],['rectangle',RectangleIcon],['text',TextTIcon],['mosaic',GridNineIcon],['redact',SquareIcon]] as const).map(([k,Icon])=><CaptureButton key={k} label={t(`native.capture.tool.${k}`)} disabled={locked} aria-pressed={kind===k} onClick={()=>{setKind(k);setWidthOpen(false);}}><Icon weight={k==='redact'?'fill':'regular'}/></CaptureButton>)}
@@ -180,7 +225,7 @@ function WindowsCaptureEditor({id}:{id:string}){
   </div>
   {widthOpen&&<div className="capture-options"><label>{t('native.capture.width')}<input type="range" min="1" max="16" aria-label={t('native.capture.width')} value={width} disabled={locked} onChange={e=>setWidth(Number(e.target.value))}/><output>{width}</output></label></div>}
   {kind==='text'&&<div className="capture-options"><input aria-label={t('native.capture.tool.text')} placeholder={t('native.capture.tool.text')} value={text} maxLength={200} disabled={locked} onChange={e=>setText(e.target.value)}/></div>}
-  <div className="capture-composer"><input aria-label={t('native.capture.note')} placeholder={t('native.capture.note')} value={note} disabled={locked} onChange={e=>setNote(e.target.value)}/>
+  <div className="capture-composer"><input data-capture-note="true" aria-label={t('native.capture.note')} placeholder={t('native.capture.note')} value={note} disabled={locked} onChange={e=>setNote(e.target.value)}/>
    <button className="capture-ask" disabled={locked||doc.imageCapability!=='supported'} title={doc.imageCapability==='supported'?t('native.capture.windowsAsk'):t('native.capture.imageUnknown')} onClick={()=>void perform('send')}><SparkleIcon aria-hidden="true"/>{t('native.capture.askButton')}</button>
   </div>
   <div className="capture-scope"><label><input type="checkbox" checked={context} disabled={locked||!doc.contextAvailable} onChange={e=>setContext(e.target.checked)}/>{t('native.capture.includeBackground')}</label><span className="capture-dimensions">{selection.width} × {selection.height}</span>
@@ -198,6 +243,7 @@ function WindowsCaptureEditor({id}:{id:string}){
    else void desktop('CloseWindowsCapture',id);
   }}
   onPointerDown={e=>{
+   if(e.button===0)workspace.current?.focus({preventScroll:true});
    if(locked||e.button!==0)return;const p=point(e);if(kind!=='select'&&(!selection||p.x<selection.x||p.y<selection.y||p.x>selection.x+selection.width||p.y>selection.y+selection.height))return;
    e.currentTarget.setPointerCapture(e.pointerId);drag.current={kind,start:p,end:p,text,ink,width};
    if(kind==='select'){setSelecting(true);setWidthOpen(false);}

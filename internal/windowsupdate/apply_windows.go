@@ -2,6 +2,7 @@ package windowsupdate
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
@@ -48,7 +50,8 @@ func Installation(target, identity string) (string, error) {
 	if e != nil {
 		return "", errors.New("packaged Windows installation required")
 	}
-	if installationINI(data)["Identity"] != identity {
+	marker := installationINI(data)
+	if marker["Identity"] != identity {
 		return "", errors.New("NSIS installation identity mismatch")
 	}
 	name := "Caelis Bot Preview"
@@ -60,6 +63,12 @@ func Installation(target, identity string) (string, error) {
 		return "", errors.New("unknown NSIS identity")
 	}
 	expected := filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", name)
+	if location := marker["Location"]; location != "" {
+		if !filepath.IsAbs(location) || filepath.Dir(filepath.Clean(location)) == filepath.Clean(location) {
+			return "", errors.New("invalid NSIS installation location")
+		}
+		expected = filepath.Clean(location)
+	}
 	if !strings.EqualFold(filepath.Clean(target), expected) {
 		return "", errors.New("NSIS installation location mismatch")
 	}
@@ -67,6 +76,16 @@ func Installation(target, identity string) (string, error) {
 }
 func installationINI(data []byte) map[string]string {
 	out := map[string]string{}
+	if len(data) >= 2 && data[0] == 0xff && data[1] == 0xfe {
+		if len(data)%2 != 0 {
+			return out
+		}
+		words := make([]uint16, (len(data)-2)/2)
+		for i := range words {
+			words[i] = binary.LittleEndian.Uint16(data[2+i*2:])
+		}
+		data = []byte(string(utf16.Decode(words)))
+	}
 	section := ""
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -337,9 +356,11 @@ func apply(p Plan, m Manifest, work string) error {
 		return err
 	}
 	if p.Format == "nsis" {
-		command := exec.Command(p.Archive, "/S")
+		command := exec.Command(p.Archive)
 		command.Env = runtimeenv.Clean(os.Environ())
-		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+		// NSIS requires /D last and unquoted, including a path containing spaces.
+		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW,
+			CmdLine: windows.ComposeCommandLine([]string{p.Archive, "/S"}) + " /D=" + p.Target}
 		if e := command.Run(); e != nil {
 			return e
 		}

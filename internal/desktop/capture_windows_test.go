@@ -13,11 +13,141 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+func TestWindowsCaptureToggleCancelsAcquisitionAndLatePaint(t *testing.T) {
+	c := &windowsCapture{enabled: true, driver: &windowsDriver{}, drafts: map[string]*windowsCaptureDraft{}}
+	a := &windowsCaptureAcquisition{screen: true}
+	c.acquisition = a
+	if handled, w := c.toggleScreenLocked(); !handled || w != nil || !a.cancelled {
+		t.Fatal("second F1 did not cancel pending screen pixels")
+	}
+	d := &windowsCaptureDraft{document: WindowsCaptureDocument{ID: "screen", Outcome: "draft", Presentation: 1}}
+	if c.admitAcquisitionLocked(a, d) || len(c.drafts) != 0 {
+		t.Fatal("cancelled pixels were admitted after F1")
+	}
+	a = &windowsCaptureAcquisition{screen: true}
+	c.acquisition = a
+	if !c.admitAcquisitionLocked(a, d) || c.acquisition != nil || c.editorID != "screen" {
+		t.Fatal("a fresh acquisition did not replace the cancelled operation")
+	}
+	w := &application.WebviewWindow{}
+	d.window = w
+	if handled, got := c.toggleScreenLocked(); !handled || got != w || !d.dismissed {
+		t.Fatal("second F1 did not dismiss its own editor")
+	}
+	if c.claimPresentation("screen", 1) != nil || c.retainedPresentation(d) != nil {
+		t.Fatal("late renderer paint revived a dismissed editor")
+	}
+	if handled, got := c.toggleScreenLocked(); !handled || got != w {
+		t.Fatal("F1 during native close started an overlapping capture")
+	}
+}
+
+func TestWindowsCaptureTogglePreservesPinsAndUncertainExports(t *testing.T) {
+	w := &application.WebviewWindow{}
+	for _, outcome := range []string{"draft", "unknown"} {
+		d := &windowsCaptureDraft{window: w, exporting: true, document: WindowsCaptureDocument{ID: "original", Outcome: outcome}}
+		pin := &windowsCaptureDraft{document: WindowsCaptureDocument{ID: "pin", Outcome: "pinned"}}
+		c := &windowsCapture{editorID: "original", drafts: map[string]*windowsCaptureDraft{"original": d, "pin": pin}}
+		c.toggleScreenLocked()
+		if c.drafts["original"] != d || !d.exporting || d.document.Outcome != outcome || pin.dismissed {
+			t.Fatal("cancellation lost uncertain effects or dismissed a separate pin")
+		}
+	}
+	c := &windowsCapture{editorID: "unpainted", drafts: map[string]*windowsCaptureDraft{"unpainted": {document: WindowsCaptureDocument{ID: "unpainted", Outcome: "draft"}}}}
+	if handled, _ := c.toggleScreenLocked(); !handled || len(c.drafts) != 0 || c.editorID != "" {
+		t.Fatal("cancelled unpainted document leaked a capture slot")
+	}
+}
+
+func TestWindowsCapturePinRetainsSelectionOnSecondaryDisplayAndAfterResize(t *testing.T) {
+	selection := image.Rect(240, 180, 640, 380)
+	screen := image.Rect(-1920, -200, 0, 880)
+	want := image.Rect(-1680, -20, -1280, 180)
+	if got := windowsPinSelectionBounds(selection, screen, image.Rectangle{}, 1920, 1080); got != want {
+		t.Fatalf("pin moved away from selected screen pixels: %v", got)
+	}
+	// Re-edit the already flattened image after moving and scaling its pin.
+	pin := image.Rect(-1200, 60, -1000, 160)
+	if got := windowsPinSelectionBounds(image.Rect(100, 40, 300, 160), image.Rectangle{}, pin, 400, 200); got != image.Rect(-1150, 80, -1050, 140) {
+		t.Fatalf("re-pinned selection lost its current display geometry: %v", got)
+	}
+}
+
+func TestWindowsCaptureSlowRendererDoesNotBlockReadyOrClose(t *testing.T) {
+	w := &application.WebviewWindow{}
+	d := &windowsCaptureDraft{window: w, document: WindowsCaptureDocument{ID: "capture", Presentation: 1, Outcome: "unknown"}}
+	c := &windowsCapture{driver: &windowsDriver{}, enabled: true, drafts: map[string]*windowsCaptureDraft{"capture": d}}
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		c.updateAvailability("supported", func(*application.WebviewWindow) { close(entered); <-release })
+		close(finished)
+	}()
+	defer func() { close(release); <-finished }()
+	<-entered
+	ready := make(chan *application.WebviewWindow, 1)
+	go func() { ready <- c.claimPresentation("capture", 1) }()
+	select {
+	case got := <-ready:
+		if got != w || d.document.ImageCapability != "supported" || d.document.Outcome != "unknown" {
+			t.Fatal("capability refresh changed presentation or uncertain receipt")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("slow renderer held the capture lock and blocked the UI thread")
+	}
+	// A close/disable can still preserve this uncertain request while delivery
+	// is stalled. Re-enable must restore the same already decoded presentation.
+	c.mu.Lock()
+	c.enabled = false
+	c.mu.Unlock()
+	if c.retainedPresentation(d) != nil {
+		t.Fatal("disabled presentation remained visible")
+	}
+	c.mu.Lock()
+	c.enabled = true
+	c.mu.Unlock()
+	if c.retainedPresentation(d) != w {
+		t.Fatal("lost retained presentation")
+	}
+}
+
+func TestWindowsClipboardConversionPreservesPixelsBeforeNativePublish(t *testing.T) {
+	if _, err := windowsClipboardDIB([]byte("invalid")); err == nil {
+		t.Fatal("malformed clipboard bytes accepted")
+	}
+	im := image.NewNRGBA(image.Rect(0, 0, 3, 2))
+	im.SetNRGBA(0, 0, color.NRGBA{200, 40, 20, 255})
+	im.SetNRGBA(2, 1, color.NRGBA{10, 90, 230, 255})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, im); err != nil {
+		t.Fatal(err)
+	}
+	dib, err := windowsClipboardDIB(encoded.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundtrip, err := dibPNG(dib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(roundtrip))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []image.Point{{0, 0}, {2, 1}} {
+		r, g, b, a := decoded.At(p.X, p.Y).RGBA()
+		wantR, wantG, wantB, wantA := im.At(p.X, p.Y).RGBA()
+		if r != wantR || g != wantG || b != wantB || a != wantA {
+			t.Fatal("clipboard colors or orientation changed")
+		}
+	}
+}
 
 func TestWindowsPinGeometryPreservesImageAndMonitorBounds(t *testing.T) {
 	work := image.Rect(-1920, 40, 0, 1080)
@@ -168,6 +298,126 @@ func TestWindowsCaptureWarmSlotCannotResolveAnotherOrClosedDocument(t *testing.T
 	}
 }
 
+func TestWindowsCaptureDiscardsFinishedWindowsWithoutReusingOldFrames(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                 string
+		outcome                                              string
+		exporting, ready, enabled, stopped, occupied, retain bool
+	}{
+		{name: "finished selection", outcome: "draft", ready: true, enabled: true},
+		{name: "accepted send", outcome: "accepted", ready: true, enabled: true},
+		{name: "pending export", outcome: "draft", exporting: true, ready: true, enabled: true, retain: true},
+		{name: "uncertain send", outcome: "unknown", ready: true, enabled: true, retain: true},
+		{name: "failed first paint", outcome: "draft", enabled: true},
+		{name: "windowed pin", outcome: "pinned", ready: true, enabled: true},
+		{name: "disabled", outcome: "draft", ready: true},
+		{name: "shutdown", outcome: "draft", ready: true, enabled: true, stopped: true},
+		{name: "already warm", outcome: "draft", ready: true, enabled: true, occupied: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &application.WebviewWindow{}
+			d := &windowsCaptureDraft{window: w, slot: "slot", ready: tc.ready, exporting: tc.exporting, preview: []byte{1}, pixels: image.NewNRGBA(image.Rect(0, 0, 1, 1)), document: WindowsCaptureDocument{ID: "original", Outcome: tc.outcome, Image: "/capture-preview/original", Presentation: 2}}
+			c := &windowsCapture{driver: &windowsDriver{}, enabled: tc.enabled, editorID: "original", drafts: map[string]*windowsCaptureDraft{"original": d}}
+			c.driver.stopped.Store(tc.stopped)
+			if tc.occupied {
+				c.warmWindows = []windowsCaptureWarmWindow{{&application.WebviewWindow{}, "other"}}
+			}
+			current, retained := c.releasePresentation(d, w)
+			if !current || retained != tc.retain || !d.dismissed || c.editorID != "" {
+				t.Fatal("incorrect close lifecycle")
+			}
+			if tc.retain {
+				if c.drafts["original"] != d || d.window != w || d.pixels == nil || len(d.preview) == 0 || d.document.Image == "" {
+					t.Fatal("original request lost its pixels or presentation")
+				}
+			} else if c.drafts["original"] != nil || d.pixels != nil || d.preview != nil || d.document.Image != "" || d.window != nil {
+				t.Fatal("finished image retained")
+			}
+			if (len(c.warmWindows) != 0) != tc.occupied || len(c.warmWindows) > 0 && c.warmWindows[0].window == w {
+				t.Fatal("used compositor frame returned to warm slot")
+			}
+			if c.slotDocument("slot") != "" || c.claimPresentation("original", 2) != nil {
+				t.Fatal("dismissed window revived")
+			}
+		})
+	}
+}
+
+func TestWindowsCaptureClosingPreviousEditorPreservesReplacementPin(t *testing.T) {
+	old, pin := &application.WebviewWindow{}, &application.WebviewWindow{}
+	d := &windowsCaptureDraft{window: pin, slot: "pin-slot", pixels: image.NewNRGBA(image.Rect(0, 0, 4, 4)), document: WindowsCaptureDocument{ID: "original", Outcome: "pinned", Image: "flattened", Presentation: 2}}
+	c := &windowsCapture{driver: &windowsDriver{}, enabled: true, drafts: map[string]*windowsCaptureDraft{"original": d}}
+	current, retained := c.releasePresentation(d, old)
+	if current || retained || len(c.warmWindows) != 0 || c.drafts["original"] != d || d.window != pin || d.dismissed || d.pixels == nil || d.document.Image != "flattened" {
+		t.Fatal("closing editor changed its replacement pin")
+	}
+	if c.slotDocument("screen-slot") != "" || c.slotDocument("pin-slot") != "original" || c.claimPresentation("original", 1) != nil || c.claimPresentation("original", 2) != pin {
+		t.Fatal("old editor receipt affected pin presentation")
+	}
+}
+
+func TestWindowsCaptureReservesDistinctFreshWindowsForEditorAndPin(t *testing.T) {
+	editor, pin := &application.WebviewWindow{}, &application.WebviewWindow{}
+	c := &windowsCapture{driver: &windowsDriver{}, enabled: true, drafts: map[string]*windowsCaptureDraft{}, warmWindows: []windowsCaptureWarmWindow{{editor, "editor"}, {pin, "pin"}}}
+	if c.canPrewarmLocked() {
+		t.Fatal("full pool admitted another renderer")
+	}
+	w, slot := c.takeWarmWindowLocked()
+	if w != editor || slot != "editor" {
+		t.Fatal("first command did not receive its own window")
+	}
+	c.editorID = "screen"
+	c.drafts["screen"] = &windowsCaptureDraft{window: editor, ready: true, document: WindowsCaptureDocument{ID: "screen"}}
+	if c.canPrewarmLocked() {
+		t.Fatal("background window creation admitted during editor input")
+	}
+	w, slot = c.takeWarmWindowLocked()
+	if w != pin || slot != "pin" || w == editor {
+		t.Fatal("F3 did not receive a separate fresh window")
+	}
+	if w, slot = c.takeWarmWindowLocked(); w != nil || slot != "" {
+		t.Fatal("consumed renderer was reused")
+	}
+	c.editorID = ""
+	c.drafts["screen"].window = pin
+	c.drafts["screen"].ready = false
+	if c.canPrewarmLocked() {
+		t.Fatal("replenishment competed with pin first paint")
+	}
+	c.drafts["screen"].ready = true
+	if !c.canPrewarmLocked() {
+		t.Fatal("ready pin did not allow replenishment")
+	}
+}
+
+func TestWindowsCapturePrewarmAdmissionRespectsLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*windowsCapture)
+	}{
+		{"disabled", func(c *windowsCapture) { c.enabled = false }},
+		{"stopped", func(c *windowsCapture) { c.driver.stopped.Store(true) }},
+		{"acquiring", func(c *windowsCapture) { c.acquisition = &windowsCaptureAcquisition{screen: true} }},
+		{"editor", func(c *windowsCapture) { c.editorID = "screen" }},
+		{"document limit", func(c *windowsCapture) {
+			for i := range 8 {
+				c.drafts[string(rune('a'+i))] = &windowsCaptureDraft{ready: true}
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &windowsCapture{driver: &windowsDriver{}, enabled: true, drafts: map[string]*windowsCaptureDraft{}}
+			if !c.canPrewarmLocked() {
+				t.Fatal("idle feature cannot prepare renderer")
+			}
+			tc.change(c)
+			if c.canPrewarmLocked() {
+				t.Fatal("inactive or busy feature admitted a renderer")
+			}
+		})
+	}
+}
+
 func TestWindowsCaptureFinishClosesOnlyCompletedOperations(t *testing.T) {
 	w := &application.WebviewWindow{}
 	c := &windowsCapture{enabled: true}
@@ -212,6 +462,58 @@ func TestWindowsCaptureSaveCancellationKeepsEditableDocument(t *testing.T) {
 	native.capture.saveImage = func(_ *application.WebviewWindow, _ []byte) error { return failure }
 	if err := s.ExportWindowsCapture(export); !errors.Is(err, failure) || d.exporting {
 		t.Fatal("real save failure was suppressed", err)
+	}
+}
+
+func TestWindowsCaptureDeferredCloseReleasesSettledExports(t *testing.T) {
+	for _, outcome := range []string{"draft", "pinned", "unknown", "rejected", "accepted"} {
+		t.Run(outcome, func(t *testing.T) {
+			w := &application.WebviewWindow{}
+			d := &windowsCaptureDraft{window: w, exporting: true, pixels: image.NewNRGBA(image.Rect(0, 0, 4, 4)), document: WindowsCaptureDocument{ID: "original", Outcome: outcome}}
+			c := &windowsCapture{enabled: true, drafts: map[string]*windowsCaptureDraft{"original": d}}
+			if current, retained := c.releasePresentation(d, w); !current || !retained {
+				t.Fatal("closing during export did not defer pixel disposal")
+			}
+			closeWindow, _ := c.finishExport(d, false)
+			if outcome == "unknown" {
+				if closeWindow != nil || d.canCloseAfterOperation(false) || c.drafts["original"] != d || d.pixels == nil {
+					t.Fatal("uncertain send lost its original receipt or pixels")
+				}
+				// A later authoritative rejection resolves the deferred close.
+				d.document.Outcome = "rejected"
+				if !d.canCloseAfterOperation(false) {
+					t.Fatal("resolved dismissed send leaked its window")
+				}
+			} else if closeWindow != w {
+				t.Fatal("cancelled or failed export leaked its dismissed window")
+			}
+			if current, retained := c.releasePresentation(d, w); !current || retained || len(c.drafts) != 0 || d.pixels != nil || d.window != nil {
+				t.Fatal("settled export did not release its hidden native resources")
+			}
+		})
+	}
+}
+
+func TestWindowsCaptureCancelledBeforeWindowAdmissionReleasesItsSlot(t *testing.T) {
+	for _, outcome := range []string{"draft", "pinned", "unknown"} {
+		d := &windowsCaptureDraft{dismissed: true, exporting: true, pixels: image.NewNRGBA(image.Rect(0, 0, 2, 2)), document: WindowsCaptureDocument{ID: "original", Outcome: outcome}}
+		c := &windowsCapture{driver: &windowsDriver{}, enabled: true, editorID: "original", drafts: map[string]*windowsCaptureDraft{"original": d}}
+		if c.releaseUnpresented(d) {
+			t.Fatal("in-flight export lost its pixels")
+		}
+		c.finishExport(d, false)
+		if outcome == "unknown" {
+			if c.releaseUnpresented(d) || d.pixels == nil {
+				t.Fatal("unpresented uncertain send was discarded")
+			}
+			d.document.Outcome = "rejected"
+		}
+		if !c.releaseUnpresented(d) || c.editorID != "" || len(c.drafts) != 0 || d.pixels != nil {
+			t.Fatal("cancelled window admission leaked a document slot")
+		}
+		if c.releaseUnpresented(d) {
+			t.Fatal("released the same draft twice")
+		}
 	}
 }
 

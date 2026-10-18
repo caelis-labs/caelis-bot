@@ -10,10 +10,24 @@ export function captureDragRect(start:Point,end:Point,scale=1):CaptureRect|null 
  if(!width||!height)return null;
  return{x:Math.min(start.x,end.x),y:Math.min(start.y,end.y),width,height};
 }
-export function captureKeyAction(key:string,ctrl:boolean):'copy'|'save'|'pin'|'all'|null {
- if(key==='Enter'&&!ctrl)return 'copy';
+export function captureKeyAction(key:string,ctrl:boolean):'copy'|'save'|'pin'|'all'|'send'|null {
+ if(key==='Enter')return 'send';
+ if(key==='F3'&&!ctrl)return 'pin';
  if(!ctrl)return null;
  return({c:'copy',s:'save',t:'pin',a:'all'} as const)[key.toLowerCase() as 'c'|'s'|'t'|'a']??null;
+}
+// Windows IMEs can report Process/229 for canvas shortcuts even when no text
+// composition is active. Preserve real composition and editable-field IME
+// handling, but use the physical key for commands on the non-editable canvas.
+export function captureCommandKey(e:{key:string;code:string;keyCode:number;isComposing:boolean;repeat:boolean;ctrlKey:boolean},editing:boolean):string|null {
+ if(e.repeat||e.isComposing||editing&&e.keyCode===229)return null;
+ if(!editing&&(e.key==='Process'||e.key==='Unidentified'||e.keyCode===229)){
+  if(e.code==='Enter'||e.code==='NumpadEnter')return 'Enter';
+  if(e.code==='Escape'||e.code==='F3')return e.code;
+  if(e.ctrlKey&&/^Key[ACSTYZ]$/.test(e.code))return e.code.slice(3).toLowerCase();
+  return null;
+ }
+ return e.key;
 }
 // Rectangles here are CSS viewport pixels, after the image-to-canvas transform.
 // Match the native Mac panel: align to the selection's left edge, prefer below,

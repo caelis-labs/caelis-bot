@@ -41,7 +41,8 @@ go test ./internal/app -run '^TestWindowsCaelisApplicationUpdatePreservesActiveW
 ## GitHub CI
 
 PR 的 scope job 始终执行 actionlint，不依赖 macOS 分流。Windows 原生、资源及构建/打包输入变化触发
-独立候选构建：EXE、Setup、ZIP 和源版本/摘要验证全部成功后才能通过 product 聚合门。候选使用
+独立 stable/preview 候选构建：EXE、Setup、ZIP、源版本/摘要，以及自选中文目录的原生安装、
+更新、重装和卸载验证全部成功后才能通过 product 聚合门。候选使用
 本地 Dev 身份，无发布密钥；构建通过不能代替 Windows GUI 或准确发行包验收。Windows 侧后续
 对齐见 [#185](https://github.com/caelis-labs/caelis-bot/issues/185) 和 [#186](https://github.com/caelis-labs/caelis-bot/issues/186)，不阻塞共享修复合并。
 
@@ -85,7 +86,7 @@ Windows 路径为 `caelis-bot/releases/windows-amd64/TAG/`；
 不要为新版本重新生成。GitHub environment **windows-release** 限制 main；Secret
 **WINDOWS_UPDATE_PRIVATE_KEY** 保存 PEM 全文。构建 job 不读取它，发布 job 用受限临时文件，结束即清除。
 `internal/windowsupdate/public-key.txt` 随 App 内置；脚本校验私钥与它匹配。
-本机独立备份目录 README 记录用途；私钥不进入源码、日志、缓存 artifact 或发布包。
+备份时记录密钥用途与对应公钥；私钥不进入源码、日志、缓存 artifact 或发布包。
 
 ```text
 node script/windows-update-manifest.mjs create DIST TAG SOURCE_SHA PRIVATE_KEY_PATH
@@ -99,6 +100,8 @@ node script/windows-update-manifest.mjs verify DIST TAG SOURCE_SHA
 ## 自动更新和恢复
 
 默认后台检查/下载，设置中显示就绪后由用户选择重启安装；开发包不访问发行 feed。
+Setup 首次安装提供目录选择，可选其他本地磁盘及含空格、中文的路径；后续安装和更新记住该位置。
+安装器拒绝磁盘根目录、重定向目录和非空外来目录。移动安装须先卸载再安装，用户数据保留。
 Setup 更新自身安装位置；ZIP 更新原解压目录，数据保持在 AppData。自启动默认关闭，
 只管理当前安装自己注册的 HKCU Run 条目；移动 ZIP 后需重新注册。
 
@@ -107,6 +110,9 @@ Setup 更新自身安装位置；ZIP 更新原解压目录，数据保持在 App
 ZIP 在安装目录内创建当前用户私有的暂存/备份目录，按归属清单同卷替换并回滚，
 因此下载目录与安装目录可位于不同磁盘。失败保留原事务和恢复资料，成功校验后清理暂存；
 外来文件不删除。NSIS 安装失败可能需要手动重装。
+本地 Dev 安装包（含未设发行 tag 的 stable/preview 候选）可用 `CAELIS_BOT_TEST_LOCAL_INSTALLER` 指定准确路径，运行
+`go test ./internal/windowsupdate -run '^TestNativeNSISCustomDirectory$' -count=1 -timeout 180s -v`，
+验证自选中文目录、升级路径、手动重装记忆和原生卸载；已有 Dev 安装登记时测试拒绝运行。
 缺失、waiting 或 installing 回执保持未知，不自动重放；明确 failed 后用户重新检查会建立新事务，
 旧诊断保留。Windows Caelis 终端按同一 Store/Session 发现 Host，避免固定旧端口。
 

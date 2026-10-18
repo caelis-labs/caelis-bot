@@ -877,6 +877,31 @@ cannot change scope. Ask Bot rechecks negotiated model image support immediately
 never resends; unreadable receipts remain uncertain. Attachment maintenance uses native Trash, protects originals,
 selected/active files and symlinks, and never constitutes image resubmission.
 
+Windows snapshots capture state under its mutex, then releases it before calling Wails, creating a WebView,
+publishing clipboard data or notifying a renderer. Service notifications also release the product-state mutex
+before entering native capture code. A slow capture surface must not block chat/settings reads or the native
+message loop. PNG decoding and DIB conversion run off the UI thread. Explicit window activation never attaches
+an external process's input queue to the Bot's UI thread.
+Windows admits only one F1 acquisition/editor at a time. A second F1 invalidates
+pending pixels or dismisses the editor; late paint cannot reveal it again.
+Dismissal never discards an exporting or uncertain request. F3 belongs to a
+visible full-screen editor even during transient focus loss. Empty prewarmed
+WebViews are non-activating and are not replenished during capture interaction.
+The interactive screen preview uses a lossless in-memory bitmap through an
+opaque, no-store virtual-origin asset route. PNG encoding waits for confirmed
+export. Completed editors release their images and destroy their WebView: a
+hidden compositor can retain an old selection even after renderer reset. Two
+fresh non-activating renderers reserve an editor and its subsequent F3 pin. The
+bounded pool is replenished after close or pin readiness, never during editor
+interaction or another surface's first paint. No pixels are acquired in advance.
+The editor dims the whole image until a selection is confirmed or dragged, then
+only the area outside that selection. Export flattens the original pixels and
+annotations independently of the presentation mask.
+Exporting and uncertain documents retain their original window and request.
+If the user closed the surface during export, cancellation or failure releases
+its hidden resources once the operation settles. An uncertain send stays owned
+until an authoritative receipt arrives; no dismissal causes resubmission.
+
 The optional Extras gate owns only the manual F1 selection/annotation/Ask Bot and
 F3 clipboard pin tools. Native admission, Carbon shortcuts, menu commands and
 in-flight selection share the persisted gate; disabling cancels admitted sends

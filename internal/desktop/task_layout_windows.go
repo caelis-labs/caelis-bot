@@ -30,27 +30,31 @@ func windowsTaskPlacement(pet, area application.Rect, count int, expanded bool) 
 	below := max(0, bottom-anchor-8)
 	centered := pet.X+pet.Width/2-width/2 >= left && pet.X+pet.Width/2+width/2 <= right
 	rightSpace, leftSpace := right-pet.X-pet.Width-8, pet.X-8-left
-	up, down := max(0, anchor-top), max(0, bottom-anchor)
-	if count > 1 && (!centered || below < height) && max(leftSpace, rightSpace) >= 240 && max(up, down) >= 196 {
+	// Reserve everything above the pet for its bubble. A single card needs the
+	// same side placement as a stack when there is no room beneath the feet.
+	sideTop := clamp(pet.Y, top, bottom-1)
+	up, down := max(0, anchor-sideTop), max(0, bottom-anchor)
+	if (!centered || below < height) && max(leftSpace, rightSpace) > 0 {
 		reverse := up >= down
 		space := down
 		if reverse {
 			space = up
 		}
-		height = min(maxHeight, 196+(count-1)*116, space)
+		height = max(1, min(maxHeight, 196+max(0, count-1)*116, space))
+		width = min(240, max(leftSpace, rightSpace))
 		x, y := pet.X+pet.Width+8, anchor
 		if leftSpace > rightSpace {
-			x = pet.X - 8 - 240
+			x = pet.X - 8 - width
 		}
 		if reverse {
 			y -= height
 		}
-		return WindowsTaskLayout{X: clamp(x, left, right-240), Y: y, Width: 240, Height: height, Vertical: true, Reverse: reverse}
+		return WindowsTaskLayout{X: clamp(x, left, right-width), Y: clamp(y, sideTop, bottom-height), Width: width, Height: height, Vertical: true, Reverse: reverse}
 	}
 	y := feet + 8
-	if above := max(0, pet.Y-top-8); below < height && above > below {
-		y = pet.Y - 8 - height
-	}
+	// Very narrow displays can have no side space. Shrink within the area at
+	// or below the pet instead of flipping into the bubble's reading space.
+	height = min(height, bottom-sideTop)
 	return WindowsTaskLayout{X: clamp(pet.X+pet.Width/2-width/2, left, right-width), Y: clamp(y, top, bottom-height), Width: width, Height: height}
 }
 

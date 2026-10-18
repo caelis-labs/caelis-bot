@@ -166,7 +166,12 @@ func newWindowsDriver(a *application.App, pet, bubble, history *application.Webv
 			} else if logical == 3 {
 				go s.CaptureScreen()
 			} else if logical == 4 {
-				go s.PasteImage()
+				front, _, _ := winUser.NewProc("GetForegroundWindow").Call()
+				go func() {
+					if !d.capture.pinForeground(front) {
+						s.PasteImage()
+					}
+				}()
 			}
 			return 0
 		case 0x84:
@@ -507,6 +512,16 @@ func showWindowsWindow(w *application.WebviewWindow) {
 	// parameters must not suppress a user's explicit/persisted visible surface.
 	// SetWindowPos shows the owned HWND without taking keyboard focus.
 	logError(showWindowsSurface(uintptr(w.NativeWindow())))
+}
+
+// Only explicit user navigation/capture calls this path. Passive pet, bubble
+// and task refreshes must continue using showWindowsWindow. Never attach the
+// foreground process's input queue: a stalled external window would then block
+// our UI thread during activation. Wails transfers focus to the ready WebView.
+func activateWindowsWindow(w *application.WebviewWindow) {
+	w.UnMinimise()
+	showWindowsWindow(w)
+	w.Focus()
 }
 
 func showWindowsWithoutActivation(hwnd uintptr, show func()) {

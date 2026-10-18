@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/draw"
 	"image/jpeg"
@@ -37,6 +38,7 @@ type WindowsCaptureDocument struct {
 	ImageCapability  string           `json:"imageCapability"`
 	Message          string           `json:"message"`
 	Presentation     uint64           `json:"presentation"`
+	Diagnostics      bool             `json:"diagnostics"`
 }
 type WindowsCaptureExport struct {
 	ID        string           `json:"id"`
@@ -47,14 +49,22 @@ type WindowsCaptureExport struct {
 	Action    string           `json:"action"`
 }
 type windowsCaptureDraft struct {
-	started   time.Time
-	slot      string
-	document  WindowsCaptureDocument
-	pixels    image.Image
-	snapshot  screeninput.Snapshot
-	window    *application.WebviewWindow
-	exporting bool
-	ready     bool
+	started      time.Time
+	slot         string
+	document     WindowsCaptureDocument
+	pixels       image.Image
+	preview      []byte
+	snapshot     screeninput.Snapshot
+	window       *application.WebviewWindow
+	exporting    bool
+	ready        bool
+	screenBounds image.Rectangle
+	pinBounds    image.Rectangle
+	dismissed    bool
+	inputReports int
+}
+type windowsCaptureAcquisition struct {
+	screen, cancelled bool
 }
 type windowsCapture struct {
 	mu                sync.Mutex
@@ -63,11 +73,12 @@ type windowsCapture struct {
 	imageState        string
 	enabled           bool
 	includeBackground bool
-	busy              bool
+	acquisition       *windowsCaptureAcquisition
+	editorID          string
 	pinsHidden        bool
 	saveImage         func(*application.WebviewWindow, []byte) error
-	warmWindow        *application.WebviewWindow
-	warmSlot          string
+	warmWindows       []windowsCaptureWarmWindow
+	prewarming        bool
 }
 
 func (d *windowsDriver) registerCaptureShortcut(s Shortcut, k int) error {
@@ -89,22 +100,38 @@ func (d *windowsDriver) captureEnabled(v bool) {
 	}
 }
 func (d *windowsDriver) copyCaptureImage(b []byte) bool {
-	return application.InvokeSyncWithResult(func() bool { return windowsImageClipboard(uintptr(d.pet.NativeWindow()), b) })
+	dib, err := windowsClipboardDIB(b)
+	if err != nil {
+		return false
+	}
+	return application.InvokeSyncWithResult(func() bool { return windowsImageClipboard(uintptr(d.pet.NativeWindow()), b, dib) })
 }
 func (d *windowsDriver) captureCommand(k int) { go d.capture.command(k) }
 func (d *windowsDriver) captureAvailability(v any) {
 	b, _ := json.Marshal(v)
 	var state struct{ State string }
 	_ = json.Unmarshal(b, &state)
-	d.capture.mu.Lock()
-	d.capture.imageState = state.State
-	for _, draft := range d.capture.drafts {
-		draft.document.ImageCapability = state.State
+	d.capture.updateAvailability(state.State, func(w *application.WebviewWindow) {
+		w.ExecJS("window.dispatchEvent(new Event('capture-receipt'))")
+	})
+}
+
+// A renderer call synchronously enters Wails' UI thread. Never hold capture
+// state across it: first paint, F3 and window close all read that same state.
+func (c *windowsCapture) updateAvailability(state string, notify func(*application.WebviewWindow)) {
+	c.mu.Lock()
+	c.imageState = state
+	var windows []*application.WebviewWindow
+	for _, draft := range c.drafts {
+		draft.document.ImageCapability = state
 		if draft.window != nil {
-			draft.window.ExecJS("window.dispatchEvent(new Event('capture-receipt'))")
+			windows = append(windows, draft.window)
 		}
 	}
-	d.capture.mu.Unlock()
+	c.mu.Unlock()
+	for _, w := range windows {
+		notify(w)
+	}
 }
 func (d *windowsDriver) captureReceipt(v any) {
 	b, _ := json.Marshal(v)
@@ -113,18 +140,21 @@ func (d *windowsDriver) captureReceipt(v any) {
 	d.capture.mu.Lock()
 	draft := d.capture.drafts[r.ID]
 	var window *application.WebviewWindow
-	disabled := !d.capture.enabled
+	closeWindow := false
 	if draft != nil {
 		draft.document.Outcome = r.Outcome
 		draft.document.Message = r.Message
 		window = draft.window
+		closeWindow = draft.canCloseAfterOperation(false) || !d.capture.enabled && r.Outcome != "unknown"
 	}
 	d.capture.mu.Unlock()
 	if window != nil {
 		window.ExecJS("window.dispatchEvent(new Event('capture-receipt'))")
-		if r.Outcome == "accepted" || disabled && r.Outcome == "draft" {
+		if closeWindow {
 			go d.service.CloseWindowsCapture(r.ID)
 		}
+	} else if draft != nil && d.capture.releaseUnpresented(draft) {
+		go d.service.discardCapture(r.ID)
 	}
 }
 func (d *windowsDriver) restoreCaptures(records []screeninput.Record) {
@@ -149,6 +179,7 @@ func (c *windowsCapture) restoreDraft(saved *windowsCaptureDraft) *windowsCaptur
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if current := c.drafts[saved.document.ID]; current != nil {
+		current.dismissed = false
 		return current
 	}
 	c.drafts[saved.document.ID] = saved
@@ -158,7 +189,7 @@ func (c *windowsCapture) restoreDraft(saved *windowsCaptureDraft) *windowsCaptur
 func (c *windowsCapture) retainedPresentation(d *windowsCaptureDraft) *application.WebviewWindow {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.enabled || c.driver.stopped.Load() || c.drafts[d.document.ID] != d || !d.ready {
+	if !c.enabled || c.driver.stopped.Load() || d.dismissed || c.drafts[d.document.ID] != d || !d.ready {
 		return nil
 	}
 	return d.window
@@ -166,12 +197,14 @@ func (c *windowsCapture) retainedPresentation(d *windowsCaptureDraft) *applicati
 
 func (c *windowsCapture) closeWindows() {
 	c.mu.Lock()
-	var close, hide []*application.WebviewWindow
-	if c.warmWindow != nil {
-		close = append(close, c.warmWindow)
-		c.warmWindow = nil
-		c.warmSlot = ""
+	if c.acquisition != nil {
+		c.acquisition.cancelled = true
 	}
+	var close, hide []*application.WebviewWindow
+	for _, warm := range c.warmWindows {
+		close = append(close, warm.window)
+	}
+	c.warmWindows = nil
 	for _, d := range c.drafts {
 		if d.window != nil {
 			if d.exporting || d.document.Outcome == "unknown" {
@@ -222,7 +255,18 @@ func (c *windowsCapture) command(kind int) {
 		})
 		return
 	}
-	if c.busy {
+	// F1 toggles the one editor, including while its pixels are still being
+	// acquired. A late acquisition/paint acknowledgement cannot revive it.
+	if kind == 0 {
+		if handled, w := c.toggleScreenLocked(); handled {
+			c.mu.Unlock()
+			if w != nil {
+				application.InvokeSync(func() { w.Hide(); w.Close() })
+			}
+			return
+		}
+	}
+	if c.acquisition != nil {
 		c.mu.Unlock()
 		return
 	}
@@ -231,10 +275,17 @@ func (c *windowsCapture) command(kind int) {
 		c.driver.taskMessage("请先关闭已有截图 / Close an existing capture first")
 		return
 	}
-	c.busy = true
+	acquisition := &windowsCaptureAcquisition{screen: kind == 0}
+	c.acquisition = acquisition
 	context := c.includeBackground
 	c.mu.Unlock()
-	defer func() { c.mu.Lock(); c.busy = false; c.mu.Unlock() }()
+	defer func() {
+		c.mu.Lock()
+		if c.acquisition == acquisition {
+			c.acquisition = nil
+		}
+		c.mu.Unlock()
+	}()
 	// Model discovery must not delay the user's local screenshot. Cached
 	// availability gates Ask Bot; the asynchronous refresh updates it normally.
 	go c.driver.service.refreshCapture()
@@ -252,6 +303,11 @@ func (c *windowsCapture) command(kind int) {
 			return
 		}
 		draft.pixels = im
+		// The clipboard already owns validated PNG bytes. Avoid compressing the
+		// same image again before F3 can display it (especially a full screen).
+		if len(b) <= 8<<20 {
+			draft.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
+		}
 		draft.snapshot.Source = "clipboard"
 		context = false
 	} else {
@@ -286,6 +342,7 @@ func (c *windowsCapture) command(kind int) {
 			return
 		}
 		bounds = image.Rect(int(info.Monitor.Left), int(info.Monitor.Top), int(info.Monitor.Right), int(info.Monitor.Bottom))
+		draft.screenBounds = bounds
 		r := image.Rect(int(rect.Left), int(rect.Top), int(rect.Right), int(rect.Bottom)).Intersect(bounds)
 		draft.document.Window = screeninput.Rect{X: r.Min.X - bounds.Min.X, Y: r.Min.Y - bounds.Min.Y, Width: r.Dx(), Height: r.Dy()}
 		// Temporarily hide only our presentation windows, preserving their state.
@@ -311,23 +368,30 @@ func (c *windowsCapture) command(kind int) {
 			}
 		})
 		if e != nil {
-			c.driver.taskMessage(e.Error())
+			c.driver.taskMessage(c.driver.service.text("native.capture.failed", nil))
 			return
 		}
 		draft.pixels = im
-	}
-	var encoded bytes.Buffer
-	encodeStart := time.Now()
-	if e := encodeWindowsCapture(&encoded, draft.pixels); e != nil || encoded.Len() > 8<<20 {
-		c.driver.taskMessage("截图过大 / Screen image too large")
-		return
+		previewStart := time.Now()
+		draft.preview, e = windowsCapturePreview(im)
+		c.timing("preview", previewStart)
+		if e != nil {
+			return
+		}
 	}
 	b := draft.pixels.Bounds()
-	c.timing("png", encodeStart)
 	draft.document.ID = draft.snapshot.ID
 	draft.document.Width = b.Dx()
 	draft.document.Height = b.Dy()
-	draft.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	if len(draft.preview) != 0 {
+		draft.document.Image = "/capture-preview/" + draft.document.ID
+	} else if draft.document.Image == "" {
+		var encoded bytes.Buffer
+		if e := encodeWindowsCapture(&encoded, draft.pixels); e != nil || encoded.Len() > 8<<20 {
+			return
+		}
+		draft.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	}
 	draft.document.Context = context
 	draft.document.ContextAvailable = draft.snapshot.Source == "screen"
 	draft.document.Outcome = "draft"
@@ -335,16 +399,45 @@ func (c *windowsCapture) command(kind int) {
 		draft.document.Outcome = "pinned"
 	}
 	c.mu.Lock()
-	if !c.enabled || c.driver.stopped.Load() {
+	if !c.admitAcquisitionLocked(acquisition, draft) {
 		c.mu.Unlock()
 		return
 	}
-	draft.document.ImageCapability = c.imageState
-	c.drafts[draft.document.ID] = draft
 	c.mu.Unlock()
 	c.timing("acquired", started)
 	c.present(draft, bounds)
 	c.timing("window_created", started)
+}
+
+// Called with c.mu held. Native window calls always happen after unlocking.
+func (c *windowsCapture) toggleScreenLocked() (bool, *application.WebviewWindow) {
+	if c.acquisition != nil && c.acquisition.screen {
+		c.acquisition.cancelled = true
+		return true, nil
+	}
+	d := c.drafts[c.editorID]
+	if d == nil || d.document.Outcome == "pinned" {
+		return false, nil
+	}
+	d.dismissed = true
+	if d.window == nil && !d.exporting && d.document.Outcome == "draft" {
+		delete(c.drafts, c.editorID)
+		c.editorID = ""
+	}
+	return true, d.window
+}
+func (c *windowsCapture) admitAcquisitionLocked(a *windowsCaptureAcquisition, d *windowsCaptureDraft) bool {
+	if !c.enabled || c.driver.stopped.Load() || c.acquisition != a || a.cancelled {
+		return false
+	}
+	d.document.ImageCapability = c.imageState
+	d.document.Diagnostics = buildChannel == "development"
+	c.drafts[d.document.ID] = d
+	c.acquisition = nil
+	if a.screen {
+		c.editorID = d.document.ID
+	}
+	return true
 }
 
 func boundedWindowsCaptureText(value string, limit int) string {
@@ -357,34 +450,66 @@ func boundedWindowsCaptureText(value string, limit int) string {
 	return value
 }
 func (c *windowsCapture) present(d *windowsCaptureDraft, bounds image.Rectangle) {
+	defer func() {
+		if c.releaseUnpresented(d) {
+			go c.driver.service.discardCapture(d.document.ID)
+		}
+	}()
 	application.InvokeSync(func() {
 		assigned := false
 		c.mu.Lock()
-		if c.driver.stopped.Load() || !c.enabled || c.drafts[d.document.ID] != d {
+		if c.driver.stopped.Load() || !c.enabled || d.dismissed || c.drafts[d.document.ID] != d {
 			c.mu.Unlock()
 			return
 		}
-		if d.window == nil {
+		w := d.window
+		created := w == nil
+		if created {
 			d.document.Presentation++
 			d.ready = false
 			pin := d.document.Outcome == "pinned"
-			if (pin || !bounds.Empty()) && c.warmWindow != nil {
-				d.window, d.slot = c.warmWindow, c.warmSlot
-				c.warmWindow, c.warmSlot = nil, ""
-				assigned = true
-			} else {
-				d.slot = ""
-				d.window = c.driver.app.Window.NewWithOptions(application.WebviewWindowOptions{Name: d.document.ID, Title: c.driver.service.text("native.capture.start", nil), URL: "/?surface=capture&id=" + d.document.ID, Width: 880, Height: 640, Frameless: pin || !bounds.Empty(), DisableResize: pin || !bounds.Empty(), AlwaysOnTop: true, Hidden: true, Windows: application.WindowsWindow{HiddenOnTaskbar: pin || !bounds.Empty(), DisableFramelessWindowDecorations: pin || !bounds.Empty()}})
+			id, presentation, width, height, pinBounds := d.document.ID, d.document.Presentation, d.document.Width, d.document.Height, d.pinBounds
+			if pin || !bounds.Empty() {
+				w, d.slot = c.takeWarmWindowLocked()
+				assigned = w != nil
 			}
-			w := d.window
+			if w == nil {
+				d.slot = "capture-slot-" + rand.Text()
+			}
+			slot := d.slot
+			c.mu.Unlock()
+			// WebView creation can pump native messages. No capture/service lock
+			// may span it, or a renderer read/close can deadlock the entire shell.
+			if w == nil {
+				w = c.driver.app.Window.NewWithOptions(application.WebviewWindowOptions{Name: id, Title: c.driver.service.text("native.capture.start", nil), URL: "/?surface=capture&slot=" + slot, Width: 880, Height: 640, Frameless: pin || !bounds.Empty(), DisableResize: pin || !bounds.Empty(), AlwaysOnTop: true, Hidden: true, BackgroundType: application.BackgroundTypeTransparent, Windows: application.WindowsWindow{HiddenOnTaskbar: pin || !bounds.Empty(), DisableFramelessWindowDecorations: pin || !bounds.Empty()}})
+				assigned = true
+			}
+			c.mu.Lock()
+			valid := !c.driver.stopped.Load() && c.enabled && !d.dismissed && c.drafts[id] == d && d.document.Presentation == presentation && d.window == nil
+			if valid {
+				d.window = w
+			}
+			c.mu.Unlock()
+			if !valid {
+				w.Close()
+				return
+			}
 			disableWindowsCaptureTransitions(uintptr(w.NativeWindow()))
+			if assigned {
+				const exStyle = ^uintptr(19)
+				hwnd := uintptr(w.NativeWindow())
+				style, _, _ := winUser.NewProc("GetWindowLongPtrW").Call(hwnd, exStyle)
+				winUser.NewProc("SetWindowLongPtrW").Call(hwnd, exStyle, style&^uintptr(0x08000000))
+			}
+			if buildChannel == "development" {
+				w.RegisterHook(events.Windows.WindowKeyDown, func(*application.WindowEvent) { c.reportInput(id, "native_key") })
+			}
 			if pin {
-				positionWindowsPin(w, d.document.Width, d.document.Height)
+				positionWindowsPin(w, width, height, pinBounds)
 				c.registerPinMenu(d, w)
 			}
 			// A failed renderer must not leave an invisible document consuming a
 			// capture slot forever. The generation check excludes a replacement pin.
-			presentation := d.document.Presentation
 			time.AfterFunc(15*time.Second, func() {
 				application.InvokeSync(func() {
 					c.mu.Lock()
@@ -397,13 +522,7 @@ func (c *windowsCapture) present(d *windowsCaptureDraft, bounds image.Rectangle)
 				})
 			})
 			w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-				c.mu.Lock()
-				current := d.window == w
-				retained := d.exporting || d.document.Outcome == "unknown"
-				if current && !retained {
-					delete(c.drafts, d.document.ID)
-				}
-				c.mu.Unlock()
+				current, retained := c.releasePresentation(d, w)
 				if current && retained {
 					e.Cancel()
 					w.Hide()
@@ -412,10 +531,13 @@ func (c *windowsCapture) present(d *windowsCaptureDraft, bounds image.Rectangle)
 					c.driver.app.ContextMenu.Remove(d.document.ID)
 					go c.driver.service.discardCapture(d.document.ID)
 				}
+				if !current || !retained {
+					go c.prewarm()
+				}
 			})
+		} else {
+			c.mu.Unlock()
 		}
-		w := d.window
-		c.mu.Unlock()
 		if !bounds.Empty() {
 			// Size the hidden HWND before decoding/drawing. Showing first exposes
 			// the WebView's blank canvas across the entire display.
@@ -446,17 +568,79 @@ func (s *Service) WindowsCaptureReady(id string, presentation uint64) {
 	c := driver.capture
 	application.InvokeSync(func() {
 		if w := c.claimPresentation(id, presentation); w != nil {
-			showWindowsWindow(w)
-			w.Focus()
-			time.AfterFunc(time.Second, c.prewarm)
+			activateWindowsWindow(w)
+			w.ExecJS("window.dispatchEvent(new Event('capture-focus'))")
+			c.reportFocus(w, "shown")
+			// Clipboard F3 consumes the same fresh slot as F1. Replenishment is
+			// admitted only when no full-screen editor owns the keyboard.
+			go c.prewarm()
+			time.AfterFunc(1500*time.Millisecond, func() {
+				application.InvokeSync(func() {
+					if w.IsVisible() {
+						c.reportFocus(w, "settled")
+					}
+				})
+			})
 		}
 	})
+}
+
+// Development evidence contains only focus ownership, never screen text or keys.
+func (c *windowsCapture) reportFocus(w *application.WebviewWindow, stage string) {
+	if buildChannel != "development" || c.driver.diagnostic == nil {
+		return
+	}
+	hwnd := uintptr(w.NativeWindow())
+	front, _, _ := winUser.NewProc("GetForegroundWindow").Call()
+	focus, _, _ := winUser.NewProc("GetFocus").Call()
+	root, _, _ := winUser.NewProc("GetAncestor").Call(focus, 2)
+	style, _, _ := winUser.NewProc("GetWindowLongPtrW").Call(hwnd, ^uintptr(19))
+	c.driver.diagnostic("capture_focus", fmt.Sprintf("%s foreground=%t keyboard=%t child=%t noactivate=%t", stage, front == hwnd, root == hwnd, focus != hwnd, style&0x08000000 != 0))
+}
+
+// Bounded development diagnostics describe only the input route. Never record
+// arbitrary keys, typed text, image content or document identities.
+func (s *Service) WindowsCaptureInput(id, phase string) {
+	s.mu.Lock()
+	d, ok := s.native.(*windowsDriver)
+	s.mu.Unlock()
+	if ok {
+		d.capture.reportInput(id, phase)
+	}
+}
+func (c *windowsCapture) reportInput(id, phase string) {
+	if buildChannel != "development" || c.driver.diagnostic == nil {
+		return
+	}
+	switch phase {
+	case "native_key", "dom_focus", "dom_blur", "key_copy", "key_save", "key_send", "key_pin", "key_ime", "action_copy", "action_save", "action_send", "action_pin", "send_unavailable", "image_decoded":
+	default:
+		return
+	}
+	c.mu.Lock()
+	d := c.drafts[id]
+	if d == nil || d.inputReports >= 24 {
+		c.mu.Unlock()
+		return
+	}
+	d.inputReports++
+	w := d.window
+	started := d.started
+	c.mu.Unlock()
+	if phase == "image_decoded" {
+		c.timing(phase, started)
+		return
+	}
+	c.driver.diagnostic("capture_input", phase)
+	if w != nil {
+		application.InvokeSync(func() { c.reportFocus(w, phase) })
+	}
 }
 func (c *windowsCapture) claimPresentation(id string, presentation uint64) *application.WebviewWindow {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := c.drafts[id]
-	if c.driver.stopped.Load() || d == nil || d.window == nil || d.ready || d.document.Presentation != presentation {
+	if c.driver.stopped.Load() || d == nil || d.dismissed || d.window == nil || d.ready || d.document.Presentation != presentation {
 		return nil
 	}
 	// First paint is a fact about this presentation, even while disabled.
@@ -475,10 +659,17 @@ func (c *windowsCapture) finishExport(d *windowsCaptureDraft, completed bool) (*
 	d.exporting = false
 	// A receipt can arrive before the exporting call returns. Only acceptance
 	// completes that operation; an unknown outcome must retain its original ID.
-	if completed || d.document.Outcome == "accepted" {
+	if d.canCloseAfterOperation(completed) {
 		return d.window, !c.enabled
 	}
 	return nil, !c.enabled
+}
+
+// A close during export is deferred until the operation settles. Cancellation
+// or failure must then release the hidden window too, but an uncertain send
+// retains its original receipt and pixels until reconciliation resolves it.
+func (d *windowsCaptureDraft) canCloseAfterOperation(completed bool) bool {
+	return completed || d.document.Outcome == "accepted" || d.dismissed && d.document.Outcome != "unknown"
 }
 func (s *Service) WindowsCaptureDocument(id string) (WindowsCaptureDocument, error) {
 	s.mu.Lock()
@@ -512,6 +703,9 @@ func (s *Service) CloseWindowsCapture(id string) error {
 	var window *application.WebviewWindow
 	if d != nil {
 		window = d.window
+		if window == nil {
+			d.dismissed = true
+		}
 	}
 	driver.capture.mu.Unlock()
 	if d == nil {
@@ -519,10 +713,13 @@ func (s *Service) CloseWindowsCapture(id string) error {
 	}
 	if window != nil {
 		window.Close()
+	} else if driver.capture.releaseUnpresented(d) {
+		go s.discardCapture(id)
 	}
 	return nil
 }
 func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
+	started := time.Now()
 	s.mu.Lock()
 	driver, ok := s.native.(*windowsDriver)
 	enabled := s.capture.preferences.Enabled
@@ -533,7 +730,7 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 	c := driver.capture
 	c.mu.Lock()
 	d := c.drafts[v.ID]
-	if d == nil || d.exporting || d.document.Outcome == "unknown" || d.document.Outcome == "accepted" {
+	if d == nil || d.dismissed || d.exporting || d.document.Outcome == "unknown" || d.document.Outcome == "accepted" {
 		c.mu.Unlock()
 		return errors.New("capture has an unresolved or accepted submission")
 	}
@@ -547,6 +744,9 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 		// completed document as an unknown in-flight operation.
 		if window != nil {
 			window.Close()
+		}
+		if c.releaseUnpresented(d) {
+			go s.discardCapture(d.document.ID)
 		}
 		if disabled {
 			go c.closeWindows()
@@ -647,7 +847,17 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 		return nil
 	}
 	c.mu.Lock()
+	if d.dismissed {
+		c.mu.Unlock()
+		return nil
+	}
+	d.pinBounds = windowsPinSelectionBounds(r, d.screenBounds, d.pinBounds, d.document.Width, d.document.Height)
+	// Measure pin export/presentation, excluding time spent choosing a region.
+	d.started = started
 	d.document.Outcome = "pinned"
+	if c.editorID == v.ID {
+		c.editorID = ""
+	}
 	d.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 	d.document.Width = r.Dx()
 	d.document.Height = r.Dy()
@@ -655,6 +865,7 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 	d.document.ContextAvailable = false
 	d.document.Window = screeninput.Rect{}
 	d.pixels = selection
+	d.preview = nil
 	oldWindow := d.window
 	d.window = nil
 	c.mu.Unlock()
@@ -732,6 +943,16 @@ func (s *Service) EditWindowsCapture(id string) error {
 	if err != nil {
 		return err
 	}
+	if oldWindow != nil {
+		application.InvokeSync(func() {
+			var r struct{ Left, Top, Right, Bottom int32 }
+			if ok, _, _ := winUser.NewProc("GetWindowRect").Call(uintptr(oldWindow.NativeWindow()), uintptr(unsafe.Pointer(&r))); ok != 0 {
+				c.mu.Lock()
+				d.pinBounds = image.Rect(int(r.Left), int(r.Top), int(r.Right), int(r.Bottom))
+				c.mu.Unlock()
+			}
+		})
+	}
 	c.present(d, image.Rectangle{})
 	if oldWindow != nil {
 		oldWindow.Close()
@@ -747,6 +968,9 @@ func (c *windowsCapture) editPin(id string) (*windowsCaptureDraft, *application.
 		return nil, nil, errors.New("capture pin unavailable")
 	}
 	d.document.Outcome = "draft"
+	d.dismissed = false
+	d.screenBounds = image.Rectangle{}
+	c.editorID = id
 	d.document.Message = ""
 	d.snapshot = screeninput.Snapshot{Version: 1, ID: id, CapturedAt: time.Now().Format(time.RFC3339Nano), Source: "clipboard"}
 	oldWindow := d.window
