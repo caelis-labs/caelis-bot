@@ -1,5 +1,5 @@
 // Package weixin implements the text subset of Tencent/openclaw-weixin 2.4.9's
-// published iLink protocol. See docs/weixin-channel-feasibility-2026-10-10.md.
+// published iLink protocol. See docs/weixin-channel-poc.md.
 // Copyright (c) Tencent. The upstream MIT license is in licenses/openclaw-weixin-LICENSE.
 package weixin
 

@@ -1,25 +1,32 @@
 # Documentation
 
+Start with the [English README](../README.md) or [中文 README](../README.zh-CN.md).
+
+## Use Caelis Bot
+
+| Guide | What you will find |
+| --- | --- |
+| [macOS installation](install.md) · [中文](install.zh-CN.md) | Download, verify, connect a model and update |
+| [Windows installation](install.windows.md) | Setup/ZIP, channels, first launch and updates |
+| [Features and limits](status.md) | Current source, published packages and platform boundaries |
+| [Content packs](content-packs.md) | Create and import characters, outfits and avatars |
+| [Remote machines](remote-machines-v1-plan.md) | SSH setup, machine-specific models and task ownership |
+
+## Build and maintain
+
 | Guide | Scope |
 | --- | --- |
-| [Install / 安装](install.md) · [中文](install.zh-CN.md) | Download, verification, first launch and updates |
-| [Product](product.md) | User experience, persistent identity and direction |
-| [Architecture](architecture.md) | Ownership, durable state, recovery, tasks, care and desktop contracts |
-| [Availability](availability.md) | Local IM, component isolation, original-receipt recovery and fault verification |
-| [Runtime integration](caelis-integration.md) | Codex/Caelis compatibility, environment, Guardian and Core release conditions |
-| [Development](development.md) | Setup/signing, tests, native verification, localization and evidence limits |
-| [Content packs](content-packs.md) | Creator format, official asset delivery, licenses and runtime responsibilities |
-| [Release](release.md) | Protected release automation, credentials, recovery and public artifact acceptance |
-| [Windows adaptation plan](windows-adaptation-plan.md) | Rebuild from current main, core feature/UI parity, platform isolation and independent Windows publication |
-| [Windows baseline issues](windows-adaptation-issues.md) | Reproduced defects, missing adapters and explicit verification limits |
-| [Windows preview release](windows-release.md) | Setup/ZIP, independent CI, update signing, local key backup and exact artifact acceptance |
+| [Development](development.md) | Toolchain, isolated Dev apps and verification commands |
+| [Product](product.md) | User behavior and future direction |
+| [Architecture](architecture.md) | State, tasks, channels, tools and ownership |
+| [Runtime integration](caelis-integration.md) | Caelis/Codex discovery, compatibility and model configuration |
+| [Plugin packages](plugin-packages.md) | Reviewed packages, credentials and lifecycle |
+| [Availability](availability.md) | Recovery without replaying uncertain work |
+| [Interface design](ui-design.md) · [Polish principles](uiux-polish-principles.md) | Shared UI and native presentation |
+| [Async questions](design/async-question-lifecycle.md) | Answer, expiry and original-request ownership |
+| [Weixin channel](weixin-channel-poc.md) | Experimental private-text adapter and its limits |
+| [Release](release.md) | CI routing, macOS signing, publication and recovery |
+| [Windows release](windows-release.md) | Stable/preview packaging and update signing |
+| [Windows scope](windows-adaptation-plan.md) · [Open validation gaps](windows-adaptation-issues.md) | Supported boundaries and remaining checks |
 
-These owner guides replace historical design plans, handoffs and repeated acceptance diaries. Earlier records
-remain in Git (`git show 43314d5:docs/<old-path>`), with implementation history in the corresponding PRs.
-Current contracts live here; executable schemas/tests and Bot-facing English skills keep their own source
-locations. Do not treat a historical acceptance result or a planned capability as current release evidence.
-
-Current implementation: [Remote machines v1 / 远端机器首版方案](remote-machines-v1-plan.md).
-The [acceptance record](evidence/remote-machines-v1/acceptance.md) separates verified
-native work and external-terminal lifecycle from the remaining terminal visual gate;
-no shipped release is claimed.
+Current guides describe the checked-out source. A feature reaches users only in a published release containing that source. Historical acceptance diaries and superseded plans are kept in Git history, not maintained as current instructions. Protocol schemas, release pins, tests and Bot-facing Skills remain authoritative at their own paths.

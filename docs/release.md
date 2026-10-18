@@ -2,7 +2,7 @@
 
 ## Ownership
 
-`caelis-bot` owns the application, finished character packs and macOS distribution. The private `caelis-bot-assets` repository owns modeling sources and opens product asset PRs. A product build uses checked-in finished files only; no private checkout or Blender is involved.
+`caelis-bot` owns the application, finished character packs and macOS/Windows distribution. The private `caelis-bot-assets` repository owns modeling sources and opens product asset PRs. A product build uses checked-in finished files only; no private checkout or Blender is involved.
 
 ## Required checks and branch policy
 
@@ -13,49 +13,31 @@ joins the selected macOS (`macos-15`), Windows (`windows-2025`) and Linux headle
 unexpectedly skipped jobs cannot pass it. The strict current-base PR gate checks
 the combined source before merging, so a main push does not repeat that suite.
 
-Documentation-only changes under `docs/`, `README.md` and `CHANGELOG.md` use a
-lightweight check, retaining the public-tree boundary guard. Release metadata uses
-the same path only when the actual diff
-changes version values in `package.json`, `package-lock.json` and the manifest,
-with matching valid versions and no other JSON changes. Dependencies, scripts,
-Bot skills, workflow changes and unknown paths always receive full checks. Bot
-author, labels and branch name do not determine this routing.
+PR checks are selected from the actual diff, not labels or authors:
 
-Full checks retain:
+| Change | Required product jobs |
+| --- | --- |
+| README translations, `docs/`, changelog only | Scope/public-tree guard and aggregate gate |
+| Valid version-only release metadata | Scope/metadata validation and aggregate gate |
+| macOS-only source or scripts, with optional docs | macOS product |
+| Windows-only source or scripts, with optional docs | Windows product |
+| Shared code, dependencies, workflows or unknown paths | macOS product, Windows product and Linux headless |
 
-- Pinned actionlint validates workflow syntax and expressions.
-- `npm ci` uses the lockfile; Node and Go come from repository pins.
-- `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts and Go tests.
-- `npm run smoke:assets`: validate, parse and animate the delivered GLBs.
-- Linux native ownership/recovery race tests and both helper architectures.
+The scope job always validates workflows with actionlint and tests the routing rules. Missing, failed, cancelled or unexpectedly skipped required jobs fail `product`. A dependency or script change hidden inside a release PR cannot use the version-only fast path.
 
-Routine PR checks no longer run native window fixtures, a second macOS race pass,
-an extra shared Go job, Windows frontend tests/build, the updater install fixture
-or a second serial production-tagged App compilation. Packaging inputs trigger
-a separate parallel macOS preview job; the required `product` gate requires it
-to pass whenever selected. The release job always rebuilds the complete App.
-Native desktop acceptance is manual via `script/build_and_run.sh`; release builds
-still compile the tagged app and run updater checks. Go cache restoration uses the same `.cache/go-build` directory as project scripts;
-the cache key includes `go.sum` and `script/env.sh` to refresh the old cache layout.
-The release build shares that layout, and its main-branch cache can seed later PRs.
+macOS product runs `make check` and asset smoke. Windows product runs native shared/platform contracts and the pinned Desktop World package check. Linux runs ownership/recovery race tests and builds both headless helper architectures. These jobs do not publish packages or perform real-account model acceptance.
 
-Packaging-related changes build and ad-hoc sign the Dev app, validate its
-bundled Desktop World helper, then mount a compressed read-only Dev DMG and
-verify the enclosed signature, executable, license and Finder layout. Other
-PRs do not create/upload an installer. To request one, manually run **Product
-checks** with `preview=true`; its DMG and checksum are retained for seven days.
-These are development builds, not published releases. The installer uses a
-660×430 window, 128-point icons and a left-to-right Applications drag target.
-Pinned dmgbuild dependencies are isolated in `.cache/dmg-tools` (Python 3 required);
-no Finder automation is used.
+PRs do not run `macos-preview` or a Windows stable/preview packaging matrix. The Product checks manual trigger also runs source checks only. Package construction, signing and artifact upload belong to release workflows: macOS builds its stable DMG; Windows builds the one requested stable or preview channel. Preview packages are built when publishing a preview tag, not for an ordinary PR. Local packaging remains available with `make package` and the Windows packaging scripts.
 
-`make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](development.md) and [backend acceptance](caelis-integration.md). Intel macOS releases remain outside the current workflow. Windows has its own preview workflow described in [Windows releases](windows-release.md).
+Use focused local package checks when changing installer behavior. Native desktop review remains separate; a source check is not an installed-app or GUI claim. Go cache restoration uses the repository cache layout and dependency inputs; no release signing credentials enter PR builds.
+
+`make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](development.md) and [backend acceptance](caelis-integration.md). Intel macOS releases remain outside the current workflow. Windows has its own stable/preview workflow described in [Windows releases](windows-release.md).
 
 Dependabot checks Actions, npm and Go dependencies weekly. Dependency PRs use the same required check and are not auto-merged. Update `toolchain.json` when changing the corresponding explicitly pinned toolchain; review Wails/Codex compatibility separately.
 
 ## Release flow
 
-Use Conventional Commit squash titles. With the current `release-please` default versioning and the 0.11.0 manifest, `feat:` increments the minor version (`0.12.0` → `0.13.0`) and `fix:` increments the patch (`0.12.0` → `0.12.1`). A version PR is the human release decision: review it and merge it only when the change is ready. `chore:` and `docs:` alone do not trigger a product version. Local Dev builds are not a public release channel. Windows uses the same product base version: `vX.Y.Z-windows.preview.N` for preview and `vX.Y.Z` for stable. Keep one root release-please manifest/version PR; operating systems are distribution targets, not separate versioned packages. Platform publication can finish independently.
+Use Conventional Commit squash titles. With the current `release-please` default versioning, `feat:` increments the minor version (`0.12.0` → `0.13.0`) and `fix:` increments the patch (`0.12.0` → `0.12.1`). A version PR is the human release decision: review it and merge it only when the change is ready. `chore:` and `docs:` alone do not trigger a product version. Local Dev builds are not a public release channel. Windows uses the same product base version: `vX.Y.Z-windows.preview.N` for preview and `vX.Y.Z` for stable. Keep one root release-please manifest/version PR; operating systems are distribution targets, not separate versioned packages. Platform publication can finish independently.
 
 1. A push to `main` makes release-please maintain a version PR with `package.json`, its lockfile, `CHANGELOG.md` and the manifest. The version PR is not auto-merged.
 2. Merging that PR makes release-please create an immutable `vX.Y.Z` tag and draft GitHub release. Its `release_created` output starts the macOS arm64 release workflow automatically.

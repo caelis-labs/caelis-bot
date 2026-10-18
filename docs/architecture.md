@@ -582,7 +582,7 @@ The renderer uses one machine editor with responsive CSS, a stable draft, fixed
 connection action, guarded background navigation and scoped advanced failures.
 Node login remains a clear target-TUI/device-auth guide; OAuth/ACP flows that the
 native surface cannot complete have an explicit TUI placeholder. See the
-[acceptance record](evidence/remote-machines-v1/acceptance.md) for live and fixture limits.
+[verification guide](development.md#remote-machine-acceptance) for live and fixture limits.
 
 ## Execution and recovery
 
@@ -820,7 +820,7 @@ sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
 catalog and approval list.
 
 The MCP `exec` tool and its private CUA worker are upstream release code. The
-rc.9 execution context is owned by the MCP process; callers omit a named
+v0.1.0 execution context is owned by the MCP process; callers omit a named
 `session` and recover receipts through that same originating connection. Bot's
 Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
 when an input error may follow an already applied action.
@@ -829,14 +829,13 @@ installed second app or Node runtime. The current Runtime chain starts the Bot
 MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
 signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
 the responsible path for the private Host, bridge, `dtw` and worker. This is
-an OS responsibility observation, distinct from their PPIDs and rc.4's
-hardcoded `host_bundle_id`. The resident Bot holds a kernel file lock in its
+an OS responsibility observation, not an inference from PPIDs or package metadata. The resident Bot holds a kernel file lock in its
 private plugin store; the bridge checks it before spawn and during execution,
 so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published rc.9 Mac binaries are Developer ID signed, with upstream notarization
+server, reset TCC, or infer successful input from a model reply. Published v0.1.0 Mac binaries are Developer ID signed, with upstream notarization
 evidence. Bot verifies those signatures before cleaning build-machine runtime
 paths and re-signing both nested binaries with its selected app identity. The
 app seals the complete resulting inventory and independently passes its own

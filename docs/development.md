@@ -1,35 +1,16 @@
 # Development and verification
 
-Windows native implementation is being rebuilt from main / v0.14.0. See the
-[adaptation plan](windows-adaptation-plan.md) and [Windows baseline issues](windows-adaptation-issues.md)
-for the preserved legacy branch, current scope and verification results. This
-implementation does not yet qualify a public Windows release.
+Start with the [current status](status.md) and [documentation index](README.md).
+macOS and Windows have independent publication paths. Windows Setup/ZIP packages
+are available; the [adaptation ledger](windows-adaptation-issues.md) retains dated
+GUI evidence and open gaps. A published package does not qualify every interaction.
 
 On Windows use `script/check-windows.ps1`, `script/smoke-windows.ps1` and
 `script/build-windows.ps1`; they use the same locked toolchain and retain native
 platform checks. Launch through `script/build_and_run-windows.ps1` with an isolated
-`-DataDirectory` for review. Setup/ZIP, preview CI and key reuse are in
+`-DataDirectory` for review. Setup/ZIP, release workflows and key reuse are in
 [Windows releases](windows-release.md). Mac `make check/smoke/build` remain required
 on a Mac; Darwin CGO-free cross-compilation does not replace AppKit acceptance.
-
-Worker parity checks (Windows, 2026-10-18): `check-windows.ps1`,
-`smoke-windows.ps1` and the Dev build passed. The GUI-subsystem terminal test host
-ran `TestWindowsLiveTerminalHostClaimsExactClient` against Windows Terminal and
-classic Console Host with inherited `NO_COLOR=1` / `TERM=dumb`; both real console
-children received clean color capability settings and passed original-client
-receipt, reuse, collapse, focus and close checks. This validates launch conditions,
-not every Runtime's theme or terminal thumbnail availability.
-
-For read-only Caelis acceptance, set `CAELIS_BOT_WORKER_HISTORY_PROFILE` to an
-existing Bot profile and run `go test ./internal/backend/caelis -run
-TestExistingWorkerConversations -count=1 -v`. The test discovers the original Host,
-checks its identity and reads retained Worker history without submitting work.
-Only message counts and timing are logged. The three reported completed Workers
-were unreadable before the cursor fix and readable afterward in 31–88 ms each.
-The native DevBot menu was inspected for a shared left-aligned content column;
-the transparent side-stack was observed with the existing tasks. Automated geometry
-checks cover dense lists, screen edges and negative monitor coordinates; Mac native
-visual behavior and all multi-monitor/DPI combinations still require hardware review.
 
 Build from this public repository with pinned `toolchain.json`, `go.mod`, npm lockfiles and protocol manifests.
 No private asset checkout or sibling Core imports. `script/env.sh` selects Node 24, local caches, GOWORK=off
@@ -149,40 +130,6 @@ Desktop World 实机验收使用已签名 Dev 包、隔离的 `CAELIS_BOT_DATA_D
 旧 `bot_desktop_*` 与 `--desktop-capture-smoke` 已退役；不要用直接运行
 `dtw`、fixture 模型或系统权限开关状态替代这项验收。
 
-2026-10-12 的隔离 DevBot 验收使用 Apple Development 签名的本地包、
-独立 Bot 数据目录和从用户 Store 按原目录复制的私有 Caelis Store；未读取或输出凭据。
-真实模型在 Bot UI 中发现 Desktop World v0.1.0-rc.4 的 Skill 和唯一
-`exec`，经原有 `allow_once` 审批，在指定临时 AppKit 窗口把 `Count: 1`
-点击到 `Count: 2`；独立 CUA 窗口读取也显示 `Count: 2`。同一会话停用插件后，
-Bot MCP 桥、`dtw` 和私有 worker 退出，旧工具名调用返回 `not_found`；
-重启后停用选择保留，重新开启后只读 `permissions` 调用返回 `status: ok`
-及 Accessibility/Screen Recording 均为 `true`。
-
-Codex 路径先用合成模型完成相同的连接和工具检查，再在另一份全新隔离
-DevBot 数据目录中，以原样复制到私有 `CODEX_HOME` 的用户认证运行真实模型。
-Bot UI 中的真实 `exec permissions` 返回 `status: ok`，Accessibility 和
-Screen Recording 均为 `true`；对 PID 和标题均匹配的临时窗口，模型通过
-一次 `exec run` 把 `Count: 2` 点击到 `Count: 3`，独立窗口读取也为
-`Count: 3`。停用后同一 Codex 会话报告工具不可用，桥的 `dtw` 和 worker
-退出；重启后用户的停用选择仍在，重新开启后同一会话的只读 `exec`
-再次成功。未使用强制批准模式，也未读取或输出认证内容。
-
-实际 Caelis 父进程链为私有 Host → Bot `--plugin-mcp` → `dtw` → 私有
-worker。额外的只读 OS 检查用 `sudo -n launchctl procinfo` 查询这四个
-进程和 Bot 主进程；Codex 的桥、`dtw` 和 worker 也单独核对。其
-`responsible pid/path` 指向同一份 Apple Development 签名的 DevBot
-主进程与主可执行文件，bundle ID `dev.caelis.bot.dev`。这是 macOS
-报告的责任路径，并非从 PPID 或 rc.4 写死的 `host_bundle_id` 推测。
-本机用户 TCC 数据库无法只读打开，因此不把该字段当作单独的授权记录；
-上述 OS 责任路径、worker 的权限检查及 GUI 实际读回合并作为本机验收证据。
-Bot 主进程现在持有私有 store 中的内核锁，桥在启动前和运行期间检查；
-正常退出后 MCP 桥、`dtw`、worker 均退出，单独的异常退出模拟也确认
-桥与 DTW 在主进程被杀后终止。两 Runtime 的签名包原生连接测试再次确认
-Skill、唯一 `exec` 和停用撤销。
-单独从 shell 启动的私有 Host 在只读窗口定位时返回 `window_not_found`，
-不能替代 App 启动的结果。Windows 11 原生 GUI 和公开发行公证仍需
-分别验收。
-
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
 `CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
@@ -210,19 +157,9 @@ Codex 的检查 API 不返回 PNG 字节；实际图片 payload 由 Core loader/
 | UI/character/permissions | Native `script/build_and_run.sh`, actual window observation and focused manual native diagnostics |
 | Packaging | Dev build/package/mount, nested native component verification |
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
-| Windows foundation | Native Windows CI executes focused platform contracts and pinned helper verification; the weekly CGO-free matrix compiles the unsupported GUI bootstrap. Windows 11 interaction and installer signing remain separate gates |
+| Windows | PR: native shared/platform tests and pinned Plugin verification. Packaging changes: local Setup/ZIP and custom-directory install/update/uninstall checks; publication builds the requested channel. Real GUI, actual release bytes and account behavior need separate evidence; current packages are unsigned |
 
-The required `product` CI check routes shared/frontend/protocol/dependency changes to
-macOS, Windows and Linux headless checks. macOS runs the normal headless checks;
-packaging changes also trigger a parallel Dev build, bundled-helper verification
-and mounted DMG check. Linux runs focused race tests and builds remote helpers;
-Windows runs native platform contracts and verifies the pinned helper. Unknown
-paths take the full route.
-Windows runner results are native contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
-owns the fail-closed route and gate.
-The remote SSH control directory currently uses a Unix socket path; macOS tests
-and Linux race checks own its runtime behavior. Windows PR CI checks the shared
-desktop and local IPC contracts while the native Windows SSH adapter remains planned.
+The required `product` gate selects source checks by changed platform; documentation and valid version-only changes use the lightweight path. PRs do not build a duplicate preview package. See [CI routing](release.md#required-checks-and-branch-policy).
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
 An explicit development data directory also namespaces the native instance lock;
@@ -274,16 +211,12 @@ Late authoritative rejection unlocks an uncertain draft without another Submit.
 This browser fixture runs on Windows too; its synthetic bridge is not a live
 Runtime or native WebKit acceptance. The send handoff changes presentation only;
 Bot tools and the existing recovery guidance require no additional skill changes.
-The Windows 2026-10-18 run passed all six synthetic send scenarios and a real
-Caelis echo through the rebuilt DevBot: the immediate native screenshot showed
-one user message, an empty composer and thinking dots; the subsequent reply
-replaced the dots. This does not establish macOS WebKit/IME acceptance.
 These are synthetic native WebKit failure paths; qualify actual model interaction separately
 with an isolated Bot profile. Draft writes coalesce only pending full replacements, while
 submission waits for the newest saved draft. Snapshot reads are fenced by request order and
 visible-surface lifetime as well as backend revision.
 
-Settings separate AI models, AI accounts, Messaging, Remote machines,
+Settings separate Connections & models, Messaging, Remote machines,
 Extras and Privacy & permissions. The model and AI account pages share one runtime
 settings owner; native `runtime` and `connections` repair links still open AI accounts.
 `telegram` opens Telegram detail, `chat` opens the channel overview and `capture`
@@ -313,181 +246,9 @@ explicit environment opt-ins. Synthetic provider results prove transport/behavio
 `CAELIS_BOT_LIVE_STORE`, `CAELIS_BOT_LIVE_BINARY`, `CAELIS_BOT_LIVE_MODEL` and optional alternate/fast models.
 Never copy daily credentials into logs or use a shared Store for destructive fixtures.
 
-## Historical evidence and limits
+## Platform limits
 
-The dated records below describe earlier Desktop World versions and do not
-establish rc.4 Bot plugin acceptance.
-
-Desktop World alpha.6 (2026-10-04): pin/package validation, semantic state operations,
-bounded observation/capture and trusted cooperative input are aligned. The four
-desktop tools remain; conditional Bot guides cover action plans, target-local
-images and original-receipt recovery. Dev Bot real-model AppKit/Chrome acceptance
-and its independent fixture evidence are in
-[desktop-world-alpha6](evidence/desktop-world-alpha6/README.md). The record also
-includes native 8→16-node continuation, explicit false/no-op, partial/skipped
-recovery, and a delivered plan with failed cleanup correctly retained as
-unknown/fenced without replay. Restoration reliability and the documented
-hardware/platform gaps remain open. The following dated records are historical.
-
-The 2026-09-29 candidate passed check/smoke/build and affected race suites. Downloaded and checksum-verified
-Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, including real 90-second timeout,
-upgrade renewal and replay identity. Streaming grapheme append, exact review accounting and preservation of
-failed Guardian notices through quiet care/Dream projection have focused regressions.
-Desktop World migration (2026-09-30): the Go module and downloaded darwin-arm64
-helper are pinned to v0.1.0-alpha.2 / `cc50357f9f922712ef4e2bf4db4822381d10d71a`.
-`resources/desktop-world/release.json` owns the archive checksum/revision;
-`desktop-world-runtime.sh` verifies these before staging. The bundle contains the
-independent helper and upstream NOTICE, with no Cua/Node runtime. This preview
-has no open-source license grant and its upstream artifact is not notarized.
-Bot development signing does not establish public release acceptance.
-Product CI and release packaging now require the Desktop World payload, verify
-its revision/protocol/NOTICE and nested signature, and reject missing payloads.
-Product CI runs authority/receipt/projection race coverage and an opt-in test of
-the actual packaged Go host/helper without grants or UI input. Legacy runtime,
-focus adapters, AXorcist experiment and capability-based fallback are removed;
-public-tree checks prevent their payloads returning. Build resources are freshly
-staged so incremental builds cannot retain old runtimes. Historical app payloads
-require their matching historical release tooling.
-
-Alpha.2 uptake acceptance (2026-09-30): all three published assets were downloaded;
-both archives matched SHA256SUMS and the actual helper reported the pinned
-version/revision with `vcs.modified=false`. Normal `make check`, `make smoke` and
-`make build` passed with the published Go module and helper, without a module
-replacement. The built Bot binary records the alpha.2 SDK dependency; its nested
-helper passed the repository manifest/signature/dependency checks and an
-escalated deep strict signature check using the existing development identity.
-The official SDK passed real AppKit numeric/string/redaction/receipt regressions
-([value evidence](evidence/desktop-world-alpha2/values.txt)). The actual bundled
-helper passed real slow-AX timeout/recovery and separate EndTurn revocation
-([timeout evidence](evidence/desktop-world-alpha2/timeout.txt)); Bot controller
-race tests, including packaged helper refusal/reconciliation, passed
-([adapter evidence](evidence/desktop-world-alpha2/adapter.txt)).
-These native probes were compiled inside Bot's unchanged normal module graph
-from the published source archive; no local source dependency override was used.
-A native Bot launch through `script/build_and_run.sh --restart` with an isolated
-profile failed at Launch Services with `-10810`, before readiness. The existing
-user Bot was untouched, and no trust/TCC settings were changed. This uptake does
-not claim a fresh full Bot/Wails/model run, original WPS Save-dialog acceptance,
-Windows native desktop acceptance, or public notarized Bot release acceptance.
-See [upstream alpha.2](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-alpha.2)
-and its `docs/ax-regressions.md` for scoped native Chrome and remaining limits.
-
-Current migration evidence: `make smoke`, `make build`, all Go tests/vet and the
-shared-core portability gate passed. The nested helper passed version/revision,
-architecture, Apple Development identity and hardened-runtime checks. Race tests
-cover exact observed app grants, revocation while data blocks, stable-ID
-conflicts/deduplication, original receipt recovery and the 32 KiB output budget.
-The real pinned Go host also ran through separate OS data/control pipes. The
-actual packaged helper passed handshake, bounded read, invalid-input refusal and
-receipt recovery without granting any application or sending UI input. Codex's
-installed App Server passed progressive loading of the new guide. Caelis v0.65.0
-NativeHost/GuardianHost acceptance passed, including progressive guide loading,
-provider image transport, per-turn review/revocation, worker isolation and the
-real 90-second reviewer timeout; native input in that fixture is synthetic.
-
-After unlocking the Mac, the full `make check`, `make smoke` and signed
-`make build` passed; this includes the native window hide/show check that had
-timed out while locked. The development app was restarted through
-`build_and_run.sh --restart` and its actual conversation surface inspected.
-The installed Caelis v0.65.0 runtime (live turns used `deepseek-flash`) discovered
-and executed the new tools through the real Bot/Wails application.
-
-Live evidence is under `.cache/desktop-world-live-20260930/`. In the native
-AppKit fixture, Bot used one two-step `set_value` + `invoke` plan to enter
-`Desktop World 联调成功 🌍 2026-09-30` and submit once. Independent fixture JSON
-confirmed the complete Unicode string and `submissions:1`; cursor sync returned
-only the two changed objects. Chrome also completed a new-tab navigation to
-`https://example.com`, preserving previous tabs and checking title, address and
-page text. Neither task requested a screenshot. These are live input results;
-the separate Guardian fixture still proves policy behavior with synthetic input.
-Obsidian created the requested note in the existing vault: independent file
-inspection confirmed the exact three lines and intact URL. The first title
-write changed only the editable control; Bot detected the unchanged filename
-and committed it with foreground Enter before reporting completion.
-
-WPS exposed the New popover as 13 semantic buttons and reached the native save
-dialog. Two overly broad dialog reads timed out; a narrower read recovered
-without restarting the helper. The first saved document failed independent
-OOXML inspection: WPS recovery content remained and both paragraphs were bold.
-An unlabeled button had not established a blank-document action, and Home/End
-selection assumptions were invalid. Bot corrected only the new acceptance file
-through UI, using explicit captures where WPS AX exposed neither body text nor
-formatting. Final OOXML inspection confirmed exactly the two requested paragraphs,
-first bold and second explicitly nonbold. The failed first artifact is retained
-separately. This is an assisted successful workflow, not a first-attempt autonomy
-or usability pass. The guide now forbids guessing unnamed controls and requires
-checking document identity, initial content and application-level commit state.
-
-The retired Cua audit explains the migration: the WPS turn used 33 calls in
-790 seconds, 79 seconds inside tool intervals, 26 images, four identical images
-and nine repeated AX states. Result text alone estimated 54,110 tokens. Most
-elapsed time was outside the tools, so removing repeated payloads and model
-round trips matters alongside native speed. Desktop World now exposes bounded
-observations, native cursor deltas and 16-step local plans, with explicit capture
-only. The first live fixture task took about 111 seconds with six desktop calls;
-their combined intervals were 22.8 seconds, including 15.3 seconds for review,
-while native execution of both input steps took 151 ms. This is not yet a fast
-end-to-end experience: the resident turn carried roughly 230k tokens of prior
-context. The Chrome task also exposed excessive outline pagination, a changed
-continuation query, an expanded application name rejected by exact-name grants,
-and a web AX tree with single-character text nodes. The guide now starts with
-fewer fields, inspects only candidate capabilities, preserves continuation query
-parameters, copies exact names and batches fragmented text instead of reading
-one character per model call. Tool metrics record result bytes, approximate
-UTF-8-bytes/4 token counts, call intervals and native sample/step timing; those
-estimates are not the provider's exact tokenization. Reused pagination samples
-must not be counted as new native scan time.
-
-That run also reproduced a Bot presentation bottleneck: while the native turn
-had completed, its UI still showed working. The Caelis feed handler rewrote the
-entire connection record for every transient prose fragment; the live record
-was 16.5 MB, of which 16.2 MB was retained callback receipts. A bounded spool
-sample contained 3,827 transient events versus 22 canonical ones. Transient,
-non-final message/thought chunks now checkpoint at most once per second and
-publish at most every 50 ms; canonical/final events, approvals, callbacks and
-stream boundaries still persist immediately. Cursor and projection are saved
-atomically. Regression coverage simulates a crash between checkpoints and exact
-replay without missing or duplicated text, plus immediate terminal persistence.
-The rebuilt app recovered the completed WPS reply and subsequently presented a
-new fixture task and a receipt-only turn as completed. Full checks, race tests,
-signed build and installed Caelis NativeHost integration passed after this fix.
-
-The historical alpha.1 live fixture task identified an upstream inconsistency:
-Darwin `node()` stringifies numeric AX values for `value_preview`, but its `text`
-operation falls back to the label for non-string AX values. The engine's `value`
-predicate uses that text operation. Consequently, a checkbox click succeeded
-while `value == "1"` timed out. Bot reconciled the same request without clicking
-again and independently observed checked=1 / Visible tasks=2; Submitted remained
-1. A later Bot turn recovered the same receipt without authorization, observation
-or input. That alpha.1 guide avoided numeric `value` predicates and verified these
-controls by fresh observation. Published alpha.2 fixes the numeric AX value/text
-contract and rejects label fallback as value evidence; the current guide uses
-that contract while preserving receipt-only recovery after uncertain delivery. See upstream
-[Desktop World #1](https://github.com/caelis-labs/desktop-world/issues/1).
-The other live findings are tracked as bounded-read improvements in
-[#2](https://github.com/caelis-labs/desktop-world/issues/2) and fragmented browser
-text usability in [#3](https://github.com/caelis-labs/desktop-world/issues/3).
-Those two are improvement requests, not claims of a helper crash. WPS missing AX
-body/formatting, shared input focus and the unimplemented managed JS bridge remain
-explicit capability limits. Bot feed persistence was a downstream defect fixed here.
-
-First integration intentionally uses the Go host contract. The upstream managed
-JS bridge remains unimplemented; do not launch its separately authorized CLI
-from the Bot. Alpha input still shares system focus and pointer. Unknown input
-is reconciled using the original requestId; no restart or alternate backend
-replays it. Helper history is process-local and capped at 4096 records.
-
-Earlier v0.61.0 MiMo/Luna live results cover that historical baseline only. Subsequent changes require their
-own regression evidence, and subsequent Core releases need the same external acceptance suite.
-
-Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina Apple Silicon Mac.
-Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
-Desktop World rc.3 requires macOS 14+ and arm64 for the shipped Mac helper; ScreenCaptureKit selection requires 14+. Older systems return unsupported
-for those capabilities. Windows CI now executes native shared tests, but GUI/IPC/distribution remains absent until the Windows 11 x64 handoff is completed.
-Linux is outside scope. Sparkle fixture tests do not prove two-version public install/relaunch with active work.
-
-Real Guardian quality/cost, long-term Dream summary/memory quality and cache benefits remain usage evaluations.
-Keep these limits separate from regressions, synthetic protocol coverage and public signature verification.
+See [current status](status.md) for the release/source distinction and outstanding coverage. Bot's macOS deployment target is 12.0; bundled Desktop World requires arm64 and macOS 14.0. Compilation does not qualify minimum-OS permissions, Intel, multi-display/DPI behavior or real-account model judgment. Linux support is remote/headless only.
 
 ## Interface languages
 
@@ -552,33 +313,6 @@ when starting the Runtime. Locale changes do not reannounce previous notificatio
 Diagnostic codes/logs and protocol enums stay stable, normally English. Display
 known errors with localized context; preserve unknown third-party error details.
 Do not classify protocol outcomes by matching translated strings.
-
-## Compact Bot tool acceptance
-
-The private Bot catalog has six base tools and four optional desktop tools.
-See [implementation and acceptance](bot-tools-acceptance.md) for the current
-contract, native evidence and verification limits.
-
-The opt-in real-model harness uses installed Runtime credentials and disposable
-Bot bindings. Choose an available model explicitly; it does not change the daily
-Bot's model or Worker defaults:
-
-```sh
-source script/env.sh
-BOT_ACCEPTANCE_RUNTIME=codex BOT_ACCEPTANCE_MODEL=gpt-6-luna \
-  BOT_ACCEPTANCE_EFFORT=medium go run ./cmd/bot-workflow-smoke --compact
-```
-
-Use `BOT_ACCEPTANCE_RUNTIME=caelis` with a configured Caelis model to exercise
-the same native application path. `BOT_ACCEPTANCE_EVIDENCE` optionally preserves
-private test bindings and a summary; otherwise temporary data is removed.
-The desktop phase is opt-in: launch the disposable fixture through
-`build_and_run.sh --desktop-control-preview`, then provide
-`BOT_ACCEPTANCE_DESKTOP_HELPER`, `BOT_ACCEPTANCE_DESKTOP_TITLE` and
-`BOT_ACCEPTANCE_DESKTOP_RESULT` for that exact fixture. Give it a unique title
-and result path; it must start with zero submissions. The model operates only
-that test application. The test's presence sample is synthetic and saved event
-conditions are false; its reminder wake uses real native user authorization.
 
 ## Content boundaries
 
@@ -749,9 +483,7 @@ or stopping work. Run it through `script/build_and_run.sh`. It checks two observ
 cycles, collapse/restore and retained bindings; inspect the actual external terminal
 window during the cycle. This requires access to the terminal GUI and any normal OS
 permissions. A launch request, window fixture, or remote tmux test alone does not
-qualify real external-terminal behavior. See the
-[current acceptance record](evidence/remote-machines-v1/acceptance.md), which retains
-this explicit gate instead of claiming all native window interactions passed.
+qualify real external-terminal behavior. Record terminal visual results separately from transport and lifecycle checks.
 
 Worker-default switching acceptance uses one SSH profile with both native backends:
 `CAELIS_BOT_TEST_SSH=fedora CAELIS_BOT_REMOTE_HELPER_DIR="$PWD/.cache/remote-helper" GOWORK=off go test ./internal/machines -run '^TestFedoraDefaultSwitch$' -count=1 -timeout=10m -v`.
