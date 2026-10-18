@@ -87,6 +87,11 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 	}
 	_, knownTurn := s.runs[turn.ID]
 	s.runs[turn.ID] = turn.Status
+	for id, source := range s.binding.HostReportTurns {
+		if source.Thread == s.binding.ThreadID && source.Turn == turn.ID {
+			s.rememberHostReportTurn(id, turn.ID, turn.Status)
+		}
+	}
 	if (!knownTurn && !terminal(turn.Status)) || s.lastTurn == "" || turn.Status == "inProgress" || history {
 		s.lastTurn = turn.ID
 	}
@@ -209,6 +214,7 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Text = strings.Join(text, "\n")
 		if s.binding.HostReports[item.ClientID] {
 			view.Kind = "hostNotice"
+			s.rememberHostReportTurn(item.ClientID, run, s.runs[run])
 		}
 		if _, scheduled := s.binding.Scheduled[item.ClientID]; scheduled || legacyWakeID.MatchString(item.ClientID) {
 			if s.binding.Scheduled == nil {

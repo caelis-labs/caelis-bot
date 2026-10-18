@@ -484,6 +484,14 @@ projected Turn identity; a native Worker approval carries its exact task ID.
 Weixin uses that persisted task-to-source binding instead of guessing from the
 most recent chat message. A later host report's original receipt ID resolves to
 that same task, so the Bot's resulting Turn retains its Weixin delivery source.
+This association travels as private structured snapshot metadata, independently
+of the hidden `hostNotice` item. The native adapter retains the exact report,
+runtime/conversation, turn and terminal phase across recovery; cached and recent
+snapshots preserve it without exposing it to renderer JSON. The channel joins it
+to the persisted original task turn and checks the runtime/conversation scope.
+Missing or mismatched provenance fails closed before outbox admission and emits
+a bounded `route_source_unresolved` diagnostic with a classified reason and a
+fingerprint only. It never falls back to the latest active messaging window.
 Ingress and Worker receipts are likewise never replayed; see
 [POC scope](weixin-channel-poc.md).
 

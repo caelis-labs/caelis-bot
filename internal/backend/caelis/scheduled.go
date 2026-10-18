@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"sort"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/activation"
@@ -41,6 +42,14 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 	dreams := map[string]string{}
 	for id, j := range s.state.Operations {
 		if j.Source.Kind == "application_summary" {
+			path := "/sessions/" + idPath(s.state.Session.SessionId)
+			if out.RuntimeOwner != "" && j.TurnID != "" && succeeded(wire.Outcome(j.Outcome)) && (j.Path == path+"/prompt" || j.Path == path+"/steer") {
+				phase := v.Turns[j.TurnID]
+				if phase == "cancelled" {
+					phase = "interrupted"
+				}
+				out.ReportSources = append(out.ReportSources, api.ReportSource{RuntimeOwner: out.RuntimeOwner, TurnKey: j.TurnID, ReportID: id, Phase: phase})
+			}
 			for index := range out.Items {
 				item := &out.Items[index]
 				if item.Kind == "user" && item.RequestID == id {
@@ -64,6 +73,7 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 			}
 		}
 	}
+	sort.Slice(out.ReportSources, func(i, j int) bool { return out.ReportSources[i].ReportID < out.ReportSources[j].ReportID })
 	pending := s.sendingScheduled != ""
 	if pending && out.CurrentTurn != s.scheduledPreviousTurn {
 		turns[out.CurrentTurn] = "running"

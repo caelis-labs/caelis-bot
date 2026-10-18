@@ -43,18 +43,19 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context         contextseed.State      `json:"context,omitempty"`
-	ContextInputs   map[string]int         `json:"contextInputs,omitempty"`
-	Dreams          map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads     []string               `json:"pastThreads,omitempty"`
-	RenewedBy       string                 `json:"renewedBy,omitempty"`
-	ToolRenewal     *toolRenewalRecord     `json:"toolRenewal,omitempty"`
-	Scheduled       map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
-	HostReports     map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
-	RecoveryNotices map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets  []string               `json:"cleanupTargets,omitempty"`
-	StopState       string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns        map[string]string      `json:"stopRuns,omitempty"`
+	Context         contextseed.State         `json:"context,omitempty"`
+	ContextInputs   map[string]int            `json:"contextInputs,omitempty"`
+	Dreams          map[string]dreamRecord    `json:"dreams,omitempty"`
+	PastThreads     []string                  `json:"pastThreads,omitempty"`
+	RenewedBy       string                    `json:"renewedBy,omitempty"`
+	ToolRenewal     *toolRenewalRecord        `json:"toolRenewal,omitempty"`
+	Scheduled       map[string]string         `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
+	HostReports     map[string]bool           `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
+	HostReportTurns map[string]hostReportTurn `json:"hostReportTurns,omitempty"`
+	RecoveryNotices map[string]bool           `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets  []string                  `json:"cleanupTargets,omitempty"`
+	StopState       string                    `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns        map[string]string         `json:"stopRuns,omitempty"`
 
 	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
 	CapacityStopThread   string `json:"capacityStopThread,omitempty"`
@@ -418,6 +419,7 @@ func (s *Session) publishSnapshot() {
 		out.Approvals[i].TaskID = s.state.Approvals[i].TaskID
 	}
 	out = s.presentScheduled(out)
+	out.ReportSources = s.reportSources()
 	s.cached.Store(&out)
 	composer := s.composerLocked()
 	s.cachedComposer.Store(&composer)
@@ -434,6 +436,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		var out api.Snapshot
 		_ = json.Unmarshal(b, &out)
 		out.RuntimeOwner = snapshot.RuntimeOwner
+		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Items {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
 			out.Items[i].AsyncQuestions = snapshot.Items[i].AsyncQuestions
@@ -1124,6 +1127,13 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	if err == nil {
 		r.Outcome = "accepted"
+		if report {
+			reportTurn := run
+			if reportTurn == "" {
+				reportTurn = response.Turn.ID
+			}
+			s.rememberHostReportTurn(in.ID, reportTurn, s.runs[reportTurn])
+		}
 		if run == "" {
 			if s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
 				s.binding.CapacityStopTurn = response.Turn.ID

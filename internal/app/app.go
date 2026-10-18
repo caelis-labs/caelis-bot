@@ -326,10 +326,11 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	if app.Weixin == nil {
 		remote, remoteErr := weixin.Open(app.root, weixin.Host{
-			Snapshot:  app.Backend.Snapshot,
-			Recovery:  app.Backend.RecoveryState,
-			Interrupt: app.Backend.Interrupt,
-			Artifact:  func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
+			Diagnostics: app.host.Diagnostics,
+			Snapshot:    app.Backend.Snapshot,
+			Recovery:    app.Backend.RecoveryState,
+			Interrupt:   app.Backend.Interrupt,
+			Artifact:    func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
 			TaskForReport: func(id string) string {
 				app.mu.Lock()
 				manager := app.tasks

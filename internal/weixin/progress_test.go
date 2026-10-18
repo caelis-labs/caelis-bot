@@ -41,7 +41,7 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	root := t.TempDir()
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "wx-turn", Phase: "working", Items: []api.Item{
+	snapshot := api.Snapshot{RuntimeOwner: "fixture-runtime", Connection: "ready", CurrentTurn: "wx-turn", Phase: "working", Items: []api.Item{
 		{ID: "wx-user", Kind: "user", TurnKey: "wx-turn", RequestID: "wx-input"},
 		{ID: "desktop-user", Kind: "user", TurnKey: "desktop-turn", RequestID: "desktop-input"},
 		{ID: "task-start:wx", Kind: "assistant", TurnKey: "wx-turn", Status: "completed", Text: "手机发起的 Worker", Task: &api.TaskPresentation{ID: "wx", Title: "手机发起的 Worker", Status: "working"}},
@@ -60,8 +60,7 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 	if !b.ownsApproval(snapshot, api.Approval{Owner: "task", TaskID: "wx", TurnKey: "wx-worker-turn"}) || b.ownsApproval(snapshot, api.Approval{Owner: "task", TaskID: "desktop", TurnKey: "desktop-worker-turn"}) {
 		t.Fatal("worker approval lost exact task source")
 	}
-	report := api.Snapshot{Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: "report-wx", Outcome: "accepted"}, Items: []api.Item{
-		{ID: "report-input", Kind: "hostNotice", TurnKey: "report-turn", RequestID: "report-wx"},
+	report := api.Snapshot{RuntimeOwner: "fixture-runtime", ReportSources: []api.ReportSource{{RuntimeOwner: "fixture-runtime", TurnKey: "report-turn", ReportID: "report-wx", Phase: "completed"}}, Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: "report-wx", Outcome: "accepted"}, Items: []api.Item{
 		{ID: "report-final", Kind: "assistant", TurnKey: "report-turn", Status: "completed", Text: "Worker 已完成"},
 	}}
 	reopened, err := Open(root, Host{Snapshot: func() api.Snapshot { return report }, TaskForReport: func(id string) string {
@@ -81,7 +80,8 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 		t.Fatal("Weixin Worker report was not delivered", *texts)
 	}
 	report.LastReceipt = api.Receipt{ID: "report-desktop", Outcome: "accepted"}
-	report.Items = []api.Item{{ID: "desktop-report-input", Kind: "hostNotice", TurnKey: "desktop-report-turn", RequestID: "report-desktop"}, {ID: "desktop-report-final", Kind: "assistant", TurnKey: "desktop-report-turn", Status: "completed", Text: "桌面 Worker 已完成"}}
+	report.ReportSources = []api.ReportSource{{RuntimeOwner: "fixture-runtime", TurnKey: "desktop-report-turn", ReportID: "report-desktop", Phase: "completed"}}
+	report.Items = []api.Item{{ID: "desktop-report-final", Kind: "assistant", TurnKey: "desktop-report-turn", Status: "completed", Text: "桌面 Worker 已完成"}}
 	reopened.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
 	if len(*texts) != 2 {
 		t.Fatalf("desktop Worker report leaked to Weixin: %#v", *texts)

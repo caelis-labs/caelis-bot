@@ -39,6 +39,20 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "The requested work is ready." {
 		t.Fatal("host input leaked or reply hidden", got.Items)
 	}
+	want := api.ReportSource{RuntimeOwner: got.RuntimeOwner, TurnKey: "host-turn", ReportID: in.ID, Phase: "completed"}
+	if want.RuntimeOwner == "" || len(got.ReportSources) != 1 || got.ReportSources[0] != want {
+		t.Fatal("private receipt association lost", got.ReportSources)
+	}
+	s.mu.Lock()
+	cached := s.Snapshot()
+	s.mu.Unlock()
+	if len(cached.ReportSources) != 1 || cached.ReportSources[0] != want {
+		t.Fatal("cached snapshot lost association")
+	}
+	cached.ReportSources[0].ReportID = "mutated"
+	if s.Snapshot().ReportSources[0] != want {
+		t.Fatal("cached source alias")
+	}
 	if err := s.saveLocked(); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +64,9 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	got = s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" {
 		t.Fatal("reload leaked host input", got.Items)
+	}
+	if len(got.ReportSources) != 1 || got.ReportSources[0] != want {
+		t.Fatal("reload lost report association")
 	}
 	replay := &view{State: v.State, Seen: map[string]bool{}}
 	for _, event := range events {

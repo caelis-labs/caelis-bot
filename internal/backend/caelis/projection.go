@@ -28,6 +28,8 @@ func (s *Session) Snapshot() api.Snapshot {
 	}
 	if snapshot := s.cached.Load(); snapshot != nil {
 		out := clone(*snapshot)
+		out.RuntimeOwner = snapshot.RuntimeOwner
+		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
 		}
@@ -110,6 +112,10 @@ func (s *Session) WaitSnapshot(ctx context.Context, rev uint64) (api.Snapshot, e
 }
 func (s *Session) snapshotLocked() api.Snapshot {
 	out := api.Snapshot{Revision: s.revision, Connection: "offline", ConnectionIssue: "connection_lost", Phase: "disconnected", Message: s.issue, Items: []api.Item{}, Approvals: []api.Approval{}, Reviews: []api.Review{}, References: []api.Reference{}, LastReceipt: s.state.LastReceipt}
+	if s.state.InstanceID != "" && s.state.Session.SessionId != "" {
+		h := sha256.Sum256([]byte("caelis\x00" + s.state.InstanceID + "\x00" + s.state.Session.SessionId))
+		out.RuntimeOwner = hex.EncodeToString(h[:16])
+	}
 	if s.connected && !s.closed {
 		out.Connection = "ready"
 		out.ConnectionIssue = ""

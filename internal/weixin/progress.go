@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 const (
@@ -23,6 +24,7 @@ func (b *Bridge) observeTaskSources(snapshot api.Snapshot) {
 	added := []string{}
 	evicted := map[string]string{}
 	orphanOrigins := map[string]string{}
+	orphanOwners := map[string]string{}
 	for _, item := range snapshot.Items {
 		if item.Task == nil || item.Task.ID == "" || item.TurnKey == "" || b.state.TaskTurns[item.Task.ID] != "" {
 			continue
@@ -40,6 +42,8 @@ func (b *Bridge) observeTaskSources(snapshot api.Snapshot) {
 	for _, turn := range evicted {
 		if b.state.TurnPhases[turn] == "" && !b.taskTurnReferencedLocked(turn) {
 			orphanOrigins[turn] = b.state.TurnOrigins[turn]
+			orphanOwners[turn] = b.state.TurnOwners[turn]
+			delete(b.state.TurnOwners, turn)
 			delete(b.state.TurnOrigins, turn)
 		}
 	}
@@ -56,6 +60,9 @@ func (b *Bridge) observeTaskSources(snapshot api.Snapshot) {
 		for turn, origin := range orphanOrigins {
 			if origin != "" {
 				b.state.TurnOrigins[turn] = origin
+			}
+			if orphanOwners[turn] != "" {
+				b.state.TurnOwners[turn] = orphanOwners[turn]
 			}
 		}
 		b.state.TaskOrder = oldOrder
@@ -90,49 +97,99 @@ func (b *Bridge) ownsTurn(snapshot api.Snapshot, turn string) bool {
 	if turn == "" {
 		return false
 	}
-	reportTasks := map[string]string{}
-	if b.host.TaskForReport != nil {
-		for _, item := range snapshot.Items {
-			if item.Kind == "hostNotice" && item.TurnKey == turn && item.RequestID != "" {
-				reportTasks[item.RequestID] = b.host.TaskForReport(item.RequestID)
-			}
+	reports := map[string]string{}
+	for _, source := range snapshot.ReportSources {
+		if source.TurnKey == turn && b.host.TaskForReport != nil {
+			reports[source.ReportID] = b.host.TaskForReport(source.ReportID)
 		}
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	origin := b.state.TurnOrigins[turn]
-	changed := false
-	for _, item := range snapshot.Items {
-		if item.TurnKey != turn {
-			continue
-		}
-		observed := ""
-		switch item.Kind {
-		case "user":
-			observed = "other"
-			if item.RequestID != "" && (item.RequestID == b.state.AcceptedInputID || b.state.Inputs[item.RequestID] == "accepted") {
-				observed = "weixin"
+	oldOrigin, oldOwner := b.state.TurnOrigins[turn], b.state.TurnOwners[turn]
+	if oldOwner != "" && snapshot.RuntimeOwner != "" && oldOwner != snapshot.RuntimeOwner {
+		b.routeWarningLocked(snapshot, turn, "runtime_mismatch")
+		return false
+	}
+	origin := oldOrigin
+	observe := func(value string) {
+		if value != "" {
+			if origin != "" && origin != value {
+				value = "mixed"
 			}
-		case "hostNotice":
-			if taskID := reportTasks[item.RequestID]; taskID != "" {
-				observed = b.state.TurnOrigins[b.state.TaskTurns[taskID]]
-			}
-		}
-		if observed == "" {
-			continue
-		}
-		if origin != "" && origin != observed {
-			observed = "mixed"
-		}
-		if origin != observed {
-			origin, changed = observed, true
+			origin = value
 		}
 	}
-	if changed {
-		b.state.TurnOrigins[turn] = origin
-		_ = b.saveLocked()
+	for _, source := range snapshot.ReportSources {
+		if source.TurnKey != turn {
+			continue
+		}
+		if snapshot.RuntimeOwner == "" || source.RuntimeOwner != snapshot.RuntimeOwner {
+			b.routeWarningLocked(snapshot, turn, "report_scope_mismatch")
+			return false
+		}
+		task := reports[source.ReportID]
+		original := b.state.TaskTurns[task]
+		inherited := b.state.TurnOrigins[original]
+		if source.ReportID == "" || task == "" || original == "" || inherited == "" {
+			b.routeWarningLocked(snapshot, turn, "report_source_missing")
+			return false
+		}
+		if b.state.TurnOwners[original] != snapshot.RuntimeOwner {
+			b.routeWarningLocked(snapshot, turn, "task_scope_mismatch")
+			return false
+		}
+		observe(inherited)
+	}
+	for _, item := range snapshot.Items {
+		if item.TurnKey != turn || item.Kind != "user" {
+			continue
+		}
+		observed := "other"
+		if item.RequestID != "" && (item.RequestID == b.state.AcceptedInputID || b.state.Inputs[item.RequestID] == "accepted") {
+			observed = "weixin"
+		}
+		observe(observed)
+	}
+	if origin == "" {
+		b.routeWarningLocked(snapshot, turn, "turn_source_missing")
+		return false
+	}
+	owner := oldOwner
+	if owner == "" {
+		owner = snapshot.RuntimeOwner
+	}
+	if origin != oldOrigin || owner != oldOwner {
+		b.state.TurnOrigins[turn], b.state.TurnOwners[turn] = origin, owner
+		if b.saveLocked() != nil {
+			if oldOrigin == "" {
+				delete(b.state.TurnOrigins, turn)
+			} else {
+				b.state.TurnOrigins[turn] = oldOrigin
+			}
+			if oldOwner == "" {
+				delete(b.state.TurnOwners, turn)
+			} else {
+				b.state.TurnOwners[turn] = oldOwner
+			}
+			b.routeWarningLocked(snapshot, turn, "source_storage_failed")
+			return false
+		}
 	}
 	return origin == "weixin"
+}
+
+// A routing skip is distinguishable from an outbox/send failure. Never include
+// peer IDs, reply contexts, report bodies or credentials in this diagnostic.
+func (b *Bridge) routeWarningLocked(snapshot api.Snapshot, turn, reason string) {
+	key := diagnosticlog.Fingerprint([]byte(snapshot.RuntimeOwner + "\x00" + turn + "\x00" + reason))
+	if b.routeWarnings[key] || len(b.routeWarnings) >= 256 {
+		return
+	}
+	if b.routeWarnings == nil {
+		b.routeWarnings = map[string]bool{}
+	}
+	b.routeWarnings[key] = true
+	b.host.Diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "weixin", Code: "route_source_unresolved", Reason: reason, Fingerprint: key})
 }
 
 func compactProgress(body string) string {

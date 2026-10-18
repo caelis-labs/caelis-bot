@@ -26,9 +26,20 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndHistory(t *testing.T) {
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "The requested work is ready." {
 		t.Fatal("host input leaked or reply hidden", got.Items)
 	}
+	want := api.ReportSource{RuntimeOwner: got.RuntimeOwner, TurnKey: opaque("run-native"), ReportID: in.ID, Phase: "completed"}
+	if len(got.ReportSources) != 1 || got.ReportSources[0] != want || s.RecentSnapshot().ReportSources[0] != want {
+		t.Fatal("report source lost through cached/recent projection", got.ReportSources)
+	}
+	got.ReportSources[0].ReportID = "mutated"
+	if s.Snapshot().ReportSources[0] != want {
+		t.Fatal("snapshot aliases cached provenance")
+	}
 	restored := NewSession(s.opts)
 	if !restored.binding.HostReports[in.ID] {
 		t.Fatal("host provenance was not persisted")
+	}
+	if got := restored.Snapshot(); len(got.ReportSources) != 1 || got.ReportSources[0] != want {
+		t.Fatal("report association did not survive restart", got.ReportSources)
 	}
 	restored.state.Connection = "ready"
 	restored.applyTurn(turn, true)
@@ -42,6 +53,39 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndHistory(t *testing.T) {
 	got = restored.Snapshot()
 	if len(got.Items) != 2 || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
 		t.Fatal("same-text human input was hidden", got.Items)
+	}
+}
+
+func TestHostReportBindingUsesAcceptedTargetBeforeInputEcho(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/start" {
+			return map[string]any{"turn": nativeTurn{ID: "report-turn", Status: "inProgress"}}, true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	if receipt, err := s.SubmitReport(testContext(t), api.Submission{ID: "report-receipt", Text: "private notice"}); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	got := s.Snapshot()
+	if len(got.ReportSources) != 1 || got.ReportSources[0].TurnKey != opaque("report-turn") {
+		t.Fatal("accepted target missing without input echo")
+	}
+	restored := NewSession(s.opts)
+	restored.applyTurn(nativeTurn{ID: "report-turn", Status: "completed", Items: []nativeItem{{ID: "reply", Type: "agentMessage", Text: "result"}}}, true)
+	restored.update()
+	if got := restored.Snapshot(); len(got.ReportSources) != 1 || got.ReportSources[0].Phase != "completed" {
+		t.Fatal("summary-only recovery lost terminal source")
+	}
+	restored.rememberHostReportTurn("report-receipt", "different-turn", "completed")
+	if restored.reportSources()[0].TurnKey != opaque("report-turn") {
+		t.Fatal("original target overwritten")
+	}
+	restored.binding.ThreadID = "different-thread"
+	if len(restored.reportSources()) != 0 {
+		t.Fatal("report crossed native thread")
 	}
 }
 
