@@ -649,5 +649,9 @@
   "setupReadyTitle": "连接已就绪",
   "setupReadyHint": "接下来选择可选功能，再介绍你的助手。",
   "setupModelsHint": "连接模型服务，选择助手使用的模型。",
-  "setupLoginHint": "在浏览器中完成登录，完成后会自动继续检查。"
+  "setupLoginHint": "在浏览器中完成登录，完成后会自动继续检查。",
+  "modelSelectionSaving": "正在记住你的选择…",
+  "modelSelectionPending": "已记住你的选择，正在自动切换…",
+  "modelSelectionRecovering": "已记住你的选择，连接就绪后会自动生效。",
+  "modelCatalogRecovering": "正在连接，模型列表会自动恢复。"
 }

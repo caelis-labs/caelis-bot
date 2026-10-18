@@ -8,12 +8,21 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 // activateRuntime replaces only this Bot's resident adapter. The native app,
 // windows, shared Host, user CLI, and provider-owned Stores stay in place.
 // The saved selection is committed only after the new adapter handshakes.
 func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeSettings, first bool) error {
+	if !first && a.Backend.RuntimeSettings() == settings {
+		return a.Backend.Connect(ctx)
+	}
+	// Drain the inactive writer before loading the provider's latest ledger.
+	if err := a.localWork.BeginResidentSwitch(ctx, settings.Runtime); err != nil {
+		return err
+	}
+	defer a.localWork.EndResidentSwitch()
 	factory, err := a.resolve(settings.Runtime)
 	if err != nil {
 		return err
@@ -63,9 +72,6 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	defer a.pluginAdmission.Unlock()
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
-	if err = a.localWork.CanSwitchResident(settings.Runtime); err != nil {
-		return err
-	}
 
 	a.mu.Lock()
 	resident, manager, closed, started := a.companion, a.tasks, a.closed, a.started
@@ -73,9 +79,9 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	if closed {
 		return errors.New(a.text("appStopped"))
 	}
-	guard := func() error { return a.guardRuntimeChange() }
+	guard := func() error { return a.guardConversationChange() }
 	if manager != nil {
-		if err = manager.PauseIfIdle(a.guardConversationChange); err != nil {
+		if err = manager.PauseForUpdate(guard); err != nil {
 			return err
 		}
 	}
@@ -100,7 +106,8 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 
 	oldDirectory, _ := providerDirectory(a.root, old.Settings.Runtime)
 	a.stopResidentRuntime()
-	var displaced retainedWorker
+	// Keep one writer for the outgoing Workers during preparation/rollback.
+	a.localWork.RetainResident(old.Settings.Runtime, old.Engine)
 	apply := func(binding backend.RuntimeBinding, directory string) error {
 		if a.host.RuntimeChanged != nil {
 			if e := a.host.RuntimeChanged(directory, first); e != nil {
@@ -109,9 +116,7 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 		}
 		a.Backend.BindRuntime(binding)
 		a.setEngine(binding.Engine)
-		if previous := a.localWork.SwitchResident(binding.Settings.Runtime, binding.Engine); previous != nil {
-			displaced = previous
-		}
+		a.localWork.SwitchResident(binding.Settings.Runtime, binding.Engine)
 		return a.startRuntime()
 	}
 	if err = apply(prepared, directory); err == nil {
@@ -152,10 +157,15 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	if err == nil {
 		committed = true
 		a.Backend.RequireSetup(false)
-		if displaced != nil {
-			closeRetainedWorker(displaced)
+		if old.Settings.Runtime == settings.Runtime {
+			// First activation replaces an unconnected shell in the same namespace.
+			_ = detachRuntimeObserver(context.Background(), old.Engine)
+		} else if err := a.localWork.RetireResident(ctx, old.Settings.Runtime); err != nil {
+			// Leave the live owner routable if observer handoff needs recovery.
+			a.host.Diagnostics.Write(diagnosticlog.Record{Component: "runtime_switch", Code: "worker_owner_retained"})
+		} else if _, ok := old.Engine.(retainedWorker); !ok {
+			closeRuntimeEngine(old.Engine)
 		}
-		closeRuntimeEngine(old.Engine)
 		return nil
 	}
 
@@ -165,19 +175,30 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 		err = errors.Join(err, a.localWork.SelectFirstRuntime(oldWorkerDefault))
 	}
 	a.stopResidentRuntime()
-	closeRuntimeEngine(engine)
-	committed = true // the target has already been detached above
+	a.localWork.RetainResident(settings.Runtime, engine)
+	committed = true // the pool owns recovery of a failed target detach
 	var hostRestore error
 	if a.host.RuntimeChanged != nil {
 		hostRestore = a.host.RuntimeChanged(oldDirectory, false)
 	}
 	draftRestore := a.Backend.RestoreRuntimeBinding(old, prepared.Draft.Revision)
 	a.setEngine(old.Engine)
-	if previous := a.localWork.SwitchResident(old.Settings.Runtime, old.Engine); previous != nil {
-		displaced = previous
+	a.localWork.SwitchResident(old.Settings.Runtime, old.Engine)
+	if settings.Runtime != old.Settings.Runtime {
+		if detachErr := a.localWork.RetireResident(context.Background(), settings.Runtime); detachErr != nil {
+			err = errors.Join(err, detachErr)
+		} else if _, ok := engine.(retainedWorker); !ok {
+			closeRuntimeEngine(engine)
+		}
+	} else {
+		err = errors.Join(err, detachRuntimeObserver(context.Background(), engine))
+	}
+	if rebind, ok := old.Engine.(interface{ PrepareRuntimeRebind(context.Context) error }); ok {
+		rebindCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		err = errors.Join(err, rebind.PrepareRuntimeRebind(rebindCtx))
+		cancel()
 	}
 	startRestore := a.startRuntime()
-	a.localWork.RestoreRetained(settings.Runtime, displaced)
 	var connectRestore error
 	if startRestore == nil && !first {
 		// The old client was paused but not closed. Reconnect only its Bot
@@ -191,12 +212,6 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 		return errors.Join(err, errors.New("原连接恢复未完成"), hostRestore, startRestore, connectRestore, draftRestore)
 	}
 	return errors.Join(err, draftRestore)
-}
-
-func closeRetainedWorker(owner retainedWorker) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	_ = owner.Close(ctx)
 }
 
 func (a *Application) stopResidentRuntime() {

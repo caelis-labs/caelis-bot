@@ -194,7 +194,7 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
-	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
+	if r.Action != "use-model" && r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
 			return api.SetupState{}, e
 		}
@@ -324,7 +324,7 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.app.guardRuntimeChange(); e != nil {
+	if e := s.app.guardConversationChange(); e != nil {
 		return e
 	}
 	out, e := s.inspect(ctx, v)

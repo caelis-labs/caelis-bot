@@ -53,6 +53,7 @@ type Host struct {
 }
 
 type Application struct {
+	modelSelections     *modelSelections
 	localWork           *localWorkers
 	machines            *machines.Service
 	taskPreferences     *tasks.PreferencesStore
@@ -229,6 +230,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err = app.configureWorkers(); err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
+	app.modelSelections = newModelSelections(root, app.setup.applySelectedModel, host.Diagnostics)
 	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
@@ -489,6 +491,9 @@ func (a *Application) preparePersonalLocked() error {
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
+	if a.modelSelections != nil {
+		defer a.modelSelections.Start()
+	}
 	a.pluginAdmission.Lock()
 	defer a.pluginAdmission.Unlock()
 	a.lifecycleMu.Lock()
@@ -753,6 +758,7 @@ func (a *Application) startRuntime() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
+			snapshot.Approvals = append(snapshot.Approvals, a.localWork.RetainedApprovals()...)
 			a.observeWorkerApprovalNotice(ctx, snapshot)
 			if err := a.textControl.Reconcile(snapshot); err != nil && a.host.ReportError != nil {
 				a.host.ReportError(err)
@@ -822,6 +828,9 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	if a.modelSelections != nil {
+		a.modelSelections.Close()
+	}
 	// Setup actions acquire updateMu before changing the resident binding.
 	// Drain them before taking the shutdown locks, never in the opposite order.
 	if a.setup != nil {

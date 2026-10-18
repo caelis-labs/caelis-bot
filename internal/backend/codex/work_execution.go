@@ -9,7 +9,9 @@ import (
 )
 
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
-	s.op.Lock()
+	if err := s.lockUpdateOperation(ctx); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
 	var catalog []api.ModelOption
 	if v.Model != "" {

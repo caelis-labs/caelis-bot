@@ -35,12 +35,16 @@ func (s *Service) SaveSelectedModel(ctx context.Context, scope, id string, v api
 	if e = c.SaveSelectedModel(ctx, scope, id, v); e != nil {
 		return e
 	}
-	if scope == "work" && s.RuntimeSettings().Runtime == id {
-		s.configurationMu.Lock()
-		s.workExecutionSettings = v
-		s.configurationMu.Unlock()
-	}
 	return nil
+}
+
+func (s *Service) ModelSelections() []api.ModelSelectionState {
+	if c, ok := s.setup.(interface {
+		ModelSelections() []api.ModelSelectionState
+	}); ok {
+		return c.ModelSelections()
+	}
+	return []api.ModelSelectionState{}
 }
 func (s *Service) ProfileConfiguration(ctx context.Context, id string) (api.RuntimeConfiguration, error) {
 	c, e := s.selectionController()

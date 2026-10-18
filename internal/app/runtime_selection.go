@@ -8,6 +8,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"os"
 	"path/filepath"
 )
@@ -37,7 +38,13 @@ func (s *runtimeSetup) profileModels(ctx context.Context, p api.RuntimeSettings)
 	return config.Models, e
 }
 func (s *runtimeSetup) SaveSelectedModel(ctx context.Context, scope, id string, v api.WorkExecutionSettings) error {
-	s.mu.Lock()
+	return s.app.modelSelections.Save(scope, id, v)
+}
+
+func (s *runtimeSetup) applySelectedModel(ctx context.Context, scope, id string, v api.WorkExecutionSettings) error {
+	if err := lockwait.Lock(ctx, &s.mu); err != nil {
+		return err
+	}
 	defer s.mu.Unlock()
 	if scope != "conversation" && scope != "work" {
 		return errors.New("invalid model scope")
@@ -52,7 +59,12 @@ func (s *runtimeSetup) SaveSelectedModel(ctx context.Context, scope, id string, 
 	if e != nil {
 		return e
 	}
-	models, e := s.profileModels(ctx, p)
+	var models []api.ModelOption
+	if s.app.HasRuntimeChoice() && s.app.Backend.RuntimeSettings() == p {
+		models, e = s.app.Backend.Models(ctx)
+	} else {
+		models, e = s.profileModels(ctx, p)
+	}
 	if e != nil {
 		return e
 	}
@@ -68,9 +80,6 @@ func (s *runtimeSetup) SaveSelectedModel(ctx context.Context, scope, id string, 
 	if scope == "work" {
 		return s.app.localWork.saveSelectedModel(ctx, id, v)
 	}
-	if e = s.app.guardRuntimeChange(); e != nil {
-		return e
-	}
 	if s.app.HasRuntimeChoice() && s.app.Backend.RuntimeSettings() == p {
 		prefs, err := s.app.Backend.ExecutionSettings()
 		if err != nil {
@@ -80,6 +89,9 @@ func (s *runtimeSetup) SaveSelectedModel(ctx context.Context, scope, id string, 
 		prefs.Effort = v.Effort
 		prefs.ServiceTier = v.ServiceTier
 		return s.app.Backend.SaveExecutionSettings(ctx, prefs)
+	}
+	if e = s.app.guardConversationChange(); e != nil {
+		return e
 	}
 	dir, e := providerDirectory(s.app.root, id)
 	if e != nil {
