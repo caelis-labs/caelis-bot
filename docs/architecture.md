@@ -804,7 +804,7 @@ stream must not become an empty successful conversation.
 
 ## Desktop and presentation
 
-Desktop World v0.1.0-rc.9 is an optional built-in Agent Plugins package, initially
+Desktop World v0.1.0 is an optional built-in Agent Plugins package, initially
 enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
 offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
 package (`bin/dtw`, `libexec/cua-driver`,

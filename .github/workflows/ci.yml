@@ -171,9 +171,10 @@ jobs:
           $package = Join-Path $plugins 'desktop-world'
           & ./script/stage-desktop-world-windows.ps1 -Destination $package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $releasePin = Get-Content -Raw -LiteralPath 'resources/desktop-world/release.json' | ConvertFrom-Json
           $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
           if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
-              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.9') {
+              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne $releasePin.version.TrimStart('v')) {
             throw 'Windows Desktop World plugin inventory mismatch'
           }
           node script/verify-desktop-world-version.mjs (Join-Path $package 'bin/dtw.exe')
