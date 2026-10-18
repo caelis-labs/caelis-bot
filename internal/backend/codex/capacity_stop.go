@@ -212,7 +212,7 @@ func (s *Session) capacityStopTargetLocked(key, threadID, request, turnID string
 func (s *Session) settleCapacityStopLocked(key, threadID string, turn nativeTurn) {
 	if key == "bot" {
 		if s.binding.ThreadID == threadID {
-			s.applyTurn(turn, true)
+			s.applyTurn(threadID, turn, true)
 		}
 		s.binding.CapacityStopStatus = turn.Status
 		return

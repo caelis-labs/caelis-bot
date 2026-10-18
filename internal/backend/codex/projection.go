@@ -78,7 +78,7 @@ type nativeItem struct {
 func terminal(status string) bool {
 	return status == "completed" || status == "failed" || status == "interrupted" || status == "unavailable"
 }
-func (s *Session) applyTurn(turn nativeTurn, history bool) {
+func (s *Session) applyTurn(thread string, turn nativeTurn, history bool) {
 	if turn.ID == "" {
 		return
 	}
@@ -87,6 +87,11 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 	}
 	_, knownTurn := s.runs[turn.ID]
 	s.runs[turn.ID] = turn.Status
+	for id, source := range s.binding.HostReportTurns {
+		if source.Thread == s.binding.ThreadID && source.Turn == turn.ID {
+			s.rememberHostReportTurn(id, turn.ID, turn.Status)
+		}
+	}
 	if (!knownTurn && !terminal(turn.Status)) || s.lastTurn == "" || turn.Status == "inProgress" || history {
 		s.lastTurn = turn.ID
 	}
@@ -101,7 +106,7 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 				}
 			}
 		}
-		s.applyItem(turn.ID, item, terminal(turn.Status))
+		s.applyItem(thread, turn.ID, item, terminal(turn.Status))
 	}
 	if turn.Status == "inProgress" {
 		s.run = turn.ID
@@ -151,7 +156,7 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 		}
 	}
 }
-func (s *Session) applyItem(run string, item nativeItem, complete bool) {
+func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) {
 	if item.ID == "" {
 		return
 	}
@@ -209,6 +214,7 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Text = strings.Join(text, "\n")
 		if s.binding.HostReports[item.ClientID] {
 			view.Kind = "hostNotice"
+			s.rememberHostReportTurn(item.ClientID, run, s.runs[run])
 		}
 		if _, scheduled := s.binding.Scheduled[item.ClientID]; scheduled || legacyWakeID.MatchString(item.ClientID) {
 			if s.binding.Scheduled == nil {
@@ -322,6 +328,18 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Text = "处理任务"
 	}
 	view.Details = ""
+	// Only a scoped native response/notification establishes input ownership.
+	// Retained display items are never relabeled when binding.ThreadID changes.
+	if view.Kind == "user" && thread != "" && run != "" && view.RequestID != "" {
+		if s.inputSources == nil {
+			s.inputSources = map[string]api.InputSource{}
+		}
+		source := api.InputSource{RuntimeOwner: opaque("codex", thread), TurnKey: view.TurnKey, RequestID: view.RequestID}
+		if old, exists := s.inputSources[key]; exists && old != source {
+			source = api.InputSource{} // conflicting identities remain unproven
+		}
+		s.inputSources[key] = source
+	}
 	if index, ok := s.items[key]; ok {
 		s.state.Items[index] = view
 	} else {
@@ -533,7 +551,7 @@ func (s *Session) applyEvent(event Notification) {
 			if n.Turn.Error != nil {
 				s.logEvent(event, "turn_failed", diagnosticlog.Reason(n.Turn.Error.Message))
 			}
-			s.applyTurn(n.Turn, false)
+			s.applyTurn(target.ThreadID, n.Turn, false)
 		}
 	case "item/started", "item/completed":
 		if terminal(s.runs[target.TurnID]) {
@@ -552,7 +570,7 @@ func (s *Session) applyEvent(event Notification) {
 						if strings.HasPrefix(seen, n.Item.Text) && len(seen) > len(n.Item.Text) {
 							n.Item.Text = seen
 						}
-						s.applyItem(target.TurnID, n.Item, true)
+						s.applyItem(target.ThreadID, target.TurnID, n.Item, true)
 					}
 				}
 			}
@@ -572,7 +590,7 @@ func (s *Session) applyEvent(event Notification) {
 				s.usage, s.usageTotal = api.ContextUsage{}, 0
 				s.usageReason = "native_compaction"
 			}
-			s.applyItem(target.TurnID, n.Item, complete)
+			s.applyItem(target.ThreadID, target.TurnID, n.Item, complete)
 			if complete {
 				s.trackWorkerActivity(n.Item)
 				if n.Item.Status == "failed" {
@@ -613,7 +631,7 @@ func (s *Session) applyEvent(event Notification) {
 			item.Type = "plan"
 		}
 		item.Text += n.Delta
-		s.applyItem(target.TurnID, item, false)
+		s.applyItem(target.ThreadID, target.TurnID, item, false)
 	case "item/mcpToolCall/progress":
 		var n struct {
 			Message string `json:"message"`

@@ -24,7 +24,7 @@ func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 	// New adapter from durable binding, then canonical historical replay.
 	restored := NewSession(s.opts)
 	restored.state.Connection = "ready"
-	restored.applyTurn(turn, true)
+	restored.applyTurn(restored.binding.ThreadID, turn, true)
 	restored.state.Phase = "completed"
 	restored.update()
 	v = restored.Snapshot()
@@ -32,7 +32,7 @@ func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 		t.Fatal("restart lost provenance", v)
 	}
 	// Identical prose in a real human message must remain visible.
-	restored.applyTurn(nativeTurn{ID: "human", Status: "completed", Items: []nativeItem{{ID: "real", Type: "userMessage", ClientID: "human-fixture", Content: []nativeInput{{Type: "text", Text: in.Text}}}}}, true)
+	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "human", Status: "completed", Items: []nativeItem{{ID: "real", Type: "userMessage", ClientID: "human-fixture", Content: []nativeInput{{Type: "text", Text: in.Text}}}}}, true)
 	restored.update()
 	v = restored.Snapshot()
 	if len(v.Items) != 1 || v.Items[0].Text != in.Text {
@@ -43,7 +43,7 @@ func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 func TestLegacyScheduledHistoryIsHiddenByReservedNativeID(t *testing.T) {
 	s := NewSession(SessionOptions{})
 	s.state.Connection = "ready"
-	s.applyTurn(nativeTurn{ID: "legacy", Status: "completed", Items: []nativeItem{{ID: "u", Type: "userMessage", ClientID: "wake-ABCDEFGHIJKLMNOPQRSTUVWXYZ", Content: []nativeInput{{Type: "text", Text: "old internal prompt"}}}}}, true)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "legacy", Status: "completed", Items: []nativeItem{{ID: "u", Type: "userMessage", ClientID: "wake-ABCDEFGHIJKLMNOPQRSTUVWXYZ", Content: []nativeInput{{Type: "text", Text: "old internal prompt"}}}}}, true)
 	s.state.Phase = "completed"
 	s.update()
 	v := s.Snapshot()
@@ -66,7 +66,7 @@ func TestBackgroundResultRetainedAfterNewTurnAndReload(t *testing.T) {
 		t.Fatal(result)
 	}
 	restored := NewSession(s.opts)
-	restored.applyTurn(nativeTurn{ID: "later", Status: "completed"}, true)
+	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "later", Status: "completed"}, true)
 	restored.update()
 	if got := restored.BackgroundResult(in.ID); got != result {
 		t.Fatal("lost result", got)
@@ -134,7 +134,7 @@ func TestBackgroundReviewDoesNotCountAsVisibleResult(t *testing.T) {
 				t.Fatalf("wrong review attribution: %+v", observed)
 			}
 			s.applyEvent(event) // Native retries must not consume a second interruption.
-			s.applyTurn(nativeTurn{ID: "care-turn", Status: "completed", Items: []nativeItem{
+			s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "care-turn", Status: "completed", Items: []nativeItem{
 				{ID: "u", Type: "userMessage", ClientID: "care"},
 				{ID: "a", Type: "agentMessage", Text: api.SilentReminder},
 			}}, false)

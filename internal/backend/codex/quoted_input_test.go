@@ -29,7 +29,7 @@ func TestQuotedCodexInputReachesNativeTextAndProjectsOnlyBody(t *testing.T) {
 	if !strings.HasPrefix(modelText, "[private seed]\n") {
 		t.Fatal(modelText)
 	}
-	s.applyItem("turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: modelText}}}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: modelText}}}, true)
 	visible := s.state.Items[s.items[opaque("turn", "user")]].Text
 	if visible != in.Text {
 		t.Fatalf("quoted wrapper leaked to chat: %q", visible)
@@ -45,7 +45,7 @@ func TestAsyncReplyCodexInputUsesOnlyEnvelopeAndKeepsVisibleCommand(t *testing.T
 		t.Fatalf("not exact native reply envelope: %#v %v", native, err)
 	}
 	s.binding.ContextInputs = map[string]int{in.ID: len(in.ModelQuotePrefix())}
-	s.applyItem("turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: envelope}}}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: envelope}}}, true)
 	visible := s.state.Items[s.items[opaque("turn", "user")]].Text
 	if visible != "" {
 		t.Fatalf("structured reply leaked into runtime display item: %q", visible)

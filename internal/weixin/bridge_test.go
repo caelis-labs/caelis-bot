@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
@@ -61,7 +62,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	}
 	a := api.Approval{ID: "worker-approval", Owner: "task", TaskID: "worker", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
 	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "source-turn", RequestID: "prior-owner-input"}, {ID: "task-start:worker", Kind: "assistant", TurnKey: "source-turn", Text: "Worker", Status: "completed", Task: &api.TaskPresentation{ID: "worker", Title: "Worker", Status: "working"}}}}
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, RecordInput: func(in textchannel.Inbound, secret bool) {
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, RecordInput: func(in textchannel.Inbound, secret bool) {
 		if secret {
 			t.Error("ordinary command marked secret")
 		}
@@ -134,7 +135,7 @@ func TestRecoveryBlockedOrdinaryInputDoesNotBlockLaterControl(t *testing.T) {
 
 func TestLocalIMMigrationSeedsOnlyHistoricalOutputs(t *testing.T) {
 	var snapshot api.Snapshot
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +252,7 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	a := api.Approval{ID: "original-worker", Owner: "task", TaskID: "worker", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交回答"}}, Questions: []api.Question{{ID: "topic", Title: "主题", Type: "text", Required: true}, {ID: "depth", Title: "深度", Type: "select", Required: true, Options: []api.Choice{{ID: "brief", Label: "简要"}, {ID: "full", Label: "完整"}}}}}
 	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "source-turn", RequestID: "prior-owner-input"}, {ID: "task-start:worker", Kind: "assistant", TurnKey: "source-turn", Text: "Worker", Status: "completed", Task: &api.TaskPresentation{ID: "worker", Title: "Worker", Status: "working"}}}}
 	submits := 0
-	b, _ := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+	b, _ := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
 		submits++
 		return api.Receipt{}, nil
 	}, TextControl: control})
@@ -338,7 +339,7 @@ func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "u1", Kind: "user", RequestID: "remote-tg", Text: "hello", Status: "completed", TurnKey: "t1"}, {ID: "u2", Kind: "user", RequestID: "remote-wx", Text: "self", Status: "completed", TurnKey: "t2"}, {ID: "u3", Kind: "user", RequestID: "desktop", Text: "desktop steer", Status: "completed", TurnKey: "t2"}, {ID: "a1", Kind: "assistant", Text: "reply", Status: "completed", TurnKey: "t1"}}}
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, TextControl: control})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +498,7 @@ func TestUnknownSubmitAndSendAreNotReplayed(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	snapshot := api.Snapshot{Connection: "ready"}
-	host := Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "fence"} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+	host := Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "fence"} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
 		submitted.Add(1)
 		return api.Receipt{Outcome: "unknown"}, errors.New("lost receipt")
 	}}
@@ -544,7 +545,7 @@ func TestBusinessRejectionKeepsRedactedDiagnosticsAndWaitsForFreshIngress(t *tes
 	}))
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "u1", TurnKey: "t1", Kind: "user", RequestID: "in-1"}, {ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "answer", Status: "completed"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +596,7 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 	defer server.Close()
 	answer := strings.Repeat("你好世界。", 500)
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "prior-owner-input"}, {ID: "long-answer", TurnKey: "turn", Kind: "assistant", Text: answer, Status: "completed"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,3 +710,25 @@ func TestQRVerificationReachesLocalConfirmation(t *testing.T) {
 		t.Fatalf("wrong confirmation state: %#v", status)
 	}
 }
+
+// Existing delivery-policy fixtures explicitly model a single native owner.
+// Adapter handoff/history provenance is exercised by the adapter integration tests.
+func nativeInputSnapshot(snapshot api.Snapshot) api.Snapshot {
+	if snapshot.RuntimeOwner == "" {
+		snapshot.RuntimeOwner = "fixture-runtime"
+	}
+	for _, item := range snapshot.Items {
+		if item.Kind == "user" && item.TurnKey != "" && item.RequestID != "" {
+			snapshot.InputSources = append(snapshot.InputSources, api.InputSource{RuntimeOwner: snapshot.RuntimeOwner, TurnKey: item.TurnKey, RequestID: item.RequestID})
+		}
+	}
+	return backend.NewService(inputSnapshotEngine{value: snapshot}, nil, nil, nil, nil).Snapshot()
+}
+
+type inputSnapshotEngine struct {
+	api.Engine
+	value api.Snapshot
+}
+
+func (e inputSnapshotEngine) Snapshot() api.Snapshot      { return e.value }
+func (e inputSnapshotEngine) Close(context.Context) error { return nil }

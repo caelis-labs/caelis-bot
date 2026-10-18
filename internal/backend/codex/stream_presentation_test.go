@@ -6,7 +6,7 @@ func TestRecoveredCommentaryNeedsLiveEvidenceToBecomeStreaming(t *testing.T) {
 	s, _ := sessionPair(t, "normal")
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.applyTurn(nativeTurn{ID: "recovered", Status: "inProgress", Items: []nativeItem{
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "recovered", Status: "inProgress", Items: []nativeItem{
 		{ID: "commentary", Type: "agentMessage", Text: "I will read the file."},
 		{ID: "tool", Type: "commandExecution", Status: "inProgress"},
 	}}, true)

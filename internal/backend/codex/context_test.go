@@ -135,7 +135,7 @@ func TestConversationObservedOnlyAfterNativeRestore(t *testing.T) {
 		t.Fatal("native history not observed", got)
 	}
 	restored.mu.Lock()
-	restored.applyTurn(nativeTurn{ID: "background-report", Status: "inProgress"}, false)
+	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "background-report", Status: "inProgress"}, false)
 	restored.update()
 	restored.mu.Unlock()
 	if got := restored.ConversationState(); !got.Observed || got.Idle {
@@ -216,7 +216,7 @@ func TestRenewalRechecksActivityAfterNativeCreate(t *testing.T) {
 			return nil, false
 		}
 		s.mu.Lock()
-		s.applyTurn(nativeTurn{ID: "external-input", Status: "inProgress"}, false)
+		s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "external-input", Status: "inProgress"}, false)
 		s.update()
 		s.mu.Unlock()
 		return map[string]any{"thread": nativeThread{ID: "unused-empty-thread"}, "model": "native-default"}, true

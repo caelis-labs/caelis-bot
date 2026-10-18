@@ -28,6 +28,9 @@ func (s *Session) Snapshot() api.Snapshot {
 	}
 	if snapshot := s.cached.Load(); snapshot != nil {
 		out := clone(*snapshot)
+		out.RuntimeOwner = snapshot.RuntimeOwner
+		out.InputSources = append([]api.InputSource(nil), snapshot.InputSources...)
+		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
 		}
@@ -110,6 +113,7 @@ func (s *Session) WaitSnapshot(ctx context.Context, rev uint64) (api.Snapshot, e
 }
 func (s *Session) snapshotLocked() api.Snapshot {
 	out := api.Snapshot{Revision: s.revision, Connection: "offline", ConnectionIssue: "connection_lost", Phase: "disconnected", Message: s.issue, Items: []api.Item{}, Approvals: []api.Approval{}, Reviews: []api.Review{}, References: []api.Reference{}, LastReceipt: s.state.LastReceipt}
+	out.RuntimeOwner = (inputScope{InstanceID: s.state.InstanceID, SessionID: s.state.Session.SessionId}).owner()
 	if s.connected && !s.closed {
 		out.Connection = "ready"
 		out.ConnectionIssue = ""
@@ -121,6 +125,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if v != nil {
 		out.Items = clone(v.Items)
 		s.correlateSessionInputs(&out, s.state.Session.SessionId)
+		s.appendInputSources(&out, v, s.state.Session.SessionId)
 		out.CurrentTurn = observedTurn(v)
 		if s.connected && !value(v.State.Run.Active) {
 			switch value(v.State.Run.Status) {
@@ -235,6 +240,8 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			if old := s.state.Views[sid]; old != nil {
 				history := api.Snapshot{Items: clone(old.Items)}
 				s.correlateSessionInputs(&history, sid)
+				s.appendInputSources(&history, old, sid)
+				out.InputSources = append(out.InputSources, history.InputSources...)
 				past = append(past, history.Items...)
 			}
 		}
@@ -301,7 +308,13 @@ func (s *Session) approvalLocked(id string) (approvalRef, bool) {
 	}
 	return approvalRef{}, false
 }
+
+// Unscoped projection is display-only. Native feed paths use applyScopedEnvelope.
 func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
+	applyScopedEnvelope(v, e, inputScope{}, scheduled...)
+}
+
+func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled ...bool) {
 	key := value(e.ProjectionId)
 	if key == "" {
 		key = value(e.EventId)
@@ -463,6 +476,18 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 	}
 	if update.MessageID != "" {
 		id += "/" + update.MessageID
+	}
+	if kind == "user" && value(e.TurnId) != "" && scope.owner() != "" && scope.SessionID == v.State.SessionId && (e.SessionId == nil || value(e.SessionId) == scope.SessionID) {
+		scope.TurnID = value(e.TurnId)
+		if v.InputScopes == nil {
+			v.InputScopes = map[string]inputScope{}
+		}
+		if old, exists := v.InputScopes[id]; exists {
+			scope = old // replay cannot replace original evidence or its absence
+		} else if slices.ContainsFunc(v.Items, func(item api.Item) bool { return item.ID == id }) {
+			scope = inputScope{} // another chunk cannot upgrade unproven history
+		}
+		v.InputScopes[id] = scope
 	}
 	status := "completed"
 	if kind == "assistant" {
@@ -638,7 +663,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			page++
 			for _, e := range d.Events {
 				s.logEnvelope(e)
-				s.applyScheduledEnvelope(staged, e)
+				s.applyScheduledEnvelope(staged, e, inputScope{InstanceID: instance, SessionID: sid})
 			}
 			return nil
 		case "replace_end":
@@ -674,6 +699,22 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			// The bootstrap is the authoritative live head. Historical replay
 			// must never retire it, even if replacement omitted its lifecycle.
 			delete(staged.RetiredTurns, value(bootstrap.Run.TurnId))
+			// A canonical replacement cannot relabel retained inputs, including
+			// legacy inputs with no original scope. A new Host's replay proves
+			// its serving scope, not the origin of an already retained input.
+			// Keep this evidence beyond the bounded display window: LoadEarlier
+			// may later bring the same item back after a Host replacement.
+			if staged.InputScopes == nil {
+				staged.InputScopes = map[string]inputScope{}
+			}
+			for id, scope := range v.InputScopes {
+				staged.InputScopes[id] = scope
+			}
+			for _, item := range v.Items {
+				if item.Kind == "user" {
+					staged.InputScopes[item.ID] = v.InputScopes[item.ID]
+				}
+			}
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
@@ -688,7 +729,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				if d.Source == wire.StreamSourceClassExact && v.CommandCaughtUp {
 					applyLiveUsage(v, e, time.Now().Round(0))
 				}
-				s.applyScheduledEnvelope(v, e)
+				s.applyScheduledEnvelope(v, e, inputScope{InstanceID: instance, SessionID: sid})
 				s.observeCommandApprovalLocked(sid, e)
 			}
 		case "sync", "status":

@@ -18,12 +18,18 @@ type Snapshot struct {
 	HasEarlier  bool   `json:"hasEarlier"`
 	CurrentTurn string `json:"currentTurn"`
 	// RuntimeOwner is a host-only fence for replies to completed async items.
-	RuntimeOwner     string `json:"-"`
-	PreviewKey       string `json:"previewKey"`
-	PreviewDismissed bool   `json:"previewDismissed"`
-	Revision         uint64 `json:"revision"`
-	Connection       string `json:"connection"`
-	ConnectionIssue  string `json:"connectionIssue"`
+	RuntimeOwner string `json:"-"`
+	// InputSources is adapter-owned native request/turn/scope evidence. Neither
+	// retained adapter history nor local chat may infer it from RuntimeOwner.
+	InputSources []InputSource `json:"-"`
+	// ReportSources carries native receipt provenance independently of hidden
+	// hostNotice items. It is private routing metadata, never renderer input.
+	ReportSources    []ReportSource `json:"-"`
+	PreviewKey       string         `json:"previewKey"`
+	PreviewDismissed bool           `json:"previewDismissed"`
+	Revision         uint64         `json:"revision"`
+	Connection       string         `json:"connection"`
+	ConnectionIssue  string         `json:"connectionIssue"`
 	// RecoveryNoticeKey is an original-request keyed host notification edge. It
 	// carries no authority and is never a Runtime retry instruction.
 	RecoveryNoticeKey string      `json:"recoveryNoticeKey,omitempty"`
@@ -39,6 +45,19 @@ type Snapshot struct {
 	References        []Reference `json:"references"`
 	LoginPending      bool        `json:"loginPending"`
 	LastReceipt       Receipt     `json:"lastReceipt"`
+}
+
+type ReportSource struct {
+	RuntimeOwner string
+	TurnKey      string
+	ReportID     string
+	Phase        string
+}
+
+type InputSource struct {
+	RuntimeOwner string
+	TurnKey      string
+	RequestID    string
 }
 
 type ChatUpdate struct {

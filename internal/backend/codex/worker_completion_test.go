@@ -19,7 +19,7 @@ func TestWorkerCompletionOrdering(t *testing.T) {
 			s.children["child"] = true
 			s.childWatching["child"] = true
 			s.childRuns["child"] = "child-turn"
-			s.applyTurn(nativeTurn{ID: "root-turn", Status: "inProgress"}, false)
+			s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "root-turn", Status: "inProgress"}, false)
 			childTerminal := Notification{Method: "turn/completed", Params: raw(map[string]any{"threadId": "child", "turn": nativeTurn{ID: "child-turn", Status: "completed"}})}
 			parentNotice := Notification{Method: "item/completed", Params: raw(map[string]any{"threadId": "root", "turnId": "root-turn", "item": nativeItem{ID: "completion-notice", Type: "subAgentActivity", AgentThreadID: "child", ActivityKind: "completed"}})}
 			events := []Notification{childTerminal, parentNotice}

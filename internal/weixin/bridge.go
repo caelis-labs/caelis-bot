@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
@@ -23,6 +24,7 @@ import (
 )
 
 type Host struct {
+	Diagnostics   *diagnosticlog.Logger
 	Snapshot      func() api.Snapshot
 	Recovery      func() api.RecoveryState
 	Interrupt     func(context.Context) error
@@ -106,6 +108,7 @@ type document struct {
 	Missed           int                 `json:"missed,omitempty"`
 	TurnPhases       map[string]string   `json:"turnPhases,omitempty"`
 	TurnOrigins      map[string]string   `json:"turnOrigins,omitempty"`
+	TurnOwners       map[string]string   `json:"turnOwners,omitempty"`
 	TurnOrder        []string            `json:"turnOrder,omitempty"`
 	TaskTurns        map[string]string   `json:"taskTurns,omitempty"`
 	TaskOrder        []string            `json:"taskOrder,omitempty"`
@@ -138,10 +141,11 @@ type Bridge struct {
 	loadErr                       bool
 	secretInbox                   map[string]string
 	fileWork                      map[string]bool
+	routeWarnings                 map[string]bool
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, TurnPhases: map[string]string{}, TurnOrigins: map[string]string{}, TaskTurns: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, TurnPhases: map[string]string{}, TurnOrigins: map[string]string{}, TurnOwners: map[string]string{}, TaskTurns: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -176,6 +180,9 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.TurnPhases == nil {
 		b.state.TurnPhases = map[string]string{}
+	}
+	if b.state.TurnOwners == nil {
+		b.state.TurnOwners = map[string]string{}
 	}
 	if b.state.TurnOrigins == nil {
 		b.state.TurnOrigins = map[string]string{}

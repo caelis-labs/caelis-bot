@@ -24,15 +24,15 @@ func TestNativeActivityUsesTypedActionsAndLifecycle(t *testing.T) {
 		if err := json.Unmarshal([]byte(tc.body), &item); err != nil {
 			t.Fatal(err)
 		}
-		s.applyItem("turn", item, false)
+		s.applyItem(s.binding.ThreadID, "turn", item, false)
 		got := s.state.Items[s.items[opaque("turn", item.ID)]]
 		if got.Activity == nil || got.Activity.Kind != tc.kind || got.Activity.Target != tc.target || got.Status != "inProgress" {
 			t.Fatalf("bad activity: %+v", got)
 		}
 		completed := item
 		completed.Status = "completed"
-		s.applyItem("turn", completed, true)
-		s.applyItem("turn", item, false)
+		s.applyItem(s.binding.ThreadID, "turn", completed, true)
+		s.applyItem(s.binding.ThreadID, "turn", item, false)
 		if got := s.state.Items[s.items[opaque("turn", item.ID)]].Status; got != "completed" {
 			t.Fatal("late start revived a completed tool", got)
 		}

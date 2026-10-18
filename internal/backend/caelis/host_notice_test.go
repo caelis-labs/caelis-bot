@@ -33,11 +33,25 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	}
 	v := s.state.Views["main"]
 	for _, event := range events {
-		s.applyScheduledEnvelope(v, event)
+		s.applyScheduledEnvelope(v, event, inputScope{})
 	}
 	got := s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "The requested work is ready." {
 		t.Fatal("host input leaked or reply hidden", got.Items)
+	}
+	want := api.ReportSource{RuntimeOwner: got.RuntimeOwner, TurnKey: "host-turn", ReportID: in.ID, Phase: "completed"}
+	if want.RuntimeOwner == "" || len(got.ReportSources) != 1 || got.ReportSources[0] != want {
+		t.Fatal("private receipt association lost", got.ReportSources)
+	}
+	s.mu.Lock()
+	cached := s.Snapshot()
+	s.mu.Unlock()
+	if len(cached.ReportSources) != 1 || cached.ReportSources[0] != want {
+		t.Fatal("cached snapshot lost association")
+	}
+	cached.ReportSources[0].ReportID = "mutated"
+	if s.Snapshot().ReportSources[0] != want {
+		t.Fatal("cached source alias")
 	}
 	if err := s.saveLocked(); err != nil {
 		t.Fatal(err)
@@ -51,16 +65,19 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" {
 		t.Fatal("reload leaked host input", got.Items)
 	}
+	if len(got.ReportSources) != 1 || got.ReportSources[0] != want {
+		t.Fatal("reload lost report association")
+	}
 	replay := &view{State: v.State, Seen: map[string]bool{}}
 	for _, event := range events {
-		s.applyScheduledEnvelope(replay, event)
+		s.applyScheduledEnvelope(replay, event, inputScope{})
 	}
 	s.state.Views["main"] = replay
 	got = s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" {
 		t.Fatal("canonical replay leaked host input", got.Items)
 	}
-	s.applyScheduledEnvelope(replay, wire.Envelope{EventId: pointer("human-input"), TurnId: pointer("host-turn"), InputOperationId: pointer("human-operation"), Update: &user})
+	s.applyScheduledEnvelope(replay, wire.Envelope{EventId: pointer("human-input"), TurnId: pointer("host-turn"), InputOperationId: pointer("human-operation"), Update: &user}, inputScope{})
 	got = s.Snapshot()
 	if len(got.Items) != 2 || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
 		t.Fatal("same-text user input hidden", got.Items)

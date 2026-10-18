@@ -551,7 +551,7 @@ func TestCapacityStopNeverUsesAnotherThreadReceipt(t *testing.T) {
 	s.binding.ThreadID = "new-native-thread"
 	s.state.LastReceipt = api.Receipt{ID: s.binding.CapacityStopRequest, Outcome: "accepted"}
 	s.binding.LastReceipt = &s.state.LastReceipt
-	s.applyItem("new-native-turn", nativeItem{ID: "new-user", Type: "userMessage", ClientID: s.binding.CapacityStopRequest}, false)
+	s.applyItem(s.binding.ThreadID, "new-native-turn", nativeItem{ID: "new-user", Type: "userMessage", ClientID: s.binding.CapacityStopRequest}, false)
 	s.queueCapacityStopsLocked()
 	accepted, turn, queued := s.binding.CapacityStopAccepted, s.binding.CapacityStopTurn, s.capacityStopReconciling["bot"]
 	s.mu.Unlock()

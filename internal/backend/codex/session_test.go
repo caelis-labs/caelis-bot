@@ -835,9 +835,9 @@ func TestNonFiniteElicitationAndUnsupportedConstraintsAreNotAccepted(t *testing.
 func TestLateOlderTerminalCannotCompleteCurrentTurn(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir()})
 	defer s.cancelLife()
-	s.applyTurn(nativeTurn{ID: "older", Status: "completed"}, false)
-	s.applyTurn(nativeTurn{ID: "current", Status: "inProgress"}, false)
-	s.applyTurn(nativeTurn{ID: "older", Status: "completed"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "older", Status: "completed"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "current", Status: "inProgress"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "older", Status: "completed"}, false)
 	if s.run != "current" || s.state.Phase != "working" {
 		t.Fatal("old terminal changed active turn")
 	}
@@ -851,7 +851,7 @@ func TestKnownLocalArtifactHasReadableTextAndOpaqueAction(t *testing.T) {
 	if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	s.applyItem("run", nativeItem{ID: "answer", Type: "agentMessage", Text: "Done: [result](<" + path + ">)"}, true)
+	s.applyItem(s.binding.ThreadID, "run", nativeItem{ID: "answer", Type: "agentMessage", Text: "Done: [result](<" + path + ">)"}, true)
 	view := s.Snapshot().Items[0]
 	if view.Text != "Done: result" || len(view.Artifacts) != 1 {
 		t.Fatal(view)
@@ -875,12 +875,12 @@ func TestBoundTemporaryArtifactCanBeExplicitlyLinkedButPathAloneCannot(t *testin
 	s := NewSession(SessionOptions{Directory: work, StateFile: state})
 	defer s.cancelLife()
 	link := "[generated](<" + path + ">)"
-	s.applyItem("turn", nativeItem{ID: "unbound", Type: "agentMessage", Text: link}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "unbound", Type: "agentMessage", Text: link}, true)
 	if item := s.Snapshot().Items[0]; len(item.Artifacts) != 0 || item.Text != link {
 		t.Fatalf("path granted authority: %+v", item)
 	}
-	s.applyItem("turn", nativeItem{ID: "change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: path}}}, true)
-	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: link}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: path}}}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: link}, true)
 	items := s.Snapshot().Items
 	if items[1].Kind != "activity" || len(items[1].Artifacts) != 1 || len(items[2].Artifacts) != 1 || items[2].Text != "generated" || items[1].Artifacts[0].ID != items[2].Artifacts[0].ID {
 		t.Fatalf("bound temp projection: %+v", items)
@@ -892,8 +892,8 @@ func TestBoundTemporaryArtifactCanBeExplicitlyLinkedButPathAloneCannot(t *testin
 	}
 	escaping := filepath.Join(root, "outside.md")
 	if err := os.Symlink("/etc/hosts", escaping); err == nil {
-		s.applyItem("turn", nativeItem{ID: "symlink-change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: escaping}}}, true)
-		s.applyItem("turn", nativeItem{ID: "symlink-reply", Type: "agentMessage", Text: "[outside](<" + escaping + ">)"}, true)
+		s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "symlink-change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: escaping}}}, true)
+		s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "symlink-reply", Type: "agentMessage", Text: "[outside](<" + escaping + ">)"}, true)
 		last := s.Snapshot().Items[len(s.Snapshot().Items)-1]
 		if len(last.Artifacts) != 0 {
 			t.Fatalf("symlink escaped temporary boundary: %+v", last)
@@ -922,7 +922,7 @@ func TestSkillCitationLineResolvesAndSurvivesRestart(t *testing.T) {
 	state := filepath.Join(root, "conversation.json")
 	s := NewSession(SessionOptions{Directory: notebook, StateFile: state})
 	defer s.cancelLife()
-	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "[SKILL.md:47](" + linkedSkill + ":47)"}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "[SKILL.md:47](" + linkedSkill + ":47)"}, true)
 	view := s.Snapshot().Items[0]
 	if view.Text != "SKILL.md:47" || len(view.Artifacts) != 1 || view.Artifacts[0].Name != "SKILL.md:47" {
 		t.Fatal(view)
@@ -952,7 +952,7 @@ func TestReadSnapshotCannotOverwriteAlreadyStreamedText(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "first-live-input")
 	s.mu.Lock()
-	s.applyItem("run-native", nativeItem{ID: "streaming", Type: "agentMessage", Text: "new streamed text"}, false)
+	s.applyItem(s.binding.ThreadID, "run-native", nativeItem{ID: "streaming", Type: "agentMessage", Text: "new streamed text"}, false)
 	s.binding.Pending = &pendingSubmission{ID: "late-steer"}
 	s.state.Phase = "unknown"
 	s.update()
@@ -976,13 +976,13 @@ func TestReadSnapshotCannotOverwriteAlreadyStreamedText(t *testing.T) {
 func TestInterruptedTurnDoesNotLeaveUnfinishedToolAsRunning(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir()})
 	defer s.cancelLife()
-	s.applyTurn(nativeTurn{ID: "run", Status: "inProgress"}, false)
-	s.applyItem("run", nativeItem{ID: "tool", Type: "commandExecution", Status: "inProgress"}, false)
-	s.applyTurn(nativeTurn{ID: "run", Status: "interrupted"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "run", Status: "inProgress"}, false)
+	s.applyItem(s.binding.ThreadID, "run", nativeItem{ID: "tool", Type: "commandExecution", Status: "inProgress"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "run", Status: "interrupted"}, false)
 	if view := s.Snapshot(); view.Phase != "interrupted" || view.Items[0].Status != "unconfirmed" {
 		t.Fatal(view.Phase, view.Items)
 	}
-	s.applyItem("run", nativeItem{ID: "tool", Type: "commandExecution", Status: "completed"}, true)
+	s.applyItem(s.binding.ThreadID, "run", nativeItem{ID: "tool", Type: "commandExecution", Status: "completed"}, true)
 	if s.Snapshot().Items[0].Status != "completed" {
 		t.Fatal("late native receipt lost")
 	}

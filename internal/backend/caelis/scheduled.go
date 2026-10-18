@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"sort"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/activation"
@@ -10,7 +11,7 @@ import (
 
 // Background turns are correlated through native command targets. Safe-point
 // input IDs additionally classify inputs; prose never establishes provenance.
-func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
+func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope, scope inputScope) {
 	turn := value(e.TurnId)
 	id := value(e.InputOperationId)
 	j := s.state.Operations[id]
@@ -28,7 +29,7 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
 		j.TurnID = turn
 		s.state.Operations[id] = j
 	}
-	applyEnvelope(v, e, scheduled, hostNotice)
+	applyScopedEnvelope(v, e, scope, scheduled, hostNotice)
 	if turn != "" && e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && value(e.ApprovalRequestId) == "" && (value(e.Scope) == "" || value(e.Scope) == "main") {
 		if v.Turns == nil {
 			v.Turns = map[string]string{}
@@ -41,6 +42,14 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 	dreams := map[string]string{}
 	for id, j := range s.state.Operations {
 		if j.Source.Kind == "application_summary" {
+			path := "/sessions/" + idPath(s.state.Session.SessionId)
+			if out.RuntimeOwner != "" && j.TurnID != "" && succeeded(wire.Outcome(j.Outcome)) && (j.Path == path+"/prompt" || j.Path == path+"/steer") {
+				phase := v.Turns[j.TurnID]
+				if phase == "cancelled" {
+					phase = "interrupted"
+				}
+				out.ReportSources = append(out.ReportSources, api.ReportSource{RuntimeOwner: out.RuntimeOwner, TurnKey: j.TurnID, ReportID: id, Phase: phase})
+			}
 			for index := range out.Items {
 				item := &out.Items[index]
 				if item.Kind == "user" && item.RequestID == id {
@@ -64,6 +73,7 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 			}
 		}
 	}
+	sort.Slice(out.ReportSources, func(i, j int) bool { return out.ReportSources[i].ReportID < out.ReportSources[j].ReportID })
 	pending := s.sendingScheduled != ""
 	if pending && out.CurrentTurn != s.scheduledPreviousTurn {
 		turns[out.CurrentTurn] = "running"

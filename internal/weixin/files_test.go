@@ -204,7 +204,7 @@ func fileSnapshot(artifacts []api.Artifact, body string) api.Snapshot {
 
 func fileBridge(t *testing.T, root string, snapshot api.Snapshot, paths map[string]string) *Bridge {
 	t.Helper()
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Artifact: func(id string) (string, error) {
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, Artifact: func(id string) (string, error) {
 		p, ok := paths[id]
 		if !ok {
 			return "", errors.New("not owned")
@@ -314,7 +314,7 @@ func TestArtifactOnlyBudgetDoesNotAutoSendOnFreshIngress(t *testing.T) {
 		}
 		s.CurrentTurn = "selected-turn"
 		s.Items[0].RequestID = "new-input"
-		return s
+		return nativeInputSnapshot(s)
 	}
 	reopened.state.Inputs["new-input"] = "accepted"
 	reopened.output(t.Context(), f.protocol())
@@ -468,7 +468,7 @@ func TestFirstProgressBecomesFinalAndLaterToolGetsOneNameSupplement(t *testing.T
 	}
 	snapshot.Phase = "completed"
 	snapshot.Items = append(snapshot.Items, api.Item{ID: "publish", Kind: "tool", TurnKey: "turn", Status: "completed", Artifacts: []api.Artifact{{ID: "resource:session:later", Name: "later.json"}}})
-	b.host.Snapshot = func() api.Snapshot { return snapshot }
+	b.host.Snapshot = func() api.Snapshot { return nativeInputSnapshot(snapshot) }
 	b.output(t.Context(), f.protocol())
 	b.output(t.Context(), f.protocol())
 	f.mu.Lock()
@@ -525,7 +525,7 @@ func TestUnownedArtifactsNeverResolve(t *testing.T) {
 	read := 0
 	snapshot := fileSnapshot([]api.Artifact{{ID: "private", Name: "private.txt"}}, "unrelated")
 	snapshot.Items[0].RequestID = "desktop-input"
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }, Artifact: func(string) (string, error) { read++; return "", errors.New("unowned") }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, Artifact: func(string) (string, error) { read++; return "", errors.New("unowned") }})
 	if err != nil {
 		t.Fatal(err)
 	}

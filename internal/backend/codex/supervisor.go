@@ -51,7 +51,7 @@ func (s *Session) supervise() {
 			if err == nil && s.client == c && s.epoch == epoch {
 				if s.state.Revision == revision {
 					for _, turn := range native.Turns {
-						s.applyTurn(turn, true)
+						s.applyTurn(native.ID, turn, true)
 					}
 					if s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && len(native.Turns) > 0 {
 						latest := native.Turns[len(native.Turns)-1]
