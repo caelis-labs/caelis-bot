@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -27,7 +26,7 @@ func closedAsync(state string) bool {
 }
 func questionCard(q AsyncButtonQuestion) api.QuestionCard {
 	card := api.QuestionCard{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, ExpiresAt: q.ExpiresAt, Reason: q.Reason}
-	if q.Presentation != nil {
+	if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) == nil {
 		card.Title, card.Context, card.Options = q.Presentation.Title, q.Presentation.Context, append([]string(nil), q.Presentation.Options...)
 	}
 	return card
@@ -70,7 +69,7 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 				state, reason = "expired", "task_cancelled"
 			case w.Task.Status == "failed" || w.Task.Status == "unavailable":
 				state, reason = "expired", "task_ended"
-			case w.Task.Status == "completed" && w.Task.Result != "" && w.TurnKey != q.TurnKey:
+			case w.TaskEnded:
 				state, reason = "expired", "task_completed"
 			}
 		}
@@ -112,7 +111,8 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 			}
 			if ok {
 				card.State, card.Reason, card.ExpiresAt, card.TaskTitle = q.State, q.Reason, q.ExpiresAt, q.TaskTitle
-				if q.Presentation != nil {
+				card.Title, card.Context, card.Options = q.Title, "", append([]string(nil), q.Options...)
+				if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) == nil {
 					card.Title, card.Context, card.Options = q.Presentation.Title, q.Presentation.Context, append([]string(nil), q.Presentation.Options...)
 				}
 			} else {
@@ -166,7 +166,7 @@ func (s *Store) PresentWorkerQuestion(id string, presentation *api.QuestionPrese
 		return api.Item{}, fmt.Errorf("original Worker question is no longer pending")
 	}
 	if presentation != nil {
-		if err := validateQuestionPresentation(*presentation, len(q.Options)); err != nil {
+		if err := validateQuestionPresentation(*presentation, q.Title, q.Options); err != nil {
 			return api.Item{}, err
 		}
 		// Re-presentation cannot silently relabel choices a user may already be reading.
@@ -244,35 +244,15 @@ func (s *Store) QuestionClosureRecorded(id string) error {
 	return nil
 }
 
-// Reject oversized authored summaries rather than truncating meaning or scope.
-// CJK glyphs count as two units so both Latin and CJK copy fit narrow panels.
-func validateQuestionPresentation(p api.QuestionPresentation, count int) error {
-	units := func(text string) int {
-		n := 0
-		for _, r := range text {
-			n++
-			if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hangul, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) {
-				n++
-			}
-		}
-		return n
+// A presentation may split the original title into a heading and following
+// context, but it cannot rewrite, remove or reorder a single semantic byte.
+// Options are the native answers themselves, never model-authored aliases.
+func validateQuestionPresentation(p api.QuestionPresentation, title string, options []string) error {
+	if p.Title == "" || !strings.HasPrefix(title, p.Title) || strings.TrimSpace(strings.TrimPrefix(title, p.Title)) != p.Context {
+		return fmt.Errorf("presentation must preserve the exact original question: title followed by context; request a new concise question at source instead of paraphrasing")
 	}
-	if strings.TrimSpace(p.Title) == "" || units(p.Title) > 80 || units(p.Context) > 160 || strings.ContainsAny(p.Title+p.Context, "\r\n") {
-		return fmt.Errorf("provide one complete short question (80 display units) and at most one context sentence (160); preserve all decision scope")
-	}
-	if len(p.Options) != count {
-		return fmt.Errorf("display options must retain the original count and order")
-	}
-	seen := map[string]bool{}
-	for _, option := range p.Options {
-		key := strings.ToLower(strings.TrimSpace(option))
-		if seen[key] {
-			return fmt.Errorf("display option labels must be distinct")
-		}
-		seen[key] = true
-		if strings.TrimSpace(option) == "" || units(option) > 48 || strings.ContainsAny(option, "\r\n") {
-			return fmt.Errorf("each option needs a distinct short label (48 display units), preserving its original meaning")
-		}
+	if !slices.Equal(p.Options, options) {
+		return fmt.Errorf("presentation options must exactly equal the original answers in order; aliases cannot represent user consent")
 	}
 	return nil
 }

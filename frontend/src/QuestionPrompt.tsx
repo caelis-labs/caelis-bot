@@ -2,7 +2,7 @@ import {useId,useState} from 'react';
 import type {QuestionCard} from './backend/contract';
 import {backend} from './desktop';
 import {useI18n} from './i18n';
-import {questionStatusKey} from './question-presentation';
+import {questionStatusKey,questionCopy,optionWords,displayUnits} from './question-presentation';
 
 export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
  const {t,locale}=useI18n();
@@ -10,6 +10,7 @@ export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>voi
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [settled,setSettled]=useState('');
  const state=card.state||settled,done=!!state;
+ const copy=questionCopy(card.title,card.context);
  const act=async(kind:'answer'|'dismiss',answer='')=>{
   if(busy||done||(kind==='answer'&&!answer.trim()))return;
   setBusy(true);setError('');
@@ -25,7 +26,7 @@ export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>voi
   finally {setBusy(false);}
  };
  if(done)return <p className="question-result" role="status"><span>{card.title}</span><small>{t(questionStatusKey(state))}</small></p>;
- return <section className="question-prompt" aria-labelledby={id+'-title'} aria-busy={busy} onKeyDown={event=>{
+ return <section data-question-pending className="question-prompt" aria-labelledby={id+'-title'} aria-busy={busy} onKeyDown={event=>{
   // macOS WebKit may skip buttons in native Tab navigation. Keep the card's
   // visible controls in order, without trapping focus at either boundary.
   if(event.key!=='Tab')return;
@@ -34,14 +35,14 @@ export function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>voi
   if(index>=0&&next>=0&&next<controls.length){event.preventDefault();controls[next].focus();}
  }}>
   <div className="question-topline"><div className="question-context"><span className="question-source" title={card.taskTitle}>{card.taskTitle||t('chat.questionConversation')}</span>{!!card.expiresAt&&<><span aria-hidden="true"> · </span><time dateTime={new Date(card.expiresAt*1000).toISOString()}>{t('chat.questionUntil',{time:new Intl.DateTimeFormat(locale,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(card.expiresAt*1000)})}</time></>}</div><button type="button" className="question-dismiss" disabled={busy} aria-label={t('chat.questionDismissLabel')} onClick={()=>void act('dismiss')}>{t('chat.questionDismiss')}</button></div>
-  <h3 id={id+'-title'} className="question-prompt-title">{card.title}</h3>
-  {card.context&&<p className="question-background">{card.context}</p>}
+  <h3 id={id+'-title'} className={"question-prompt-title"+(displayUnits(copy.title)>80?" question-long-title":"")}>{copy.title}</h3>
+  {copy.context&&<p className="question-background">{copy.context}</p>}
   {!!card.options?.length&&<div className="question-prompt-options" aria-label={card.title} onKeyDown={event=>{
    if(!['ArrowDown','ArrowUp','ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
    const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
    const current=buttons.indexOf(document.activeElement as HTMLButtonElement);if(current<0||!buttons.length)return;
    event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(current+(['ArrowDown','ArrowRight'].includes(event.key)?1:-1)+buttons.length)%buttons.length]?.focus();
-  }}>{card.options.map((option,index)=><button type="button" key={index} disabled={busy} onClick={()=>void act('answer',String(index+1))}>{option}</button>)}</div>}
+  }}>{card.options.map((option,index)=><button type="button" key={index} aria-label={option} disabled={busy} className={displayUnits(option)>28?"question-long-option":undefined} onClick={()=>void act('answer',String(index+1))}>{optionWords(option,locale).map((word,n)=><span key={n}>{word}</span>)}</button>)}</div>}
   <form className="question-prompt-entry" onSubmit={e=>{e.preventDefault();void act('answer',value);}}>
    <input id={id+'-answer'} value={value} disabled={busy} aria-label={t('chat.questionYourAnswer')} placeholder={t('chat.questionPlaceholder')} onChange={e=>setValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.nativeEvent.isComposing||e.nativeEvent.keyCode===229))e.preventDefault();}}/>
    <button type="submit" disabled={busy||!value.trim()}>{t('chat.questionSend')}</button>

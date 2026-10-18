@@ -118,8 +118,8 @@ type TaskPresentation struct {
 	Status string `json:"status"`
 }
 
-// QuestionPresentation is a model-authored display summary, never an answer.
-// Options retain the exact count and order of the original native question.
+// QuestionPresentation only partitions original text into a title and context.
+// Options must exactly equal the original native answers; aliases are rejected.
 type QuestionPresentation struct {
 	Title   string   `json:"title"`
 	Context string   `json:"context,omitempty"`

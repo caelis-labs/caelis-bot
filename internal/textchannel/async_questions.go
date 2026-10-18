@@ -193,14 +193,16 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	s.mu.Lock()
 	created := []string{}
 	previousQuestions, previousClosed := maps.Clone(s.state.AsyncQuestions), maps.Clone(s.state.AsyncClosed)
+	previousRetired := maps.Clone(s.state.AsyncRetired)
 	previousPrompts, previousNext := maps.Clone(s.state.Prompts), s.state.NextQuestion
 	rollback := func() {
 		s.state.AsyncQuestions, s.state.AsyncClosed = previousQuestions, previousClosed
+		s.state.AsyncRetired = previousRetired
 		s.state.Prompts, s.state.NextQuestion = previousPrompts, previousNext
 	}
 	previousActive, hadActive := s.state.AsyncActive[item.ID]
 	if hadActive && previousActive != fingerprint {
-		if _, retired := s.state.AsyncClosed[fmt.Sprintf("%s:%d", fingerprint, 0)]; retired {
+		if s.state.AsyncRetired[fingerprint] {
 			// A late replay of the old schema must not overwrite the newer
 			// live card in the IM log under the same item ID.
 			item.Text = s.asyncCardTextLocked(item.ID, previousActive)
@@ -233,11 +235,17 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		s.state.AsyncQuestions[id] = asyncQuestion{ShortID: id, ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index, IssuedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(asyncQuestionMaxAge).Unix()}
 		created = append(created, id)
 	}
-	// Keep displaced generations terminal; replay cannot make them pending again.
+	// Retire display identity even when an answer is unknown or dispatching.
+	// Its receipt remains attached to that generation and is never overwritten.
 	if hadActive && previousActive != fingerprint {
+		s.state.AsyncRetired[previousActive] = true
 		for id, old := range s.state.AsyncQuestions {
-			if old.ItemID == item.ID && old.Fingerprint != fingerprint && old.State == "" {
-				s.closeAsyncLocked(id, old, "superseded", "question_replaced")
+			if old.ItemID == item.ID && old.Fingerprint != fingerprint {
+				if old.State == "" {
+					s.closeAsyncLocked(id, old, "superseded", "question_replaced")
+				} else {
+					s.state.AsyncClosed[asyncKey(old)] = old
+				}
 			}
 		}
 	}
@@ -435,15 +443,19 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	} else {
 		current.State = "unknown"
 	}
+	if current.State == "" && s.state.AsyncRetired[current.Fingerprint] {
+		current.State, current.Reason, current.ClosedAt = "superseded", "question_replaced", time.Now().Unix()
+	}
 	s.state.AsyncQuestions[id] = current
-	if current.State == "answered" {
+	if current.State == "answered" || s.state.AsyncRetired[current.Fingerprint] {
 		s.state.AsyncClosed[asyncKey(current)] = current
 	}
 	if saveErr := s.save(); saveErr != nil {
 		feedback = "回答投递后本地状态保存失败；请先核对 Bot 回复，不会自动重发。"
 	}
-	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, q.Fingerprint, q.WorkID != "")}
-	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, q.Fingerprint) {
+	activeFingerprint := s.state.AsyncActive[q.ItemID]
+	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, activeFingerprint, q.WorkID != "")}
+	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, activeFingerprint) {
 		if q.WorkID != "" && !question.Presented {
 			continue
 		}

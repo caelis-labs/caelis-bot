@@ -549,7 +549,10 @@ export function History() {
  const [earlierBusy,setEarlierBusy]=useState(false);
  const prepend=useRef<{id:string;top:number}|null>(null);
  const scroll=useRef<HTMLDivElement>(null),content=useRef<HTMLDivElement>(null),position=useRef<ChatScroll|null>(null);
- useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!);return()=>{position.current=null;};},[]);
+ useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!,()=>{
+   const el=scroll.current!,question=el.querySelector<HTMLElement>('[data-question-pending]');
+   return question?Math.max(0,el.scrollTop+question.getBoundingClientRect().top-el.getBoundingClientRect().top-12):undefined;
+  });return()=>{position.current=null;};},[]);
  useEffect(()=>{
   let activeNow=false;
   // Every explicit open must acknowledge its native presentation token, even
@@ -564,7 +567,7 @@ export function History() {
  },[]);
  useLayoutEffect(()=>{
   if(!active)return;
-  prepend.current=null;position.current!.latest();setUnread(false);
+  prepend.current=null;position.current!.latest(true);setUnread(false);
  },[activation]);
  useLayoutEffect(()=>{
   if(!active)return;

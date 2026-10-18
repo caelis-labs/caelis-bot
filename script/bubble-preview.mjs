@@ -244,11 +244,25 @@ window.fixtureQuestionSetup=()=>{
   {id:'question-item',kind:'assistant',text:'选择演示连接方式',status:'completed',seenAt:now,artifacts:[],questionCards:[{shortId:'Q7',binding:'original-fixture-question-'+revision,title:'演示视频使用哪个模型连接？',context:'仅用于隔离演示，无需密码或密钥；已有连接请提供位置，暂不配置则先录免登录片段。',taskTitle:'新版 Bot 演示视频',expiresAt:Math.floor(Date.now()/1000)+86400,options:['手动登录','使用已有连接','暂不配置'],state:''}]}
  ]});
 };
-if(previewParams.get('fixture')==='question-lifecycle')window.fixtureQuestionSetup();
+window.fixtureReviewMulti=()=>{
+ fixtureQuestionSetup();
+ snapshot.items.find(i=>i.id==='question-item').questionCards.push({shortId:'Q8',binding:'review-second-'+revision,title:'演示视频发布到哪里？',context:'只使用脱敏后的演示材料；公开发布需要你确认。',taskTitle:'新版 Bot 演示视频',expiresAt:Math.floor(Date.now()/1000)+86400,options:['仅保存在本机','公开到项目网站','先发给我审阅'],state:''});
+};
+window.fixtureReviewLong=()=>{
+ fixtureQuestionSetup();
+ Object.assign(snapshot.items.find(i=>i.id==='question-item').questionCards[0],{title:'新版 Bot 视频中的真实对话需要可用的演示模型连接。你希望如何提供？会先继续准备素材和录制无需登录的流程，无需在这里发送密码或 API Key。',context:'',options:['我在隔离演示 Bot 中手动登录或配置模型','使用已有独立演示 Runtime，我提供位置','暂不配置，先完成无需登录的片段']});
+};
+window.fixtureReviewCombined=()=>{fixtureReviewMulti();const second=snapshot.items.find(i=>i.id==='question-item').questionCards[1];fixtureReviewLong();snapshot.items.find(i=>i.id==='question-item').questionCards.push(second);};
+window.fixtureReviewFree=()=>{fixtureQuestionSetup();Object.assign(snapshot.items.find(i=>i.id==='question-item').questionCards[0],{title:'独立演示连接位于哪里？',context:'填写本机位置即可，无需密码或密钥。',options:[]});};
+if(previewParams.get('fixture')==='question-lifecycle'){
+ const mode=previewParams.get('questionCase');
+ if(mode==='combined')fixtureReviewCombined();else if(mode==='long')fixtureReviewLong();else if(mode==='multiple')fixtureReviewMulti();else fixtureQuestionSetup();
+}
+
 window.fixtureQuestionLayout=()=>{
  const card=document.querySelector('.question-prompt'),composer=document.querySelector('.compose-area');
  const rect=e=>{const r=e?.getBoundingClientRect();return r?{x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom}:null;};
- return {viewport:{width:innerWidth,height:innerHeight},card:rect(card),composer:rect(composer),decisions:Array.from(card?.querySelectorAll('button,input')??[]).map(e=>({text:e.textContent||e.getAttribute('placeholder'),...rect(e)})),accordions:card?.querySelectorAll('details,summary').length??0,questionTray:!!document.querySelector('.question-dock-panel'),internalScroll:!!card&&[card,...card.querySelectorAll('*')].some(e=>/auto|scroll/.test(getComputedStyle(e).overflowY)&&e.scrollHeight>e.clientHeight+1)};
+ return {viewport:{width:innerWidth,height:innerHeight},cards:Array.from(document.querySelectorAll('.question-prompt')).map(e=>({title:e.querySelector('h3')?.textContent,rect:rect(e),controls:Array.from(e.querySelectorAll('button,input')).map(rect)})),card:rect(card),composer:rect(composer),decisions:Array.from(card?.querySelectorAll('button,input')??[]).map(e=>({text:e.textContent||e.getAttribute('placeholder'),...rect(e)})),accordions:card?.querySelectorAll('details,summary').length??0,questionTray:!!document.querySelector('.question-dock-panel'),internalScroll:!!card&&[card,...card.querySelectorAll('*')].some(e=>/auto|scroll/.test(getComputedStyle(e).overflowY)&&e.scrollHeight>e.clientHeight+1)};
 };
 window.fixtureQuestionRegression=async()=>{
  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),checks=[];
@@ -267,6 +281,11 @@ window.fixtureQuestionRegression=async()=>{
   check('dismissed has no decision controls',!document.querySelector('.question-prompt')&&snapshot.items.find(i=>i.id==='question-item').questionCards[0].state==='dismissed');
   window.dispatchEvent(new Event('history-close'));window.dispatchEvent(new Event('history-open'));await wait(400);
   check('reopen stays closed',!document.querySelector('.question-prompt'));
+  for(const setup of [fixtureReviewLong,fixtureReviewMulti,fixtureReviewCombined]) {
+   setup();await wait(600);const view=fixtureQuestionLayout();
+   check(setup===fixtureReviewLong?'legacy full text decisions visible':'all questions and close actions visible',view.cards.every(c=>c.rect.y>=0&&c.rect.bottom<view.composer.y&&c.controls.every(r=>r.y>=0&&r.bottom<view.composer.y)));
+   check('no internal scroll in long/multiple scenes',!view.internalScroll);
+  }
  }catch(error){checks.push({error:String(error)});}finally{window.fixtureQuestionChecks=checks;fixtureQuestionSetup();}
 };
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -408,4 +427,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672);writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&questionCase='+(process.env.BOT_PREVIEW_QUESTION_CASE||'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672);writeFileSync(process.argv[2],url);console.log(url);});

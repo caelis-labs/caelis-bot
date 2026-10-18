@@ -110,7 +110,7 @@ func TestWorkerLifecycleYieldFinalCancelAndReplacement(t *testing.T) {
 		status, result string
 		stop           bool
 		want           string
-	}{{"completed", "", false, ""}, {"completed", "Result", false, "expired"}, {"interrupted", "", false, "expired"}, {"working", "", true, "expired"}, {"unknown", "", false, ""}} {
+	}{{"completed", "", false, ""}, {"completed", "Result", false, ""}, {"interrupted", "", false, "expired"}, {"working", "", true, "expired"}, {"unknown", "", false, ""}} {
 		t.Run(test.status+test.result, func(t *testing.T) {
 			s, _ := Open(t.TempDir(), nil)
 			_, _ = s.AsyncWorkCard(lifecycleQuestion(), "codex", "work")
@@ -157,7 +157,7 @@ func TestQuestionPresentationPreservesOriginalAnswerAndRestart(t *testing.T) {
 	item.AsyncQuestions[0].Title = "Which isolated model connection should the demo video use?"
 	item.AsyncQuestions[0].Options = []string{"Sign in manually in the isolated demo Bot", "Use an existing independent demo connection; I will provide its location"}
 	_, _ = s.AsyncWorkCard(item, "codex", "work")
-	summary := &api.QuestionPresentation{Title: "Which model connection should the demo use?", Context: "Use an isolated demo connection; provide its location if it already exists.", Options: []string{"Sign in manually", "Use existing connection"}}
+	summary := &api.QuestionPresentation{Title: item.AsyncQuestions[0].Title, Options: append([]string(nil), item.AsyncQuestions[0].Options...)}
 	presented, err := s.PresentWorkerQuestion("Q1", summary)
 	if err != nil || presented.QuestionCards[0].Options[1] != summary.Options[1] {
 		t.Fatal(presented, err)
@@ -184,13 +184,13 @@ func TestQuestionPresentationPreservesOriginalAnswerAndRestart(t *testing.T) {
 		return api.Receipt{Outcome: "accepted"}, nil
 	})
 	answer := s.HandleDesktopQuestion(t.Context(), "answer-original", "Q1", presented.QuestionCards[0].Binding, "2", api.Snapshot{})
-	if !strings.Contains(answer, "已提交") || !strings.Contains(delivered, item.AsyncQuestions[0].Options[1]) || strings.Contains(delivered, summary.Options[1]+`"`) {
+	if !strings.Contains(answer, "已提交") || !strings.Contains(delivered, item.AsyncQuestions[0].Options[1]) {
 		t.Fatal(answer, delivered)
 	}
 }
-func TestPresentationRejectsLossySizeOrOptionCount(t *testing.T) {
-	for _, summary := range []api.QuestionPresentation{{Title: "Choose", Options: []string{"Same", "same"}}, {Title: "Choose", Options: []string{"One"}}, {Title: strings.Repeat("问", 41), Options: []string{"One", "Two"}}, {Title: "Choose", Options: []string{"One", strings.Repeat("x", 49)}}} {
-		if validateQuestionPresentation(summary, 2) == nil {
+func TestPresentationRejectsParaphrasesOrChangedOptions(t *testing.T) {
+	for _, summary := range []api.QuestionPresentation{{Title: "Choose", Options: []string{"Same", "same"}}, {Title: "Choose", Options: []string{"One"}}, {Title: "Different question", Options: []string{"One", "Two"}}, {Title: "Choose", Context: "Added condition", Options: []string{"One", "Two"}}} {
+		if validateQuestionPresentation(summary, "Choose", []string{"One", "Two"}) == nil {
 			t.Fatal("accepted invalid presentation", summary)
 		}
 	}
@@ -249,11 +249,12 @@ func TestCompletedQuestionTurnWithCommentaryStillAwaitsInput(t *testing.T) {
 	}
 	state.TurnKey = "later-completed-turn"
 	state.Task.Result = "Delivered"
+	state.TaskEnded = true // Only an explicit task-level fact closes the question.
 	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{state}); err != nil {
 		t.Fatal(err)
 	}
 	if s.state.AsyncQuestions["Q1"].Reason != "task_completed" {
-		t.Fatal("later completion failed to expire pending question")
+		t.Fatal("explicit task termination failed to expire pending question")
 	}
 }
 

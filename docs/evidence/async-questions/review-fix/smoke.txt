@@ -1,0 +1,20 @@
+./script/npm.sh run smoke:codex
+
+> @caelis/bot@0.15.2 smoke:codex
+> node script/smoke-codex.mjs
+
+{
+  "schemaBaseline": "0.153.4",
+  "runtimeUserAgent": "caelis_bot_smoke/0.162.1 (Mac OS 27.0.1; arm64) dumb (caelis_bot_smoke; 0.0.1)",
+  "nativeStdioInitialize": "passed",
+  "conversationCreated": false,
+  "modelRequestSent": false
+}
+./script/npm.sh run smoke:assets
+
+> @caelis/bot@0.15.2 smoke:assets
+> node script/smoke-assets.mjs
+
+frontend/public/models/caelis-garden-outfit-v1.glb: GLB validation, Three.js load and animation update passed; GPU/native appearance not tested here
+frontend/public/models/stick.glb: GLB validation, Three.js load and animation update passed; GPU/native appearance not tested here
+frontend/public/models/xiaoai-paper-plane.glb: GLB validation, Three.js load and animation update passed; GPU/native appearance not tested here

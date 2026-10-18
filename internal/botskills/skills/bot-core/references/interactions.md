@@ -58,10 +58,16 @@ and required elicitation forms have separate rules: never timeout-approve them.
 Keep user questions immediately decidable: name the object in a short complete
 question, add only one necessary context sentence, and offer short, distinct
 choices. Do not repeat the task report inside the question. For a long original
-Worker question, `bot_interactions` `present` accepts `presentation` with `title`,
-`context` and `options`. Preserve the original option order and meaning, including
-every target and scope; selected labels still submit the original option. Do not
-omit a condition to meet the size limit. If the decision cannot be stated briefly
-without losing meaning, ask a narrower question. Native permissions must use their
-original approval controls, never these display summaries. User questions have no
-collapsed background or hidden custom answer: all necessary context is visible.
+Worker question, call `bot_interactions` `present` with its original ID. Optional
+`presentation` is only a lossless split of the original title into `title` and
+following `context`; options must exactly equal the original answer strings in
+order. Paraphrases, aliases, swapped choices, or omitted conditions are rejected.
+Do not paraphrase a long existing question to fit: show its full original text,
+or retire the obsolete task and ask a narrower new question with fresh identity.
+Native permissions retain their original approval controls. User questions have
+no collapsed background or hidden custom answer: all necessary context is visible.
+
+A completed turn, including a final answer that still asks for input, does not
+mean the task ended. Answered fields do not close unanswered siblings. Without an
+explicit task-end signal they remain bounded by their original deadline. Stop or
+retire a task explicitly when it is obsolete; never infer consent from expiry.

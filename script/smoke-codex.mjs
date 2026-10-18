@@ -15,6 +15,7 @@ const closed = once(child, 'close');
 // Observe rejection immediately so a spawn error cannot become unhandled.
 closed.catch(() => {});
 const lines = createInterface({ input: child.stdout });
+let runtimeUserAgent='';
 try {
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Initialize timed out after 30 seconds')), 30_000);
@@ -26,6 +27,7 @@ try {
       try { message = JSON.parse(line); } catch { return finish(new Error('Non-JSON protocol stdout')); }
       if (message.id !== 1) return;
       if (message.error || typeof message.result?.userAgent !== 'string' || !message.result.userAgent) return finish(new Error('Initialize was rejected or incompatible'));
+      runtimeUserAgent=message.result.userAgent;
       child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n');
       finish();
     });
@@ -34,7 +36,7 @@ try {
       capabilities: { experimentalApi: false },
     } }) + '\n');
   });
-  console.log(JSON.stringify({ testedCodex: pin, nativeStdioInitialize: 'passed',
+  console.log(JSON.stringify({ schemaBaseline: pin, runtimeUserAgent, nativeStdioInitialize: 'passed',
     conversationCreated: false, modelRequestSent: false }, null, 2));
 } finally {
   lines.close();

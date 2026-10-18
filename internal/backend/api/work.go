@@ -74,6 +74,10 @@ const WorkActivityOwnerUnavailable = "owner_unavailable"
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	// TaskEnded is an explicit task-level termination fact. A completed native
+	// turn or final_answer is not sufficient: asynchronous input may still be due.
+	// Adapters without this contract leave it false and preserve bounded questions.
+	TaskEnded bool
 	// TurnKey identifies the current native turn; completion of a turn that asked
 	// a question is a yield, not proof that the user task no longer needs input.
 	TurnKey string

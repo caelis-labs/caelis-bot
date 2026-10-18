@@ -16,11 +16,12 @@ Decision record, 2026-10-18. Base: bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42.
 - Dismiss is an explicit durable close, independent of collapsing a panel. Closed
   cards lose their decision controls and remain as compact history with their reason.
   Expiry is checked without a Runtime event, including while disconnected.
-- Confirmed Worker completion with a final result, failure, cancellation, retirement
+- Explicit Worker task termination, failure, cancellation, retirement
   or an explicit stop invalidates unanswered questions. A completed native turn
   which emitted the question is a yield for input, even if it also contains
   commentary; its prose is not proof the user's task ended. It keeps the bounded
-  window. A later completed turn with a final result closes remaining questions.
+  window. Later completed turns also keep unanswered fields: neither commentary
+  nor final-answer prose is a task termination contract.
   A changed original item/schema supersedes its old generation. Changing the resident native owner supersedes its old questions.
   Replacing a task requires explicitly stopping/retiring the old task before
   delegating its replacement; the original stop/terminal fact closes its questions.
@@ -54,15 +55,16 @@ always-visible compact free-answer input. Source task and deadline share one mut
 line; a single explicit Dismiss action has no explanatory footer. Native permission
 approvals retain their separate control surface. Closing a window is not Dismiss.
 
-Conciseness is authored at question generation. `bot_interactions present` also
-accepts a structured display presentation for an existing Worker question. It must
-preserve the original options' count, order, meanings, targets and scope; selecting
-a label still submits the original native option, never the summary. Display
-summaries are size-validated, durable and immutable after presentation. They confer
-no execution authority and cannot apply to native permission approvals. Legacy
-questions without summaries remain fully visible, never mechanically truncated or
-hidden. Tab, arrow navigation, Enter/Space, visible focus and narrow windows must
-work. Status is resolved from the durable controller at read time, not a cached copy.
+Conciseness is authored at question generation. `bot_interactions present` shows
+an existing original Worker question. Optional presentation only partitions the
+original question text into title and following context; it must preserve the
+complete original text and exact option strings in order. Aliases/paraphrases are
+rejected. Displayed option text is exactly the native answer sent. Invalid legacy
+presentations are ignored on projection and removed from the live ledger on open.
+Long originals remain fully visible, with normal background typography and
+full-width left-aligned options, never truncated or hidden. New source questions
+must name their object and be concise. Tab, arrows, Enter/Space, visible focus and
+narrow windows must work. Status resolves from the durable ledger at read time.
 
 ## Evidence requirements
 
@@ -71,3 +73,29 @@ answer race, deadline/offline/restart, stale history and recycled Q ID, terminal
 Worker, supersession, save failure and no native permission dispatch. Native UI
 acceptance uses an independent fixture/Dev bundle through build_and_run.sh. Synthetic
 native evidence is separate from real-model and published-app acceptance.
+
+## PR195 review corrections (before implementation)
+
+- Presentation is lossless layout only: options must equal the original values,
+  byte for byte and in order. Title/context may only partition the original title
+  at an existing boundary, without deletion, substitution or reordering. Persisted
+  aliases from the prior implementation are discarded at projection/migration.
+  The original complete conditions remain visible. A model-authored summary is
+  not evidence of semantic equivalence. New questions must be concise at source.
+- A completed Codex turn (including a `final_answer`) is not a task-end signal.
+  `Task.Result` is presentation prose and must never close unanswered siblings.
+  Only explicit task end/stop/retirement/failure or the fixed deadline invalidates
+  unanswered fields. Adapters without an explicit task-completion contract retain
+  the bounded question rather than guess that the task ended.
+- Persist retired display fingerprints separately from answer outcomes. Retiring
+  an unknown/dispatching generation preserves its exact receipt/state; it cannot
+  become active again, even after restart or replay. Only unseen schemas advance
+  the current display generation.
+- Use the reviewer's exact legacy title/options and two-question scene at a
+  340x560 whole window (340x528 content), not just a short fixture. Full-width
+  question rows, restrained type, left-aligned full option text, and earliest
+  pending-question reading position keep the source/deadline/close accessible.
+  No accordion, semantic truncation, or internal question scrollbar.
+- Smoke evidence must distinguish the schema baseline from the actual initialized
+  runtime version. The independent reviewer used Codex 0.162.1; 0.153.4 was only
+  the pinned schema baseline, not that runtime's tested version.

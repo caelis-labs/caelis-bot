@@ -1,3 +1,7 @@
+> This initial acceptance was rejected in independent PR195 review. See
+> [review fixes and fresh evidence](review-fix/README.md) for the corrected
+> semantics, actual smoke runtime, original long-copy and multiple-question cases.
+
 # Async question lifecycle and native UI acceptance
 
 2026-10-18. Base: `bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42` (PR #193).
@@ -64,14 +68,17 @@ reproducible image files above come from the production-renderer preview.
 
 - `make check`: contract generation, public-tree checks, 231 Node tests, bilingual
   catalogs, TypeScript/Vite and the complete tagged Go suite.
-- `make smoke`: pinned Codex 0.153.4 stdio initialization and three asset checks.
+- Original `make smoke`: stdio initialization and three asset checks. The old
+  output incorrectly labeled schema baseline 0.153.4 as the tested runtime; it
+  did not record the actual runtime version. Independent review used 0.162.1.
+  The corrected smoke now records the initialized runtime user agent separately.
   It creates no conversation and sends no model request.
 - `make build`: ad-hoc signed macOS Dev bundle, including pinned Desktop World.
 - Go race coverage: textchannel, app, backend, Codex, Bot and Telegram. One initial
   concurrent run hit an existing recovered-owner fixture's local socket startup
   failure; the Codex race suite passed when rerun alone.
-- Real durable state chains: original option mapping despite compact labels,
-  immutable summaries, private sibling questions, stale chat/readback, dismissal
+- Initial fixture coverage (superseded by the review corrections): option mapping
+  and summaries, private sibling questions, stale chat/readback, dismissal
   and answer races, unknown dispatch, deadline/offline/restart, recycled numbers,
   schema supersession, task stop/failure/later completion, save failure and no
   native permission decisions. A completed turn that asks a question stays valid

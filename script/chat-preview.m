@@ -31,12 +31,14 @@
   NSMenuItem *save=[[NSMenuItem alloc] initWithTitle:@"Save question screenshot" action:@selector(capture) keyEquivalent:@"s"];save.target=self;[menu addItem:save];
   NSMenuItem *reset=[[NSMenuItem alloc] initWithTitle:@"Reset question fixture" action:@selector(resetQuestion) keyEquivalent:@"r"];reset.target=self;[menu addItem:reset];
   NSMenuItem *regression=[[NSMenuItem alloc] initWithTitle:@"Verify question layout and actions" action:@selector(verifyQuestion) keyEquivalent:@"t"];regression.target=self;[menu addItem:regression];
+  for(NSString *key in @[@"m",@"l",@"f",@"d",@"g"]){NSMenuItem *i=[[NSMenuItem alloc] initWithTitle:[@"Review " stringByAppendingString:key] action:@selector(reviewCase:) keyEquivalent:key];i.target=self;[menu addItem:i];}
   NSApp.mainMenu=main;
  }
  [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.url]]];
  [self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
  if(self.autoCapture)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(3.0*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self capture];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.7*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[NSApp terminate:nil];});});
 }
+- (void)reviewCase:(NSMenuItem*)item { NSString *key=item.keyEquivalent; if([key isEqual:@"d"]){self.dark=!self.dark;self.window.appearance=[NSAppearance appearanceNamed:self.dark?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];self.web.appearance=self.window.appearance;return;} NSString *js=[key isEqual:@"m"]?@"fixtureReviewMulti()":[key isEqual:@"l"]?@"fixtureReviewLong()":[key isEqual:@"g"]?@"fixtureReviewCombined()":@"fixtureReviewFree()";[self.web evaluateJavaScript:js completionHandler:nil]; }
 - (void)resetQuestion { [self.web evaluateJavaScript:@"fixtureQuestionSetup()" completionHandler:nil]; }
 - (void)verifyQuestion { [self.web evaluateJavaScript:@"fixtureQuestionRegression()" completionHandler:nil]; }
 - (void)select:(NSButton *)button {

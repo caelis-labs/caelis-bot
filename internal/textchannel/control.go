@@ -68,8 +68,9 @@ type document struct {
 	SecretShortIDs             map[string]bool                `json:"secretShortIds,omitempty"` // bounded by the Q-number pool; protects stale bare answers after reuse
 	ReplyOrder                 []string
 	AsyncQuestions             map[string]asyncQuestion `json:"asyncQuestions,omitempty"`
-	AsyncClosed                map[string]asyncQuestion `json:"asyncClosed,omitempty"` // immutable terminal generations, independent of recycled numbers
-	AsyncActive                map[string]string        `json:"asyncActive,omitempty"` // item ID -> exact question fingerprint
+	AsyncClosed                map[string]asyncQuestion `json:"asyncClosed,omitempty"`  // retained generations, independent of recycled numbers and display identity
+	AsyncRetired               map[string]bool          `json:"asyncRetired,omitempty"` // display retirement is independent of unknown answer receipts
+	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`  // item ID -> exact question fingerprint
 }
 type Store struct {
 	revision        uint64
@@ -93,7 +94,7 @@ func shortIDExpired(issuedAt int64) bool {
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
 	s := &Store{path: filepath.Join(root, "text-channel-control.json"), decide: decide, secretAnswers: map[string]map[string][]string{}}
-	s.state = document{AsyncClosed: map[string]asyncQuestion{}, Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, SecretShortIDs: map[string]bool{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
+	s.state = document{AsyncRetired: map[string]bool{}, AsyncClosed: map[string]asyncQuestion{}, Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, SecretShortIDs: map[string]bool{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -134,6 +135,17 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	// Legacy records had no issue time. Give them a full local lifetime after
 	// migration rather than expiring all visible cards on the first restart.
 	migrated := false
+	if s.state.AsyncRetired == nil {
+		s.state.AsyncRetired = map[string]bool{}
+	}
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for _, q := range records {
+			if active := s.state.AsyncActive[q.ItemID]; active != "" && active != q.Fingerprint && !s.state.AsyncRetired[q.Fingerprint] {
+				s.state.AsyncRetired[q.Fingerprint] = true
+				migrated = true
+			}
+		}
+	}
 	for id, p := range s.state.Prompts {
 		if p.Secret && !s.state.SecretShortIDs[id] {
 			s.state.SecretShortIDs[id] = true
@@ -152,6 +164,10 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 		}
 	}
 	for id, q := range s.state.AsyncQuestions {
+		if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) != nil {
+			q.Presentation = nil
+			migrated = true
+		}
 		if q.ShortID == "" {
 			q.ShortID = id
 			migrated = true

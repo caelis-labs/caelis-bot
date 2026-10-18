@@ -1,0 +1,14 @@
+=== RUN   TestReviewLaterCommentaryMustNotExpireUnansweredSibling
+    pr195_review_test.go:21: unanswered sibling closed after ordinary continuation: state="expired" reason="task_completed"
+--- FAIL: TestReviewLaterCommentaryMustNotExpireUnansweredSibling (0.05s)
+=== RUN   TestReviewPresentationMustNotReverseChoiceMeaning
+    pr195_review_test.go:34: visible choice "Keep local" submitted hidden opposite original option: <send_user_message_question_reply>
+        [{"answer":"Publish publicly to the production website","question":"May I publish the demo publicly?","questionItemId":"[\"request_user_input_async\",\"call\",0]"}]
+        </send_user_message_question_reply>
+--- FAIL: TestReviewPresentationMustNotReverseChoiceMeaning (0.05s)
+=== RUN   TestReviewUnknownOldSchemaReplayMustKeepNewQuestion
+    pr195_review_test.go:46: stale unknown generation displaced the pending replacement: []api.QuestionCard{api.QuestionCard{Context:"", TaskTitle:"", ExpiresAt:1792409517, Reason:"", ShortID:"Q1", Binding:"f35abcd63b2d529127fce5dacc9ef85823f965577a873080ba420fac53cefa08", Title:"How?", Options:[]string{"One", "Two"}, State:"unknown"}}; replacement state="superseded"
+--- FAIL: TestReviewUnknownOldSchemaReplayMustKeepNewQuestion (0.06s)
+FAIL
+FAIL	github.com/caelis-labs/caelis-bot/internal/textchannel	1.009s
+FAIL
