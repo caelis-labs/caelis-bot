@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $pin = Get-Content -Raw -LiteralPath (Join-Path $root 'resources/desktop-world/release.json') | ConvertFrom-Json
 $target = $pin.targets.'windows-amd64'
-if ($null -eq $target -or $target.artifact -ne 'dtw-windows-amd64.exe' -or $target.binary -ne 'bin/dtw.exe') {
+if ($null -eq $target -or $target.artifact -ne 'desktop-world-plugin-windows-amd64.zip' -or $target.binary -ne 'bin/dtw.exe') {
   throw 'Unexpected Desktop World Windows target'
 }
 $cache = Join-Path $root ".cache/desktop-world-runtime/$($pin.version)"

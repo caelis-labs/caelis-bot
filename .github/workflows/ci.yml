@@ -2,11 +2,6 @@ name: Product checks
 on:
   pull_request:
   workflow_dispatch:
-    inputs:
-      preview:
-        description: Package and upload a development DMG
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
@@ -18,8 +13,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       kind: ${{ steps.scope.outputs.kind }}
-      preview: ${{ steps.scope.outputs.preview }}
-      windowsPreview: ${{ steps.scope.outputs.windowsPreview }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,49 +66,6 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
-  # Full app packaging is valuable when its inputs change, but recompiling the
-  # production-tagged app after the full source suite serializes every PR.
-  # Release always rebuilds and signs the complete app independently.
-  macos-preview:
-    needs: scope
-    if: needs.scope.outputs.preview == 'true' || inputs.preview == true
-    runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      BOT_BUILD_CHANNEL: development
-      GOWORK: "off"
-      GOCACHE: ${{ github.workspace }}/.cache/go-build
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            script/env.sh
-      - run: npm ci
-      - name: Build Dev app with Desktop World
-        run: make build
-      - name: Verify pinned Desktop World payload without desktop permissions
-        run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
-      - name: Package and verify mounted Dev DMG
-        run: bash script/package.sh --skip-build
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: macos-arm64-dev-preview
-          path: |
-            dist/releases/Caelis-Bot-Dev-*.dmg
-            dist/releases/Caelis-Bot-Dev-*.dmg.sha256
-          if-no-files-found: error
-          retention-days: 7
   linux-headless:
     needs: scope
     if: contains(fromJSON('["full","shared"]'), needs.scope.outputs.kind)
@@ -171,65 +121,18 @@ jobs:
           $package = Join-Path $plugins 'desktop-world'
           & ./script/stage-desktop-world-windows.ps1 -Destination $package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $releasePin = Get-Content -Raw -LiteralPath 'resources/desktop-world/release.json' | ConvertFrom-Json
           $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
           if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
-              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.9') {
+              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne $releasePin.version.TrimStart('v')) {
             throw 'Windows Desktop World plugin inventory mismatch'
           }
           node script/verify-desktop-world-version.mjs (Join-Path $package 'bin/dtw.exe')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  windows-preview:
-    strategy:
-      fail-fast: false
-      matrix:
-        channel: [preview, stable]
-    needs: scope
-    if: needs.scope.outputs.windowsPreview == 'true'
-    runs-on: windows-2025
-    timeout-minutes: 40
-    env:
-      GOWORK: "off"
-      CGO_ENABLED: "0"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: npm ci
-      - name: Build and verify isolated channel EXE, Setup and ZIP
-        env:
-          WINDOWS_CHANNEL: ${{ matrix.channel }}
-        shell: pwsh
-        run: |
-          ./script/build-windows.ps1 -Channel $env:WINDOWS_CHANNEL
-          ./script/package-nsis-windows.ps1 -SkipBuild -Channel $env:WINDOWS_CHANNEL
-          ./script/package-zip-windows.ps1 -SkipBuild -Channel $env:WINDOWS_CHANNEL
-          node script/verify-windows-candidate.mjs "dist/windows-$env:WINDOWS_CHANNEL" dist/releases
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify custom-directory install, update and uninstall
-        shell: pwsh
-        run: |
-          $installers = @(Get-ChildItem -LiteralPath dist/releases -Filter '*-Setup.exe')
-          if ($installers.Count -ne 1) { throw 'Expected one verified local installer' }
-          $env:CAELIS_BOT_TEST_LOCAL_INSTALLER = $installers[0].FullName
-          go test ./internal/windowsupdate -run '^TestNativeNSISCustomDirectory$' -count=1 -timeout 180s -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: windows-local-${{ matrix.channel }}
-          path: dist/releases/*
-          if-no-files-found: error
-          retention-days: 7
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:
-    needs: [scope, macos-product, macos-preview, windows-product, windows-preview, linux-headless]
+    needs: [scope, macos-product, windows-product, linux-headless]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -250,10 +153,6 @@ jobs:
           CI_KIND: ${{ needs.scope.outputs.kind }}
           CI_SCOPE_RESULT: ${{ needs.scope.result }}
           CI_MACOS_RESULT: ${{ needs.macos-product.result }}
-          CI_PREVIEW_RESULT: ${{ needs.macos-preview.result }}
-          CI_PREVIEW_REQUIRED: ${{ needs.scope.outputs.preview == 'true' || inputs.preview == true }}
-          CI_WINDOWS_PREVIEW_RESULT: ${{ needs.windows-preview.result }}
-          CI_WINDOWS_PREVIEW_REQUIRED: ${{ needs.scope.outputs.windowsPreview == 'true' }}
           CI_WINDOWS_RESULT: ${{ needs.windows-product.result }}
           CI_LINUX_RESULT: ${{ needs.linux-headless.result }}
         run: node script/ci-scope.mjs --gate

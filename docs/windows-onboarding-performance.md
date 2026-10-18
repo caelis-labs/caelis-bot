@@ -1,64 +1,25 @@
-# Onboarding preparation performance
+# Onboarding preparation and performance
 
-Measured on Windows on 2026-10-17/18, against the PR #183 working tree based on
-`4419f657`. Both runs used separate fresh Bot data, existing local authentication,
-the same installed Codex and bundled Caelis v0.72.2, and real native UI navigation.
-No model turns were submitted. These are small local samples, not latency targets.
+Model confirmation, optional features and the introduction share one setup lifecycle. Preparing a runtime must not blank an already usable page or discard the user's choices.
 
-## Results
+## Current behavior
 
-Except for the explicitly marked screenshot observations, these values are backend
-phase durations. They do not include WebView paint or input automation overhead.
+- Read saved model choices before slow runtime discovery; show a loading state until the actual catalog is available.
+- Reuse a still-valid preparation snapshot for the same runtime, executable, configuration and authenticated model. Invalidate it after a relevant change or expiry.
+- Prepare the resident connection while the user edits optional features and the introduction. Starting the first conversation still requires confirmed readiness.
+- Retain the original activation/configuration receipt after an uncertain result. Returning to an earlier step or choosing another runtime invalidates stale UI completions, not the original operation's authority.
+- Keep model selection responsive while its desired value is applied. Temporary catalog failure does not erase an explicit choice.
 
-| Operation | Before | After |
-| --- | ---: | ---: |
-| Codex: first model-page preparation | 1,940–3,716 ms | 1,733 ms |
-| Codex: reenter model page | 4,808 ms | 1.1 ms, valid preparation snapshot |
-| Caelis: first model-page preparation | 2,526 ms | 2,689 ms |
-| Caelis: reenter model page | 658 ms | 132 ms cached; 283 ms after expiry |
-| Caelis: activate unchanged ready runtime/model again | 1,025 ms | 211 ms, including expired snapshot refresh |
-| Codex: activate unchanged ready runtime/model again | no separate baseline sample | 84 ms, including expired snapshot refresh |
-| First activation, Codex | 2,572–3,462 ms, blocks Next | 3,228 ms, runs behind later pages |
-| First activation, Caelis | 1,283 ms, blocks Next | 1,439 ms, runs behind later pages |
+## Measure changes
 
-Native screenshots already showed the Extras page **214 ms (Codex)** and
-**242 ms (Caelis)** after the model-page Next action started, while native activation
-was still running. These are observation upper bounds, not precise click-to-paint
-benchmarks. Initial model selection was unchanged; choosing a different model still
-waits for its configuration receipt before advancing.
+Use a fresh isolated profile for first-run tests and an existing authenticated test profile for return-navigation tests. Measure both cold and warm paths, keeping backend phase duration separate from click-to-paint timing. Record the source, executable, OS, model/runtime configuration and cache state without logging credentials.
 
-The first-visit improvement is limited. Codex still spends 1,354 ms in its first
-`account/read`; Caelis spends 2,419 ms resolving/checking the bundled CLI and its
-first `service start`. First-run variability includes process startup, executable
-checking and upstream authentication; the smaller Codex sample is not evidence of
-a guaranteed cold-start speedup. Full Caelis status observations cost approximately
-100–170 ms locally; disabling its optional diagnostics did not materially change
-that cost. Snapshot validation is bounded to 500 ms and falls back to inspection.
+For Windows runtime inspection, set `CAELIS_BOT_PERF_PROFILE` to the disposable profile and run:
 
-The important reductions are repeated work and serial waiting. Returning through
-setup no longer reconstructs an unchanged resident. Setup and resident connection
-share the bundled service preparation receipt: the subsequent `PrepareBundled`
-took 1.05 ms with no second `service start` in that preparation interval. After
-the interval expires, normal Core reconciliation remains permitted.
+```powershell
+go test ./internal/app -run '^TestWindowsSetupInspectionTiming$' -v -count=1
+```
 
-## Verification and limits
+This opt-in test probes local runtimes; it is not part of ordinary CI. Inspect the native UI separately for loading, Back/Next, failed activation, unchanged model reuse and first-message admission. A short local timing sample is not a latency guarantee across machines.
 
-- `script/check-windows.ps1`: passed, including 141 Node tests and the full Go suite.
-- `script/smoke-windows.ps1`: passed, Codex 0.153.4 standard handshake and asset checks.
-- Shared application and both backend adapter test binaries cross-compiled for
-  macOS arm64 with `CGO_ENABLED=0`; this is not AppKit or macOS live acceptance.
-- Windows UI checked both authenticated model paths, centered loading, same-model
-  return navigation, concurrent Extras, and the introduction form.
-- Regression tests cover first-message waiting, failed activation without replay,
-  stale completion after Back/new selection, configuration/file invalidation and
-  reuse only of the same ready resident. Native switch/admission/rollback tests pass.
-- Temporary phase-only timing instrumentation was removed before the final DevBot
-  build. It recorded stage names and durations, never credentials or message bodies.
-
-Local detailed traces live under `.cache/onboarding-perf-20261017` and
-`.cache/onboarding-perf-20261018`. The independent acceptance build is
-`dist/windows-dev-onboarding-fast-20261018/Launch-DevBot.ps1`; its data directory is
-`%LOCALAPPDATA%/Caelis Bot Fast Onboarding Acceptance 20261018`.
-
-This change affects setup preparation and navigation only. It adds no Bot tools or
-agent workflow, so no additional Bot skill changes are required for this optimization.
+Use [interface design](ui-design.md#first-run-choices-and-progress) for presentation and [development](development.md#isolated-first-run-review) for isolation. Synthetic-provider tests, native navigation and real-account inference are separate scopes.

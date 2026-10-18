@@ -76,7 +76,7 @@ Bot 在日常工作中持续整理 Notebook 与 MEMORY.md。模型判断当前�
 安排交给原生 Guardian。Computer Use 每个连续任务 Turn、每个 App 授权一次，任务内不逐次
 点击审查。新的 App/Turn 重新授权；系统权限、登录、必要信息选择仍由用户完成。
 Computer Use 统一采用自研 Desktop World，优先使用对象语义操作，以完成任务为先、尽量减少
-对用户输入的干扰。当前 alpha 仍共享系统焦点与鼠标，不承诺独立后台输入设备；同一授权任务内
+对用户输入的干扰。当前实现仍共享系统焦点与鼠标，不承诺独立后台输入设备；同一授权任务内
 不为必要的前台切换反复询问。观察按范围与增量返回，截图按需，未知结果只能查原收据，不能重复输入。
 审查拒绝/失败/超时是事实，不生成手工 Allow 绕过入口。详细策略见[运行时](caelis-integration.md)。
 自动审查进度和超时留在内部记录，不单独打断聊天、气泡或消息渠道。真正需要用户决定的原生审批仍展示原选项；
@@ -96,10 +96,7 @@ Computer Use 统一采用自研 Desktop World，优先使用对象语义操作�
 不代表生产合同。先用第二种明显不同的身体验证抽象，再决定公共 Character SDK；复杂语义地图、
 市场和留存研究后置。制作源属于私有资产仓库，公开仓库只消费成品。
 
-macOS 已是完整发行目标；下一阶段在 Windows 11 x64 实机完成原生托盘、可见可拖动的最小桌宠、
-气泡与按需聊天/设置/history/审批/附件，并接上已有 Runtime、记忆、任务、Telegram 协议及 Desktop World。
-Mac 上先完成共享装配、安全边界、CI 与独立发布合同。Windows 原生驱动、安装包、签名和交互验收
-未完成前不展示为已支持。无需先做 Windows arm64、Linux GUI 或全部 macOS 视觉细节等同。
+macOS Apple Silicon 与 Windows x64 均已有发行包。两者共享产品身份和业务合同，分别使用原生外壳；Windows 提供未签名 Setup/ZIP，不能把已发布等同于所有 GUI、DPI、更新场景均已验收。发布与剩余范围见[当前状态](status.md)和 [Windows 发布](windows-release.md)。Windows arm64、Linux GUI 和全部 macOS 视觉细节等同不在当前承诺内。
 最低系统、多显示器与真实模型效果的验证边界见[开发与验证](development.md)。
 
 ## 远端机器

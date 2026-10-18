@@ -9,7 +9,7 @@ profile 的会话共用命令、操作回执、审批与观察接口；没有 Ap
 Store 格式分别判断，不把发行版本号作为协议白名单。验证命令和证据范围见
 [开发与验证](development.md)；历史版本的结果不代替本次集成或发行制品验收。
 
-Desktop World rc.4 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
+Desktop World v0.1.0 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
 Codex、Caelis；旧 Go host 和 `bot_desktop_*` 工具已退役。MCP 工具遵循各自
 Runtime 的原生审批，不进入 Bot 内置工具免审名单。Bot App 的系统权限与
 Runtime 工具审批是两层独立边界。
@@ -61,13 +61,11 @@ Bot 的 workspace-write profile 显式选择继承 Host 环境、非登录 shell
 
 ## 使用入口
 
-1. 「设置 → 运行时与模型 → 管理」维护当前 Runtime；“更换”选择其他 Runtime，查看不切换当前后端。
-2. 自动发现本机安装，也可选择已有二进制和独立数据目录。安装、更新、服务启动只在明确点击后
-   调用 Caelis 官方安装或 `update`、`service` 能力；不捆绑 Runtime。共享服务升级流程见下节。
+1. 「设置 → 连接与模型」管理 Bot 对话、后台工作和运行时；打开详情不会切换当前后端。
+2. App 内置经校验的 Caelis，也可显式选择外部二进制和独立 Store。内置版本随 App 更新；外部 CLI 的安装、更新和服务操作通过公开接口完成。共享服务升级流程见下节。
 3. 「连接 → 添加连接」提供账号授权、API Key、内置或自定义 ACP Agent。安装和认证依照原生目录，
    凭据只写入 Caelis；Bot 不持久化密钥或授权码。
-4. 能力与模型就绪后，点击「切换至 Caelis」，保存后重启。进行中的工作、审批或未知结果会阻止切换。
-   对话、计划和原生执行记录按 Runtime 隔离；产品身份、Notebook 与 Memory 仍共享。
+4. 能力与模型就绪后显式激活目标运行时；在同一个 App 内准备目标并完成交接，成功后才提交选择。当前对话的工作、审批或未知结果保留原归属；独立 Worker 不因切换而停止。产品身份、Notebook 与 Memory 仍共享。
 
 开发联调使用独立 `CAELIS_BOT_DATA_DIR`，其中的 `runtime.json` 可配置：
 
@@ -99,7 +97,7 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 显式选择的外部 CLI 保留检查更新和 `caelis update`。安装成功后仍需 `/initialize`
 验证协议并读取服务状态；“启用已安装版本”只调用公共生命周期接口，不重复安装。
 内置 CLI 缺失或损坏时显示连接设置错误，App 保持可用，不悄悄改用另一个全局版本。
-更改 Runtime、程序路径或数据目录仍需显式切换并重启 Bot。
+更改 Runtime、程序路径或 Store 必须经过显式激活与原工作交接；不能只改文件来绕过未知回执。运行时切换使用 `internal/app/runtime_switch.go` 的应用内交接流程。
 
 隔离的真实版本互操作验证：
 
@@ -298,8 +296,7 @@ cache still reconstructs the same native facts. Upgrade renewal preserves histor
 Sessions/Workers retain native defaults. Skills remain progressively loaded and resident-only.
 
 These are release capability conditions, not proof of paid Guardian judgment quality. The App × Turn integration
-uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Core v0.65.0 darwin-arm64 was independently downloaded, checksum-verified and passed this external suite
-on 2026-09-29. Rerun it for subsequent Core releases before declaring those artifacts qualified.
+uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Run the external suite against the exact pinned Core binary before declaring a new integration qualified.
 
 Unknown upload responses are reconciled through their original common command receipt; no upload is replayed.
 Remaining boundaries: worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
@@ -308,7 +305,7 @@ Real model, long-running memory quality and cross-Runtime daily Notebook usage n
 
 ## Desktop World integration
 
-Both resident backends select the same reviewed rc.4 portable package through
+Both resident backends select the same reviewed v0.1.0 portable package through
 PluginManager. The package has one `exec` MCP server and an on-demand Skill.
 Bot validates the published archive, BUILD and complete licensing inventory,
 re-signs nested Mac executables with the Bot identity, and keeps user-disabled
@@ -317,7 +314,7 @@ runtime is installed. The two Runtime adapters retain their own MCP approval
 policy; no plugin tool joins Bot's auto-approved built-in list.
 
 See [architecture](architecture.md#desktop-and-presentation) for the ownership
-contract and [development](development.md#current-evidence-and-limits) for real Bot,
+contract and [development](development.md#verification-matrix) for real Bot,
 fixture, performance and upstream issue evidence. Live WPS success required a
 correction; it does not establish first-attempt autonomy or end-to-end speed.
 

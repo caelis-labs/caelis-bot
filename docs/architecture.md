@@ -582,7 +582,7 @@ The renderer uses one machine editor with responsive CSS, a stable draft, fixed
 connection action, guarded background navigation and scoped advanced failures.
 Node login remains a clear target-TUI/device-auth guide; OAuth/ACP flows that the
 native surface cannot complete have an explicit TUI placeholder. See the
-[acceptance record](evidence/remote-machines-v1/acceptance.md) for live and fixture limits.
+[verification guide](development.md#remote-machine-acceptance) for live and fixture limits.
 
 ## Execution and recovery
 
@@ -804,14 +804,16 @@ stream must not become an empty successful conversation.
 
 ## Desktop and presentation
 
-Desktop World v0.1.0-rc.9 is an optional built-in Agent Plugins package, initially
-enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
-offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
-package (`bin/dtw`, `libexec/cua-driver`,
-`LICENSING/` and its Skill) into the signed app, then installs an immutable
+Desktop World v0.1.0 is an optional built-in Agent Plugins package, initially
+enabled. Bot verifies the pinned slim Plugin archive and BUILD provenance,
+extracts ordinary relative files without executing the download, and verifies the
+complete inventory, runtime, worker and licensing digests. The package
+(`bin/dtw`, `libexec/cua-driver`, `LICENSING/` and its Skill) is staged into the
+signed app, which installs an immutable
 reviewed copy on first launch or upgrade. A saved disabled choice survives the
 upgrade. Bot lists it first as Computer Use / 电脑操控 while retaining the
-`desktop-world` package ID and upstream manifest bytes. The existing
+`desktop-world` package ID. The reviewed icon extension is applied after upstream
+verification and included in Bot’s final sealed inventory. The existing
 PluginManager and both Runtime adapters project its Skill
 metadata and one stdio MCP server; Skill body and CUA API load on demand. Neither
 renderer nor model selects the native executable path. Disable and update revoke
@@ -820,7 +822,7 @@ sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
 catalog and approval list.
 
 The MCP `exec` tool and its private CUA worker are upstream release code. The
-rc.9 execution context is owned by the MCP process; callers omit a named
+v0.1.0 execution context is owned by the MCP process; callers omit a named
 `session` and recover receipts through that same originating connection. Bot's
 Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
 when an input error may follow an already applied action.
@@ -829,16 +831,15 @@ installed second app or Node runtime. The current Runtime chain starts the Bot
 MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
 signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
 the responsible path for the private Host, bridge, `dtw` and worker. This is
-an OS responsibility observation, distinct from their PPIDs and rc.4's
-hardcoded `host_bundle_id`. The resident Bot holds a kernel file lock in its
+an OS responsibility observation, not an inference from PPIDs or package metadata. The resident Bot holds a kernel file lock in its
 private plugin store; the bridge checks it before spawn and during execution,
 so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published rc.9 Mac binaries are Developer ID signed, with upstream notarization
-evidence. Bot verifies those signatures before cleaning build-machine runtime
-paths and re-signing both nested binaries with its selected app identity. The
+server, reset TCC, or infer successful input from a model reply. Published v0.1.0 Mac binaries are Developer ID signed, with upstream notarization
+evidence. Bot verifies those signatures before re-signing both nested binaries with its
+selected app identity. The
 app seals the complete resulting inventory and independently passes its own
 notarization and Gatekeeper gates; upstream tickets do not qualify Bot.
 Windows package verification and cross-build are separate from Windows GUI

@@ -9,6 +9,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tarfile
+import zipfile
+import stat
 
 ROOT = Path(__file__).resolve().parent.parent
 PIN = json.loads((ROOT / "resources/desktop-world/release.json").read_text())
@@ -38,18 +41,21 @@ def verify_release(cache, target):
     build = json.loads(build_path.read_text())
     for key, want in {"tag": PIN["version"], "source_revision": PIN["revision"],
                       "cua_revision": PIN["cua_revision"], "platform": target,
-                      "artifact_sha256": spec["sha256"],
-                      "adapter_sha256": spec["binary_sha256"],
+                      "artifact_sha256": spec["standalone_sha256"],
                       "worker_sha256": spec["worker_sha256"],
                       "license_inventory_sha256": spec["license_inventory_sha256"]}.items():
         if build.get(key) != want:
             raise ValueError(f"Desktop World BUILD mismatch: {key}")
+    plugin = build.get("plugin", {})
+    for key, want in {"asset":spec["artifact"], "sha256":spec["sha256"], "adapter_sha256":spec["binary_sha256"]}.items():
+        if plugin.get(key) != want:
+            raise ValueError(f"Desktop World BUILD plugin mismatch: {key}")
     if build.get("license_packages") != spec["license_packages"] or len(build.get("mpl_source_packages", [])) < 6:
         raise ValueError("Desktop World BUILD licensing inventory incomplete")
     signing = build.get("signing", {})
     if target == "darwin-arm64":
         notary = signing.get("notarization", {})
-        if signing.get("type") != "Developer ID Application" or notary.get("status") != "Accepted" or notary.get("team_id") != spec["signing_team"] or not notary.get("embedded_worker_matches_signed_worker"):
+        if signing.get("type") != "Developer ID Application" or notary.get("status") != "Accepted" or notary.get("team_id") != spec["signing_team"] or not notary.get("embedded_worker_matches_signed_worker") or not notary.get("slim_runtime_notarized"):
             raise ValueError("Desktop World upstream signing provenance mismatch")
     elif signing.get("type") != "unsigned":
         raise ValueError("Desktop World Windows signing provenance changed")
@@ -64,25 +70,63 @@ def verify_upstream_signatures(paths, team):
             raise ValueError("Desktop World upstream Developer ID signature mismatch")
 
 
+def extract_plugin(artifact, dest):
+    """Extract only ordinary relative files/directories; never execute the download."""
+    dest.mkdir()
+    seen = set()
+    total = 0
+    def target(name, size):
+        nonlocal total
+        name = name.rstrip('/')
+        parts = name.split('/')
+        if not name or any(p in ('', '.', '..') for p in parts) or name.startswith('/') or '\\' in name or ':' in name or '\x00' in name or name in seen:
+            raise ValueError('Invalid Desktop World archive member')
+        seen.add(name)
+        total += size
+        if len(seen) > 20000 or total > 1024*1024*1024:
+            raise ValueError('Desktop World archive exceeds extraction budget')
+        return dest.joinpath(*parts)
+    if artifact.name.endswith('.zip'):
+        with zipfile.ZipFile(artifact) as archive:
+            for member in archive.infolist():
+                mode = member.external_attr >> 16
+                if stat.S_ISLNK(mode): raise ValueError('Desktop World archive contains symlink')
+                # Validate the raw spelling before ZipInfo normalizes Windows separators
+                # or truncates a NUL suffix.
+                path = target(member.orig_filename, member.file_size)
+                if member.is_dir(): path.mkdir(parents=True, exist_ok=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(member) as source, path.open('xb') as output: shutil.copyfileobj(source, output)
+    elif artifact.name.endswith('.tar.gz'):
+        with tarfile.open(artifact, 'r:gz') as archive:
+            for member in archive:
+                if not (member.isfile() or member.isdir()): raise ValueError('Desktop World archive contains non-regular member')
+                path = target(member.name, member.size)
+                if member.isdir(): path.mkdir(parents=True, exist_ok=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.extractfile(member) as source, path.open('xb') as output: shutil.copyfileobj(source, output)
+                    path.chmod(member.mode & 0o777)
+    else: raise ValueError('Unsupported Desktop World Plugin archive')
+
+
 def export_package(artifact, dest, spec, target):
-    # Never execute unverified downloads. macOS verifies the upstream identity
-    # before export, and both exported executables again before Bot re-signs.
-    if target == "darwin-arm64":
-        artifact.chmod(0o755)
-        verify_upstream_signatures([artifact], spec["signing_team"])
+    checked(artifact, spec['sha256'])
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_symlink():
-        raise ValueError("Desktop World destination is a symlink")
-    with tempfile.TemporaryDirectory(prefix=".dtw-stage-", dir=dest.parent) as directory:
-        staged = Path(directory) / "desktop-world"  # --to requires a new path
-        subprocess.run([str(artifact.resolve()), "install", "plugin", "--to", str(staged.resolve())], check=True, timeout=60, stdout=subprocess.DEVNULL)
+    if dest.is_symlink(): raise ValueError('Desktop World destination is a symlink')
+    with tempfile.TemporaryDirectory(prefix='.dtw-stage-', dir=dest.parent) as directory:
+        staged = Path(directory) / 'desktop-world'
+        extract_plugin(artifact, staged)
         verify_package(staged, spec, target)
-        if target == "darwin-arm64":
-            verify_upstream_signatures([staged / "bin/dtw", staged / "libexec/cua-driver"], spec["signing_team"])
-        # Preserve a previous valid package when export/validation fails.
-        if dest.exists():
-            shutil.rmtree(dest)
-        staged.rename(dest)
+        if target == 'darwin-arm64':
+            verify_upstream_signatures([staged / 'bin/dtw', staged / 'libexec/cua-driver'], spec['signing_team'])
+        backup = Path(directory) / 'previous'
+        if dest.exists(): dest.rename(backup)
+        try: staged.rename(dest)
+        except OSError:
+            if backup.exists(): backup.rename(dest)
+            raise
 
 
 def verify_package(dest, spec, target):

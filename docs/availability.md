@@ -1,4 +1,4 @@
-# v0.9.1 availability contract
+# Availability and recovery
 
 Bot control and local conversation remain available independently of Runtime
 observation, Worker observation and optional local features. Runtime owns native

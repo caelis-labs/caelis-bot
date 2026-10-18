@@ -10,34 +10,28 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Caelis Bot brings your local agent to the macOS desktop through a small, expressive 3D character. Ask for help, share a file, and review an action when it needs your approval. Conversation stays close at hand, without a permanent dashboard.
+Caelis Bot is a personal desktop assistant with a movable 3D character. Chat with your local Caelis or Codex, share files, delegate background work, and keep an editable Markdown notebook. It stays in your menu bar or system tray; hiding the character does not stop work.
 
-- **Always nearby.** A movable, resizable character and a quiet menu-bar home.
-- **One ongoing conversation.** Streaming replies, attachments, history and approvals, powered by your local Caelis or Codex runtime.
-- **A character with presence.** Idle, interaction and work animations, with independently versioned character assets.
-- **A notebook that stays with you.** Markdown notes and core memory shared across runtimes, editable by you and your Bot.
+## Install
 
-## Get Caelis Bot
+| Platform | Download | Guide |
+| --- | --- | --- |
+| macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · signed and notarized | [Install](docs/install.md) |
+| Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · unsigned | [Install](docs/install.windows.md) |
 
-**[Download the macOS DMG →](https://github.com/caelis-labs/caelis-bot/releases/latest)**
+Verify the download using its `.sha256` file. Platforms publish independently; follow the guide for the matching package and channel.
 
-Available for Apple Silicon Macs. Download the DMG and its `.sha256` file, verify the download, then drag **Caelis Bot.app** into Applications. See the [installation guide](docs/install.md) for verification and first-launch steps.
+## Get started
 
-Before installing, check that the GitHub Latest tag matches the [signed macOS manifest](https://releases.caelis.dev/caelis-bot/latest.json). If they differ, pause rather than downloading an older default. Published builds use one signed update feed; local `Caelis Bot Dev.app` builds are development-only.
+1. Open Caelis Bot and choose **Caelis or Codex**. Caelis is included; Codex uses your local installation and account.
+2. Connect a model service or reuse an authenticated model, then introduce your Bot.
+3. Click the character to chat, attach a file, or ask for help. Use **Settings → Connections & models** to change connections.
 
-Choose **Caelis or Codex** during setup or in **Settings → Runtime**. The macOS app includes Caelis and opens model connection setup directly; it shares your existing Caelis Store and account with the global CLI. Codex uses your local installation and account. See [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
+Optional Computer Use asks for the permissions it needs. Import characters and avatars in **Settings → Appearance**. [Features and limits](docs/status.md) · [Content pack guide](docs/content-packs.md)
 
-Click the character to write, double-click to open the conversation, and use the menu bar for settings or Quit. Hiding the character does not stop work. Stable builds with the updater check daily and install signed updates after confirmation. Older builds need one manual upgrade; see [updating](docs/install.md#update).
+## Development
 
-### Let your local agent install it
-
-Copy this prompt into an agent that can operate your Mac:
-
-> Install and launch the latest stable Caelis Bot release from https://github.com/caelis-labs/caelis-bot/releases/latest. Follow docs/install.md in that repository. Download the DMG matching this Mac's native architecture and its checksum, verify SHA-256, mount read-only and install into ~/Applications. Preserve all app data. Stop if verification fails or there is no compatible build. Check for a local Caelis or Codex runtime; leave account login to me.
-
-## Build locally
-
-On macOS, install the versions in [toolchain.json](toolchain.json), then:
+On macOS, install the pinned [toolchain](toolchain.json), then run:
 
 ```sh
 make setup
@@ -45,14 +39,8 @@ make check
 make run
 ```
 
-The [Caelis adapter](docs/caelis-integration.md) has passed isolated real-model checks with MiMo v2.6 Flash and GPT-6 Luna, including native file tools, approvals, hot configuration and resource transfer. Those historical results do not qualify newer capabilities; see [verification limits](docs/development.md).
-
-`make package` produces a verified DMG and checksum. No Blender installation or private asset access is needed. [Development and release workflow →](docs/release.md)
-
-Import local `.caelispack` files in **Settings → Appearance**. Create characters, complete outfit variants or PNG avatars with the offline tool. [Content pack creator guide (中文) →](docs/content-packs.md)
-
-[Product direction](docs/product.md) · [Architecture](docs/architecture.md) · [Character assets](docs/content-packs.md) · [Verification limits](docs/development.md)
+[Development](docs/development.md) · [Windows builds](docs/windows-release.md) · [Documentation](docs/README.md) · [Issues](https://github.com/caelis-labs/caelis-bot/issues)
 
 ## License
 
-Caelis Bot code is [Apache-2.0](LICENSE). The built-in Desktop World rc.4 plugin retains its upstream `LICENSE`, `NOTICE`, CUA MIT license and complete `LICENSING/` dependency notices and required source bundles inside the signed app. Its separately licensed code and assets are not relicensed by Bot. The bundled character, avatar and brand icons use the separate [Caelis Character Asset License](ASSET-LICENSE.md); modeling sources remain private. The stick figure and generic paper plane are Apache-2.0.
+Code: [Apache-2.0](LICENSE). Bundled character and brand assets: [Caelis Character Asset License](ASSET-LICENSE.md). Desktop World and other dependencies retain their own licenses and bundled notices.
