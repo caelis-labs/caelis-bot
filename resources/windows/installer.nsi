@@ -2,20 +2,23 @@ Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "FileFunc.nsh"
 !include "package.nsh"
+!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BOT_ID}"
 
 Name "${BOT_NAME}"
 OutFile "${BOT_OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\${BOT_NAME}"
+InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel user
 SetCompressor /SOLID zlib
 ShowInstDetails show
 ShowUninstDetails show
-BrandingText "Caelis Bot · unsigned preview"
+BrandingText "Caelis Bot"
 Var StartupOwned
 VIProductVersion "${BOT_NUMERIC_VERSION}"
 VIAddVersionKey /LANG=1033 "ProductName" "${BOT_NAME}"
-VIAddVersionKey /LANG=1033 "FileDescription" "${BOT_NAME} Setup (unsigned)"
+VIAddVersionKey /LANG=1033 "FileDescription" "${BOT_NAME} Setup"
 VIAddVersionKey /LANG=1033 "FileVersion" "${BOT_VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Caelis Bot contributors"
 !define MUI_ICON "${BOT_ICON}"
@@ -27,6 +30,7 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Caelis Bot contributors"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${BOT_LICENSE}"
+!insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -37,8 +41,8 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Caelis Bot contributors"
 SetFont /LANG=${LANG_ENGLISH} "Segoe UI" 9
 SetFont /LANG=${LANG_SIMPCHINESE} "Microsoft YaHei UI" 9
 
-LangString WelcomeDescription ${LANG_ENGLISH} "This preview is unsigned and installs for the current user.$\r$\n$\r$\nQuit Caelis Bot from its tray before manually updating. Your Notebook and saved credentials will be preserved.$\r$\n$\r$\nAutomatic updates and start at login are available in Settings. Caelis is included. WebView2 Runtime is required; Codex uses your existing installation."
-LangString WelcomeDescription ${LANG_SIMPCHINESE} "此预览版未签名，仅为当前用户安装。$\r$\n$\r$\n手动升级前，请从托盘退出 Caelis Bot。你的 Notebook 和已保存的凭据会保留。$\r$\n$\r$\n可在设置中配置自动更新和登录时启动。已内置 Caelis；本机须有 WebView2 Runtime，Codex 使用你已有的安装。"
+LangString WelcomeDescription ${LANG_ENGLISH} "Install ${BOT_NAME} on your computer.$\r$\n$\r$\nClick Next to continue."
+LangString WelcomeDescription ${LANG_SIMPCHINESE} "即将在你的电脑上安装 ${BOT_NAME}。$\r$\n$\r$\n点击“下一步”继续。"
 
 LangString CloseBot ${LANG_ENGLISH} "Close Caelis Bot using its tray menu, then run Setup again. Your work and data will be preserved."
 LangString CloseBot ${LANG_SIMPCHINESE} "请从托盘菜单退出 Caelis Bot，然后重新运行安装程序。工作与数据会保留。"
@@ -46,21 +50,53 @@ LangString CloseTerminals ${LANG_ENGLISH} "Close local task terminals, then run 
 LangString CloseTerminals ${LANG_SIMPCHINESE} "请先关闭本地任务终端，再重新运行安装程序。Worker 仍会继续运行。"
 LangString WrongOwner ${LANG_ENGLISH} "The installation folder belongs to another installation, is redirected, or has been moved. Setup stopped without removing it."
 LangString WrongOwner ${LANG_SIMPCHINESE} "安装目录属于其他安装、已重定向或被移动。安装程序已停止，未删除该目录。"
-LangString Unsupported ${LANG_ENGLISH} "This preview requires Windows 10 22H2 or later on an x64 desktop. Windows 11 x64 is the tested baseline."
-LangString Unsupported ${LANG_SIMPCHINESE} "此预览版需要 Windows 10 22H2 或更高版本的 x64 桌面系统。已测试基线为 Windows 11 x64。"
-LangString WebViewMissing ${LANG_ENGLISH} "Install Microsoft WebView2 Evergreen Runtime from Microsoft's official website, then run Setup again. Setup does not install prerequisites or Codex."
-LangString WebViewMissing ${LANG_SIMPCHINESE} "请先从微软官网下载并安装 WebView2 Evergreen Runtime，再运行此安装程序。安装程序不会自动安装运行时或 Codex。"
+LangString Unsupported ${LANG_ENGLISH} "Caelis Bot requires Windows 10 22H2 or later (x64)."
+LangString Unsupported ${LANG_SIMPCHINESE} "Caelis Bot 需要 Windows 10 22H2 或更高版本（x64）。"
+LangString WebViewMissing ${LANG_ENGLISH} "Install Microsoft WebView2 Runtime, then run Setup again."
+LangString WebViewMissing ${LANG_SIMPCHINESE} "请先安装 Microsoft WebView2 Runtime，然后重新运行安装程序。"
+LangString ExistingLocation ${LANG_ENGLISH} "To update Caelis Bot, choose its existing installation folder. To move it, uninstall it first; your data will be kept."
+LangString ExistingLocation ${LANG_SIMPCHINESE} "更新时请选择原安装目录。如需移动，请先卸载；你的数据会保留。"
 
 !macro GuardInstallation PREFIX
 Function ${PREFIX}GuardInstallation
-  StrCmp $INSTDIR "$LOCALAPPDATA\Programs\${BOT_NAME}" 0 foreign
-  ; Reject a redirected Programs or product directory before any mutation.
-  System::Call 'kernel32::GetFileAttributesW(w "$LOCALAPPDATA\Programs") i.r0'
-  StrCmp $0 -1 programs_checked
+  ; Accept a user-selected local folder, never a volume root, UNC path or
+  ; redirected ancestor. Check every existing ancestor, on any local drive.
+  StrCpy $0 $INSTDIR 2 1
+  StrCmp $0 ':\' 0 foreign
+  ; NSIS GetFullPathName requires existing parents. The Win32 function also
+  ; normalizes a fresh, nested destination before any directory is created.
+  System::Call 'kernel32::GetFullPathNameW(w "$INSTDIR", i ${NSIS_MAX_STRLEN}, w .r5, p 0) i.r0'
+  IntCmp $0 0 foreign
+  IntCmp $0 ${NSIS_MAX_STRLEN} foreign 0 foreign
+  StrCpy $INSTDIR $5
+  StrCpy $0 $INSTDIR 1 -1
+  StrCmp $0 '\' 0 +2
+    StrCpy $INSTDIR $INSTDIR -1
+  ${GetRoot} "$INSTDIR" $2
+  StrCmp $INSTDIR "$2" foreign
+  StrCpy $3 $INSTDIR
+parents:
+  System::Call 'kernel32::GetFileAttributesW(w r3) i.r0'
+  StrCmp $0 -1 parent_next
   IntOp $1 $0 & 0x400
   IntCmp $1 0 +2
     Goto foreign
-programs_checked:
+parent_next:
+  ${GetParent} "$3" $4
+  StrCmp $4 "" parents_done
+  StrCmp $4 $3 parents_done
+  StrCpy $3 $4
+  Goto parents
+parents_done:
+  ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
+  StrCmp $0 "" registration_checked
+  GetFullPathName $0 "$0"
+  StrCmp $0 $INSTDIR registration_checked
+  SetErrorLevel 104
+  IfSilent +2
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(ExistingLocation)"
+  Quit
+registration_checked:
   System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR") i.r0'
   StrCmp $0 -1 done
   IntOp $1 $0 & 0x400
@@ -68,7 +104,14 @@ programs_checked:
     Goto foreign
   IfFileExists "$INSTDIR\installation.ini" 0 no_marker
   ReadINIStr $0 "$INSTDIR\installation.ini" "CaelisBot" "Identity"
-  StrCmp $0 "${BOT_ID}" done foreign
+  StrCmp $0 "${BOT_ID}" 0 foreign
+  ReadINIStr $0 "$INSTDIR\installation.ini" "CaelisBot" "Location"
+  StrCmp $0 "" legacy
+  GetFullPathName $0 "$0"
+  StrCmp $0 $INSTDIR done foreign
+legacy:
+  ; Existing preview installers wrote no Location and only supported this root.
+  StrCmp $INSTDIR "$LOCALAPPDATA\Programs\${BOT_NAME}" done foreign
 no_marker:
   ; A pre-existing nonempty directory is never adopted as our installation.
   FindFirst $0 $1 "$INSTDIR\*"
@@ -130,8 +173,6 @@ FunctionEnd
 Function .onInit
   SetShellVarContext current
   SetRegView 64
-  ; A fixed per-user root keeps uninstall scoped. Ignore a command-line /D.
-  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${BOT_NAME}"
   ${IfNot} ${RunningX64}
     Goto unsupported
   ${EndIf}
@@ -150,8 +191,6 @@ Function .onInit
     Goto unsupported
   IntCmp $1 10 0 unsupported
   IntCmp $3 19045 0 unsupported
-  Call GuardInstallation
-  Call EnsureStopped
   ; Microsoft's documented WebView2 Evergreen registry discovery contract.
   !define WEBVIEW_CLIENT "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
   ReadRegStr $0 HKCU "${WEBVIEW_CLIENT}" "pv"
@@ -207,15 +246,17 @@ install:
   SetOutPath "$INSTDIR\Resources\Windows"
   File /oname=NSIS-LICENSE.txt "${BOT_NSIS_LICENSE}"
   IfErrors installation_failed
-  WriteINIStr "$INSTDIR\installation.ini" "CaelisBot" "Identity" "${BOT_ID}"
-  WriteINIStr "$INSTDIR\installation.ini" "CaelisBot" "Version" "${BOT_VERSION}"
+  ; Preserve Unicode paths independently of the machine's ANSI code page.
+  FileOpen $0 "$INSTDIR\installation.ini" w
+  FileWriteUTF16LE /BOM $0 "[CaelisBot]$\r$\nIdentity=${BOT_ID}$\r$\nVersion=${BOT_VERSION}$\r$\nLocation=$INSTDIR$\r$\n"
+  FileClose $0
+  IfErrors installation_failed
   StrCmp $StartupOwned 1 0 +2
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${BOT_ID}" '$\"$INSTDIR\caelis-bot.exe$\" --login-launch'
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\${BOT_NAME}"
   CreateShortCut "$SMPROGRAMS\${BOT_NAME}\${BOT_NAME}.lnk" "$INSTDIR\caelis-bot.exe" "" "$INSTDIR\caelis-bot.exe" 0
   CreateShortCut "$SMPROGRAMS\${BOT_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
-  !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BOT_ID}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${BOT_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${BOT_VERSION}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "Caelis Bot contributors"

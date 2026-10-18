@@ -212,6 +212,14 @@ jobs:
           ./script/package-zip-windows.ps1 -SkipBuild -Channel $env:WINDOWS_CHANNEL
           node script/verify-windows-candidate.mjs "dist/windows-$env:WINDOWS_CHANNEL" dist/releases
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify custom-directory install, update and uninstall
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath dist/releases -Filter '*-Setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected one verified local installer' }
+          $env:CAELIS_BOT_TEST_LOCAL_INSTALLER = $installers[0].FullName
+          go test ./internal/windowsupdate -run '^TestNativeNSISCustomDirectory$' -count=1 -timeout 180s -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-local-${{ matrix.channel }}

@@ -547,9 +547,9 @@ export function History() {
  const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
  const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
- const [activation,setActivation]=useState(0);
+ const [activation,setActivation]=useState(0),[presentation,setPresentation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
- useEffect(()=>{if(active&&snapshot)surfaceReady('chat');},[active,snapshot]);
+ useEffect(()=>{if(active&&snapshot)surfaceReady('chat');},[active,snapshot,presentation]);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
  const [menu,setMenu]=useState<{item:Item;x:number;y:number}|null>(null);
  const [quoteRequest,setQuoteRequest]=useState<{item:Item}|null>(null);
@@ -574,7 +574,9 @@ export function History() {
  useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!);return()=>{position.current=null;};},[]);
  useEffect(()=>{
   let activeNow=false;
-  const opened=(event?:Event)=>{activeNow=true;setActive(true);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
+  // Every explicit open must acknowledge its native presentation token, even
+  // when the conversation and active state are unchanged behind another app.
+  const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};

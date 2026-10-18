@@ -10,11 +10,58 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
+
+type captureBoundaryProbe struct {
+	captureFake
+	notify func()
+}
+
+func (d *captureBoundaryProbe) captureCommand(int)      { d.notify() }
+func (d *captureBoundaryProbe) captureAvailability(any) { d.notify() }
+func (d *captureBoundaryProbe) captureReceipt(any)      { d.notify() }
+
+func TestCaptureNativeDeliveryCannotHoldProductState(t *testing.T) {
+	for _, operation := range []string{"command", "availability", "receipt"} {
+		t.Run(operation, func(t *testing.T) {
+			s := newService(&memoryStore{value: defaults()})
+			if err := s.configureCapture(filepath.Join(t.TempDir(), "Captures")); err != nil {
+				t.Fatal(err)
+			}
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			d := &captureBoundaryProbe{notify: func() { close(entered); <-release }}
+			s.native = d
+			go func() {
+				switch operation {
+				case "command":
+					s.CaptureScreen()
+				case "availability":
+					s.refreshCapture()
+				case "receipt":
+					s.publishCaptureReceipt("original", "unknown", "native.capture.unknown")
+				}
+				close(done)
+			}()
+			defer func() { close(release); <-done }()
+			<-entered
+			read := make(chan CapturePreferences, 1)
+			go func() { read <- s.CapturePreferences() }()
+			select {
+			case v := <-read:
+				if !v.Enabled {
+					t.Fatal("capture delivery changed the feature preference")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("blocked native capture delivery froze unrelated product state")
+			}
+		})
+	}
+}
 
 type captureFake struct {
 	shortcutFake

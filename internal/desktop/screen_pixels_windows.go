@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -18,57 +19,78 @@ func windowsScreenPixels(bounds image.Rectangle) (*image.NRGBA, error) {
 	if w < 1 || h < 1 || int64(w)*int64(h) > 16<<20 {
 		return nil, errors.New("screen image is too large")
 	}
+	// GetDC/ReleaseDC and GDI's drawing batch belong to one OS thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	dc, _, _ := winUser.NewProc("GetDC").Call(0)
 	if dc == 0 {
 		return nil, errors.New("interactive desktop unavailable")
 	}
 	defer winUser.NewProc("ReleaseDC").Call(0, dc)
+	return windowsPixelsFromDC(dc, bounds)
+}
+
+// Copy directly into a CPU-readable DIB section. A device-dependent bitmap
+// followed by GetDIBits forces an extra driver conversion/readback on F1.
+// The caller owns the source DC and stays on its OS thread until return.
+func windowsPixelsFromDC(dc uintptr, bounds image.Rectangle) (*image.NRGBA, error) {
+	w, h := bounds.Dx(), bounds.Dy()
+	if dc == 0 || w < 1 || h < 1 || int64(w)*int64(h) > 16<<20 {
+		return nil, errors.New("screen image is too large")
+	}
 	memory, _, _ := winGDI.NewProc("CreateCompatibleDC").Call(dc)
 	if memory == 0 {
 		return nil, errors.New("screen capture unavailable")
 	}
 	defer winGDI.NewProc("DeleteDC").Call(memory)
-	bitmap, _, _ := winGDI.NewProc("CreateCompatibleBitmap").Call(dc, uintptr(w), uintptr(h))
-	if bitmap == 0 {
+	var header [40]byte
+	binary.LittleEndian.PutUint32(header[:], 40)
+	binary.LittleEndian.PutUint32(header[4:], uint32(w))
+	binary.LittleEndian.PutUint32(header[8:], uint32(int32(-h)))
+	binary.LittleEndian.PutUint16(header[12:], 1)
+	binary.LittleEndian.PutUint16(header[14:], 32)
+	var pixels uintptr
+	bitmap, _, _ := winGDI.NewProc("CreateDIBSection").Call(dc, uintptr(unsafe.Pointer(&header[0])), 0, uintptr(unsafe.Pointer(&pixels)), 0, 0)
+	if bitmap == 0 || pixels == 0 {
 		return nil, errors.New("screen bitmap unavailable")
 	}
 	defer winGDI.NewProc("DeleteObject").Call(bitmap)
 	previous, _, _ := winGDI.NewProc("SelectObject").Call(memory, bitmap)
+	if previous == 0 || previous == ^uintptr(0) {
+		return nil, errors.New("screen bitmap unavailable")
+	}
+	defer winGDI.NewProc("SelectObject").Call(memory, previous)
 	ok, _, _ := winGDI.NewProc("BitBlt").Call(memory, 0, 0, uintptr(w), uintptr(h), dc, uintptr(bounds.Min.X), uintptr(bounds.Min.Y), 0x00CC0020|0x40000000)
-	winGDI.NewProc("SelectObject").Call(memory, previous) // GetDIBits requires deselection.
 	if ok == 0 {
 		return nil, errors.New("screen capture failed")
 	}
-	data := make([]byte, 40+w*h*4)
-	binary.LittleEndian.PutUint32(data, 40)
-	binary.LittleEndian.PutUint32(data[4:], uint32(w))
-	binary.LittleEndian.PutUint32(data[8:], uint32(int32(-h)))
-	binary.LittleEndian.PutUint16(data[12:], 1)
-	binary.LittleEndian.PutUint16(data[14:], 32)
-	n, _, _ := winGDI.NewProc("GetDIBits").Call(dc, bitmap, 0, uintptr(h), uintptr(unsafe.Pointer(&data[40])), uintptr(unsafe.Pointer(&data[0])), 0)
-	if n != uintptr(h) {
+	// Microsoft requires the drawing batch to complete before reading ppvBits.
+	if ok, _, _ := winGDI.NewProc("GdiFlush").Call(); ok == 0 {
 		return nil, errors.New("screen pixels unavailable")
 	}
 	result := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for i := 0; i < w*h; i++ {
-		s, t := 40+i*4, i*4
-		result.Pix[t] = data[s+2]
-		result.Pix[t+1] = data[s+1]
-		result.Pix[t+2] = data[s]
-		result.Pix[t+3] = 255
+	windows.NewLazySystemDLL("ntdll.dll").NewProc("RtlMoveMemory").Call(uintptr(unsafe.Pointer(&result.Pix[0])), pixels, uintptr(len(result.Pix)))
+	for i := 0; i < len(result.Pix); i += 4 {
+		result.Pix[i], result.Pix[i+2], result.Pix[i+3] = result.Pix[i+2], result.Pix[i], 255
 	}
 	return result, nil
 }
 
-func windowsImageClipboard(hwnd uintptr, data []byte) bool {
+// Decode and convert pixels on the capture worker, before entering the UI
+// thread for the short native clipboard ownership transaction.
+func windowsClipboardDIB(data []byte) ([]byte, error) {
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 16<<20 {
+		return nil, errors.New("invalid clipboard image")
+	}
 	im, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
-		return false
+		return nil, err
 	}
 	b := im.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if int64(w)*int64(h) > 16<<20 {
-		return false
+		return nil, errors.New("clipboard image too large")
 	}
 	stride := (w*3 + 3) &^ 3
 	dib := make([]byte, 40+stride*h)
@@ -86,6 +108,10 @@ func windowsImageClipboard(hwnd uintptr, data []byte) bool {
 			dib[i+2] = byte(r >> 8)
 		}
 	}
+	return dib, nil
+}
+
+func windowsImageClipboard(hwnd uintptr, data, dib []byte) bool {
 	if ok, _, _ := winUser.NewProc("OpenClipboard").Call(hwnd); ok == 0 {
 		return false
 	}

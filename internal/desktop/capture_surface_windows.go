@@ -15,6 +15,39 @@ import (
 
 var captureDWM = windows.NewLazySystemDLL("dwmapi.dll")
 
+// The registered F3 shortcut is consumed by Windows before DOM keydown.
+// In the active editor it pins that exact selection; elsewhere it pastes.
+func (c *windowsCapture) pinForeground(front uintptr) bool {
+	c.mu.Lock()
+	if !c.enabled {
+		c.mu.Unlock()
+		return false
+	}
+	var window *application.WebviewWindow
+	matched := false
+	// While the full-screen editor is being acquired or shown, F3 belongs to
+	// that session. A transient native focus change must not paste a new image
+	// over it. Windowed pin editors still require foreground ownership.
+	if c.acquisition != nil && c.acquisition.screen {
+		c.mu.Unlock()
+		return true
+	}
+	for _, d := range c.drafts {
+		if !d.dismissed && d.window != nil && (uintptr(d.window.NativeWindow()) == front || c.editorID == d.document.ID && !d.screenBounds.Empty()) {
+			matched = true
+			if d.document.Outcome == "draft" && !d.exporting {
+				window = d.window
+			}
+			break
+		}
+	}
+	c.mu.Unlock()
+	if window != nil {
+		window.ExecJS("window.dispatchEvent(new Event('capture-pin'))")
+	}
+	return matched
+}
+
 func flushWindowsCaptureFrame() { captureDWM.NewProc("DwmFlush").Call() }
 func disableWindowsCaptureTransitions(hwnd uintptr) {
 	var yes int32 = 1
@@ -65,10 +98,35 @@ func fitWindowsPin(width, height int, desired float64, work image.Rectangle, x, 
 func setWindowsPinBounds(w *application.WebviewWindow, r image.Rectangle) {
 	winUser.NewProc("SetWindowPos").Call(uintptr(w.NativeWindow()), 0, uintptr(r.Min.X), uintptr(r.Min.Y), uintptr(r.Dx()), uintptr(r.Dy()), 0x0014)
 }
-func positionWindowsPin(w *application.WebviewWindow, width, height int) {
+func windowsPinSelectionBounds(selection, screen, pin image.Rectangle, width, height int) image.Rectangle {
+	if !screen.Empty() {
+		return selection.Add(screen.Min)
+	}
+	if pin.Empty() || width <= 0 || height <= 0 {
+		return pin
+	}
+	sx, sy := float64(pin.Dx())/float64(width), float64(pin.Dy())/float64(height)
+	return image.Rect(pin.Min.X+int(math.Round(float64(selection.Min.X)*sx)), pin.Min.Y+int(math.Round(float64(selection.Min.Y)*sy)), pin.Min.X+int(math.Round(float64(selection.Max.X)*sx)), pin.Min.Y+int(math.Round(float64(selection.Max.Y)*sy)))
+}
+func positionWindowsPin(w *application.WebviewWindow, width, height int, selection image.Rectangle) {
+	// A captured selection stays where the user selected it, including on a
+	// monitor with a negative origin. Place clipboard-only pins near the pointer.
+	if !selection.Empty() {
+		setWindowsPinBounds(w, selection)
+	}
+	x, y := selection.Min.X, selection.Min.Y
+	if selection.Empty() {
+		var point struct{ X, Y int32 }
+		winUser.NewProc("GetCursorPos").Call(uintptr(unsafe.Pointer(&point)))
+		x, y = int(point.X), int(point.Y)
+		setWindowsPinBounds(w, image.Rect(x, y, x+1, y+1))
+	}
 	area := windowsPinWorkArea(uintptr(w.NativeWindow()))
-	r := fitWindowsPin(width, height, 1, area, area.Min.X, area.Min.Y)
-	r = r.Add(image.Pt((area.Dx()-r.Dx())/2, (area.Dy()-r.Dy())/2))
+	scale := 1.0
+	if !selection.Empty() && width > 0 {
+		scale = float64(selection.Dx()) / float64(width)
+	}
+	r := fitWindowsPin(width, height, scale, area, x, y)
 	setWindowsPinBounds(w, r)
 }
 
@@ -85,18 +143,20 @@ func (s *Service) ResizeWindowsPin(id string, factor float64) {
 	application.InvokeSync(func() {
 		c := driver.capture
 		c.mu.Lock()
-		defer c.mu.Unlock()
 		d := c.drafts[id]
 		if !c.enabled || d == nil || d.window == nil || d.document.Outcome != "pinned" || d.exporting {
+			c.mu.Unlock()
 			return
 		}
-		hwnd := uintptr(d.window.NativeWindow())
+		window, width, height := d.window, d.document.Width, d.document.Height
+		c.mu.Unlock()
+		hwnd := uintptr(window.NativeWindow())
 		var r struct{ Left, Top, Right, Bottom int32 }
 		if ok, _, _ := winUser.NewProc("GetWindowRect").Call(hwnd, uintptr(unsafe.Pointer(&r))); ok == 0 {
 			return
 		}
-		scale := float64(r.Right-r.Left) / float64(d.document.Width) * factor
-		setWindowsPinBounds(d.window, fitWindowsPin(d.document.Width, d.document.Height, scale, windowsPinWorkArea(hwnd), int(r.Left), int(r.Top)))
+		scale := float64(r.Right-r.Left) / float64(width) * factor
+		setWindowsPinBounds(window, fitWindowsPin(width, height, scale, windowsPinWorkArea(hwnd), int(r.Left), int(r.Top)))
 	})
 }
 

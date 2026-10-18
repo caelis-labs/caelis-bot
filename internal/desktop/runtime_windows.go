@@ -122,6 +122,7 @@ func Run(assets fs.FS) error {
 	if s.content != nil {
 		handler = s.content.Handler(handler)
 	}
+	handler = s.windowsCapturePreviewHandler(handler)
 	native = application.New(application.Options{
 		Name: appName, Description: "A quiet desktop companion", Icon: appIcon,
 		Assets:                      application.AssetOptions{Handler: handler},
@@ -276,11 +277,9 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 			if surface == "settings" {
 				target, previous, event = settings, history, "history-close"
 			}
-			target.UnMinimise()
-			showWindowsWindow(target)
-			target.Focus()
 			previous.Hide()
 			previous.ExecJS("window.dispatchEvent(new Event('" + event + "'))")
+			activateWindowsWindow(target)
 		})
 	}
 	showHistory := func() { settingsMode.Store(false); prepare(history, "chat") }
@@ -329,7 +328,9 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 	}
 	s.settingsVisible = func() bool { return settingsMode.Load() && settings.IsVisible() }
 	s.historyVisible = func() bool { return !settingsMode.Load() && history.IsVisible() }
-	s.historyCanHide = func() bool { return !settingsMode.Load() && history.IsVisible() && !history.IsMinimised() }
+	s.historyCanHide = func() bool {
+		return !settingsMode.Load() && history.IsVisible() && history.IsFocused() && !history.IsMinimised()
+	}
 	s.petChatCanHide = s.historyCanHide
 	s.recallWindows = func() {
 		if !s.prepareWindowRecall() {
@@ -337,9 +338,7 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 		}
 		application.InvokeSync(func() {
 			if settingsMode.Load() && settings.IsVisible() {
-				settings.UnMinimise()
-				showWindowsWindow(settings)
-				settings.Focus()
+				activateWindowsWindow(settings)
 				settings.ExecJS("window.dispatchEvent(new Event('settings-open'))")
 			} else {
 				showHistory()
@@ -356,9 +355,7 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 				return
 			}
 			preview.SetTitle(selection.Name)
-			preview.UnMinimise()
-			showWindowsWindow(preview)
-			preview.Focus()
+			activateWindowsWindow(preview)
 			preview.ExecJS("window.dispatchEvent(new Event('artifact-preview-changed'))")
 		})
 	}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,addCaptureMark,undoCaptureMark,redoCaptureMark,moveCaptureSelection} from '../frontend/src/capture-editor.ts';
+import {captureCommandKey,captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,addCaptureMark,undoCaptureMark,redoCaptureMark,moveCaptureSelection} from '../frontend/src/capture-editor.ts';
 
 test('clicks retain the default or current selection; drags use CSS-pixel thresholds at every DPI',()=>{
  assert.equal(captureDragRect({x:0,y:0},{x:2,y:1}),null);
@@ -10,13 +10,14 @@ test('clicks retain the default or current selection; drags use CSS-pixel thresh
  assert.deepEqual(captureDragRect({x:0,y:0},{x:6,y:6},0.5),{x:0,y:0,width:6,height:6});
 });
 
-test('familiar screenshot shortcuts finish local actions; Enter never implicitly sends to Bot',()=>{
- assert.equal(captureKeyAction('Enter',false),'copy');
+test('capture shortcuts match the native editor: Enter asks Bot and F3 pins',()=>{
+ assert.equal(captureKeyAction('Enter',false),'send');
+ assert.equal(captureKeyAction('F3',false),'pin');
  assert.equal(captureKeyAction('c',true),'copy');
  assert.equal(captureKeyAction('S',true),'save');
  assert.equal(captureKeyAction('t',true),'pin');
  assert.equal(captureKeyAction('a',true),'all');
- assert.equal(captureKeyAction('Enter',true),null);
+ assert.equal(captureKeyAction('Enter',true),'send');
  assert.equal(captureKeyAction('c',false),null);
 });
 test('redaction history preserves marks across undo/redo and forks after a new edit',()=>{
@@ -26,6 +27,19 @@ test('redaction history preserves marks across undo/redo and forks after a new e
  const branch=addCaptureMark(undone,{...mark,kind:'mosaic'});
  assert.equal(branch.redo.length,0);assert.equal(redoCaptureMark(branch),branch);
  assert.equal(redacted.marks[0].kind,'redact');
+});
+
+test('Windows IME Process keys on the canvas still execute commands without submitting candidates',()=>{
+ const ime={key:'Process',code:'KeyC',keyCode:229,isComposing:false,repeat:false,ctrlKey:true};
+ for(const [code,action] of [['KeyC','copy'],['KeyS','save'],['Enter','send'],['NumpadEnter','send']]){
+  const key=captureCommandKey({...ime,code},false);
+  assert.equal(captureKeyAction(key,ime.ctrlKey),action);
+  assert.equal(captureCommandKey({...ime,code},true),null);
+  assert.equal(captureCommandKey({...ime,code,isComposing:true},false),null);
+ }
+ assert.equal(captureCommandKey({...ime,code:'KeyQ'},false),null);
+ assert.equal(captureCommandKey({...ime,ctrlKey:false},false),null);
+ assert.equal(captureCommandKey({...ime,repeat:true},false),null);
 });
 test('keyboard selection movement keeps dimensions within captured pixels',()=>{
  const r={x:4,y:8,width:30,height:20};

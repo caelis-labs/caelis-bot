@@ -12,8 +12,15 @@ The metadata gives capture time, source application when available, and the
 selection rectangle in the encoded background's top-left pixel coordinates.
 On first setup, the user chooses whether to enable the F1 selection and F3 paste
 tools in the separate Extras step. Onboarding does not ask for system permissions. These
-tools default to enabled and can later be changed in Settings > Extras. Their
-switch is a preference, not Screen Recording authorization. Ask for that system
+tools default to enabled and can later be changed in Settings > Extras. The
+Windows editor uses F1 again to cancel the current selection, including while
+the screenshot is loading. F3 pins the current selection at its selected screen
+position (outside the editor, F3
+pastes an image from the clipboard), Ctrl+C to copy, Ctrl+S to save, and Enter
+to ask you when the selected model supports images. Enter while confirming an
+IME candidate does not submit. These local copy, save and pin actions do not
+send an image to you.
+The feature switch is a preference, not Screen Recording authorization. Ask for that system
 permission only when the enabled tool actually needs it. The user chooses a
 default for full-screen context in Settings > Extras and
 may override it in the capture toolbar before sending. These F1/F3 screen tools

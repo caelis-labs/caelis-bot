@@ -180,8 +180,10 @@ func (s *Service) CopyScreenImage(id string) error {
 		return errors.New("screen image unavailable")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d, ok := s.native.(capturePreferencesDriver); ok && !s.stopped && d.copyCaptureImage(data) {
+	d, ok := s.native.(capturePreferencesDriver)
+	active := !s.stopped
+	s.mu.Unlock()
+	if ok && active && d.copyCaptureImage(data) {
 		return nil
 	}
 	return errors.New("could not copy screen image")
@@ -261,8 +263,10 @@ func (s *Service) PasteImage()      { s.captureCommand(1) }
 func (s *Service) ToggleImagePins() { s.captureCommand(2) }
 func (s *Service) captureCommand(kind int) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d, ok := s.native.(captureDriver); ok && !s.stopped && s.capture.preferences.Enabled {
+	d, ok := s.native.(captureDriver)
+	active := !s.stopped && s.capture.preferences.Enabled
+	s.mu.Unlock()
+	if ok && active {
 		d.captureCommand(kind)
 	}
 }
@@ -288,10 +292,12 @@ func (s *Service) refreshCapture() {
 		message = s.text("native.capture.imageUnsupported", nil)
 	}
 	s.mu.Lock()
-	if d, ok := s.native.(captureDriver); ok && !s.stopped {
+	d, ok := s.native.(captureDriver)
+	active := !s.stopped
+	s.mu.Unlock()
+	if ok && active {
 		d.captureAvailability(map[string]string{"state": state.State, "message": message})
 	}
-	s.mu.Unlock()
 	// Observe existing request identities only. Never dispatch from a timer.
 	if s.capture.snapshot == nil {
 		return
@@ -420,10 +426,13 @@ func (s *Service) finishCapture(r screeninput.Record, outcome string) {
 	}
 }
 func (s *Service) publishCaptureReceipt(id, outcome, key string) {
+	message := s.text(key, nil)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d, ok := s.native.(captureDriver); ok && !s.stopped {
-		d.captureReceipt(map[string]string{"id": id, "outcome": outcome, "message": s.text(key, nil)})
+	d, ok := s.native.(captureDriver)
+	active := !s.stopped
+	s.mu.Unlock()
+	if ok && active {
+		d.captureReceipt(map[string]string{"id": id, "outcome": outcome, "message": message})
 	}
 }
 func (s *Service) discardCapture(id string) {

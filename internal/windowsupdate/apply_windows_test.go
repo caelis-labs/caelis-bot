@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -86,6 +88,37 @@ func TestInstalledChannelsKeepSeparateOwnership(t *testing.T) {
 		if _, err := Installation(target, "dev.caelis.bot.unowned"); err == nil {
 			t.Fatal("foreign installation accepted")
 		}
+	}
+}
+
+func TestNSISCustomUnicodeLocationAndMovedInstallation(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "应用 程序", "Caelis Bot")
+	if err := os.MkdirAll(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	text := "[CaelisBot]\r\nIdentity=dev.caelis.bot\r\nVersion=1.2.3\r\nLocation=" + target + "\r\n"
+	data := []byte{0xff, 0xfe}
+	for _, word := range utf16.Encode([]rune(text)) {
+		data = binary.LittleEndian.AppendUint16(data, word)
+	}
+	if err := os.WriteFile(filepath.Join(target, "installation.ini"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if format, err := Installation(target, "dev.caelis.bot"); err != nil || format != "nsis" {
+		t.Fatal(format, err)
+	}
+	if version, err := installationVersion(target, "nsis"); err != nil || version != "1.2.3" {
+		t.Fatal(version, err)
+	}
+	moved := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(target, moved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Installation(moved, "dev.caelis.bot"); err == nil {
+		t.Fatal("moved installation accepted")
+	}
+	if len(installationINI(append(data, 0))) != 0 {
+		t.Fatal("truncated Unicode marker accepted")
 	}
 }
 
