@@ -702,11 +702,17 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			// A canonical replacement cannot relabel retained inputs, including
 			// legacy inputs with no original scope. A new Host's replay proves
 			// its serving scope, not the origin of an already retained input.
+			// Keep this evidence beyond the bounded display window: LoadEarlier
+			// may later bring the same item back after a Host replacement.
+			if staged.InputScopes == nil {
+				staged.InputScopes = map[string]inputScope{}
+			}
+			for id, scope := range v.InputScopes {
+				staged.InputScopes[id] = scope
+			}
 			for _, item := range v.Items {
 				if item.Kind == "user" {
-					if _, exists := staged.InputScopes[item.ID]; exists {
-						staged.InputScopes[item.ID] = v.InputScopes[item.ID]
-					}
+					staged.InputScopes[item.ID] = v.InputScopes[item.ID]
 				}
 			}
 			staged.State = *bootstrap

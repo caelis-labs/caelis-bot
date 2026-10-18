@@ -157,6 +157,9 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	inputScopes := original.InputScopes
 	original.InputScopes = maps.Clone(inputScopes)
 	for _, item := range older {
+		if _, exists := original.InputScopes[item.ID]; exists {
+			continue // display eviction cannot replace original scope or absence
+		}
 		if scope, ok := projection.InputScopes[item.ID]; ok {
 			if original.InputScopes == nil {
 				original.InputScopes = map[string]inputScope{}

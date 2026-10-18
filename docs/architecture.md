@@ -491,7 +491,9 @@ snapshots preserve it without exposing it to renderer JSON. Native input sources
 also retain each item's actual scope: Codex captures the explicit native thread
 at projection, and Caelis persists the authenticated feed's instance/session/turn
 with the item. Retained Codex messages and Caelis PastSessions keep their original
-scope. Service only carries this evidence through chat assembly; neither native
+scope; Caelis also retains input evidence beyond canonical display eviction so
+reloading an older page cannot reassign it. Service only carries this evidence
+through chat assembly; neither native
 nor SQLite display history may inherit the current snapshot owner. Missing
 provenance on retained inputs stays unproven across native replay; newly observed
 inputs require an exact scoped native observation. The channel joins it

@@ -223,3 +223,67 @@ func TestNativeReplayCannotUpgradeRetainedInputScope(t *testing.T) {
 		}
 	}
 }
+
+func TestInputScopeSurvivesDisplayEvictionAndEarlierReload(t *testing.T) {
+	for _, proven := range []bool{false, true} {
+		t.Run(fmt.Sprintf("proven_%t", proven), func(t *testing.T) {
+			user := json.RawMessage(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Fixture old input"}}`)
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/sessions/main/reconnect") {
+					t.Error("unexpected native request")
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				send := func(name string, data any) {
+					b, _ := json.Marshal(data)
+					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, b)
+				}
+				send("caelis.control.bootstrap", wire.SessionState{SessionId: "main", ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1"})
+				if r.URL.Query().Get("history_before") == "older" {
+					send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "append_page", Source: "exact", Events: []wire.Envelope{{EventId: pointer("old-event"), SessionId: pointer("main"), TurnId: pointer("old-turn"), InputOperationId: pointer("old-request"), Update: &user}}})
+					send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", HistoryBefore: pointer("")})
+					return
+				}
+				// The canonical recent window no longer includes the old input.
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_begin", Source: "replacement", SnapshotId: pointer("recent")})
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_end", Source: "replacement", SnapshotId: pointer("recent")})
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", HistoryBefore: pointer("older")})
+			})
+			id := "old-turn/user/old-request"
+			original := inputScope{InstanceID: "old-instance", SessionID: "main", TurnID: "old-turn"}
+			s.state.Views["main"].Items = []api.Item{{ID: id, Kind: "user", TurnKey: "old-turn", RequestID: "old-request", Text: "Fixture old input"}}
+			if proven {
+				s.state.Views["main"].InputScopes = map[string]inputScope{id: original}
+			}
+			_ = s.watch(t.Context(), s.client, "main", "instance")
+			if len(s.Snapshot().Items) != 0 {
+				t.Fatal("fixture did not evict old display item")
+			}
+			restored, err := loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.state = restored
+			if err := s.LoadEarlier(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			restored, err = loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.state = restored
+			got := backend.NewService(s, nil, nil, nil, nil).Snapshot()
+			if len(got.Items) != 1 {
+				t.Fatal("fixture did not restore old display item")
+			}
+			if !proven {
+				if len(got.InputSources) != 0 {
+					t.Fatal("eviction/reload upgraded unproven history")
+				}
+			} else if len(got.InputSources) != 1 || got.InputSources[0].RuntimeOwner != original.owner() || got.InputSources[0].RuntimeOwner == got.RuntimeOwner {
+				t.Fatal("eviction/reload lost original scope")
+			}
+		})
+	}
+}
