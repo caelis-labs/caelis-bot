@@ -37,9 +37,28 @@ The narrow native window is 340 × 560 points of content (680 × 1120 pixels at
 The new question body is 193 points high at the narrow size. All three options
 and the always-visible custom input are fully visible. Its bottom is y=383;
 the composer starts at y=490. No accordion, pending-question tray, internal scroll
-area or question overlay remains. Avatars stay beside their messages. The separate
-floating desktop-pet window was not exercised by this fixture; the question now
-uses normal History flow instead of adding an overlay to its placement geometry.
+area or question overlay remains. Avatars stay beside their messages. The question uses normal History flow instead of adding an overlay to its
+placement geometry. The separate full-App check below also opened chat through
+the actual floating pet.
+
+## Full Dev App readback
+
+The built `Caelis Bot Dev.app` from source commit
+`0a982347851c4403268c7f5fef39db3972b195b5` was also launched through
+`build_and_run.sh --restart`, with a new disposable profile and Runtime executable
+pinned to `/usr/bin/false`. This guarantees the acceptance session cannot connect
+a model. No real channel configuration was present.
+
+Synthetic questions were seeded through the real durable controller and IM store.
+The actual native pet opened the actual `wails://localhost/?surface=context` chat.
+The question, all options and composer were visually inspected without overlap.
+Clicking Dismiss through the production native bridge persisted `dismissed` with
+`user_dismissed`. After terminating and restarting the exact owned App executable,
+the native chat still showed “已关闭” with no decision controls; independent disk
+readback confirmed the original deadline and terminal state survived.
+[Readback and executable SHA256](native-app.json) bind this evidence to the built
+code. The App screenshots were inspected through the native UI tool; the
+reproducible image files above come from the production-renderer preview.
 
 ## Verification
 

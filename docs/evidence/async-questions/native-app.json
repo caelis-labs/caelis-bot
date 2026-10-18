@@ -1,0 +1,24 @@
+{
+  "sourceSHA": "0a982347851c4403268c7f5fef39db3972b195b5",
+  "executableSHA256": "8e6a1dcdfe28ae331b1ab898e5f51b91c7aa35a167a02d73941359080faa8695",
+  "bundleID": "dev.caelis.bot.dev",
+  "profile": "worktree/.cache/question-native-profile",
+  "runtime": {
+    "version": 1,
+    "runtime": "codex",
+    "cliPath": "/usr/bin/false"
+  },
+  "windowURL": "wails://localhost/?surface=context",
+  "state": "dismissed",
+  "reason": "user_dismissed",
+  "deadline": 1792407786,
+  "closedAt": 1792321468,
+  "originalClosureQueued": 1,
+  "modelRequests": 0,
+  "realChannels": false,
+  "actualAppRestartReadback": "dismissed",
+  "nativeChatAfterRestart": "已关闭; no decision controls",
+  "openedThroughNativePet": true,
+  "questionComposerOverlapObserved": false,
+  "originalDeadlinePreserved": true
+}
