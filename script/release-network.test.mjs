@@ -23,3 +23,10 @@ for(const diagnostic of ['curl: (18) end of response with 1024 bytes missing','c
  assert.equal(releaseCommand('curl.exe',args,{},(_cmd,actual)=>{assert.deepEqual(actual,args);if(++calls===1)throw Object.assign(new Error(diagnostic),{stderr:diagnostic});return '';},()=>{}),'');
  assert.equal(calls,2);
 });
+for(const stderr of ['Could not resolve host: www.apple.com','curl: (22) The requested URL returned error: 503'])test(`diagnostics, not certificate URL in argv, determine retry: ${stderr}`,()=>{
+ let calls=0;
+ assert.equal(releaseCommand('curl',['--fail','https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer'],{},()=>{
+  if(++calls===1)throw Object.assign(new Error('Command failed: curl https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer'),{stderr});return 'certificate bytes';
+ },()=>{}),'certificate bytes');
+ assert.equal(calls,2);
+});
