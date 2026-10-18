@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -111,6 +112,27 @@ class WindowsReleaseGuards(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                 runtime.verify_windows(self.bundle)
         self.assertEqual((self.bundle / 'Resources/Caelis-Runtime-LICENSE').read_bytes(), b'license')
+
+    def test_interrupted_download_never_enters_the_cache(self):
+        archive = self.archive()
+        archive.unlink()
+        with patch.object(runtime.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'download')), patch.object(runtime.subprocess, 'check_output') as execute:
+            with self.assertRaises(subprocess.CalledProcessError):
+                runtime.stage_windows(self.bundle)
+            execute.assert_not_called()
+        self.assertFalse(archive.exists())
+        self.assertFalse((self.bundle / 'Helpers/caelis.exe').exists())
+
+    def test_download_checksum_mismatch_never_executes(self):
+        archive = self.archive()
+        archive.unlink()
+        def download(args, **kwargs):
+            pathlib.Path(args[args.index('--output') + 1]).write_bytes(b'corrupt')
+        with patch.object(runtime.subprocess, 'run', side_effect=download), patch.object(runtime.subprocess, 'check_output') as execute:
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                runtime.stage_windows(self.bundle)
+            execute.assert_not_called()
+        self.assertFalse(archive.exists())
 
     def test_corrupt_download_rejected_before_execution(self):
         self.archive().write_bytes(b'corrupt')

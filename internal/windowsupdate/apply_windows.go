@@ -54,6 +54,8 @@ func Installation(target, identity string) (string, error) {
 	name := "Caelis Bot Preview"
 	if identity == "dev.caelis.bot.dev" {
 		name = "Caelis Bot Dev"
+	} else if identity == "dev.caelis.bot" {
+		name = "Caelis Bot"
 	} else if identity != "dev.caelis.bot.preview" {
 		return "", errors.New("unknown NSIS identity")
 	}

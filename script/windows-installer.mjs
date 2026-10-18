@@ -27,7 +27,7 @@ export function installerInventory(directory) {
 }
 
 export function generateInstaller(app, work, {name,id,version,output,icon,nsisLicense,revision=1}) {
-  if (!['dev.caelis.bot.dev','dev.caelis.bot.preview'].includes(id)) throw new Error('Unsigned NSIS is limited to development/preview');
+  if (!['dev.caelis.bot','dev.caelis.bot.dev','dev.caelis.bot.preview'].includes(id)) throw new Error('Unknown Windows installer identity');
   if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version) || !Number.isInteger(revision) || revision<0 || revision>65535) throw new Error('Invalid installer version');
   const {files,folders}=installerInventory(app);
   const definitions={BOT_NAME:name,BOT_ID:id,BOT_VERSION:version,BOT_NUMERIC_VERSION:`${version.split('-')[0]}.${revision}`,BOT_OUTPUT:resolve(output),BOT_ICON:resolve(icon),BOT_LICENSE:resolve(app,'Resources/LICENSE'),BOT_NSIS_LICENSE:resolve(nsisLicense)};

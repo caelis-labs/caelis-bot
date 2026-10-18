@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {installerInventory} from './windows-installer.mjs';
 const [directory,identity,version,output]=process.argv.slice(2);
-if(!['dev.caelis.bot.preview','dev.caelis.bot.dev'].includes(identity))throw Error('Unsigned ZIP is preview/development only');
+if(!['dev.caelis.bot','dev.caelis.bot.preview','dev.caelis.bot.dev'].includes(identity))throw Error('Unknown Windows portable identity');
 const inventory=installerInventory(directory);
 if(inventory.files.includes('portable.json')||inventory.files.includes('installation.ini')||inventory.files.includes('Uninstall.exe'))throw Error('Mixed package ownership');
 writeFileSync(join(directory,'portable.json'),JSON.stringify({schema:1,identity,version,files:inventory.files.map(name=>{const bytes=readFileSync(join(directory,name));return {name,sha256:createHash('sha256').update(bytes).digest('hex'),length:bytes.length};})},null,2)+'\n');

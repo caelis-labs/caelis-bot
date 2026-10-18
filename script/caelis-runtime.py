@@ -9,7 +9,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -22,7 +21,7 @@ def stage(bundle):
     archive = cache / target['artifact']
     if not archive.exists():
         with tempfile.NamedTemporaryFile(dir=cache) as download:
-            subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '180',
+            subprocess.run(['node', str(ROOT / 'script/release-network.mjs'), 'curl', '--fail', '--silent', '--show-error', '--location', '--max-time', '180',
                             'https://github.com/caelis-labs/caelis/releases/download/' + manifest['version'] + '/' + target['artifact'],
                             '--output', download.name], check=True)
             if hashlib.sha256(pathlib.Path(download.name).read_bytes()).hexdigest() != target['sha256']:
@@ -88,8 +87,10 @@ def stage_windows(bundle):
         with tempfile.TemporaryDirectory(dir=cache) as directory:
             downloaded = pathlib.Path(directory) / 'download.tar.gz'
             url = 'https://github.com/caelis-labs/caelis/releases/download/' + manifest['version'] + '/' + target['artifact']
-            with urllib.request.urlopen(url, timeout=180) as response, downloaded.open('wb') as out:
-                shutil.copyfileobj(response, out)
+            subprocess.run(['node', str(ROOT / 'script/release-network.mjs'),
+                            'curl.exe' if sys.platform == 'win32' else 'curl',
+                            '--fail', '--silent', '--show-error', '--location',
+                            '--max-time', '180', url, '--output', str(downloaded)], check=True)
             if hashlib.sha256(downloaded.read_bytes()).hexdigest() != target['sha256']:
                 raise ValueError('Caelis archive checksum mismatch')
             downloaded.replace(archive)

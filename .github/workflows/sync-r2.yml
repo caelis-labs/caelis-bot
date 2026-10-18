@@ -3,19 +3,39 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact published macOS arm64 tag to reconcile
+        description: Exact published tag to reconcile
         required: true
         type: string
+      platform:
+        description: Platform to reconcile
+        type: choice
+        options: [macos, windows]
+        default: macos
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      platform:
+        required: true
+        type: string
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_ENDPOINT:
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: caelis-bot-r2-macos-arm64-stable
+  group: caelis-bot-r2-${{ inputs.platform }}
   cancel-in-progress: false
 jobs:
   sync:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    environment: macos-release
+    environment: ${{ inputs.platform == 'windows' && 'windows-release' || 'macos-release' }}
     timeout-minutes: 20
     outputs:
       current: ${{ steps.r2.outputs.current }}
@@ -26,18 +46,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - name: Download this platform's published signed update
+      - name: Download exact published platform assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_PLATFORM: ${{ inputs.platform }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          tag="$RELEASE_TAG"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
-          echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          gh release download "$tag" --dir release --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
+          echo "BOT_RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          node script/download-release.mjs "$RELEASE_PLATFORM" "$RELEASE_TAG" release
       - name: Verify signatures and synchronize R2
         id: r2
         env:
@@ -50,13 +68,18 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: caelis-releases
+          AWS_RETRY_MODE: standard
+          AWS_MAX_ATTEMPTS: 6
+          RELEASE_PLATFORM: ${{ inputs.platform }}
         run: |
-          result=$(node script/publish-r2.mjs release)
+          publisher=script/publish-r2.mjs
+          if [[ "$RELEASE_PLATFORM" == windows ]]; then publisher=script/windows-publish-r2.mjs; fi
+          result=$(node "$publisher" release)
           echo "$result"
           if [[ "$result" == Published* ]]; then echo 'current=true' >> "$GITHUB_OUTPUT"; fi
   latest:
     needs: sync
-    if: needs.sync.outputs.current == 'true'
+    if: inputs.platform == 'macos' && needs.sync.outputs.current == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

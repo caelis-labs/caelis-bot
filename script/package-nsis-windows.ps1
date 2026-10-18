@@ -1,7 +1,7 @@
 param(
   [switch]$SkipBuild,
   [switch]$ReplaceLocalDraft,
-  [ValidateSet('development','preview')][string]$Channel='preview',
+  [ValidateSet('development','preview','stable')][string]$Channel='preview',
   [string]$ApplicationDirectory='',
   [ValidateRange(0,65535)][int]$PackageRevision=1
 )
@@ -18,8 +18,8 @@ if ($env:BOT_RELEASE_TAG) {
   $currentSource=& git -c "safe.directory=$taskBotGitRoot" rev-parse HEAD
   if ($LASTEXITCODE -ne 0 -or $currentSource -ne $tagSource -or (& git -c "safe.directory=$taskBotGitRoot" status --porcelain)) {throw 'Tagged packaging requires the clean tagged checkout'}
 }
-$name=if($build.identity -eq 'windows-preview') {'Caelis Bot Preview'} else {'Caelis Bot Dev'}
-$identity=if($build.identity -eq 'windows-preview') {'dev.caelis.bot.preview'} else {'dev.caelis.bot.dev'}
+$name=if($build.identity -eq 'release') {'Caelis Bot'} elseif($build.identity -eq 'windows-preview') {'Caelis Bot Preview'} else {'Caelis Bot Dev'}
+$identity=if($build.identity -eq 'release') {'dev.caelis.bot'} elseif($build.identity -eq 'windows-preview') {'dev.caelis.bot.preview'} else {'dev.caelis.bot.dev'}
 $releaseDir=Join-Path $taskBotRoot 'dist/releases'
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 $suffix=if($env:BOT_RELEASE_TAG) {"-$Channel"} else {"-$Channel-local"}
@@ -42,10 +42,10 @@ try {
   Invoke-BotCommand node script/windows-installer.mjs $app $work $options
   Invoke-BotCommand $taskMakeNSIS /INPUTCHARSET UTF8 /V2 (Join-Path $work 'installer.nsi')
   $signature=Get-AuthenticodeSignature -LiteralPath $package
-  if ($signature.Status -ne 'NotSigned') { throw 'Unsigned preview policy requires an unsigned installer' }
+  if ($signature.Status -ne 'NotSigned') { throw 'Unsigned package policy requires an unsigned installer' }
   $hash=(Get-FileHash -Algorithm SHA256 -LiteralPath $package).Hash.ToLowerInvariant()
   "$hash  $([IO.Path]::GetFileName($package))" | Set-Content -LiteralPath "$package.sha256" -Encoding utf8NoBOM
-  @{schema=1;version=$build.version;packageVersion="$($build.version.Split('-')[0]).$PackageRevision";source=$build.source;dirty=$build.dirty;channel=$Channel;platform='windows-amd64';format='nsis';sha256=$hash;signed=$false;signingPolicy='unsigned-preview';compiler=$taskNSISPin;qualified=$false} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$package.build.json" -Encoding utf8NoBOM
+  @{schema=1;version=$build.version;packageVersion="$($build.version.Split('-')[0]).$PackageRevision";source=$build.source;dirty=$build.dirty;channel=$Channel;platform='windows-amd64';format='nsis';sha256=$hash;signed=$false;signingPolicy="unsigned-$Channel";compiler=$taskNSISPin;qualified=$false} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$package.build.json" -Encoding utf8NoBOM
   Write-Output "Packaged $package (unsigned; native/install acceptance is separate)"
 } finally {
   $env:NSISDIR=$previousNSIS

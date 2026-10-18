@@ -1,4 +1,4 @@
-param([string]$OutputDirectory='',[ValidateSet('development','preview')][string]$Channel='development',[ValidateRange(1,65535)][int]$PreviewRevision=1)
+param([string]$OutputDirectory='',[ValidateSet('development','preview','stable')][string]$Channel='development',[ValidateRange(1,65535)][int]$PreviewRevision=1)
 . "$PSScriptRoot/windows-env.ps1"
 # Native and installer qualification are separate from compiling either channel.
 Invoke-BotCommand node script/asset-pack.mjs verify
@@ -16,7 +16,7 @@ if($env:BOT_RELEASE_TAG) {
 $taskDestination = if($OutputDirectory) {[IO.Path]::GetFullPath($OutputDirectory)} else {Join-Path $taskBotRoot "dist/windows-$Channel"}
 $taskDistPrefix = [IO.Path]::GetFullPath((Join-Path $taskBotRoot 'dist'))+[IO.Path]::DirectorySeparatorChar
 if(-not $taskDestination.StartsWith($taskDistPrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Build output must stay inside workspace dist'}
-if($Channel -eq 'preview' -and (Test-Path -LiteralPath $taskDestination)){throw 'Preview output must be fresh; choose a new OutputDirectory to avoid packaging stale files'}
+if($Channel -ne 'development' -and (Test-Path -LiteralPath $taskDestination)){throw 'Preview output must be fresh; choose a new OutputDirectory to avoid packaging stale files'}
 New-Item -ItemType Directory -Force -Path $taskDestination | Out-Null
 $taskResource = Join-Path $taskBotRoot 'rsrc_windows_amd64.syso'
 if(Test-Path -LiteralPath $taskResource) {throw 'Existing Windows resource object; preserve before rebuilding'}

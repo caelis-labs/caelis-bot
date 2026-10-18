@@ -69,6 +69,26 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestInstalledChannelsKeepSeparateOwnership(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("LOCALAPPDATA", root)
+	for id, name := range map[string]string{"dev.caelis.bot": "Caelis Bot", "dev.caelis.bot.preview": "Caelis Bot Preview", "dev.caelis.bot.dev": "Caelis Bot Dev"} {
+		target := filepath.Join(root, "Programs", name)
+		if err := os.MkdirAll(target, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target, "installation.ini"), []byte("[CaelisBot]\nIdentity="+id+"\nVersion=1.2.3\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if format, err := Installation(target, id); err != nil || format != "nsis" {
+			t.Fatalf("%s: format=%s error=%v", id, format, err)
+		}
+		if _, err := Installation(target, "dev.caelis.bot.unowned"); err == nil {
+			t.Fatal("foreign installation accepted")
+		}
+	}
+}
+
 func TestNativeWindowsUpdateHandoffReplacementRelaunchAndLiveImageRefusal(t *testing.T) {
 	for _, scenario := range []struct{ inUse, uncommitted bool }{{false, false}, {true, false}, {false, true}} {
 		t.Run(fmt.Sprintf("imageInUse=%v/uncommitted=%v", scenario.inUse, scenario.uncommitted), func(t *testing.T) {

@@ -1,4 +1,4 @@
-param([switch]$SkipBuild,[switch]$ReplaceLocalDraft,[ValidateSet('development','preview')][string]$Channel='preview',[string]$ApplicationDirectory='')
+param([switch]$SkipBuild,[switch]$ReplaceLocalDraft,[ValidateSet('development','preview','stable')][string]$Channel='preview',[string]$ApplicationDirectory='')
 . "$PSScriptRoot/windows-env.ps1"
 if(-not $SkipBuild){& "$PSScriptRoot/build-windows.ps1" -Channel $Channel -OutputDirectory $ApplicationDirectory}
 $taskApp=if($ApplicationDirectory){[IO.Path]::GetFullPath($ApplicationDirectory)}else{Join-Path $taskBotRoot "dist/windows-$Channel"}
@@ -13,11 +13,11 @@ if(Test-Path -LiteralPath $taskPackage){if($env:BOT_RELEASE_TAG -or -not $Replac
 $taskWork=Join-Path $taskBotRoot ('.cache/zip-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $taskWork|Out-Null
 try{
  Copy-Item -Path (Join-Path $taskApp '*') -Destination $taskWork -Recurse
- $taskIdentity=if($taskBuild.identity -eq 'windows-preview'){'dev.caelis.bot.preview'}else{'dev.caelis.bot.dev'}
+ $taskIdentity=if($taskBuild.identity -eq 'release'){'dev.caelis.bot'}elseif($taskBuild.identity -eq 'windows-preview'){'dev.caelis.bot.preview'}else{'dev.caelis.bot.dev'}
  Invoke-BotCommand node script/windows-portable.mjs $taskWork $taskIdentity $taskBuild.version $taskPackage
  $taskHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $taskPackage).Hash.ToLowerInvariant()
  "$taskHash  $([IO.Path]::GetFileName($taskPackage))"|Set-Content -LiteralPath "$taskPackage.sha256" -Encoding utf8NoBOM
- @{schema=1;version=$taskBuild.version;source=$taskBuild.source;dirty=$taskBuild.dirty;channel=$Channel;platform='windows-amd64';format='zip';sha256=$taskHash;signed=$false;signingPolicy='unsigned-preview';qualified=$false}|ConvertTo-Json|Set-Content -LiteralPath "$taskPackage.build.json" -Encoding utf8NoBOM
+ @{schema=1;version=$taskBuild.version;source=$taskBuild.source;dirty=$taskBuild.dirty;channel=$Channel;platform='windows-amd64';format='zip';sha256=$taskHash;signed=$false;signingPolicy="unsigned-$Channel";qualified=$false}|ConvertTo-Json|Set-Content -LiteralPath "$taskPackage.build.json" -Encoding utf8NoBOM
  Write-Output "Packaged $taskPackage (native/update acceptance is separate)"
 }finally{
  $taskResolved=[IO.Path]::GetFullPath($taskWork);$taskAllowed=[IO.Path]::GetFullPath((Join-Path $taskBotRoot '.cache'))+[IO.Path]::DirectorySeparatorChar

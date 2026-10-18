@@ -14,7 +14,9 @@ function Download-Pinned([string]$Name, [string]$Expected) {
   $path = Join-Path $cache $Name
   if (-not (Test-Path -LiteralPath $path)) {
     $partial = "$path.partial"
-    Invoke-WebRequest -Uri "https://github.com/caelis-labs/desktop-world/releases/download/$($pin.version)/$Name" -OutFile $partial
+    & node (Join-Path $PSScriptRoot 'release-network.mjs') curl.exe --fail --silent --show-error --location "https://github.com/caelis-labs/desktop-world/releases/download/$($pin.version)/$Name" --output $partial
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop World download failed' }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash.ToLowerInvariant() -ne $Expected) { throw "Desktop World checksum mismatch: $Name" }
     Move-Item -LiteralPath $partial -Destination $path -Force
   }
   if ((Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant() -ne $Expected) {

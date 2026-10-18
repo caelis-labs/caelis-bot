@@ -18,3 +18,10 @@ test('untagged previews use local version, Dev identity and no release updates',
  assert.equal(release.identity,'windows-preview');assert.equal(release.releaseUpdates,true);
  assert.notEqual(local.version,release.version);
 });
+
+
+test('stable builds use the product tag and installed identity; local stable candidates stay Dev',()=>{
+ assert.deepEqual(windowsVersion('1.2.3','stable','v1.2.3'),{version:'1.2.3',channel:'stable',identity:'release',releaseUpdates:true});
+ assert.deepEqual(windowsVersion('1.2.3','stable'),{version:'1.2.3-local',channel:'stable',identity:'development',releaseUpdates:false});
+ for(const tag of ['v1.2.4','v1.2.3-windows.preview.1'])assert.throws(()=>windowsVersion('1.2.3','stable',tag));
+});

@@ -179,6 +179,10 @@ jobs:
           node script/verify-desktop-world-version.mjs (Join-Path $package 'bin/dtw.exe')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   windows-preview:
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [preview, stable]
     needs: scope
     if: needs.scope.outputs.windowsPreview == 'true'
     runs-on: windows-2025
@@ -198,17 +202,19 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: npm ci
-      - name: Build and verify isolated local preview EXE, Setup and ZIP
+      - name: Build and verify isolated channel EXE, Setup and ZIP
+        env:
+          WINDOWS_CHANNEL: ${{ matrix.channel }}
         shell: pwsh
         run: |
-          ./script/build-windows.ps1 -Channel preview
-          ./script/package-nsis-windows.ps1 -SkipBuild -Channel preview
-          ./script/package-zip-windows.ps1 -SkipBuild -Channel preview
-          node script/verify-windows-candidate.mjs dist/windows-preview dist/releases
+          ./script/build-windows.ps1 -Channel $env:WINDOWS_CHANNEL
+          ./script/package-nsis-windows.ps1 -SkipBuild -Channel $env:WINDOWS_CHANNEL
+          ./script/package-zip-windows.ps1 -SkipBuild -Channel $env:WINDOWS_CHANNEL
+          node script/verify-windows-candidate.mjs "dist/windows-$env:WINDOWS_CHANNEL" dist/releases
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-local-preview
+          name: windows-local-${{ matrix.channel }}
           path: dist/releases/*
           if-no-files-found: error
           retention-days: 7

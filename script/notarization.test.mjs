@@ -33,11 +33,11 @@ for (const command of ['staple', 'validate']) {
   });
 }
 
-test('persistent temporary ticket errors stop after three attempts and retain the exit code', async () => {
-  const result = await ticketSequence(Array(3).fill(networkFailure));
+test('persistent temporary ticket errors stop after five attempts and retain the exit code', async () => {
+  const result = await ticketSequence(Array(5).fill(networkFailure));
   assert.equal(result.status, 68);
-  assert.equal(result.calls.length, 3);
-  assert.deepEqual(result.waits, [5000, 15000]);
+  assert.equal(result.calls.length, 5);
+  assert.deepEqual(result.waits, [5000, 15000, 30000, 60000]);
 });
 
 for (const code of [-1001, -1004]) {

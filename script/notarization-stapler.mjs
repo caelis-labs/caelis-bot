@@ -1,3 +1,4 @@
+import {networkDelays} from './release-network.mjs';
 import {spawnSync} from 'node:child_process';
 import {setTimeout} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +13,7 @@ export function transientTicketError(status, output) {
 
 export async function staple(command, artifact, {run = spawnSync, wait = setTimeout, log = text => process.stderr.write(text)} = {}) {
   if (!['staple', 'validate'].includes(command) || !artifact) throw new Error('Expected staple|validate and one artifact path');
-  const delays = [5000, 15000];
+  const delays = networkDelays;
   for (let attempt = 0; ; attempt++) {
     const result = run('xcrun', ['stapler', command, artifact], {encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024});
     const output = (result.stdout ?? '') + (result.stderr ?? '');

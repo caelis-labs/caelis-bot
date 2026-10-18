@@ -232,7 +232,7 @@ jobs:
     environment: macos-release
     timeout-minutes: 20
     concurrency:
-      group: caelis-bot-r2-macos-arm64-stable
+      group: caelis-bot-r2-macos
       cancel-in-progress: false
     permissions:
       contents: read
@@ -260,6 +260,8 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: caelis-releases
+          AWS_RETRY_MODE: standard
+          AWS_MAX_ATTEMPTS: 6
         run: node script/publish-r2.mjs release
   latest:
     needs: [build, package, publish, r2]

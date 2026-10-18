@@ -5,7 +5,7 @@ $archive = "$cache.nupkg"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $cache) | Out-Null
 if (-not (Test-Path -LiteralPath $archive)) {
   $id = $pin.package.ToLowerInvariant()
-  Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$id/$($pin.version)/$id.$($pin.version).nupkg" -OutFile "$archive.partial"
+  Invoke-BotCommand node (Join-Path $PSScriptRoot 'release-network.mjs') curl.exe --fail --silent --show-error --location "https://api.nuget.org/v3-flatcontainer/$id/$($pin.version)/$id.$($pin.version).nupkg" --output "$archive.partial"
   if ((Get-FileHash -LiteralPath "$archive.partial" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.sha256) { throw 'Windows SDK archive checksum mismatch' }
   Move-Item -LiteralPath "$archive.partial" -Destination $archive
 }

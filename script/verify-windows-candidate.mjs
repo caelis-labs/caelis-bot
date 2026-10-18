@@ -12,6 +12,6 @@ for(const [format,suffix] of [['nsis','-Setup.exe'],['zip','.zip']]){
  const files=readdirSync(releases).filter(file=>file.endsWith(suffix));
  if(files.length!==1)throw Error('Expected exactly one candidate per format');
  const file=join(releases,files[0]),meta=read(file+'.build.json');
- if(meta.version!==build.version||meta.source!==build.source||meta.format!==format||meta.channel!=='preview'||meta.qualified!==false||meta.signed!==false||meta.sha256!==hash(file)||statSync(file).size===0)throw Error('Candidate package identity mismatch');
+ if(meta.version!==build.version||meta.source!==build.source||meta.format!==format||meta.channel!==build.channel||meta.qualified!==false||meta.signed!==false||meta.sha256!==hash(file)||statSync(file).size===0)throw Error('Candidate package identity mismatch');
 }
-console.log('Local preview EXE and exact Setup/ZIP receipts verified; GUI acceptance remains separate.');
+console.log('Local channel EXE and exact Setup/ZIP receipts verified; GUI acceptance remains separate.');

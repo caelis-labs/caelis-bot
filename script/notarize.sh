@@ -14,6 +14,7 @@ receipt="$BOT_NOTARY_REPORTS/$label-submission.json"
 result="$BOT_NOTARY_REPORTS/$label.json"
 digest_file="$BOT_NOTARY_REPORTS/$label.sha256"
 digest=$(shasum -a 256 "$artifact" | cut -d ' ' -f 1)
+network="$(dirname "$0")/release-network.mjs"
 auth=(--keychain-profile caelis-release --keychain "$BOT_SIGN_KEYCHAIN")
 
 if [[ -f "$receipt" ]]; then
@@ -30,7 +31,7 @@ cat "$receipt"
 submission=$(node -pe 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).id' "$receipt")
 [[ "$submission" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]]
 read_status() {
-  xcrun notarytool info "$submission" "${auth[@]}" --output-format json > "$result"
+  node "$network" xcrun notarytool info "$submission" "${auth[@]}" --output-format json > "$result"
   status=$(node -pe 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).status' "$result")
 }
 read_status
@@ -43,7 +44,7 @@ fi
 cat "$result"
 case "$status" in
   Accepted)
-    xcrun notarytool log "$submission" "${auth[@]}" "$BOT_NOTARY_REPORTS/$label-log.json"
+    node "$network" xcrun notarytool log "$submission" "${auth[@]}" "$BOT_NOTARY_REPORTS/$label-log.json"
     cat "$BOT_NOTARY_REPORTS/$label-log.json"
     node -e 'const fs=require("node:fs"),assert=require("node:assert/strict");
       const log=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
@@ -56,7 +57,7 @@ case "$status" in
     exit 75
     ;;
   Invalid|Rejected)
-    xcrun notarytool log "$submission" "${auth[@]}" "$BOT_NOTARY_REPORTS/$label-log.json"
+    node "$network" xcrun notarytool log "$submission" "${auth[@]}" "$BOT_NOTARY_REPORTS/$label-log.json"
     cat "$BOT_NOTARY_REPORTS/$label-log.json"
     echo "Apple rejected $label: $status" >&2
     exit 1

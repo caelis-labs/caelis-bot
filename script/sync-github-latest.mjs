@@ -1,10 +1,10 @@
-import {execFileSync} from 'node:child_process';
+import {releaseCommand} from './release-network.mjs';
 import {pathToFileURL} from 'node:url';
 import {compareStable} from './publish-r2.mjs';
 import {validateTag} from './release-version.mjs';
 
 const repository = 'caelis-labs/caelis-bot';
-export function syncLatest(tag, run = (cmd, args) => execFileSync(cmd, args, {encoding:'utf8', stdio:['ignore','pipe','pipe']})) {
+export function syncLatest(tag, run = (cmd, args) => releaseCommand(cmd, args, {encoding:'utf8', stdio:['ignore','pipe','pipe']})) {
   validateTag(tag);
   const release = JSON.parse(run('gh', ['api', `repos/${repository}/releases/tags/${tag}`]));
   if (release.tag_name !== tag || release.draft || release.prerelease ||
