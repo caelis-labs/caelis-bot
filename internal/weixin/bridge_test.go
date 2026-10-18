@@ -711,11 +711,16 @@ func TestQRVerificationReachesLocalConfirmation(t *testing.T) {
 	}
 }
 
-// Existing delivery-policy fixtures model native engine snapshots. Use the real
-// service boundary to attach their scoped input evidence before channel routing.
+// Existing delivery-policy fixtures explicitly model a single native owner.
+// Adapter handoff/history provenance is exercised by the adapter integration tests.
 func nativeInputSnapshot(snapshot api.Snapshot) api.Snapshot {
 	if snapshot.RuntimeOwner == "" {
 		snapshot.RuntimeOwner = "fixture-runtime"
+	}
+	for _, item := range snapshot.Items {
+		if item.Kind == "user" && item.TurnKey != "" && item.RequestID != "" {
+			snapshot.InputSources = append(snapshot.InputSources, api.InputSource{RuntimeOwner: snapshot.RuntimeOwner, TurnKey: item.TurnKey, RequestID: item.RequestID})
+		}
 	}
 	return backend.NewService(inputSnapshotEngine{value: snapshot}, nil, nil, nil, nil).Snapshot()
 }

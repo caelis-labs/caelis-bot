@@ -70,7 +70,7 @@ func TestMessageWebLinkSurvivesHistoryProjection(t *testing.T) {
 	s := &Session{opts: SessionOptions{Directory: dir}}
 	s.resetProjection()
 	text := "[网站](https://example.com/help) and [结果](result.txt)"
-	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: text}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: text}, true)
 	got := s.state.Items[0]
 	if got.Text != "[网站](https://example.com/help) and 结果" || len(got.Artifacts) != 1 || got.Artifacts[0].Name != "result.txt" {
 		t.Fatal("web link became a local result", got)
@@ -80,7 +80,7 @@ func TestMessageWebLinkSurvivesHistoryProjection(t *testing.T) {
 func TestMissingLinkedFileIsNotPresentedAsArtifact(t *testing.T) {
 	s := &Session{opts: SessionOptions{Directory: t.TempDir()}}
 	s.resetProjection()
-	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "See [missing](missing.txt)"}, true)
+	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "See [missing](missing.txt)"}, true)
 	got := s.state.Items[0]
 	if got.Text != "See missing" || len(got.Artifacts) != 0 {
 		t.Fatal(got)

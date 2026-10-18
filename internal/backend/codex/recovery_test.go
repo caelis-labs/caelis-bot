@@ -34,7 +34,7 @@ func TestExpiredAuthenticationUsesNativeCodeAndPreservesBinding(t *testing.T) {
 	s := NewSession(SessionOptions{StateFile: filepath.Join(t.TempDir(), "binding.json")})
 	s.binding.ThreadID = "root"
 	s.state.Connection = "ready"
-	s.applyTurn(nativeTurn{ID: "turn", Status: "failed", Error: &turnError{Message: "synthetic", Info: raw("unauthorized")}}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "turn", Status: "failed", Error: &turnError{Message: "synthetic", Info: raw("unauthorized")}}, false)
 	s.update()
 	if v := s.Snapshot(); v.Connection != "login" || v.CanSend || s.binding.ThreadID != "root" {
 		t.Fatal("authentication recovery lost identity or enabled dispatch")

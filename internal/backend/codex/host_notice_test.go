@@ -42,13 +42,13 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndHistory(t *testing.T) {
 		t.Fatal("report association did not survive restart", got.ReportSources)
 	}
 	restored.state.Connection = "ready"
-	restored.applyTurn(turn, true)
+	restored.applyTurn(restored.binding.ThreadID, turn, true)
 	restored.update()
 	got = restored.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" {
 		t.Fatal("history replay leaked host input", got.Items)
 	}
-	restored.applyTurn(nativeTurn{ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-same-text", Content: []nativeInput{{Type: "text", Text: notice}}}}}, true)
+	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-same-text", Content: []nativeInput{{Type: "text", Text: notice}}}}}, true)
 	restored.update()
 	got = restored.Snapshot()
 	if len(got.Items) != 2 || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
@@ -74,7 +74,7 @@ func TestHostReportBindingUsesAcceptedTargetBeforeInputEcho(t *testing.T) {
 		t.Fatal("accepted target missing without input echo")
 	}
 	restored := NewSession(s.opts)
-	restored.applyTurn(nativeTurn{ID: "report-turn", Status: "completed", Items: []nativeItem{{ID: "reply", Type: "agentMessage", Text: "result"}}}, true)
+	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "report-turn", Status: "completed", Items: []nativeItem{{ID: "reply", Type: "agentMessage", Text: "result"}}}, true)
 	restored.update()
 	if got := restored.Snapshot(); len(got.ReportSources) != 1 || got.ReportSources[0].Phase != "completed" {
 		t.Fatal("summary-only recovery lost terminal source")
@@ -124,7 +124,7 @@ func TestOldProductTaskLedgerImportsExactHostReportID(t *testing.T) {
 		t.Fatal("migration was not durable")
 	}
 	restarted.state.Connection = "ready"
-	restarted.applyTurn(nativeTurn{ID: "old-report-turn", Status: "completed", Items: []nativeItem{{ID: "notice", Type: "userMessage", ClientID: reportID, Content: []nativeInput{{Type: "text", Text: notice}}}, {ID: "answer", Type: "agentMessage", Text: "Useful result"}}}, true)
+	restarted.applyTurn(restarted.binding.ThreadID, nativeTurn{ID: "old-report-turn", Status: "completed", Items: []nativeItem{{ID: "notice", Type: "userMessage", ClientID: reportID, Content: []nativeInput{{Type: "text", Text: notice}}}, {ID: "answer", Type: "agentMessage", Text: "Useful result"}}}, true)
 	restarted.update()
 	got := restarted.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "Useful result" {
@@ -137,8 +137,8 @@ func TestHostReportIsHiddenInRecentHumanSummary(t *testing.T) {
 	const notice = "Task task-42 is completed."
 	s.mu.Lock()
 	s.binding.HostReports["host-report-42"] = true
-	s.applyTurn(nativeTurn{ID: "older-turn", Status: "completed", Items: []nativeItem{{ID: "host", Type: "userMessage", ClientID: "host-report-42", Content: []nativeInput{{Type: "text", Text: notice}}}, {ID: "answer", Type: "agentMessage", Text: "Reported result"}}}, true)
-	s.applyTurn(nativeTurn{ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-request", Content: []nativeInput{{Type: "text", Text: notice}}}}}, true)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "older-turn", Status: "completed", Items: []nativeItem{{ID: "host", Type: "userMessage", ClientID: "host-report-42", Content: []nativeInput{{Type: "text", Text: notice}}}, {ID: "answer", Type: "agentMessage", Text: "Reported result"}}}, true)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-request", Content: []nativeInput{{Type: "text", Text: notice}}}}}, true)
 	s.update()
 	s.mu.Unlock()
 	got := s.Snapshot()

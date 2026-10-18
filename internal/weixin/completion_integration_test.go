@@ -213,10 +213,12 @@ func awaitCompletionSnapshot(t *testing.T, s *codex.Session, match func(api.Snap
 }
 
 type completionRuntime struct {
-	path string
-	mu   sync.Mutex
-	ws   *websocket.Conn
-	turn map[string]any
+	path   string
+	mu     sync.Mutex
+	ws     *websocket.Conn
+	turn   map[string]any
+	thread string
+	starts int
 }
 
 func newCompletionRuntime(t *testing.T) *completionRuntime {
@@ -227,7 +229,7 @@ func newCompletionRuntime(t *testing.T) *completionRuntime {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
-	f := &completionRuntime{path: filepath.Join(dir, "s.sock")}
+	f := &completionRuntime{path: filepath.Join(dir, "s.sock"), thread: "fixture-thread"}
 	l, err := net.Listen("unix", f.path)
 	if err != nil {
 		t.Fatal(err)
@@ -251,6 +253,7 @@ func newCompletionRuntime(t *testing.T) *completionRuntime {
 				Method string          `json:"method"`
 				Params struct {
 					ClientID string `json:"clientUserMessageId"`
+					ThreadID string `json:"threadId"`
 				} `json:"params"`
 			}
 			if json.Unmarshal(data, &req) != nil {
@@ -267,8 +270,15 @@ func newCompletionRuntime(t *testing.T) *completionRuntime {
 			case "account/read":
 				result["requiresOpenaiAuth"] = true
 				result["account"] = map[string]string{"type": "apiKey"}
-			case "thread/start", "thread/resume", "thread/read":
-				result["thread"] = map[string]any{"id": "fixture-thread", "turns": []any{}}
+			case "thread/start":
+				if f.starts > 0 {
+					f.thread += "-next"
+				}
+				f.starts++
+				f.turn = nil
+				result["thread"] = map[string]any{"id": f.thread, "turns": []any{}}
+			case "thread/resume", "thread/read":
+				result["thread"] = map[string]any{"id": req.Params.ThreadID, "turns": []any{}}
 			case "thread/turns/list":
 				result["data"] = []any{}
 				if f.turn != nil {
@@ -301,7 +311,7 @@ func (f *completionRuntime) comment(t *testing.T, turn, body string) {
 	f.mu.Lock()
 	item := map[string]any{"id": "comment", "type": "agentMessage", "text": body, "phase": "commentary"}
 	f.turn["items"] = append(f.turn["items"].([]any), item)
-	data, _ := json.Marshal(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": "fixture-thread", "turnId": turn, "item": item}})
+	data, _ := json.Marshal(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": f.thread, "turnId": turn, "item": item}})
 	ws := f.ws
 	f.mu.Unlock()
 	if err := ws.Write(t.Context(), websocket.MessageText, data); err != nil {
@@ -314,10 +324,101 @@ func (f *completionRuntime) complete(t *testing.T, turn, body string) {
 	f.mu.Lock()
 	f.turn["items"] = append(f.turn["items"].([]any), map[string]any{"id": "final", "type": "agentMessage", "text": body, "phase": "final_answer"})
 	f.turn["status"] = "completed"
-	data, _ := json.Marshal(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "fixture-thread", "turn": f.turn}})
+	data, _ := json.Marshal(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": f.thread, "turn": f.turn}})
 	ws := f.ws
 	f.mu.Unlock()
 	if err := ws.Write(t.Context(), websocket.MessageText, data); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Accepted ingress without a previously observed turn owner must not inherit
+// the next thread's scope through retained native history and a task card.
+func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
+	f := newCompletionRuntime(t)
+	root := t.TempDir()
+	s := codex.NewSession(codex.SessionOptions{Socket: f.path, RequiredSocket: true, Binary: "/fixture/no-cli", Directory: filepath.Join(root, "work"), StateFile: filepath.Join(root, "binding.json")})
+	if err := s.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service := backend.NewService(s, nil, nil, nil, nil)
+	service.ConfigureChat(filepath.Join(root, "chat.sqlite"))
+	t.Cleanup(func() { _ = service.Shutdown() })
+	host := Host{Snapshot: service.Snapshot, Submit: s.Submit, Recovery: func() api.RecoveryState { return api.RecoveryState{} }, TaskForReport: func(id string) string {
+		if id == "completion-report" {
+			return "task-original"
+		}
+		return ""
+	}}
+	b, err := Open(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID = "fixture-peer"
+	b.state.Window = sendWindow{OwnerID: "fixture-peer", InputID: "old-wx-request", ContextToken: "fixture-context", InputAt: time.Now().UnixMilli()}
+	b.state.Inbox = []inbound{{ID: "old-wx-request", Text: "Fixture old work", ContextToken: "fixture-context"}}
+	b.dispatch(t.Context())
+	original := s.Snapshot()
+	service.ObserveChat(original)
+	service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task-original", Kind: "assistant", Status: "completed", TurnKey: original.CurrentTurn, Text: "Fixture task", Task: &api.TaskPresentation{ID: "task-original", Title: "Fixture task"}}}})
+	f.complete(t, "old-wx-request", "Old result")
+	service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
+	if receipt, err := s.SubmitDream(t.Context(), api.Submission{ID: "renewal-dream", Text: "Fixture maintenance"}); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	f.complete(t, "renewal-dream", "Fixture maintenance result")
+	awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+	if err := s.RenewConversation(t.Context(), "renewal-dream", s.ConversationState().Session); err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := s.SubmitReport(t.Context(), api.Submission{ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	f.complete(t, "completion-report", "Wrong-scope completion")
+	service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
+	assembled := service.Snapshot()
+	assertHiddenCompletion(t, assembled)
+	if assembled.RuntimeOwner == original.RuntimeOwner {
+		t.Fatal("fixture did not renew")
+	}
+	if len(assembled.InputSources) != 1 || assembled.InputSources[0].RuntimeOwner != original.RuntimeOwner {
+		t.Fatal("retained native input lost original scope")
+	}
+	if b.state.Inputs["old-wx-request"] != "accepted" || len(b.state.TurnOwners) != 0 {
+		t.Fatal("fixture must start with accepted input and no observed turn scope")
+	}
+	if err := b.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	b, err = Open(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	for range 3 {
+		b.output(t.Context(), p)
+	}
+	if len(*texts) != 0 || len(b.state.Outputs) != 0 || len(b.state.TurnOwners) != 0 {
+		t.Fatal("retained prior-thread input authorized completion")
+	}
+	// A genuinely new input in the new native thread still establishes its own
+	// source and delivers once, even alongside all the refused historical items.
+	b.state.Window = sendWindow{OwnerID: "fixture-peer", InputID: "new-wx-request", ContextToken: "fixture-context", InputAt: time.Now().UnixMilli()}
+	b.state.Inbox = []inbound{{ID: "new-wx-request", Text: "Fixture new work", ContextToken: "fixture-context"}}
+	b.dispatch(t.Context())
+	f.complete(t, "new-wx-request", "New request result")
+	service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
+	for range 3 {
+		b.output(t.Context(), p)
+	}
+	b, err = Open(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.output(t.Context(), p)
+	if len(*texts) != 1 || (*texts)[0] != "New request result" || b.state.TurnOwners[original.CurrentTurn] != "" {
+		t.Fatal("new input failed or historical output replayed", *texts)
 	}
 }

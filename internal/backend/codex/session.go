@@ -158,6 +158,7 @@ type Session struct {
 	runs                   map[string]string
 	items                  map[string]int
 	nativeItems            map[string]nativeItem
+	inputSources           map[string]api.InputSource
 	reviewOrigins          map[string]reviewOrigin
 	prompts                map[string]*prompt
 	promptHandles          map[string]string
@@ -292,6 +293,7 @@ func (s *Session) resetProjection() {
 	s.runs = map[string]string{}
 	s.items = map[string]int{}
 	s.nativeItems = map[string]nativeItem{}
+	s.inputSources = map[string]api.InputSource{}
 	s.prompts = map[string]*prompt{}
 	s.promptHandles = map[string]string{}
 	s.refs = map[string]nativeReference{}
@@ -348,6 +350,7 @@ func (s *Session) update() {
 		for _, item := range s.state.Items[:drop] {
 			delete(s.items, item.ID)
 			delete(s.nativeItems, item.ID)
+			delete(s.inputSources, item.ID)
 		}
 		s.state.Items = slices.Clone(s.state.Items[drop:])
 		for n, item := range s.state.Items {
@@ -420,6 +423,11 @@ func (s *Session) publishSnapshot() {
 	}
 	out = s.presentScheduled(out)
 	out.ReportSources = s.reportSources()
+	for _, item := range out.Items {
+		if source, ok := s.inputSources[item.ID]; ok && item.Kind == "user" && source.RuntimeOwner != "" && source.RequestID == item.RequestID && source.TurnKey == item.TurnKey {
+			out.InputSources = append(out.InputSources, source)
+		}
+	}
 	s.cached.Store(&out)
 	composer := s.composerLocked()
 	s.cachedComposer.Store(&composer)
@@ -436,6 +444,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		var out api.Snapshot
 		_ = json.Unmarshal(b, &out)
 		out.RuntimeOwner = snapshot.RuntimeOwner
+		out.InputSources = append([]api.InputSource(nil), snapshot.InputSources...)
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Items {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
@@ -551,7 +560,7 @@ func (s *Session) connect(ctx context.Context) error {
 		s.mu.Lock()
 		for _, turn := range thread.Turns {
 			if terminal(turn.Status) {
-				s.applyTurn(turn, true)
+				s.applyTurn(thread.ID, turn, true)
 				continue
 			}
 			if terminal(s.runs[turn.ID]) {
@@ -565,7 +574,7 @@ func (s *Session) connect(ctx context.Context) error {
 			}
 			for _, item := range turn.Items {
 				if _, exists := s.nativeItems[opaque(turn.ID, item.ID)]; !exists || item.Type == "userMessage" {
-					s.applyItem(turn.ID, item, false)
+					s.applyItem(thread.ID, turn.ID, item, false)
 				}
 			}
 		}
@@ -794,7 +803,7 @@ func (s *Session) connect(ctx context.Context) error {
 		return s.connectionError("无法保存对话绑定，暂不发送消息", err)
 	}
 	for _, turn := range response.Thread.Turns {
-		s.applyTurn(turn, true)
+		s.applyTurn(response.Thread.ID, turn, true)
 	}
 	s.state.Connection = "connecting"
 	s.state.Message = ""
@@ -1142,7 +1151,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 				s.binding.Scheduled[in.ID] = response.Turn.ID
 			}
 			s.lastTurn = response.Turn.ID
-			s.applyTurn(response.Turn, false)
+			s.applyTurn(threadID, response.Turn, false)
 		}
 		s.binding.Pending = nil
 	} else {
@@ -1646,7 +1655,7 @@ func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error
 		s.mu.Lock()
 		for _, turn := range thread.Turns {
 			if id == s.binding.ThreadID && turn.ID == s.run && terminal(turn.Status) {
-				s.applyTurn(turn, true)
+				s.applyTurn(thread.ID, turn, true)
 			} else if id != s.binding.ThreadID && terminal(turn.Status) {
 				if current, known := s.childRuns[id]; known && (current == "" || current == turn.ID) {
 					delete(s.childRuns, id)

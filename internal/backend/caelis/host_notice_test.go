@@ -33,7 +33,7 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	}
 	v := s.state.Views["main"]
 	for _, event := range events {
-		s.applyScheduledEnvelope(v, event)
+		s.applyScheduledEnvelope(v, event, inputScope{})
 	}
 	got := s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "The requested work is ready." {
@@ -70,14 +70,14 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	}
 	replay := &view{State: v.State, Seen: map[string]bool{}}
 	for _, event := range events {
-		s.applyScheduledEnvelope(replay, event)
+		s.applyScheduledEnvelope(replay, event, inputScope{})
 	}
 	s.state.Views["main"] = replay
 	got = s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "assistant" {
 		t.Fatal("canonical replay leaked host input", got.Items)
 	}
-	s.applyScheduledEnvelope(replay, wire.Envelope{EventId: pointer("human-input"), TurnId: pointer("host-turn"), InputOperationId: pointer("human-operation"), Update: &user})
+	s.applyScheduledEnvelope(replay, wire.Envelope{EventId: pointer("human-input"), TurnId: pointer("host-turn"), InputOperationId: pointer("human-operation"), Update: &user}, inputScope{})
 	got = s.Snapshot()
 	if len(got.Items) != 2 || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
 		t.Fatal("same-text user input hidden", got.Items)

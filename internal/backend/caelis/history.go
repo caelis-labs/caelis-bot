@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/url"
 	"strconv"
 	"time"
@@ -107,7 +108,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			}
 			page++
 			for _, e := range d.Events {
-				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
+				applyScopedEnvelope(projection, e, inputScope{InstanceID: instance, SessionID: sid}, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
 			}
 		case "replace_end":
 			if snapshot == "" || replaced || d.Source != "replacement" || value(d.SnapshotId) != snapshot || value(d.Page) != page || len(d.Events) != 0 {
@@ -120,7 +121,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			}
 			appended = true
 			for _, e := range d.Events {
-				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
+				applyScopedEnvelope(projection, e, inputScope{InstanceID: instance, SessionID: sid}, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
 			}
 		case "sync":
 			if snapshot != "" && !replaced || d.Source != "exact" || value(d.SnapshotId) != "" || len(d.Events) != 0 || value(d.HistoryBefore) == before {
@@ -153,6 +154,16 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 		}
 	}
 	items, reviews, liveReviews := original.Items, original.Reviews, original.LiveReviews
+	inputScopes := original.InputScopes
+	original.InputScopes = maps.Clone(inputScopes)
+	for _, item := range older {
+		if scope, ok := projection.InputScopes[item.ID]; ok {
+			if original.InputScopes == nil {
+				original.InputScopes = map[string]inputScope{}
+			}
+			original.InputScopes[item.ID] = scope
+		}
+	}
 	original.Items = append(older, original.Items...)
 	original.HistoryBefore = next
 	if len(projection.Reviews) > 0 {
@@ -180,6 +191,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	}
 	rollback := func() {
 		original.Items, original.HistoryBefore = items, before
+		original.InputScopes = inputScopes
 		original.Reviews, original.LiveReviews = reviews, liveReviews
 	}
 	// loadBinding refuses files above 64 MiB. Keep an explicit older-page load

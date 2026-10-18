@@ -21,7 +21,7 @@ func TestReviewDecisionNeverCompletesNativeTurn(t *testing.T) {
 				defer s.cancelLife()
 				s.binding.ThreadID = "root"
 				s.state.Connection = "ready"
-				s.applyTurn(nativeTurn{ID: "current", Status: "inProgress"}, false)
+				s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "current", Status: "inProgress"}, false)
 				review := func(thread, turn, value string) {
 					s.applyEvent(Notification{Method: "item/autoApprovalReview/completed", Params: raw(map[string]any{
 						"threadId": thread, "turnId": turn, "reviewId": "review", "review": map[string]string{"status": value},
@@ -33,19 +33,19 @@ func TestReviewDecisionNeverCompletesNativeTurn(t *testing.T) {
 				if v.Phase != "working" || !v.CanInterrupt || v.CurrentTurn != opaque("current") || len(v.Reviews) != 1 || v.Reviews[0].Status != status {
 					t.Fatal("review decision ended work", v.Phase, v.CanInterrupt, v.Reviews)
 				}
-				s.applyTurn(nativeTurn{ID: "current", Status: outcome}, false)
+				s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "current", Status: outcome}, false)
 				s.update()
 				v = s.Snapshot()
 				if v.Phase != outcome || !v.CanSend || v.CanInterrupt || v.CurrentTurn != "" || v.Reviews[0].Status != status {
 					t.Fatal("turn terminal did not converge", v.Phase, v.CanSend, v.CanInterrupt, v.Reviews)
 				}
 				review("root", "current", "inProgress")
-				s.applyTurn(nativeTurn{ID: "current", Status: outcome}, false)
+				s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "current", Status: outcome}, false)
 				s.update()
 				if v = s.Snapshot(); v.Phase != outcome || v.Reviews[0].Status != status {
 					t.Fatal("late review revived work", v)
 				}
-				s.applyTurn(nativeTurn{ID: "next", Status: "inProgress"}, false)
+				s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "next", Status: "inProgress"}, false)
 				s.update()
 				review("root", "current", "failed")
 				if v = s.Snapshot(); v.CurrentTurn != opaque("next") || v.Reviews[0].TurnKey == v.CurrentTurn {
@@ -71,7 +71,7 @@ func TestWorkerReviewAndApprovalDoNotBlockConversation(t *testing.T) {
 	if !v.CanSend || v.CanInterrupt || v.Phase == "working" || v.Phase == "attention" || v.CurrentTurn != "" {
 		t.Fatal("worker decision occupied idle chat", v)
 	}
-	s.applyTurn(nativeTurn{ID: "root-turn", Status: "inProgress"}, false)
+	s.applyTurn(s.binding.ThreadID, nativeTurn{ID: "root-turn", Status: "inProgress"}, false)
 	s.update()
 	v = s.Snapshot()
 	if !v.CanSteer || v.Phase != "working" {

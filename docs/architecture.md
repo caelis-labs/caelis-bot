@@ -487,7 +487,14 @@ that same task, so the Bot's resulting Turn retains its Weixin delivery source.
 This association travels as private structured snapshot metadata, independently
 of the hidden `hostNotice` item. The native adapter retains the exact report,
 runtime/conversation, turn and terminal phase across recovery; cached and recent
-snapshots preserve it without exposing it to renderer JSON. The channel joins it
+snapshots preserve it without exposing it to renderer JSON. Native input sources
+also retain each item's actual scope: Codex captures the explicit native thread
+at projection, and Caelis persists the authenticated feed's instance/session/turn
+with the item. Retained Codex messages and Caelis PastSessions keep their original
+scope. Service only carries this evidence through chat assembly; neither native
+nor SQLite display history may inherit the current snapshot owner. Missing
+provenance on retained inputs stays unproven across native replay; newly observed
+inputs require an exact scoped native observation. The channel joins it
 to the persisted original task turn and checks the runtime/conversation scope.
 Missing or mismatched provenance fails closed before outbox admission and emits
 a bounded `route_source_unresolved` diagnostic with a classified reason and a

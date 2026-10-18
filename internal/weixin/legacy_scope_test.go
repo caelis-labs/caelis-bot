@@ -85,6 +85,7 @@ func TestHistoricalChatCannotEstablishInputScope(t *testing.T) {
 				root := t.TempDir()
 				// Only a newer desktop input belongs to this native conversation.
 				engine := inputSnapshotEngine{value: api.Snapshot{Connection: "ready", RuntimeOwner: "current-conversation", Phase: "completed",
+					InputSources:  []api.InputSource{{RuntimeOwner: "current-conversation", TurnKey: "desktop-turn", RequestID: "desktop-request"}},
 					Items:         []api.Item{{ID: "desktop", Kind: "user", TurnKey: "desktop-turn", RequestID: "desktop-request"}},
 					ReportSources: []api.ReportSource{{RuntimeOwner: "current-conversation", TurnKey: "completion", ReportID: "report", Phase: "completed"}},
 				}}

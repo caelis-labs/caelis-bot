@@ -11,7 +11,7 @@ import (
 
 // Background turns are correlated through native command targets. Safe-point
 // input IDs additionally classify inputs; prose never establishes provenance.
-func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
+func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope, scope inputScope) {
 	turn := value(e.TurnId)
 	id := value(e.InputOperationId)
 	j := s.state.Operations[id]
@@ -29,7 +29,7 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
 		j.TurnID = turn
 		s.state.Operations[id] = j
 	}
-	applyEnvelope(v, e, scheduled, hostNotice)
+	applyScopedEnvelope(v, e, scope, scheduled, hostNotice)
 	if turn != "" && e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && value(e.ApprovalRequestId) == "" && (value(e.Scope) == "" || value(e.Scope) == "main") {
 		if v.Turns == nil {
 			v.Turns = map[string]string{}

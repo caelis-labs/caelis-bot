@@ -20,7 +20,7 @@ func TestScheduledCanonicalReplayUsesInputOperationIdentity(t *testing.T) {
 		{EventId: pointer("end"), Kind: "caelis/lifecycle", TurnId: pointer("turn"), Lifecycle: &wire.LifecycleEvent{State: "completed"}},
 	}
 	for _, e := range events {
-		s.applyScheduledEnvelope(v, e)
+		s.applyScheduledEnvelope(v, e, inputScope{})
 	}
 	got := s.Snapshot()
 	if len(got.Items) != 0 || !got.Quiet {
@@ -42,14 +42,14 @@ func TestScheduledCanonicalReplayUsesInputOperationIdentity(t *testing.T) {
 	// Replacement replay must classify the same native operation, without dispatch.
 	replacement := &view{State: v.State, Seen: map[string]bool{}}
 	for _, e := range events {
-		s.applyScheduledEnvelope(replacement, e)
+		s.applyScheduledEnvelope(replacement, e, inputScope{})
 	}
 	s.state.Views["main"] = replacement
 	got = s.Snapshot()
 	if len(got.Items) != 0 || !got.Quiet {
 		t.Fatal("replacement leaked", got)
 	}
-	s.applyScheduledEnvelope(replacement, wire.Envelope{EventId: pointer("human"), TurnId: pointer("human-turn"), InputOperationId: pointer("human-operation"), Update: &user})
+	s.applyScheduledEnvelope(replacement, wire.Envelope{EventId: pointer("human"), TurnId: pointer("human-turn"), InputOperationId: pointer("human-operation"), Update: &user}, inputScope{})
 	got = s.Snapshot()
 	if len(got.Items) != 1 || got.Items[0].Kind != "user" {
 		t.Fatal("human hidden", got)

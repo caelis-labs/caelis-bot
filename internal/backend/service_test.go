@@ -11,9 +11,12 @@ import (
 	"time"
 )
 
-func TestInputSourcesExcludeRestoredChatHistory(t *testing.T) {
+func TestInputSourcesAreAdapterOwnedAcrossChatAssembly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chat.sqlite")
-	engine := &imReceiptEngine{value: api.Snapshot{RuntimeOwner: "current-runtime", Items: []api.Item{
+	engine := &imReceiptEngine{value: api.Snapshot{RuntimeOwner: "current-runtime", InputSources: []api.InputSource{
+		{RuntimeOwner: "current-runtime", TurnKey: "live-turn", RequestID: "live-request"},
+		{RuntimeOwner: "old-runtime", TurnKey: "old-turn", RequestID: "old-request"},
+	}, Items: []api.Item{
 		{ID: "live-input", Kind: "user", TurnKey: "live-turn", RequestID: "live-request", Status: "completed"},
 		{ID: "internal", Kind: "hostNotice", TurnKey: "internal-turn", RequestID: "internal-request"},
 		{ID: "unbound", Kind: "user", RequestID: "unbound-request"},
@@ -38,7 +41,7 @@ func TestInputSourcesExcludeRestoredChatHistory(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	snapshot := s.Snapshot()
-	want := []api.InputSource{{RuntimeOwner: "current-runtime", TurnKey: "live-turn", RequestID: "live-request"}}
+	want := engine.value.InputSources
 	if !reflect.DeepEqual(snapshot.InputSources, want) {
 		t.Fatalf("native source evidence = %+v", snapshot.InputSources)
 	}
@@ -49,9 +52,9 @@ func TestInputSourcesExcludeRestoredChatHistory(t *testing.T) {
 	if err != nil || strings.Contains(string(encoded), "InputSources") || strings.Contains(string(encoded), "current-runtime") || strings.Contains(string(encoded), "live-request") {
 		t.Fatal("private input source entered renderer JSON", err)
 	}
-	engine.value.RuntimeOwner = ""
+	engine.value.InputSources = nil
 	if len(s.Snapshot().InputSources) != 0 {
-		t.Fatal("native input without scope acquired provenance")
+		t.Fatal("unproven engine input acquired provenance from current runtime")
 	}
 }
 

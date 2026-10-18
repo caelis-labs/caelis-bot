@@ -14,7 +14,7 @@ func TestAsyncAgentMessageMetadataSurvivesNativeAndHostSnapshots(t *testing.T) {
 	}
 	s := NewSession(SessionOptions{Directory: t.TempDir(), StateFile: filepath.Join(t.TempDir(), "binding.json")})
 	s.binding.ThreadID = "native-thread"
-	s.applyItem("native-turn", item, true)
+	s.applyItem(s.binding.ThreadID, "native-turn", item, true)
 	s.publishSnapshot()
 	snapshot := s.Snapshot()
 	if snapshot.RuntimeOwner == "" || len(snapshot.Items) != 1 || snapshot.Items[0].AsyncCallID != "call_17" || len(snapshot.Items[0].AsyncQuestions) != 1 || snapshot.Items[0].AsyncQuestions[0].Options[1] != "乙" {

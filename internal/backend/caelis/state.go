@@ -37,6 +37,7 @@ type journal struct {
 	Source       wire.SessionSource `json:"source"`
 }
 type view struct {
+	InputScopes     map[string]inputScope            `json:"inputScopes,omitempty"`
 	Usage           api.ContextUsage                 `json:"-"`
 	UsageTurn       string                           `json:"-"`
 	ModelTurn       string                           `json:"-"`
