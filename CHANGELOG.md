@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/caelis-labs/caelis-bot/compare/v0.14.0...v0.15.0) (2026-10-18)
+
+
+### Features
+
+* **windows:** add native preview, runtime integration and update support ([#183](https://github.com/caelis-labs/caelis-bot/issues/183)) ([52a5122](https://github.com/caelis-labs/caelis-bot/commit/52a51229b6bf417876042df2e3f65a5068024e44))
+
+
+### Bug Fixes
+
+* **release:** retry transient Apple ticket transport failures ([#180](https://github.com/caelis-labs/caelis-bot/issues/180)) ([95882f1](https://github.com/caelis-labs/caelis-bot/commit/95882f1cab67605403d03f8446a128cda8d8eee8))
+
 ## [0.14.0](https://github.com/caelis-labs/caelis-bot/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
