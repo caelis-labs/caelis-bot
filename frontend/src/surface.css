@@ -111,8 +111,6 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .history-surface .approval-dock-trigger { border:0; background:transparent; box-shadow:none; padding:7px 6px; font-size:11px; color:var(--muted); }
 .history-surface .approval-dock-panel { position:relative; inset:auto; width:100%; max-height:min(40dvh,360px); padding:6px; box-shadow:none; border-radius:12px; }
 .history-surface .approval-dock-nav { border:0; padding-bottom:3px; }
-.history-surface .question-prompt-options { border:0; display:flex; flex-wrap:wrap; flex-direction:row; gap:6px; margin:10px 0 0; padding:0; }
-.history-surface .question-prompt-options button { width:auto; border:1px solid var(--line); border-radius:7px; background:var(--wash); min-height:30px; padding:6px 10px; font-size:12px; }
 .history-surface .approval-choices { border:0; flex-direction:row; gap:6px; margin:8px 0 0; padding:0; }
 .history-surface .approval-choices>button,.history-surface .permission-option button { width:auto; border:1px solid var(--line); background:var(--wash); min-height:30px; padding:6px 10px; font-size:12px; }
 .history-surface .permission-option { padding:4px; }
@@ -815,3 +813,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 @media(prefers-reduced-motion:reduce) { .setup-spinner { animation:none; } }
 @media(max-width:540px) { .settings-window .setup-flow .onboarding-model-choice { grid-template-columns:1fr; gap:10px; } }
 .settings-window .setup-flow .onboarding-connection .provider-saved-credentials { color:var(--muted); font-size:12px; margin:0 0 16px; }
+
+/* Questions use normal chat flow; native permission forms remain separate. */
+.history-surface .question-message .message { width:min(440px,100%); min-width:0; }

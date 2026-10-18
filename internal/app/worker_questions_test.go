@@ -102,3 +102,45 @@ func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
 		t.Fatalf("same field could not retry after recovery: %q, sends=%d", second, owner.sends)
 	}
 }
+
+func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
+	a, root := fixtureApp(t, e, Host{})
+	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	a.localWork = workPool(root, "codex", map[string]*workerFixture{"codex": owner})
+	item := api.Item{ID: "worker-question:presented", TurnKey: "run", Kind: "assistant", AsyncCallID: "native-original", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"One", "Two"}}}}
+	owner.states["work"] = api.WorkState{Runtime: "codex", Task: api.Task{ID: "work", Title: "Source task", Status: "working"}, AsyncQuestions: []api.Item{item}}
+	a.observeWorkerQuestions(t.Context())
+	receipt, err := a.PresentWorkerQuestion(t.Context(), "Q1", nil)
+	if err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	snapshot := a.Backend.ChatSnapshot(0, "").Snapshot
+	var card api.QuestionCard
+	for _, i := range snapshot.Items {
+		if i.ID == item.ID {
+			card = i.QuestionCards[0]
+		}
+	}
+	if card.TaskTitle != "Source task" || card.State != "" || card.Binding == "" {
+		t.Fatal(card)
+	}
+	_ = a.Backend.DismissQuestion(t.Context(), card.ShortID, card.Binding, "dismiss-original")
+	updated := a.Backend.ChatSnapshot(snapshot.Revision, snapshot.BotStatus)
+	if !updated.Changed {
+		t.Fatal("lifecycle revision did not invalidate cache")
+	}
+	for _, i := range updated.Snapshot.Items {
+		if i.ID == item.ID && i.QuestionCards[0].State != "dismissed" {
+			t.Fatal("cached question remained pending", i)
+		}
+	}
+	if a.WorkerQuestions()[0].State != "dismissed" || owner.sends != 0 {
+		t.Fatal("Worker state split or close sent an answer")
+	}
+	// Re-observing the original native item cannot revive it.
+	a.observeWorkerQuestions(t.Context())
+	if a.WorkerQuestions()[0].State != "dismissed" {
+		t.Fatal("native replay revived question")
+	}
+}

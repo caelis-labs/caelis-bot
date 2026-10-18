@@ -234,6 +234,41 @@ if(['control-ux','control-ux-question'].includes(previewParams.get('fixture'))){
   const open=setInterval(()=>{const button=document.querySelector('.approval-dock-trigger');if(button){clearInterval(open);button.click();}},50);
  }
 }
+
+window.fixtureQuestionSetup=()=>{
+ revision++;
+ const now=Date.now()*1000;
+ Object.assign(snapshot,{phase:'idle',activity:null,canSend:true,canSteer:false,canInterrupt:false,approvals:[],items:[
+  {id:'question-request',kind:'user',text:'准备新版 Bot 的演示视频。',status:'completed',seenAt:now-60000000,artifacts:[]},
+  {id:'question-explanation',kind:'assistant',text:'素材已准备好，还需要确认演示时的连接方式。',status:'completed',seenAt:now-30000000,artifacts:[]},
+  {id:'question-item',kind:'assistant',text:'选择演示连接方式',status:'completed',seenAt:now,artifacts:[],questionCards:[{shortId:'Q7',binding:'original-fixture-question-'+revision,title:'演示视频使用哪个模型连接？',context:'仅用于隔离演示，无需密码或密钥；已有连接请提供位置，暂不配置则先录免登录片段。',taskTitle:'新版 Bot 演示视频',expiresAt:Math.floor(Date.now()/1000)+86400,options:['手动登录','使用已有连接','暂不配置'],state:''}]}
+ ]});
+};
+if(previewParams.get('fixture')==='question-lifecycle')window.fixtureQuestionSetup();
+window.fixtureQuestionLayout=()=>{
+ const card=document.querySelector('.question-prompt'),composer=document.querySelector('.compose-area');
+ const rect=e=>{const r=e?.getBoundingClientRect();return r?{x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom}:null;};
+ return {viewport:{width:innerWidth,height:innerHeight},card:rect(card),composer:rect(composer),decisions:Array.from(card?.querySelectorAll('button,input')??[]).map(e=>({text:e.textContent||e.getAttribute('placeholder'),...rect(e)})),accordions:card?.querySelectorAll('details,summary').length??0,questionTray:!!document.querySelector('.question-dock-panel'),internalScroll:!!card&&[card,...card.querySelectorAll('*')].some(e=>/auto|scroll/.test(getComputedStyle(e).overflowY)&&e.scrollHeight>e.clientHeight+1)};
+};
+window.fixtureQuestionRegression=async()=>{
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),checks=[];
+ const check=(name,ok)=>{checks.push({name,ok:!!ok});if(!ok)throw Error(name);};
+ try{
+  fixtureQuestionSetup();await wait(600);
+  const layout=fixtureQuestionLayout();check('no disclosure or question tray',layout.accordions===0&&!layout.questionTray&&!document.querySelector('.approval-dock-trigger'));
+  check('all decisions visible above composer',layout.card.y>=0&&layout.card.bottom<layout.composer.y&&layout.decisions.every(d=>d.y>=0&&d.bottom<=layout.composer.y));
+  check('no internal scrolling',!layout.internalScroll);
+  const options=Array.from(document.querySelectorAll('.question-prompt-options button'));
+  check('short complete object question',document.querySelector('.question-prompt-title').textContent==='演示视频使用哪个模型连接？');
+  options[0].focus();options[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));check('arrow navigation',document.activeElement===options[1]);
+  options[1].click();await wait(400);check('selected original index',window.fixtureQuestionResult?.[0]==='Q7'&&window.fixtureQuestionResult?.[2]==='2');
+  check('answered has no decision controls',!document.querySelector('.question-prompt')&&document.querySelector('.question-result')?.textContent.includes('已回答'));
+  fixtureQuestionSetup();await wait(600);document.querySelector('.question-dismiss').click();await wait(400);
+  check('dismissed has no decision controls',!document.querySelector('.question-prompt')&&snapshot.items.find(i=>i.id==='question-item').questionCards[0].state==='dismissed');
+  window.dispatchEvent(new Event('history-close'));window.dispatchEvent(new Event('history-open'));await wait(400);
+  check('reopen stays closed',!document.querySelector('.question-prompt'));
+ }catch(error){checks.push({error:String(error)});}finally{window.fixtureQuestionChecks=checks;fixtureQuestionSetup();}
+};
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 window.fixtureSendSetup=mode=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;
@@ -351,6 +386,14 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='Interrupt')window.fixtureSet('stop');
  if(method==='DismissPreview')snapshot.previewDismissed=true;
  if(method==='Decide')window.fixtureSet('read');
+ if(method==='AnswerQuestion'||method==='DismissQuestion'){
+  const card=snapshot.items.flatMap(item=>item.questionCards??[]).find(card=>card.shortId===args[0]&&card.binding===args[1]);
+  if(!card)return '这条问题卡片已失效，请使用最新卡片。';
+  window.fixtureQuestionResult=args;
+  card.state=method==='AnswerQuestion'?'answered':'dismissed';revision++;
+  return method==='AnswerQuestion'?'回答已提交，等待后续回复。':'问题已关闭，未提供答案。';
+ }
+
  if(method==='OpenApproval')window.dispatchEvent(new Event('bubble-expand'));
  if(method==='CollapseBubble')window.dispatchEvent(new Event('bubble-collapse'));
  window.webkit?.messageHandlers.preview?.postMessage({method,args});
@@ -365,4 +408,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'');writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672);writeFileSync(process.argv[2],url);console.log(url);});

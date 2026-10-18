@@ -53,3 +53,24 @@ func TestBotWorkerInteractionToolPreservesNativeFields(t *testing.T) {
 		t.Fatal("Guardian tool would itself wait for an unrelated Bot tool approval")
 	}
 }
+
+func (f *workerInteractionFixture) PresentWorkerQuestion(_ context.Context, id string, presentation *api.QuestionPresentation) (api.Receipt, error) {
+	if id != "Q7" || presentation == nil || presentation.Title != "Which demo connection?" {
+		return api.Receipt{Outcome: "rejected"}, nil
+	}
+	return api.Receipt{ID: id, Outcome: "accepted"}, nil
+}
+func TestPresentOriginalWorkerQuestionDoesNotAnswerOrDecide(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &workerInteractionFixture{}
+	r.ConfigureWorkerInteractions(f)
+	result := invokeCompact(t, r, "bot_interactions", `{"request":{"type":"present","question":"Q7","presentation":{"title":"Which demo connection?","context":"For the isolated demo only.","options":["Manual login","Existing connection"]}}}`)
+	if result.StructuredContent["outcome"] != "accepted" || f.answer != "" || f.decision.ID != "" {
+		t.Fatal(result, f)
+	}
+	prior := priorQuestionTools{runtime: r}
+	old := prior.CallTool(t.Context(), "bot_interactions", []byte(`{"request":{"type":"present","question":"Q7"}}`))
+	if !old.IsError {
+		t.Fatal("historical catalog broadened authority", old)
+	}
+}

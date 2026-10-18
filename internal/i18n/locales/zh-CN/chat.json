@@ -34,7 +34,7 @@
   "interactionPrevious": "上一个待处理事项",
   "interactionNext": "下一个待处理事项",
   "questionEyebrow": "等待回答",
-  "questionSend": "发送回答",
+  "questionSend": "发送",
   "questionAnswered": "已回答",
   "questionUnknown": "投递结果待核对",
   "approvalTarget": "位置",
@@ -234,5 +234,14 @@
   "fileSelectionReadFailed": "暂无法核对附件；可以继续输入，发送前请重试本机核对。",
   "surfaceRecovering": "此窗口正在恢复。Bot 仍在运行，原请求已保留。",
   "imageFit": "适合窗口",
-  "imageActualSize": "实际大小"
+  "imageActualSize": "实际大小",
+  "questionDismiss": "关闭",
+  "questionDismissed": "已关闭",
+  "questionExpired": "已过期",
+  "questionSuperseded": "已失效",
+  "questionYourAnswer": "你的回答",
+  "questionPlaceholder": "补充回答…",
+  "questionConversation": "当前对话",
+  "questionUntil": "{time} 前",
+  "questionDismissLabel": "关闭此问题，不提交答案"
 }

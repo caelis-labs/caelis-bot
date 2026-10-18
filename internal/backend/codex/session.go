@@ -24,8 +24,9 @@ import (
 )
 
 type binding struct {
-	ToolLayout int               `json:"toolLayout,omitempty"`
-	Artifacts  map[string]string `json:"artifacts,omitempty"`
+	QuestionClosures map[string]retainedQuestionClosure `json:"questionClosures,omitempty"`
+	ToolLayout       int                                `json:"toolLayout,omitempty"`
+	Artifacts        map[string]string                  `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
 	OwnerEndpoint string                `json:"ownerEndpoint,omitempty"`
@@ -1069,6 +1070,16 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	// A pre-dispatch failure can retry the same submission ID. Start from the
 	// quote length each time before the private context seed is added.
 	s.binding.ContextInputs[in.ID] = len(in.ModelQuotePrefix())
+	if closure := s.questionClosureContextLocked(threadID); closure != "" {
+		for _, part := range input {
+			if part["type"] == "text" {
+				text, _ := part["text"].(string)
+				part["text"] = closure + text
+				s.binding.ContextInputs[in.ID] += len(closure)
+				break
+			}
+		}
+	}
 	input, err = s.prepareContextLocked(ctx, in.ID, input)
 	if err != nil {
 		s.mu.Unlock()

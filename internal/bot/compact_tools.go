@@ -326,5 +326,6 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 	return []*api.ToolConnection{
 		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
 		r.previousCompactToolConnection(),
+		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 	}
 }

@@ -209,6 +209,10 @@ export interface Question {
   options: Array<Choice>;
 }
 export interface QuestionCard {
+  context?: string;
+  taskTitle?: string;
+  expiresAt?: number;
+  reason?: string;
   shortId: string;
   binding: string;
   title: string;

@@ -118,12 +118,24 @@ type TaskPresentation struct {
 	Status string `json:"status"`
 }
 
-type QuestionCard struct {
-	ShortID string   `json:"shortId"`
-	Binding string   `json:"binding"`
+// QuestionPresentation is a model-authored display summary, never an answer.
+// Options retain the exact count and order of the original native question.
+type QuestionPresentation struct {
 	Title   string   `json:"title"`
+	Context string   `json:"context,omitempty"`
 	Options []string `json:"options"`
-	State   string   `json:"state"`
+}
+
+type QuestionCard struct {
+	Context   string   `json:"context,omitempty"`
+	TaskTitle string   `json:"taskTitle,omitempty"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+	ShortID   string   `json:"shortId"`
+	Binding   string   `json:"binding"`
+	Title     string   `json:"title"`
+	Options   []string `json:"options"`
+	State     string   `json:"state"`
 }
 
 type AsyncQuestion struct {

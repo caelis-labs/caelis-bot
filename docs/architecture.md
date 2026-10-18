@@ -269,7 +269,14 @@ structured question-reply envelope. The local transcript retains the user's
 visible `/answer` body, not the internal envelope. A send receipt confirms input
 admission, not that the model has consumed the answer or resumed an old turn.
 These references are fenced to the original Codex thread and item schema and
-are never reused after an uncertain send. Codex async questions have no native
+are never reused after an uncertain send. Codex async questions have a separate [24-hour lifecycle](design/async-question-lifecycle.md):
+answer, dismiss and expiry are durable and cached IM cards resolve against that ledger.
+Closing supplies no answer or authorization. A host clock expires them offline;
+original-owner closure context can steer an active turn once but never starts an idle
+Worker. `bot_interactions` can present the original Worker question directly, with
+one shared answer/close state and its task source. Native approvals keep the
+seven-day short-reference policy above; it never approves or closes their request.
+Codex async questions have no native
 secret-field marker; the host cannot infer one from question prose.
 Independent Codex Workers persist their async question items under the original
 task binding. The host reports the pending question privately to the resident

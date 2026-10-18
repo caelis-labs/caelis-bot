@@ -74,6 +74,9 @@ const WorkActivityOwnerUnavailable = "owner_unavailable"
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	// TurnKey identifies the current native turn; completion of a turn that asked
+	// a question is a yield, not proof that the user task no longer needs input.
+	TurnKey string
 	Runtime string
 	Task    Task
 	// AsyncQuestions are host-only completed Codex question items owned by this
@@ -152,6 +155,8 @@ type WorkerInteractionPort interface {
 }
 
 type WorkerQuestion struct {
+	Reason    string   `json:"reason,omitempty"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"`
 	ID        string   `json:"id"`
 	TaskID    string   `json:"taskId"`
 	TaskTitle string   `json:"taskTitle"`
@@ -182,3 +187,16 @@ type BackgroundResult struct {
 	ObservedAt time.Time `json:"observedAt,omitempty"`
 }
 type BackgroundResultProvider interface{ BackgroundResult(string) BackgroundResult }
+
+// QuestionClosure is host lifecycle context, never an answer or execution grant.
+// Only the adapter can validate the original call and native owner.
+type QuestionClosure struct {
+	ID, ItemID, CallID, Owner, WorkID, State, Reason string
+	Index                                            int
+}
+type QuestionClosureReceiver interface {
+	ReceiveQuestionClosure(context.Context, QuestionClosure) error
+}
+type WorkerQuestionPresenter interface {
+	PresentWorkerQuestion(context.Context, string, *QuestionPresentation) (Receipt, error)
+}

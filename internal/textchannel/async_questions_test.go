@@ -61,7 +61,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 		t.Fatal(feedback)
 	}
 	card, err = reopened.AsyncCard(item, "runtime-owner-1")
-	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "accepted" {
+	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "answered" {
 		t.Fatalf("card did not converge: %q %v", card.Text, err)
 	}
 }
@@ -95,7 +95,7 @@ func TestAnsweredAsyncNumberCanBeReusedForNewQuestion(t *testing.T) {
 		t.Fatalf("current desktop card failed: %q, dispatches=%d", feedback, dispatched)
 	}
 	oldCard, err := s.AsyncCard(old, "owner")
-	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {
+	if err != nil || len(oldCard.QuestionCards) != 1 || oldCard.QuestionCards[0].State != "answered" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {
 		t.Fatal("retired item reissued a new question", oldCard, err)
 	}
 }
@@ -106,6 +106,7 @@ func TestUnansweredAsyncQuestionExpiresAndReleasesNumber(t *testing.T) {
 	_, _ = s.AsyncCard(old, "owner")
 	q := s.state.AsyncQuestions["Q1"]
 	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	q.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	s.state.AsyncQuestions["Q1"] = q
 	if got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "paired", ID: "late", Text: "/answer Q1 不回答"}, api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}); !strings.Contains(got, "已过期") {
 		t.Fatal(got)
@@ -123,7 +124,7 @@ func TestUnansweredAsyncQuestionExpiresAndReleasesNumber(t *testing.T) {
 		t.Fatal(card, err)
 	}
 	oldCard, err := s.AsyncCard(old, "owner")
-	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" {
+	if err != nil || len(oldCard.QuestionCards) != 1 || oldCard.QuestionCards[0].State != "expired" {
 		t.Fatal("expired item reissued a new question", oldCard, err)
 	}
 }
@@ -135,6 +136,7 @@ func TestUnknownAsyncResultRetainsNumberPastNormalExpiry(t *testing.T) {
 	q := s.state.AsyncQuestions["Q1"]
 	q.State = "unknown"
 	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	q.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	s.state.AsyncQuestions["Q1"] = q
 	s.state.NextQuestion = shortIDPoolSize
 	fresh := api.Item{ID: "fresh-item", TurnKey: "fresh", Kind: "assistant", AsyncCallID: "fresh-call", AsyncQuestions: []api.AsyncQuestion{{Title: "新问题"}}}
