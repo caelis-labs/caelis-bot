@@ -50,22 +50,21 @@ test('only product documentation skips builds; Bot skills and runtime resources 
   for (const paths of [['AGENTS.md'], ['internal/botskills/skills/caelis-bot-memory/SKILL.md'], ['resources/character-pack.json'], ['.github/workflows/ci.yml']]) assert.equal(scope(paths).kind, 'shared');
 });
 
-test('packaging changes exercise the DMG while an ordinary transport change does not', () => {
-  for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'script/prepare-appcast.sh', 'script/publication.mjs', 'script/publish-r2.mjs', 'script/verify-release-candidate.sh', 'script/sync-github-latest.mjs', 'script/stage-desktop-world-windows.ps1', 'resources/macos/Info.plist', '.github/workflows/release.yml', '.github/workflows/promote-release.yml']) {
-    assert.equal(scope([path]).preview, true);
-  }
-  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false, windowsPreview:false});
-  assert.deepEqual(scope(['internal/desktop/runtime_windows.go']), {kind: 'windows', preview: false, windowsPreview:true});
-  for(const path of ['script/build-windows.ps1','script/package-nsis-windows.ps1','.github/workflows/windows-preview.yml'])assert.deepEqual(scope([path]),{kind:'windows',preview:false,windowsPreview:true});
-  assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind: 'shared', preview: false, windowsPreview:false});
-  assert.deepEqual(scope(['unknown-path']), {kind: 'full', preview: false, windowsPreview:false});
+test('platform-only changes and accompanying docs select only their product checks', () => {
+  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go', 'docs/development.md']), {kind:'macos'});
+  assert.deepEqual(scope(['internal/desktop/runtime_windows.go', 'README.zh-CN.md']), {kind:'windows'});
+  for (const path of ['script/build-windows.ps1','script/package-nsis-windows.ps1','.github/workflows/windows-preview.yml']) assert.deepEqual(scope([path]), {kind:'windows'});
+  assert.deepEqual(scope(['script/package.sh']), {kind:'macos'});
+  assert.deepEqual(scope(['resources/desktop-world/release.json']), {kind:'shared'});
+  assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind:'shared'});
+  assert.deepEqual(scope(['unknown-path']), {kind:'full'});
+  assert.deepEqual(scope(['README.md', 'README.zh-CN.md', 'docs/install.md']), {kind:'docs'});
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {
-  const all={macos:'success',windows:'success',linux:'success',preview:'skipped',windowsPreview:'skipped'};
+  const all={macos:'success',windows:'success',linux:'success'};
   requireResults('full', 'success', all);
   requireResults('shared', 'success', all);
-  requireResults('full', 'success', {...all,preview:'success'}, true);
   requireResults('macos', 'success', {...all,windows:'skipped',linux:'skipped'});
   requireResults('windows', 'success', {...all,macos:'skipped',linux:'skipped'});
   for (const kind of ['docs', 'release']) requireResults(kind, 'success', Object.fromEntries(Object.keys(all).map(k=>[k,'skipped'])));
@@ -77,7 +76,7 @@ test('required product gate rejects failed, cancelled, missing or unexpectedly s
   for (const status of ['failure', 'cancelled', '', 'skipped']) {
     for (const job of ['macos', 'windows', 'linux']) assert.throws(() => requireResults('full', 'success', {...all,[job]:status}));
   }
-  assert.throws(() => requireResults('full', 'success', all, true));
+  assert.throws(() => requireResults('full', 'success', {macos:'success',windows:'success'}));
   assert.throws(() => requireResults('full', 'success', {...all,preview:'success'}));
   assert.throws(() => requireResults('release', 'success', all));
 });
@@ -93,12 +92,12 @@ test('CLI classifies the real git diff and writes bounded step outputs', () => {
     git(['add', '.']); git(['commit', '-qm', 'version']);
     const output = join(directory, 'output');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
-    assert.equal(readFileSync(output, 'utf8'), 'kind=release\npreview=false\nwindowsPreview=false\n');
+    assert.equal(readFileSync(output, 'utf8'), 'kind=release\n');
     writeFileSync(join(directory, 'runtime 变更.js'), 'changed');
     git(['add', 'runtime 变更.js']); git(['commit', '-qm', 'runtime']);
     writeFileSync(output, '');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
-    assert.equal(readFileSync(output, 'utf8'), 'kind=full\npreview=false\nwindowsPreview=true\n');
+    assert.equal(readFileSync(output, 'utf8'), 'kind=full\n');
   } finally {rmSync(directory, {recursive: true, force: true});}
 });
 
@@ -116,10 +115,14 @@ test('lightweight public-tree guard runs without installing the GLB validator', 
   } finally {rmSync(directory, {recursive: true, force: true});}
 });
 
-test('Windows candidate failures and missing results fail the aggregate gate',()=>{
- const results={macos:'skipped',windows:'success',linux:'skipped',preview:'skipped',windowsPreview:'success'};
- requireResults('windows','success',results,false,true);
- for(const state of ['failure','cancelled','skipped',''])assert.throws(()=>requireResults('windows','success',{...results,windowsPreview:state},false,true));
- const {windowsPreview,...missing}=results;assert.throws(()=>requireResults('windows','success',missing,false,true));
- for(const path of ['script/package-zip-windows.ps1','script/windows-version.mjs','script/verify-windows-candidate.mjs','.github/workflows/windows-preview.yml'])assert.equal(scope([path]).windowsPreview,true);
+test('PR workflow has only scoped product jobs; publishing owns package creation', () => {
+  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+  assert.doesNotMatch(workflow, /^  (?:macos|windows)-preview:/m);
+  assert.doesNotMatch(workflow, /inputs\.preview|windowsPreview|CI_PREVIEW/);
+  assert.match(workflow, /needs: \[scope, macos-product, windows-product, linux-headless\]/);
+  const release = readFileSync('.github/workflows/windows-preview.yml', 'utf8');
+  assert.match(release, /workflow_dispatch:/);
+  assert.doesNotMatch(release, /^  pull_request:/m);
+  assert.match(release, /package-nsis-windows/);
+  assert.match(release, /package-zip-windows/);
 });
