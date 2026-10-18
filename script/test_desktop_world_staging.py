@@ -138,7 +138,11 @@ class StagingTests(unittest.TestCase):
         for name in ['../escape', '/escape', 'C:/escape', 'bin\\dtw.exe']:
             with self.subTest(name=name):
                 malicious = self.root / 'bad.zip'
-                with zipfile.ZipFile(malicious, 'w') as archive: archive.writestr(name, 'bad')
+                # ZipInfo normalizes Windows separators in its constructor; preserve
+                # the malicious on-disk spelling so every host tests the same bytes.
+                member = zipfile.ZipInfo('placeholder')
+                member.filename = name
+                with zipfile.ZipFile(malicious, 'w') as archive: archive.writestr(member, 'bad')
                 target = self.root / 'unpacked'
                 with self.assertRaises(ValueError): staging.extract_plugin(malicious, target)
                 shutil.rmtree(target)
