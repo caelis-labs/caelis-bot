@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/caelis-labs/caelis-bot/compare/v0.15.2...v0.16.0) (2026-10-18)
+
+
+### Features
+
+* adopt Desktop World stable and streamline product docs and CI ([#196](https://github.com/caelis-labs/caelis-bot/issues/196)) ([1ab6825](https://github.com/caelis-labs/caelis-bot/commit/1ab6825a8d513bd5d0e42b4e9d8175997ba8ddd3))
+
+
+### Bug Fixes
+
+* **questions:** make async questions dismissible and compact ([#195](https://github.com/caelis-labs/caelis-bot/issues/195)) ([dcb4731](https://github.com/caelis-labs/caelis-bot/commit/dcb4731b4ea766e4dc5cb7dc00e213f1571bf253))
+* **weixin:** preserve worker completion origin across snapshots ([#193](https://github.com/caelis-labs/caelis-bot/issues/193)) ([bb00cd4](https://github.com/caelis-labs/caelis-bot/commit/bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42))
+
 ## [0.15.2](https://github.com/caelis-labs/caelis-bot/compare/v0.15.1...v0.15.2) (2026-10-18)
 
 
