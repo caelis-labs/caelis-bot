@@ -12,7 +12,7 @@ try {
   # macOS signing/notarization and AppKit tests remain in check.sh on macOS.
   # This list covers portable product contracts plus native Windows adapters.
   $taskNodeTests=@(
-    'script/ci-scope.test.mjs','script/release-version.test.mjs','script/windows-version.test.mjs','script/windows-update-manifest.test.mjs','script/windows-task-order.test.mjs',
+    'script/release-network.test.mjs','script/windows-publication.test.mjs','script/ci-scope.test.mjs','script/release-version.test.mjs','script/windows-version.test.mjs','script/windows-update-manifest.test.mjs','script/windows-task-order.test.mjs',
     'script/setup-stage.test.mjs','script/permission-actions.test.mjs','script/native-call.test.mjs','script/read-recovery.test.mjs','script/login-at-login.test.mjs',
     'script/task-preferences.test.mjs','script/runtime-settings.test.mjs','script/connections-loader.test.mjs','script/codex-runtime-panel.test.mjs',
     'script/desktop-world.test.mjs','script/content-pack.test.mjs','script/asset-pack.test.mjs',

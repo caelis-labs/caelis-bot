@@ -70,7 +70,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
   -k "$BOT_SIGN_KEYCHAIN_PASSWORD" "$BOT_SIGN_KEYCHAIN" >/dev/null
 unset BOT_SIGN_KEYCHAIN_PASSWORD
 # Include the public Apple G2 intermediate even on runners without it installed.
-curl --fail --silent --show-error --location \
+node script/release-network.mjs curl --fail --silent --show-error --location \
   https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$BOT_SIGN_TEMP/AppleG2.cer"
 printf '%s  %s\n' f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a \
   "$BOT_SIGN_TEMP/AppleG2.cer" | shasum -a 256 --check

@@ -13,8 +13,14 @@ jobs:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
     runs-on: macos-15
     environment: macos-release
-    timeout-minutes: 8
+    timeout-minutes: 25
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
       - name: Read the existing Apple submission
         env:
           SUBMISSION_ID: ${{ inputs.submission_id }}
@@ -47,14 +53,14 @@ jobs:
             --apple-id "$APPLE_NOTARY_APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARY_PASSWORD" >/dev/null
           unset APPLE_NOTARY_APPLE_ID APPLE_NOTARY_PASSWORD
           mkdir -p notarization
-          xcrun notarytool info "$SUBMISSION_ID" --keychain-profile caelis-status \
+          node script/release-network.mjs xcrun notarytool info "$SUBMISSION_ID" --keychain-profile caelis-status \
             --keychain "$NOTARY_KEYCHAIN" --output-format json > notarization/status.json
           cat notarization/status.json
           status=$(plutil -extract status raw -o - notarization/status.json)
           printf 'Apple submission %s: **%s**. This read-only workflow does not submit or publish artifacts.\n' \
             "$SUBMISSION_ID" "$status" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$status" != 'In Progress' ]]; then
-            xcrun notarytool log "$SUBMISSION_ID" --keychain-profile caelis-status \
+            node script/release-network.mjs xcrun notarytool log "$SUBMISSION_ID" --keychain-profile caelis-status \
               --keychain "$NOTARY_KEYCHAIN" notarization/log.json
             cat notarization/log.json
           fi

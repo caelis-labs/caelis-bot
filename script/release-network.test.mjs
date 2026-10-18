@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {releaseCommand,networkDelays} from './release-network.mjs';
+const reset=Object.assign(new Error('connection reset'),{status:1,stderr:'connection reset by peer'});
+for(const [cmd,args] of [['xcrun',['notarytool','info','same-id']],['xcrun',['notarytool','log','same-id','same-file']],['gh',['api','repos/example/releases']],['gh',['release','download','v1.0.0','--clobber']],['curl',['--fail','https://example.test']]])test(`${cmd} ${args[0]} recovers bounded reads with identical arguments`,()=>{
+ let calls=0;const waits=[];
+ assert.equal(releaseCommand(cmd,args,{},(binary,parameters)=>{assert.equal(binary,cmd);assert.deepEqual(parameters,args);if(++calls<3)throw reset;return 'ok';},ms=>waits.push(ms)),'ok');
+ assert.equal(calls,3);assert.deepEqual(waits,networkDelays.slice(0,2));
+});
+for(const args of [['notarytool','submit','artifact'],['notarytool','store-credentials','profile']])test(`never replays ${args[1]}`,()=>{
+ let calls=0;assert.throws(()=>releaseCommand('xcrun',args,{},()=>{calls++;throw reset;},()=>assert.fail()),/connection reset/);assert.equal(calls,1);
+});
+for(const text of ['HTTP 403 Forbidden','TLS certificate failure','signature mismatch','HTTP 404','unknown failure','Domain=NSURLErrorDomain Code=-1200'])test(`fails closed on ${text}`,()=>{
+ assert.throws(()=>releaseCommand('gh',['api','x'],{},()=>{throw Object.assign(new Error(text),{stderr:text});},()=>assert.fail()),Error);
+});
+test('persistent interruption exhausts the budget and keeps failure',()=>{
+ let calls=0;assert.throws(()=>releaseCommand('gh',['api','x'],{},()=>{calls++;throw reset;},()=>{}),/connection reset/);assert.equal(calls,5);
+});

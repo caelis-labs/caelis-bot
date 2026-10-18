@@ -1,7 +1,8 @@
-# Windows preview 发布与更新
+# Windows 发布与更新
 
 Windows 与 macOS 共用仓库、产品基础版本和公共合同，按平台独立验收和发版。
-Windows 使用 `vX.Y.Z-windows.preview.N`，指向 main 已包含的确切提交；不要求每个 Mac
+Windows 预发布使用 `vX.Y.Z-windows.preview.N`，正式发布使用产品 tag `vX.Y.Z`，
+两者由同一个 workflow 和打包路径处理，指向 main 已包含的确切提交；不要求每个 Mac
 release 同时产出 Windows 包。不建立长期 Windows 产品分支，平台代码用适配器隔离。
 
 首批只发布 **unsigned NSIS Setup.exe + 免安装 ZIP**。MSIX 的
@@ -22,7 +23,7 @@ Server 2022+ 有交互式桌面的环境单独验收；没有承诺 Server Core 
 ```
 
 未设置 `BOT_RELEASE_TAG` 的内部版本和包名均带 `-local`，使用 Dev 安装与数据身份，且禁用公开发行更新。
-只有干净、精确匹配发行 tag 的构建设置 `releaseUpdates=true`。本地候选不会冒充同编号发行 preview。preview 构建目录必须是新的，
+只有干净、精确匹配发行 tag 的构建设置 `releaseUpdates=true`。本地候选不会冒充同编号发行 preview。非 development 构建目录必须是新的，
 避免旧文件混入；开发启动使用 `script/build_and_run-windows.ps1 -DataDirectory <隔离目录>`。
 新代码、编译、原生组件测试、完整 GUI 和精确包生命周期是不同证据，见[实施状态](windows-adaptation-plan.md)。
 
@@ -46,12 +47,15 @@ PR 的 scope job 始终执行 actionlint，不依赖 macOS 分流。Windows 原�
 
 `.github/workflows/windows-preview.yml` 只接受从 main 手动运行，一次完成：
 
-1. 创建 `vX.Y.Z-windows.preview.N` tag，指向已通过 PR CI、已合入 main 且基础版本一致的提交。
+1. 选择已有 `vX.Y.Z` 正式 tag，或创建 `vX.Y.Z-windows.preview.N` 预发布 tag，指向已通过 PR CI、已合入 main 且基础版本一致的提交。
 2. 运行 workflow 并提供 tag。Windows runner 执行检查，构建 unsigned Setup/ZIP，生成 `.sha256/.build.json`。
-3. 发布 job 只下载本次 build 的准确字节，重新核验源码、版本、干净构建、摘要和文件长度，创建 GitHub prerelease，`latest=false`。不修改 Mac appcast、latest.json 或 R2。
+3. 发布 job 只下载本次 build 的准确字节，重新核验源码、版本、干净构建、摘要和文件长度。preview 创建独立 prerelease；stable 把 Windows 资产追加到同 tag 的产品 Release，保留 Mac 资产与已有 Latest 状态。新发布默认 `latest=false`。
+4. 同步 Setup/ZIP 与校验侧车到 R2，回读验证后更新 Windows 下载索引，最后删除该平台的旧版本。Mac feed 与 Windows 更新签名独立。
 
 ```sh
 gh workflow run windows-preview.yml --ref main -f tag=vX.Y.Z-windows.preview.N
+# 相同 CI 发布正式版；tag 必须包含支持 stable 打包的源代码
+gh workflow run windows-preview.yml --ref main -f tag=vX.Y.Z
 ```
 
 CI 的检查、构建与产物完整性是发布门槛；不再要求手工跨平台实机验收或提交原生验收 JSON。
@@ -59,10 +63,21 @@ CI 的检查、构建与产物完整性是发布门槛；不再要求手工跨�
 
 默认只发布安装包。只有显式设置 `publish_updates=true` 才使用 `windows-release` 环境中现有的
 `WINDOWS_UPDATE_PRIVATE_KEY`，签署并发布自动更新清单；缺失或不匹配的密钥会使该模式失败，
-不会降级为 unsigned 更新。未带签名清单的 prerelease 不进入客户端自动更新候选。
+不会降级为 unsigned 更新。未带签名清单的发行版 不进入客户端自动更新候选。
 构建 job 不读取密钥，不为新版本生成或替换更新身份。Actions artifact 保留 30 天。
 
-现有 release 会阻止重写；上传中途失败保留 draft，核对已有文件后处理，不能覆盖已公开字节。
+同 tag 重试逐个下载核对已有资产，上传响应丢失时核对原文件，不覆盖不同字节。
+发布阶段失败应重跑失败 job，复用原 build artifact；不要重新构建后替换已经公开的文件。
+
+stable 使用 `Caelis Bot` / `dev.caelis.bot`，preview 使用 `Caelis Bot Preview` /
+`dev.caelis.bot.preview`，本地候选使用 Dev 身份。三者可并存，安装、用户数据、自启动和更新订阅
+不混用；正式安装不会自动导入 Preview 数据或把 Preview 客户端切到 stable。
+
+R2 按各平台最新成功发布的产品基线保留；Windows 同基线只保留最高 preview 序号，stable
+成功发布后清理该基线 preview。新版本上传或回读失败保留旧版本；旧版历史仍在 GitHub。
+Windows 路径为 `caelis-bot/releases/windows-amd64/TAG/`；
+`caelis-bot/downloads/windows-amd64/latest.json` 仅提供下载链接与摘要，不授权自动更新。
+单独恢复 R2：`gh workflow run sync-r2.yml --ref main -f platform=windows -f tag=TAG`。
 
 ## 签名资料
 

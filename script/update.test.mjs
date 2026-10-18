@@ -64,13 +64,13 @@ function fixture(fn, {legacyBuild=false}={}) {
   finally {rmSync(directory,{recursive:true,force:true});}
 }
 
-test('R2 commits verified bytes and retains old immutable URLs for cached clients; retry is idempotent',()=>fixture(f=>{
+test('R2 commits verified bytes and prunes older platform baselines only after verification; retry is idempotent',()=>fixture(f=>{
   assert.match(publish(f.directory,f.env,f.run),/Published/);
   assert.ok(f.objects.has('releases/v1.0.0/caelis.tar.gz'));
-  assert.ok([...f.objects.keys()].some(k=>k.startsWith('caelis-bot/releases/v1.0.0/')));
+  assert.ok(![...f.objects.keys()].some(k=>k.startsWith('caelis-bot/releases/v1.0.0/')));
   assert.ok(f.objects.has('caelis-bot/appcast.xml'));
   assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/stable/appcast.xml'));
-  assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
+  assert.ok(f.calls.some(c=>c[2]==='delete-object'));
   assert.match(publish(f.directory,f.env,f.run),/Published/);
 }));
 test('signed legacy stable build numbers remain verifiable for R2 retry',()=>fixture(f=>{

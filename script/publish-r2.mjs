@@ -1,4 +1,5 @@
-import {execFileSync} from 'node:child_process';
+import {releaseCommand} from './release-network.mjs';
+import {r2Client} from './r2-client.mjs';
 import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -20,7 +21,7 @@ export function cleanupKeys(keys, tag) {
       throw new Error(`Unexpected object under Bot release prefix: ${key}`);
     }
   }
-  return releases.filter(key => !key.startsWith(`${prefix}releases/${tag}/`));
+  return releases.filter(key => compareStable(key.match(owned)[1],tag)<0);
 }
 export function compareStable(a, b) {
   const parts = tag => validateTag(tag).split('.').map(BigInt);
@@ -28,7 +29,7 @@ export function compareStable(a, b) {
   for(let i=0;i<3;i++) { if(aa[i]!==bb[i]) return aa[i]>bb[i]?1:-1; }
   return 0;
 }
-export function publish(directory, env = process.env, run = (cmd,args) => execFileSync(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],env,maxBuffer:16*1024*1024})) {
+export function publish(directory, env = process.env, run = (cmd,args) => releaseCommand(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],env,maxBuffer:16*1024*1024})) {
   const tag=env.BOT_RELEASE_TAG;
   validateTag(tag);
   if(env.GITHUB_REPOSITORY !== 'caelis-labs/caelis-bot') throw new Error('Unexpected repository');
@@ -50,7 +51,7 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
   try {
     const receiptName=publicationKey(tag,'macos','arm64','stable');
     if(!current.assets?.some(asset=>asset.name===receiptName)) throw new Error('Mac publication receipt missing');
-    run('gh',['release','download',tag,'--repo',env.GITHUB_REPOSITORY,'--pattern',receiptName,'--dir',temporary]);
+    run('gh',['release','download',tag,'--repo',env.GITHUB_REPOSITORY,'--pattern',receiptName,'--dir',temporary,'--clobber']);
     const receipt=validateReceipt(JSON.parse(readFileSync(join(temporary,receiptName))));
     if(receipt.source!==manifest.source || receipt.assets[0]?.sha256!==manifest.sha256 ||
        receipt.assets.find(a=>a.name==='latest.json')?.sha256!==digest(readFileSync(join(directory,'latest.json'))) ||
@@ -70,18 +71,8 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
       if(old.tag===tag && (old.source!==manifest.source || old.sha256!==manifest.sha256 || old.appcastSHA256!==manifest.appcastSHA256)) throw new Error('Refusing to replace published version bytes');
     }
     const versioned=`${prefix}releases/${tag}/`;
-    const put=(file,key,type,cache)=>{
-      if(cache.includes('immutable') && existing.includes(key)) {
-        const prior=join(temporary,'immutable');
-        r2('s3api','get-object','--bucket',bucket,'--key',key,prior);
-        if(digest(readFileSync(prior))!==digest(readFileSync(join(directory,file)))) throw new Error(`Refusing to replace immutable bytes: ${key}`);
-        return;
-      }
-      r2('s3','cp',join(directory,file),`s3://${bucket}/${key}`,'--content-type',type,'--cache-control',cache,'--only-show-errors');
-      const check=join(temporary,'download');
-      r2('s3api','get-object','--bucket',bucket,'--key',key,check);
-      if(digest(readFileSync(check))!==digest(readFileSync(join(directory,file)))) throw new Error(`R2 readback mismatch: ${key}`);
-    };
+    const client=r2Client(directory,temporary,env,run);
+    const put=(file,key,type,cache)=>client.put(file,key,type,cache.includes('immutable'),existing);
     const immutable='public, max-age=31536000, immutable', mutable='no-cache, max-age=0, must-revalidate';
     for(const file of [manifest.file,`${manifest.file}.sha256`,'latest.json','latest.json.sig']) {
       put(file,versioned+file,file.endsWith('.dmg')?'application/x-apple-diskimage':'text/plain',immutable);
@@ -95,10 +86,13 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
     put('appcast.xml',`${prefix}appcast.xml`,'application/rss+xml',mutable);
     put('latest.json',`${prefix}latest.json`,'application/json',mutable);
     put('latest.json.sig',`${prefix}latest.json.sig`,'text/plain',mutable);
-    // A cached older appcast still names its immutable versioned DMG. Retain
-    // those URLs; any future retention job needs a separate reviewed cache
-    // horizon and this platform's ownership allowlist.
-    return `Published ${tag}; immutable macOS versions retained for cached clients`;
+    // Only this platform's older baselines are pruned, after every new object
+    // and active pointer has passed readback. GitHub retains historical assets.
+    const obsolete=cleanupKeys(list(),tag);
+    for(const key of obsolete) r2('s3api','delete-object','--bucket',bucket,'--key',key);
+    const remaining=new Set(list());
+    if(obsolete.some(key=>remaining.has(key))) throw new Error('R2 retention cleanup not confirmed');
+    return `Published ${tag}; retained latest macOS baseline, removed ${obsolete.length} older objects`;
   } finally { rmSync(temporary,{recursive:true,force:true}); }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {

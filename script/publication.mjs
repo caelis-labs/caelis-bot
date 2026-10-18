@@ -1,4 +1,4 @@
-import {execFileSync} from 'node:child_process';
+import {releaseCommand} from './release-network.mjs';
 import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -60,7 +60,7 @@ export function validateReceipt(value) {
 
 // run is injectable so unknown upload outcomes and late platform arrival are
 // covered without modifying public releases in tests.
-export function publishPlatform(directory, options, run = (command, args) => execFileSync(command, args, {encoding: 'utf8'})) {
+export function publishPlatform(directory, options, run = (command, args) => releaseCommand(command, args, {encoding: 'utf8'})) {
   const receipt = validateReceipt(receiptFor(directory, options));
   const {tag} = receipt.key;
   const commit = JSON.parse(run('gh', ['api', `repos/${repository}/commits/${tag}`]));
