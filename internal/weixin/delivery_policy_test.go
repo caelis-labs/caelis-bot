@@ -46,7 +46,7 @@ func TestTwelveCompletedCommentariesBatchBeforeTurnFinal(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		snapshot.Items = append(snapshot.Items, api.Item{ID: "comment-" + string(rune('a'+i)), TurnKey: "turn", Kind: "assistant", Text: "progress", Status: "completed"})
 	}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestTerminalTurnObservationSurvivesNextTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "old", Phase: "working", Items: []api.Item{{ID: "owner-user", TurnKey: "old", Kind: "user", RequestID: "input"}, {ID: "old-final", TurnKey: "old", Kind: "assistant", Text: "旧轮最终结果", Status: "completed"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCodexTerminalWithoutCurrentTurnDeliversExactIngressReply(t *testing.T) 
 		{ID: "user", TurnKey: "turn-one", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
 		{ID: "answer", TurnKey: "turn-one", Kind: "assistant", Text: "Hi!", Status: "completed"},
 	}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFastCodexTerminalUsesOnlyCurrentIngressReceipt(t *testing.T) {
 		{ID: "user", TurnKey: "fast-turn", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
 		{ID: "answer", TurnKey: "fast-turn", Kind: "assistant", Text: "Hi!", Status: "completed"},
 	}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestQueuedNewIngressDoesNotStealFastPreviousTurn(t *testing.T) {
 		{ID: "old-user", TurnKey: "old-turn", Kind: "user", RequestID: oldID, Status: "completed"},
 		{ID: "old-answer", TurnKey: "old-turn", Kind: "assistant", Text: "first answer", Status: "completed"},
 	}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestTerminalCorrelationWaitsForAnswerAndRejectsStaleObservedTurn(t *testing
 	snapshot := api.Snapshot{Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
 		{ID: "user", TurnKey: "turn-three", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
 	}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestUnseededPairingDoesNotRememberHistoricalTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "old", Phase: "completed", Items: []api.Item{{ID: "history", TurnKey: "old", Kind: "assistant", Text: "old answer", Status: "completed"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		snapshot.Items = append(snapshot.Items, api.Item{ID: "user-" + string(rune('a'+i)), Kind: "user", Text: "cross-entry", Status: "completed"})
 	}
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, TextControl: control})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestLongFinalCompactsWhenOnlyOneSlotRemains(t *testing.T) {
 	defer server.Close()
 	full := strings.Repeat("中文😀一段内容。\n", 400)
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "input"}, {ID: "final", TurnKey: "turn", Kind: "assistant", Status: "completed", Text: full}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}

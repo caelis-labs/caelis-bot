@@ -218,6 +218,16 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 }
 func (s *Service) Snapshot() api.Snapshot {
 	v := s.currentEngine().Snapshot()
+	// Capture exact native input provenance before adding persisted chat. The
+	// current runtime owner alone says nothing about those historical messages.
+	v.InputSources = nil
+	if v.RuntimeOwner != "" {
+		for _, item := range v.Items {
+			if item.Kind == "user" && item.TurnKey != "" && item.RequestID != "" {
+				v.InputSources = append(v.InputSources, api.InputSource{RuntimeOwner: v.RuntimeOwner, TurnKey: item.TurnKey, RequestID: item.RequestID})
+			}
+		}
+	}
 	// Capture local versions before projection. If an independent change lands
 	// during projection, this result keeps the older revision and the next poll
 	// must observe the newer state instead of accepting a stale projection.

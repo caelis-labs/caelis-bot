@@ -23,6 +23,14 @@ func TestReportRoutingRequiresExactPersistedSource(t *testing.T) {
 		{"missing_scope", "task_scope_mismatch", func(b *Bridge, s *api.Snapshot) { delete(b.state.TurnOwners, "original") }},
 		{"other_thread", "task_scope_mismatch", func(b *Bridge, s *api.Snapshot) { b.state.TurnOwners["original"] = "other-thread" }},
 		{"other_runtime", "report_scope_mismatch", func(b *Bridge, s *api.Snapshot) { s.ReportSources[0].RuntimeOwner = "other-runtime" }},
+		{"unscoped_cached_completion", "turn_scope_missing", func(b *Bridge, s *api.Snapshot) { b.state.TurnOrigins["completion"] = "weixin" }},
+		{"unscoped_cached_completion_with_native_input", "turn_scope_missing", func(b *Bridge, s *api.Snapshot) {
+			b.state.TurnOrigins["completion"] = "weixin"
+			s.InputSources = []api.InputSource{{RuntimeOwner: "runtime", TurnKey: "completion", RequestID: "original-request"}}
+		}},
+		{"native_input_wrong_scope", "input_scope_mismatch", func(b *Bridge, s *api.Snapshot) {
+			s.InputSources = []api.InputSource{{RuntimeOwner: "other-runtime", TurnKey: "completion", RequestID: "original-request"}}
+		}},
 		{"cached_different_thread", "runtime_mismatch", func(b *Bridge, s *api.Snapshot) {
 			b.state.TurnOwners["completion"], b.state.TurnOrigins["completion"] = "other-thread", "weixin"
 		}},

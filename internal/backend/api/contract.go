@@ -19,6 +19,9 @@ type Snapshot struct {
 	CurrentTurn string `json:"currentTurn"`
 	// RuntimeOwner is a host-only fence for replies to completed async items.
 	RuntimeOwner string `json:"-"`
+	// InputSources is captured from the native engine before local chat history
+	// is assembled. Historical display items cannot establish a runtime scope.
+	InputSources []InputSource `json:"-"`
 	// ReportSources carries native receipt provenance independently of hidden
 	// hostNotice items. It is private routing metadata, never renderer input.
 	ReportSources    []ReportSource `json:"-"`
@@ -49,6 +52,12 @@ type ReportSource struct {
 	TurnKey      string
 	ReportID     string
 	Phase        string
+}
+
+type InputSource struct {
+	RuntimeOwner string
+	TurnKey      string
+	RequestID    string
 }
 
 type ChatUpdate struct {

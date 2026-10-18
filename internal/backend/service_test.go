@@ -2,10 +2,58 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
+
+func TestInputSourcesExcludeRestoredChatHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	engine := &imReceiptEngine{value: api.Snapshot{RuntimeOwner: "current-runtime", Items: []api.Item{
+		{ID: "live-input", Kind: "user", TurnKey: "live-turn", RequestID: "live-request", Status: "completed"},
+		{ID: "internal", Kind: "hostNotice", TurnKey: "internal-turn", RequestID: "internal-request"},
+		{ID: "unbound", Kind: "user", RequestID: "unbound-request"},
+	}}}
+	s := NewService(engine, nil, nil, nil, nil)
+	s.ConfigureChat(path)
+	s.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "historical-input", Kind: "user", TurnKey: "historical-turn", RequestID: "historical-request", Status: "completed"}}})
+	s.chat.Close()
+	s = NewService(engine, nil, nil, nil, nil)
+	s.ConfigureChat(path)
+	defer s.chat.Close()
+	hasHistory := func(snapshot api.Snapshot) bool {
+		for _, item := range snapshot.Items {
+			if item.RequestID == "historical-request" {
+				return true
+			}
+		}
+		return false
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !hasHistory(s.Snapshot()) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	snapshot := s.Snapshot()
+	want := []api.InputSource{{RuntimeOwner: "current-runtime", TurnKey: "live-turn", RequestID: "live-request"}}
+	if !reflect.DeepEqual(snapshot.InputSources, want) {
+		t.Fatalf("native source evidence = %+v", snapshot.InputSources)
+	}
+	if !hasHistory(snapshot) {
+		t.Fatal("test did not restore the historical input")
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil || strings.Contains(string(encoded), "InputSources") || strings.Contains(string(encoded), "current-runtime") || strings.Contains(string(encoded), "live-request") {
+		t.Fatal("private input source entered renderer JSON", err)
+	}
+	engine.value.RuntimeOwner = ""
+	if len(s.Snapshot().InputSources) != 0 {
+		t.Fatal("native input without scope acquired provenance")
+	}
+}
 
 func TestDesktopChatShowsOnlyProjectedArtifactToolAndDoesNotDuplicateIt(t *testing.T) {
 	artifact := api.Artifact{ID: "owned-resource", Name: "result.md"}

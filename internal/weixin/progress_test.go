@@ -13,7 +13,7 @@ func TestProgressUsesAtMostFiveSendsAndFinalMergesRemainder(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "working", Items: []api.Item{{ID: "user", Kind: "user", TurnKey: "turn", RequestID: "input"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 		{ID: "task-start:wx", Kind: "assistant", TurnKey: "wx-turn", Status: "completed", Text: "手机发起的 Worker", Task: &api.TaskPresentation{ID: "wx", Title: "手机发起的 Worker", Status: "working"}},
 		{ID: "task-start:desktop", Kind: "assistant", TurnKey: "desktop-turn", Status: "completed", Text: "桌面发起的 Worker", Task: &api.TaskPresentation{ID: "desktop", Title: "桌面发起的 Worker", Status: "working"}},
 	}}
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestProgressOverflowFlushesHeadThenLargeMessage(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "working", Items: []api.Item{{ID: "user", Kind: "user", TurnKey: "turn", RequestID: "input"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestNewOrdinaryIngressFlushesPreviousPendingBatch(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", Phase: "working"}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestFinalAlreadySentAsProgressDoesNotClaimOtherQueuedText(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "working", Items: []api.Item{{ID: "user", Kind: "user", TurnKey: "turn", RequestID: "input"}, {ID: "done", Kind: "assistant", TurnKey: "turn", Status: "completed", Text: "done"}}}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
 	if err != nil {
 		t.Fatal(err)
 	}

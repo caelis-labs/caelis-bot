@@ -106,11 +106,18 @@ func (b *Bridge) ownsTurn(snapshot api.Snapshot, turn string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	oldOrigin, oldOwner := b.state.TurnOrigins[turn], b.state.TurnOwners[turn]
+	if oldOrigin != "" && oldOwner == "" {
+		// Pre-scope ledgers are not evidence of this runtime's ownership. In
+		// particular, a restored task card must not upgrade its original turn
+		// before the completion's source is checked later in the same poll.
+		b.routeWarningLocked(snapshot, turn, "turn_scope_missing")
+		return false
+	}
 	if oldOwner != "" && oldOwner != snapshot.RuntimeOwner {
 		b.routeWarningLocked(snapshot, turn, "runtime_mismatch")
 		return false
 	}
-	origin := oldOrigin
+	origin, owner := oldOrigin, oldOwner
 	observe := func(value string) {
 		if value != "" {
 			if origin != "" && origin != value {
@@ -139,24 +146,40 @@ func (b *Bridge) ownsTurn(snapshot api.Snapshot, turn string) bool {
 			return false
 		}
 		observe(inherited)
+		owner = source.RuntimeOwner
+	}
+	for _, source := range snapshot.InputSources {
+		if source.TurnKey != turn {
+			continue
+		}
+		if source.RequestID == "" || snapshot.RuntimeOwner == "" || source.RuntimeOwner != snapshot.RuntimeOwner {
+			b.routeWarningLocked(snapshot, turn, "input_scope_mismatch")
+			return false
+		}
+		observed := "other"
+		if source.RequestID == b.state.AcceptedInputID || b.state.Inputs[source.RequestID] == "accepted" {
+			observed = "weixin"
+		}
+		observe(observed)
+		owner = source.RuntimeOwner
 	}
 	for _, item := range snapshot.Items {
 		if item.TurnKey != turn || item.Kind != "user" {
 			continue
 		}
-		observed := "other"
-		if item.RequestID != "" && (item.RequestID == b.state.AcceptedInputID || b.state.Inputs[item.RequestID] == "accepted") {
-			observed = "weixin"
+		// Display history may disqualify a mixed turn, but cannot establish its
+		// owner. Only the native input provenance above can authorize a route.
+		if item.RequestID == "" || (item.RequestID != b.state.AcceptedInputID && b.state.Inputs[item.RequestID] != "accepted") {
+			observe("other")
 		}
-		observe(observed)
 	}
 	if origin == "" {
 		b.routeWarningLocked(snapshot, turn, "turn_source_missing")
 		return false
 	}
-	owner := oldOwner
 	if owner == "" {
-		owner = snapshot.RuntimeOwner
+		b.routeWarningLocked(snapshot, turn, "turn_scope_missing")
+		return false
 	}
 	if origin != oldOrigin || owner != oldOwner {
 		b.state.TurnOrigins[turn], b.state.TurnOwners[turn] = origin, owner
