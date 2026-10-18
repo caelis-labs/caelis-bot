@@ -79,7 +79,7 @@ def extract_plugin(artifact, dest):
         nonlocal total
         name = name.rstrip('/')
         parts = name.split('/')
-        if not name or any(p in ('', '.', '..') for p in parts) or name.startswith('/') or '\\' in name or ':' in name or name in seen:
+        if not name or any(p in ('', '.', '..') for p in parts) or name.startswith('/') or '\\' in name or ':' in name or '\x00' in name or name in seen:
             raise ValueError('Invalid Desktop World archive member')
         seen.add(name)
         total += size
@@ -91,7 +91,9 @@ def extract_plugin(artifact, dest):
             for member in archive.infolist():
                 mode = member.external_attr >> 16
                 if stat.S_ISLNK(mode): raise ValueError('Desktop World archive contains symlink')
-                path = target(member.filename, member.file_size)
+                # Validate the raw spelling before ZipInfo normalizes Windows separators
+                # or truncates a NUL suffix.
+                path = target(member.orig_filename, member.file_size)
                 if member.is_dir(): path.mkdir(parents=True, exist_ok=True)
                 else:
                     path.parent.mkdir(parents=True, exist_ok=True)

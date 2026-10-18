@@ -152,6 +152,18 @@ class StagingTests(unittest.TestCase):
             archive.writestr(member, '/outside')
         with self.assertRaises(ValueError): staging.extract_plugin(malicious, self.root / 'unpacked')
 
+    def test_zip_normalization_cannot_hide_unsafe_raw_names(self):
+        for raw in ['bin\\dtw.exe', 'bin/dtw.exe\x00hidden']:
+            with self.subTest(raw=raw):
+                member = zipfile.ZipInfo('bin/dtw.exe')
+                member.orig_filename = raw
+                member.file_size = 3
+                target = self.root / 'normalized-unpacked'
+                with patch.object(zipfile.ZipFile, 'infolist', return_value=[member]):
+                    with self.assertRaisesRegex(ValueError, 'Invalid Desktop World archive member'):
+                        staging.extract_plugin(self.artifact, target)
+                shutil.rmtree(target)
+
     def test_tar_preserves_executable_mode_and_rejects_hardlinks(self):
         archive_path = self.root / 'plugin.tar.gz'
         with tarfile.open(archive_path, 'w:gz') as archive:
