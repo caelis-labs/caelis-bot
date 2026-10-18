@@ -156,7 +156,7 @@ summary { cursor:pointer; }
 .question-prompt-options { display:flex; flex-wrap:wrap; gap:5px; margin:7px 0 0; }
 .question-prompt-options button { flex:1 1 auto; min-height:29px; padding:4px 7px; border:1px solid var(--line); border-radius:7px; background:transparent; color:var(--ink); font-size:12px; line-height:1.5; overflow-wrap:anywhere; cursor:pointer; }
 .question-prompt-options button.question-long-option { flex-basis:100%; text-align:left; }
-.question-prompt-options button span { display:inline-block; white-space:pre; max-width:100%; }
+.question-prompt-options button span { display:inline-block; white-space:pre-wrap; max-width:100%; overflow-wrap:anywhere; }
 .question-prompt-options button:hover:not(:disabled) { background:var(--wash); border-color:var(--muted); }
 .question-prompt :is(button,input):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .question-prompt button:disabled { opacity:.5; cursor:default; }
