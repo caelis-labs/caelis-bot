@@ -1,8 +1,6 @@
 package weixin
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +8,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 // The only seam supplies an online connection, without launching a real Host.
@@ -34,9 +33,6 @@ func TestNativePastSessionCannotAuthorizeCompletion(t *testing.T) {
 func testNativePastSessionCannotAuthorizeCompletion(t *testing.T, withScope bool) {
 	root := t.TempDir()
 	nativeDir := filepath.Join(root, "native")
-	if err := os.Mkdir(nativeDir, 0700); err != nil {
-		t.Fatal(err)
-	}
 	state := map[string]any{
 		"version": 2, "projectionVersion": 9, "instanceID": "fixture-instance", "principalID": "fixture-owner",
 		"session":      wire.SessionBinding{SessionId: "current-session", PrincipalId: "fixture-owner"},
@@ -54,11 +50,9 @@ func testNativePastSessionCannotAuthorizeCompletion(t *testing.T, withScope bool
 	if withScope {
 		state["views"].(map[string]any)["old-session"].(map[string]any)["inputScopes"] = map[string]any{"old-user": map[string]string{"instanceID": "original-instance", "sessionID": "old-session", "turnID": "old-turn"}}
 	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeDir, "application.json"), data, 0600); err != nil {
+	// Use the production private-state writer: POSIX mode bits alone do not
+	// establish the protected per-user DACL required by the Windows adapter.
+	if err := localstate.Write(filepath.Join(nativeDir, "application.json"), state); err != nil {
 		t.Fatal(err)
 	}
 	native := caelis.New(caelis.Options{Directory: nativeDir, Settings: api.RuntimeSettings{CaelisStore: filepath.Join(root, "isolated-store")}})
