@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.1](https://github.com/caelis-labs/caelis-bot/compare/v0.15.0...v0.15.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **release:** unify Windows channels, network recovery and R2 retention ([#187](https://github.com/caelis-labs/caelis-bot/issues/187)) ([9cb0a08](https://github.com/caelis-labs/caelis-bot/commit/9cb0a08be68f280062d173f7bc6d3a1efeb3e864))
+* **windows:** stabilize capture and prepare stable installers ([#190](https://github.com/caelis-labs/caelis-bot/issues/190)) ([7a2c821](https://github.com/caelis-labs/caelis-bot/commit/7a2c8212af1dd8621c6241b89f979299afe37b0a))
+
 ## [0.15.0](https://github.com/caelis-labs/caelis-bot/compare/v0.14.0...v0.15.0) (2026-10-18)
 
 
