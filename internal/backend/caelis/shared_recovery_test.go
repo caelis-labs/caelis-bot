@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -29,7 +30,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			binding := wire.SessionBinding{PrincipalId: "local-owner", SessionId: "original-worker", Profile: wire.SessionProfile{Execution: "workspace-write"}}
-			reads := 0
+			var reads atomic.Int32
 			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
 					t.Errorf("recovery replayed native mutation: %s %s", r.Method, r.URL.Path)
@@ -42,7 +43,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 				case "/sessions/original-worker/profile":
 					writeFixture(w, binding)
 				case "/operations/original-request":
-					reads++
+					reads.Add(1)
 					writeFixture(w, &wire.CommandResult{OperationId: "original-request", Outcome: tc.outcome})
 				default:
 					t.Errorf("unexpected recovery route %s", r.URL.Path)
@@ -81,6 +82,10 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			}
 			dir := filepath.Join(t.TempDir(), "bot")
 			s := New(Options{Directory: dir, Settings: settings})
+			// This fixture drives receipt recovery explicitly below. Keep the
+			// background poller from racing that read and the state assertions.
+			s.ctx, s.cancel = context.WithCancel(t.Context())
+			defer s.cancel()
 			s.retainedWorkers = true
 			s.tools = &api.ToolConnection{}
 			s.state.StoreID, s.state.PrincipalID, s.state.InstanceID = "original-store", "local-owner", "original-instance"
@@ -100,7 +105,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			if err = s.recoverOperations(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if reads != 1 || s.state.Operations["original-request"].Outcome != string(tc.outcome) || s.state.Session.SessionId != binding.SessionId || s.state.InstanceID != "setup-instance" {
+			if reads.Load() != 1 || s.state.Operations["original-request"].Outcome != string(tc.outcome) || s.state.Session.SessionId != binding.SessionId || s.state.InstanceID != "setup-instance" {
 				t.Fatal("recovery lost original identity or uncertainty", s.state)
 			}
 			b, err := os.ReadFile(log)
