@@ -152,7 +152,16 @@ func TestPrivateClosePostStopWriteFailureRechecksGoneOwnerBeforeRecovery(t *test
 		t.Fatal("verified death or original request did not survive reload", reloaded.binding)
 	}
 	service := backend.NewService(loaded, nil, nil, nil, nil)
-	if err := service.RecoverIfCurrent(testContext(t), service.RecoveryState().Fence); err != nil || starts.Load() != 1 || len(loaded.binding.LostOwners) != 1 {
-		t.Fatal("fenced recovery did not establish a separate usable owner", err, starts.Load(), loaded.binding.LostOwners)
+	if err := service.Connect(testContext(t)); err == nil || starts.Load() != 0 || len(loaded.binding.LostOwners) != 0 {
+		t.Fatal("automatic Connect retired an unavailable owner", err, starts.Load())
+	}
+	if err := service.Reconnect(testContext(t)); err != nil || starts.Load() != 1 || len(loaded.binding.LostOwners) != 1 {
+		t.Fatal("desktop recovery did not establish a separate usable owner", err, starts.Load(), loaded.binding.LostOwners)
+	}
+	if loaded.binding.LostOwners[0].StopRequest != "original-close-request" || loaded.Snapshot().Connection != "ready" {
+		t.Fatal("desktop recovery lost original evidence or did not restore connection")
+	}
+	if err := service.Reconnect(testContext(t)); err != nil || starts.Load() != 1 || len(loaded.binding.LostOwners) != 1 {
+		t.Fatal("repeated desktop recovery replaced the ready connection", err, starts.Load())
 	}
 }

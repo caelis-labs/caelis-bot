@@ -2,15 +2,24 @@ import React, { useState } from 'react';
 import { desktop } from './desktop';
 import { useI18n } from './i18n';
 import { presentationWarning } from './presentation-warning';
+import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
+import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
+import { CheckIcon } from '@phosphor-icons/react/dist/csr/Check';
 
 export function Recovery({onRetry,fullscreen=false}:{onRetry?:()=>void;fullscreen?:boolean}={}) {
   const { t } = useI18n();
   const [copied,setCopied]=useState(false);
   const copy=async()=>{try{await desktop('CopyDiagnostics');setCopied(true);}catch{presentationWarning('background_read_failed');}};
   return <section className={`surface-recovery${fullscreen?' is-fullscreen':''}`} role="status">
-    <p>{t(onRetry?'chat.surfaceRetryNeeded':'chat.surfaceRestartNeeded')}</p>
-    <div><button type="button" onClick={()=>void copy()}>{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
-    <button type="button" className="primary" onClick={()=>onRetry?onRetry():window.location.reload()}>{t(onRetry?'settings.runtimeTryAgain':'chat.restartSurface')}</button></div>
+    <span className="surface-recovery-icon" aria-hidden="true"><ArrowClockwiseIcon size={20}/></span>
+    <div className="surface-recovery-content">
+      <strong>{t(onRetry?'chat.surfaceRetryTitle':'chat.surfaceRestartTitle')}</strong>
+      <p>{t(onRetry?'chat.surfaceRetryNeeded':'chat.surfaceRestartNeeded')}</p>
+      <div className="surface-recovery-actions">
+        <button type="button" className="surface-recovery-primary" onClick={()=>onRetry?onRetry():window.location.reload()}>{t(onRetry?'settings.runtimeTryAgain':'chat.restartSurface')}</button>
+        <button type="button" className="surface-recovery-feedback" onClick={()=>void copy()}>{copied?<CheckIcon size={14} aria-hidden="true"/>:<CopyIcon size={14} aria-hidden="true"/>}{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
+      </div>
+    </div>
   </section>;
 }
 

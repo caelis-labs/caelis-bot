@@ -78,6 +78,12 @@ decisions and external approval navigation route to the exact original adapter.
 Worker approval revisions refresh chat even when the resident has no new events.
 `GOWORK=off`; no sibling private imports.
 
+The chat and connection settings reconnect buttons use the explicit native
+recovery action. It captures and checks the current owner fence, preserves a
+confirmed lost owner's receipts before starting a replacement, and never
+replays old work. Automatic/setup connection remains observation-only for a
+lost owner; an unverified process identity cannot authorize replacement.
+
 The macOS bundle carries a pinned public Caelis CLI in `Contents/Helpers/caelis`.
 An explicit CLI override wins; otherwise discovery uses this app's helper before
 PATH. The app never overwrites a global CLI or creates a separate Caelis Store,

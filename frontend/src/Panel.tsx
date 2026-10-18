@@ -673,14 +673,15 @@ export function History() {
     <div className="connection-actions">
      {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
-     {!snapshot.loginPending&&!chooseRuntime&&snapshot.connection!=='connecting'&&<button disabled={busy} onClick={()=>void action('Connect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
+     {!snapshot.loginPending&&!chooseRuntime&&snapshot.connection!=='connecting'&&<button disabled={busy} onClick={()=>void action('Reconnect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
      {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
      {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
     </div>
    </article>}
-   {!!(error||connectionError)&&<Recovery/>}
+   {/* Connection failures already have a scoped retry/settings card above. */}
+   {!!(error||connectionError&&!connection)&&<Recovery onRetry={connectionError?()=>void action('Reconnect'):undefined}/>}
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}

@@ -478,6 +478,17 @@ func (s *Service) Connect(ctx context.Context) error {
 	return s.connect(ctx, "")
 }
 
+// Reconnect is the explicit desktop recovery action. Automatic/setup Connect
+// must never retire an unavailable original owner. Capture its current native
+// fence here so a concurrent runtime change cannot recover a different owner.
+func (s *Service) Reconnect(ctx context.Context) error {
+	state := s.RecoveryState()
+	if state.Manual {
+		return s.RecoverIfCurrent(ctx, state.Fence)
+	}
+	return s.Connect(ctx) // Shares an existing flight; never grants lost-owner recovery.
+}
+
 // RecoveryState is a host-only view of the current Runtime owner. Its fence
 // changes on native reconnect and on every manual admission attempt.
 func (s *Service) RecoveryState() api.RecoveryState {
