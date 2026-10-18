@@ -8,6 +8,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
+import tarfile
+import io
 from unittest.mock import patch
 
 module_spec = importlib.util.spec_from_file_location('staging', Path(__file__).with_name('stage-desktop-world-plugin.py'))
@@ -38,7 +41,9 @@ class StagingTests(unittest.TestCase):
         for key, name in [('binary_sha256','bin/dtw.exe'),('worker_sha256','libexec/cua-driver.exe'),('license_inventory_sha256','LICENSING/DEPENDENCIES.json')]:
             self.spec[key] = staging.digest(self.package / name)
         self.artifact = self.root / self.spec['artifact']
-        shutil.copyfile(self.package / 'bin/dtw.exe', self.artifact)
+        with zipfile.ZipFile(self.artifact, 'w') as archive:
+            for path in self.package.rglob('*'):
+                if path.is_file(): archive.write(path, path.relative_to(self.package).as_posix())
         self.spec['sha256'] = staging.digest(self.artifact)
 
     def checksums(self):
@@ -61,13 +66,7 @@ class StagingTests(unittest.TestCase):
         destination = self.root / 'Plugins' / 'desktop-world'
         destination.mkdir(parents=True)
         (destination / 'old').write_text('keep until verified')
-        def install(args, **kwargs):
-            self.assertEqual(args[1:4], ['install','plugin','--to'])
-            staged = Path(args[4])
-            self.assertFalse(staged.exists(), '--to must name a new directory')
-            shutil.copytree(self.package, staged)
-            return subprocess.CompletedProcess(args, 0)
-        with patch.object(staging.subprocess, 'run', side_effect=install):
+        with patch.object(staging.subprocess, 'run', side_effect=AssertionError('archive must not execute')):
             staging.export_package(self.artifact, destination, self.spec, 'windows-amd64')
         self.assertTrue((destination / '.claude-plugin/plugin.json').is_file())
         self.assertFalse((destination / 'old').exists())
@@ -76,8 +75,8 @@ class StagingTests(unittest.TestCase):
         destination = self.root / 'Plugins' / 'desktop-world'
         destination.mkdir(parents=True)
         (destination / 'old').write_text('unchanged')
-        with patch.object(staging.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'fixture')):
-            with self.assertRaises(subprocess.CalledProcessError):
+        with patch.object(staging, 'extract_plugin', side_effect=ValueError('corrupt archive')):
+            with self.assertRaises(ValueError):
                 staging.export_package(self.artifact, destination, self.spec, 'windows-amd64')
         self.assertEqual((destination / 'old').read_text(), 'unchanged')
         self.assertEqual(list(destination.parent.iterdir()), [destination])
@@ -114,7 +113,8 @@ class StagingTests(unittest.TestCase):
     def test_download_and_build_provenance_checked_before_execution(self):
         build = {'tag':staging.PIN['version'], 'source_revision':staging.PIN['revision'],
                  'cua_revision':staging.PIN['cua_revision'], 'platform':'windows-amd64',
-                 'artifact_sha256':self.spec['sha256'], 'adapter_sha256':self.spec['binary_sha256'],
+                 'artifact_sha256':self.spec['standalone_sha256'],
+                 'plugin':{'asset':self.spec['artifact'],'sha256':self.spec['sha256'],'adapter_sha256':self.spec['binary_sha256']},
                  'worker_sha256':self.spec['worker_sha256'], 'license_inventory_sha256':self.spec['license_inventory_sha256'],
                  'license_packages':self.spec['license_packages'], 'mpl_source_packages':['fixture'] * 6,
                  'signing':{'type':'unsigned'}}
@@ -133,6 +133,34 @@ class StagingTests(unittest.TestCase):
             self.artifact.write_text('tampered')
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                 staging.verify_release(self.root, 'windows-amd64')
+
+    def test_archive_traversal_and_symlink_are_rejected(self):
+        for name in ['../escape', '/escape', 'C:/escape', 'bin\\dtw.exe']:
+            with self.subTest(name=name):
+                malicious = self.root / 'bad.zip'
+                with zipfile.ZipFile(malicious, 'w') as archive: archive.writestr(name, 'bad')
+                target = self.root / 'unpacked'
+                with self.assertRaises(ValueError): staging.extract_plugin(malicious, target)
+                shutil.rmtree(target)
+        malicious = self.root / 'bad.zip'
+        with zipfile.ZipFile(malicious, 'w') as archive:
+            member = zipfile.ZipInfo('link'); member.external_attr = 0o120777 << 16
+            archive.writestr(member, '/outside')
+        with self.assertRaises(ValueError): staging.extract_plugin(malicious, self.root / 'unpacked')
+
+    def test_tar_preserves_executable_mode_and_rejects_hardlinks(self):
+        archive_path = self.root / 'plugin.tar.gz'
+        with tarfile.open(archive_path, 'w:gz') as archive:
+            member = tarfile.TarInfo('bin/dtw'); member.mode = 0o755; member.size = 3
+            archive.addfile(member, io.BytesIO(b'dtw'))
+        unpacked = self.root / 'tar-unpacked'
+        staging.extract_plugin(archive_path, unpacked)
+        self.assertEqual((unpacked / 'bin/dtw').read_bytes(), b'dtw')
+        if os.name != 'nt': self.assertEqual((unpacked / 'bin/dtw').stat().st_mode & 0o777, 0o755)
+        with tarfile.open(archive_path, 'w:gz') as archive:
+            member = tarfile.TarInfo('link'); member.type = tarfile.LNKTYPE; member.linkname = '../outside'
+            archive.addfile(member)
+        with self.assertRaises(ValueError): staging.extract_plugin(archive_path, self.root / 'bad-tar')
 
     def test_upstream_adhoc_signature_is_not_developer_id(self):
         def run(args, **kwargs):

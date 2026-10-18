@@ -74,29 +74,23 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-Desktop World is pinned to the published [v0.1.0-rc.9](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.9)
-single executable. `resources/desktop-world/release.json` fixes each platform
-artifact SHA-256, BUILD provenance, CUA commit, worker and license inventory.
-The build validates the downloaded executable before running the offline
-`dtw install plugin --to NEW_DIRECTORY` exporter. It verifies every exported
-file, including hidden compatibility manifests, against upstream `SHA256SUMS`,
-then stages the complete `bin/`, `libexec/`, `LICENSING/`, MCP and Skill package.
-The exporter requires a destination that does not exist; validation failure
-retains the previous package. No DTW build toolchain or global installation is
-needed. Python is build tooling only, not an application dependency.
+Desktop World is pinned to [v0.1.0](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0).
+`resources/desktop-world/release.json` separately pins the slim Plugin archive,
+standalone provenance, slim runtime, worker, BUILD and license inventory.
+Staging verifies the archive before extracting only ordinary relative files and
+directories, then checks every file against SHA256SUMS and the pinned native
+binary hashes. The archive is never executed. Validation failure retains the
+previous package. No DTW build toolchain or global installation is needed.
 
-The official Mac CLI and embedded worker carry Developer ID signatures and
-upstream notarization evidence. Staging verifies both signatures and their
-pinned team before adjusting the worker's build-machine Xcode search paths.
-Bot re-signs both nested Mac executables with its selected identity and seals
-a new complete inventory inside the app. Upstream notarization does not qualify
-the resulting Bot: its immutable release must independently pass signing,
-notarization, staples and Gatekeeper. Windows staging runs the native EXE
-exporter through the same verifier, retains the full plugin inventory and
-checks `dtw.exe version` on the Windows runner. The Windows artifact is unsigned
-and needs the VC runtime. These jobs do not establish Windows GUI acceptance.
-Historical rc.3 and rc.2 records retain their original versions under
-`docs/evidence/`; the previous rc.4 GUI evidence below does not qualify rc.9.
+On macOS, staging verifies Developer ID signatures and the pinned team on the
+slim runtime and worker before Bot signs its own nested payload. Upstream
+notarization does not qualify the resulting Bot application: public Bot releases
+still require their own immutable signing, notarization, stapling and Gatekeeper
+gates. Windows uses the same archive verifier, remains unsigned upstream, and
+requires the x64 VC runtime. Upstream Windows DPI, modal-provider and uncertain
+focus limits are tracked in [DTW #36](https://github.com/caelis-labs/desktop-world/issues/36).
+Historical evidence remains tied to its original version; it does not qualify
+the v0.1.0 artifact.
 
 
 ## Native development
@@ -192,10 +186,16 @@ Skill、唯一 `exec` 和停用撤销。
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
 `CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
-`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.9 版本目录；分别给 Codex
+`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 v0.1.0 版本目录；分别给 Codex
 测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
 `CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
-验证 Skill、单 `exec` 和停用撤销；它不执行 GUI 操作。
+验证 Skill、单 `exec` 和停用撤销。隔离插件目录必须有实际持锁的 Bot owner；
+在 App 外运行的 Manager 不会发现内置包，不能仅凭 AcquireDesktopOwner 返回 nil
+就认定 owner 已建立。默认不执行 GUI 操作。Codex 测试可显式设置
+`CAELIS_BOT_TEST_DTW_FIXTURE` 为 Desktop World 的一次性 scene fixture 目录，
+在活动、未遮挡的桌面上验证 PNG 图片描述、一次点击、独立计数读回和新观察。
+Codex 的检查 API 不返回 PNG 字节；实际图片 payload 由 Core loader/直接 MCP
+验收单独证明。这些本地合成模型测试不代表真实账号模型验收。
 
 稳定身份验证应比较两次不同代码的 `codesign -d -r-` designated requirement；
 它应保持相同且不依赖 cdhash。签名一致并不等于真实权限/窗口截图已验收，仍需

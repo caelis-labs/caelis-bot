@@ -19,7 +19,7 @@ import (
 )
 
 // Opt-in acceptance uses a private Codex App Server and the installed,
-// signed rc.9 package. The provider is local and no account is read.
+// signed v0.1.0 package. The provider is local and no account is read.
 func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	binary := os.Getenv("CAELIS_BOT_TEST_CODEX")
 	bot := os.Getenv("CAELIS_BOT_TEST_BOT_BINARY")
@@ -29,8 +29,8 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Skip("set private Codex, DevBot, Desktop World package and plugin store paths")
 	}
 	p, err := plugins.Load(packageRoot)
-	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.0-rc.9" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
-		t.Fatal("invalid installed rc.9 package", err)
+	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.0" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
+		t.Fatal("invalid installed v0.1.0 package", err)
 	}
 	var saved struct {
 		Installed map[string]struct {
@@ -40,7 +40,7 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	}
 	state, err := os.ReadFile(filepath.Join(pluginStore, "state.json"))
 	if err != nil || json.Unmarshal(state, &saved) != nil || !saved.Installed["desktop-world"].Enabled || filepath.Base(packageRoot) != saved.Installed["desktop-world"].Root {
-		t.Fatal("supplied rc.9 package is not the enabled generation", err)
+		t.Fatal("supplied v0.1.0 package is not the enabled generation", err)
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer provider.Close()
@@ -79,7 +79,7 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(fmt.Sprint(skills), "desktop-world") {
-		t.Fatal("rc.9 Skill missing from resident Codex")
+		t.Fatal("v0.1.0 Skill missing from resident Codex")
 	}
 	name := plugins.RuntimeName("desktop-world", p.Servers[0].Name)
 	var detail plugins.ServerDetail
@@ -89,12 +89,12 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 			break
 		}
 		if ctx.Err() != nil {
-			t.Fatal("rc.9 MCP did not connect", detail.State, err)
+			t.Fatal("v0.1.0 MCP did not connect", detail.State, err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	if detail.Tools[0].Name != "exec" {
-		t.Fatal("rc.9 must expose only exec", detail.Tools)
+		t.Fatal("v0.1.0 must expose only exec", detail.Tools)
 	}
 	processes, err := exec.Command("/bin/ps", "-ww", "-axo", "pid=,ppid=,command=").Output()
 	if err != nil {
@@ -102,7 +102,7 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	}
 	var parent string
 	for _, line := range strings.Split(string(processes), "\n") {
-		if strings.Contains(line, packageRoot+"/bin/dtw") {
+		if strings.HasSuffix(strings.TrimSpace(line), packageRoot+"/bin/dtw") {
 			fields := strings.Fields(line)
 			if len(fields) >= 3 {
 				parent = fields[1]
@@ -119,6 +119,11 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	if parent == "" || !bridge {
 		t.Fatal("DTW was not spawned by the signed Bot plugin bridge")
 	}
+	if fixture := os.Getenv("CAELIS_BOT_TEST_DTW_FIXTURE"); fixture != "" {
+		verifyDesktopWorldFixture(t, fixture, func(args map[string]any, response any) error {
+			return callDecode(ctx, session.client, "mcpServer/tool/call", map[string]any{"threadId": session.binding.ThreadID, "server": name, "tool": "exec", "arguments": args}, response)
+		})
+	}
 	if err := session.UpdateBotPlugins(ctx, plugins.Selection{Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,9 +131,9 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(fmt.Sprint(skills), "desktop-world") {
-		t.Fatal("disabled rc.9 Skill remained in Codex")
+		t.Fatal("disabled v0.1.0 Skill remained in Codex")
 	}
 	if err := callDecode(ctx, session.client, "mcpServer/tool/call", map[string]any{"threadId": session.binding.ThreadID, "server": name, "tool": "exec", "arguments": map[string]any{"operation": "permissions"}}, nil); err == nil {
-		t.Fatal("disabled rc.9 exec remained callable on the original thread")
+		t.Fatal("disabled v0.1.0 exec remained callable on the original thread")
 	}
 }
