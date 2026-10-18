@@ -26,6 +26,10 @@ func TestReportRoutingRequiresExactPersistedSource(t *testing.T) {
 		{"cached_different_thread", "runtime_mismatch", func(b *Bridge, s *api.Snapshot) {
 			b.state.TurnOwners["completion"], b.state.TurnOrigins["completion"] = "other-thread", "weixin"
 		}},
+		{"cached_missing_runtime", "runtime_mismatch", func(b *Bridge, s *api.Snapshot) {
+			b.state.TurnOwners["completion"], b.state.TurnOrigins["completion"] = "runtime", "weixin"
+			s.RuntimeOwner, s.ReportSources = "", nil
+		}},
 		{"desktop_task", "", func(b *Bridge, s *api.Snapshot) { b.state.TurnOrigins["original"] = "other" }},
 		{"mixed_task", "", func(b *Bridge, s *api.Snapshot) { b.state.TurnOrigins["original"] = "mixed" }},
 		{"desktop_steer", "", func(b *Bridge, s *api.Snapshot) {

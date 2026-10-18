@@ -106,7 +106,7 @@ func (b *Bridge) ownsTurn(snapshot api.Snapshot, turn string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	oldOrigin, oldOwner := b.state.TurnOrigins[turn], b.state.TurnOwners[turn]
-	if oldOwner != "" && snapshot.RuntimeOwner != "" && oldOwner != snapshot.RuntimeOwner {
+	if oldOwner != "" && oldOwner != snapshot.RuntimeOwner {
 		b.routeWarningLocked(snapshot, turn, "runtime_mismatch")
 		return false
 	}

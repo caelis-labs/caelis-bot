@@ -72,7 +72,7 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 		}
 		return ""
 	}})
-	if err != nil || !reopened.ownsApproval(api.Snapshot{}, api.Approval{Owner: "task", TaskID: "wx", TurnKey: "wx-worker-turn"}) {
+	if err != nil || !reopened.ownsApproval(api.Snapshot{RuntimeOwner: "fixture-runtime"}, api.Approval{Owner: "task", TaskID: "wx", TurnKey: "wx-worker-turn"}) {
 		t.Fatal("worker approval source disappeared after restart", err)
 	}
 	reopened.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
