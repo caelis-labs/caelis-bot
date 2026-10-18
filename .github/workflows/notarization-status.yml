@@ -51,7 +51,7 @@ jobs:
             --keychain "$NOTARY_KEYCHAIN" --output-format json > notarization/status.json
           cat notarization/status.json
           status=$(plutil -extract status raw -o - notarization/status.json)
-          printf 'Apple submission `%s`: **%s**. This read-only workflow does not submit or publish artifacts.\n' \
+          printf 'Apple submission %s: **%s**. This read-only workflow does not submit or publish artifacts.\n' \
             "$SUBMISSION_ID" "$status" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$status" != 'In Progress' ]]; then
             xcrun notarytool log "$SUBMISSION_ID" --keychain-profile caelis-status \
