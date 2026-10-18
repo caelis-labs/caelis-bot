@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
@@ -14,7 +16,8 @@ import (
 // ordinary chat only when it needs more information.
 func (a *Application) observeWorkerQuestions(ctx context.Context) {
 	a.observeWorkerApprovalNotice(ctx, a.allApprovalSnapshot())
-	for _, state := range a.localWork.WorkStates() {
+	states := a.localWork.WorkStates()
+	for _, state := range states {
 		for _, item := range state.AsyncQuestions {
 			_, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID)
 			if err != nil {
@@ -23,13 +26,40 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 				}
 				continue
 			}
+		}
+	}
+	if err := a.textControl.ReconcileAsync(a.currentEngine().Snapshot(), states); err != nil {
+		if a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+		return
+	}
+	for _, state := range states {
+		for _, item := range state.AsyncQuestions {
 			for _, q := range a.textControl.AsyncButtonQuestions(item.ID) {
 				if q.State == "" {
-					text := fmt.Sprintf("Worker task %s has an asynchronous question %s. Inspect bot_interactions, answer it from the user's task context if clear, or ask the user naturally when information is missing. The original Worker must receive the exact reply.", state.Task.Title, q.ShortID)
+					text := fmt.Sprintf("Worker task %s has an asynchronous question %s. Inspect bot_interactions, answer it from the user's task context if clear, or present this exact question with bot_interactions type=present when information is missing. Do not create a duplicate async question. The original Worker must receive the exact reply.", state.Task.Title, q.ShortID)
 					a.reportWorkerInteraction(ctx, "question", item.ID+":"+q.Fingerprint, text)
 					break
 				}
 			}
+		}
+	}
+	for _, notice := range a.textControl.PendingQuestionClosures() {
+		var receiver api.QuestionClosureReceiver
+		if notice.WorkID != "" {
+			receiver = a.localWork
+		} else {
+			receiver, _ = a.currentEngine().(api.QuestionClosureReceiver)
+		}
+		if receiver == nil {
+			continue
+		}
+		delivery, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := receiver.ReceiveQuestionClosure(delivery, notice)
+		cancel()
+		if err == nil {
+			_ = a.textControl.QuestionClosureRecorded(notice.ID)
 		}
 	}
 }
@@ -48,7 +78,7 @@ func (a *Application) WorkerQuestions() []api.WorkerQuestion {
 		if !activeItems[q.ItemID] {
 			continue
 		}
-		out = append(out, api.WorkerQuestion{ID: q.ShortID, TaskID: q.WorkID, TaskTitle: titles[q.WorkID], Title: q.Title, Options: q.Options, State: q.State})
+		out = append(out, api.WorkerQuestion{ID: q.ShortID, TaskID: q.WorkID, TaskTitle: titles[q.WorkID], Title: q.Title, Options: q.Options, State: q.State, Reason: q.Reason, ExpiresAt: q.ExpiresAt})
 	}
 	return out
 }
@@ -101,4 +131,31 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 		}
 	}
 	return api.Receipt{ID: in.ID, Outcome: "rejected", Message: "原 Worker 问题已失效。"}, nil
+}
+
+func (a *Application) PresentWorkerQuestion(ctx context.Context, id string, presentation *api.QuestionPresentation) (api.Receipt, error) {
+	a.observeWorkerQuestions(ctx)
+	item, err := a.textControl.PresentWorkerQuestion(id, presentation)
+	if err != nil {
+		return api.Receipt{ID: id, Outcome: "rejected", Message: err.Error()}, nil
+	}
+	a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+	return api.Receipt{ID: id, Outcome: "accepted", Message: "Original Worker question presented; no answer supplied."}, nil
+}
+func (w *localWorkers) ReceiveQuestionClosure(ctx context.Context, in api.QuestionClosure) error {
+	w.mu.Lock()
+	runtime := w.routes[in.WorkID]
+	owner := w.resident
+	if runtime != w.active {
+		owner = w.owners[runtime]
+	}
+	w.mu.Unlock()
+	if runtime != in.Owner || owner == nil {
+		return errors.New("original question owner unavailable")
+	}
+	receiver, ok := owner.(api.QuestionClosureReceiver)
+	if !ok {
+		return errors.New("original owner cannot retain question closure")
+	}
+	return receiver.ReceiveQuestionClosure(ctx, in)
 }

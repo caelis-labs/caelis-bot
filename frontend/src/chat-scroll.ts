@@ -4,19 +4,27 @@ type Viewport = Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>
 // multiline draft and resizing a window all change the available reading area.
 export class ChatScroll {
  following = true;
+ private preferQuestions = true;
  private height = 0;
  private viewport = 0;
  private readonly element: Viewport;
 
- constructor(element: Viewport) { this.element = element; }
+ private readonly questionStart?:()=>number|undefined;
+ constructor(element: Viewport, questionStart?:()=>number|undefined) { this.element = element; this.questionStart=questionStart; }
 
- latest() {
+ private target() {
+  const bottom=Math.max(0,this.element.scrollHeight-this.element.clientHeight);
+  return Math.min(bottom,(this.preferQuestions?this.questionStart?.():undefined)??bottom);
+ }
+
+ latest(readQuestions=false) {
+  this.preferQuestions=readQuestions;
   this.following = true;
   this.layout();
  }
 
  layout() {
-  if (this.following) this.element.scrollTop = this.element.scrollHeight;
+  if (this.following) this.element.scrollTop = this.target();
   this.height = this.element.scrollHeight;
   this.viewport = this.element.clientHeight;
  }
@@ -27,7 +35,7 @@ export class ChatScroll {
   if (this.height !== this.element.scrollHeight || this.viewport !== this.element.clientHeight) {
    this.layout();
   } else {
-   this.following = this.element.scrollHeight - this.element.scrollTop - this.element.clientHeight < 56;
+   this.following = Math.abs(this.target() - this.element.scrollTop) < 56;
   }
   return this.following;
  }

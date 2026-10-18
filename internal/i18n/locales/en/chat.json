@@ -34,7 +34,7 @@
   "interactionPrevious": "Previous request",
   "interactionNext": "Next request",
   "questionEyebrow": "Answer needed",
-  "questionSend": "Send answer",
+  "questionSend": "Send",
   "questionAnswered": "Answered",
   "questionUnknown": "Delivery needs checking",
   "approvalTarget": "Target",
@@ -234,5 +234,14 @@
   "fileSelectionReadFailed": "Attachments could not be checked. Keep typing if needed, then retry the local check before sending.",
   "surfaceRecovering": "This window is recovering. Bot is still running; original requests are retained.",
   "imageFit": "Fit to window",
-  "imageActualSize": "Actual size"
+  "imageActualSize": "Actual size",
+  "questionDismiss": "Dismiss",
+  "questionDismissed": "Dismissed",
+  "questionExpired": "Expired",
+  "questionSuperseded": "Replaced",
+  "questionYourAnswer": "Your answer",
+  "questionPlaceholder": "Your answer…",
+  "questionConversation": "Current conversation",
+  "questionUntil": "Until {time}",
+  "questionDismissLabel": "Dismiss question without answering"
 }

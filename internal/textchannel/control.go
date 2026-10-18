@@ -68,9 +68,12 @@ type document struct {
 	SecretShortIDs             map[string]bool                `json:"secretShortIds,omitempty"` // bounded by the Q-number pool; protects stale bare answers after reuse
 	ReplyOrder                 []string
 	AsyncQuestions             map[string]asyncQuestion `json:"asyncQuestions,omitempty"`
-	AsyncActive                map[string]string        `json:"asyncActive,omitempty"` // item ID -> exact question fingerprint
+	AsyncClosed                map[string]asyncQuestion `json:"asyncClosed,omitempty"`  // retained generations, independent of recycled numbers and display identity
+	AsyncRetired               map[string]bool          `json:"asyncRetired,omitempty"` // display retirement is independent of unknown answer receipts
+	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`  // item ID -> exact question fingerprint
 }
 type Store struct {
+	revision        uint64
 	mu              sync.Mutex
 	path            string
 	state           document
@@ -91,7 +94,7 @@ func shortIDExpired(issuedAt int64) bool {
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
 	s := &Store{path: filepath.Join(root, "text-channel-control.json"), decide: decide, secretAnswers: map[string]map[string][]string{}}
-	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, SecretShortIDs: map[string]bool{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
+	s.state = document{AsyncRetired: map[string]bool{}, AsyncClosed: map[string]asyncQuestion{}, Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, SecretShortIDs: map[string]bool{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -117,6 +120,9 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	if s.state.AsyncQuestions == nil {
 		s.state.AsyncQuestions = map[string]asyncQuestion{}
 	}
+	if s.state.AsyncClosed == nil {
+		s.state.AsyncClosed = map[string]asyncQuestion{}
+	}
 	if s.state.AsyncActive == nil {
 		s.state.AsyncActive = map[string]string{}
 	}
@@ -129,6 +135,17 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	// Legacy records had no issue time. Give them a full local lifetime after
 	// migration rather than expiring all visible cards on the first restart.
 	migrated := false
+	if s.state.AsyncRetired == nil {
+		s.state.AsyncRetired = map[string]bool{}
+	}
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for _, q := range records {
+			if active := s.state.AsyncActive[q.ItemID]; active != "" && active != q.Fingerprint && !s.state.AsyncRetired[q.Fingerprint] {
+				s.state.AsyncRetired[q.Fingerprint] = true
+				migrated = true
+			}
+		}
+	}
 	for id, p := range s.state.Prompts {
 		if p.Secret && !s.state.SecretShortIDs[id] {
 			s.state.SecretShortIDs[id] = true
@@ -147,10 +164,41 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 		}
 	}
 	for id, q := range s.state.AsyncQuestions {
+		if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) != nil {
+			q.Presentation = nil
+			migrated = true
+		}
+		if q.ShortID == "" {
+			q.ShortID = id
+			migrated = true
+		}
+		if q.ExpiresAt == 0 {
+			q.ExpiresAt = q.IssuedAt + int64(asyncQuestionMaxAge/time.Second)
+			if q.IssuedAt == 0 {
+				q.ExpiresAt = time.Now().Add(asyncQuestionMaxAge).Unix()
+			}
+			migrated = true
+		}
+		if q.State == "accepted" {
+			q.State = "answered"
+			migrated = true
+		}
+		if q.State == "" && asyncExpired(q) {
+			q.State = "expired"
+			q.Reason = "deadline"
+			q.ClosedAt = time.Now().Unix()
+			migrated = true
+		}
 		if q.IssuedAt == 0 {
 			q.IssuedAt = time.Now().Unix()
 			s.state.AsyncQuestions[id] = q
 			migrated = true
+		}
+		s.state.AsyncQuestions[id] = q
+		if closedAsync(q.State) || q.State == "answered" {
+			if _, exists := s.state.AsyncClosed[asyncKey(q)]; !exists {
+				s.state.AsyncClosed[asyncKey(q)] = q
+			}
 		}
 	}
 	if migrated {
@@ -160,7 +208,13 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	}
 	return s, nil
 }
-func (s *Store) save() error { return localstate.Write(s.path, s.state) }
+func (s *Store) save() error {
+	if err := localstate.Write(s.path, s.state); err != nil {
+		return err
+	}
+	s.revision++
+	return nil
+}
 
 // RecordOrigin runs before native Submit. It prevents echoing the original
 // user item to its own transport and retains the Weixin context token.
@@ -233,13 +287,32 @@ func (s *Store) nextShortIDLocked(kind string) (string, func(), error) {
 		if hadPrompt && s.state.Claims[oldPrompt.NativeID].State != "submitted" && (s.state.Claims[oldPrompt.NativeID].State == "unknown" || !shortIDExpired(oldPrompt.IssuedAt)) {
 			continue
 		}
-		if hadAsync && (oldAsync.State == "unknown" || oldAsync.State == "dispatching" || oldAsync.State == "" && !shortIDExpired(oldAsync.IssuedAt) && s.state.AsyncActive[oldAsync.ItemID] == oldAsync.Fingerprint) {
+		if hadAsync && (oldAsync.State == "unknown" || oldAsync.State == "dispatching" || oldAsync.State == "" && !asyncExpired(oldAsync) && s.state.AsyncActive[oldAsync.ItemID] == oldAsync.Fingerprint) {
 			continue
+		}
+		archived, hadArchived := s.state.AsyncClosed[asyncKey(oldAsync)]
+		if hadAsync && !hadArchived {
+			if oldAsync.State == "" {
+				state, reason := "superseded", "question_replaced"
+				if asyncExpired(oldAsync) {
+					state, reason = "expired", "deadline"
+				}
+				s.closeAsyncLocked(id, oldAsync, state, reason)
+			} else {
+				s.state.AsyncClosed[asyncKey(oldAsync)] = oldAsync
+			}
 		}
 		delete(s.state.Prompts, id)
 		delete(s.state.AsyncQuestions, id)
 		return id, func() {
 			*counter = previous
+			if hadAsync {
+				if hadArchived {
+					s.state.AsyncClosed[asyncKey(oldAsync)] = archived
+				} else {
+					delete(s.state.AsyncClosed, asyncKey(oldAsync))
+				}
+			}
 			if hadPrompt {
 				s.state.Prompts[id] = oldPrompt
 			}
@@ -255,6 +328,9 @@ func (s *Store) nextShortIDLocked(kind string) (string, func(), error) {
 // Reconcile releases native references only after an authoritative ready
 // snapshot confirms their original request has resolved or disappeared.
 func (s *Store) Reconcile(snapshot api.Snapshot) error {
+	if err := s.ReconcileAsync(snapshot, nil); err != nil {
+		return err
+	}
 	if snapshot.Connection != "ready" && snapshot.Connection != "connected" {
 		return nil
 	}
@@ -281,19 +357,10 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 		delete(s.state.Prompts, id)
 		changed = true
 	}
-	previousAsync := maps.Clone(s.state.AsyncQuestions)
-	for id, q := range s.state.AsyncQuestions {
-		if q.State == "" && shortIDExpired(q.IssuedAt) {
-			q.State = "expired"
-			s.state.AsyncQuestions[id] = q
-			changed = true
-		}
-	}
 	if changed {
 		if err := s.save(); err != nil {
 			s.state.Prompts = previous
 			s.state.SecretShortIDs = previousSecret
-			s.state.AsyncQuestions = previousAsync
 			return err
 		}
 	}
@@ -780,6 +847,18 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 	if len(parts) == 0 {
 		return "空命令。"
 	}
+	if parts[0] == "/dismiss" {
+		if len(parts) != 2 {
+			return s.reply(key, "请使用 /dismiss Q编号 关闭普通异步问题。")
+		}
+		s.mu.Lock()
+		q, ok := s.state.AsyncQuestions[parts[1]]
+		s.mu.Unlock()
+		if !ok {
+			return s.reply(key, "只能关闭普通异步问题；原生审批仍需明确决定。")
+		}
+		return s.reply(key, s.DismissQuestion(ctx, in.ID, parts[1], q.Fingerprint))
+	}
 	if parts[0] != "/approve" && parts[0] != "/answer" {
 		return s.reply(key, "未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。")
 	}
@@ -1145,5 +1224,5 @@ func (s *Store) Notices() []Notice {
 func (s *Store) Revision() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return uint64(len(s.state.ReplyOrder))
+	return uint64(len(s.state.ReplyOrder)) + s.revision
 }

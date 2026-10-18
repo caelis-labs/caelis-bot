@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,25 +21,35 @@ import (
 // server requests. Their replies enter the same Bot conversation as a new user
 // submission, with the exact question item identity supplied to the model.
 type asyncQuestion struct {
+	Presentation                                       *api.QuestionPresentation `json:"presentation,omitempty"`
 	ItemID, TurnKey, CallID, Owner, Fingerprint, Title string
 	WorkID                                             string
 	Options                                            []string
 	Index                                              int
-	State, ReplyID                                     string // dispatching/accepted/unknown/expired; never replay an attempted send
-	IssuedAt                                           int64  `json:"issuedAt,omitempty"`
+	State, ReplyID                                     string // empty=pending; dispatching/answered/unknown or terminal closure
+	ShortID, TaskTitle, Reason                         string
+	ExpiresAt, ClosedAt                                int64
+	Presented, Notified                                bool
+	IssuedAt                                           int64 `json:"issuedAt,omitempty"`
 }
 
 // AsyncButtonQuestion is the provider-facing presentation of one exact async
 // question. The short ID and fingerprint are stable for this item generation;
 // transports still submit through Handle for owner and receipt checks.
 type AsyncButtonQuestion struct {
+	Presented                          bool
+	Presentation                       *api.QuestionPresentation
 	ShortID, Title, Fingerprint, State string
 	Options                            []string
+	TaskTitle, Reason                  string
+	ExpiresAt                          int64
 }
 
 type WorkerAsyncQuestion struct {
 	ShortID, ItemID, WorkID, Title, State string
 	Options                               []string
+	Reason                                string
+	ExpiresAt                             int64
 }
 
 func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
@@ -49,7 +60,7 @@ func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
 		if q.WorkID == "" || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
 			continue
 		}
-		out = append(out, WorkerAsyncQuestion{ShortID: id, ItemID: q.ItemID, WorkID: q.WorkID, Title: q.Title, State: q.State, Options: append([]string(nil), q.Options...)})
+		out = append(out, WorkerAsyncQuestion{ShortID: id, ItemID: q.ItemID, WorkID: q.WorkID, Title: q.Title, State: q.State, Options: append([]string(nil), q.Options...), Reason: q.Reason, ExpiresAt: q.ExpiresAt})
 	}
 	slices.SortFunc(out, func(a, b WorkerAsyncQuestion) int { return strings.Compare(a.ShortID, b.ShortID) })
 	return out
@@ -70,7 +81,7 @@ func (s *Store) HandleBotWorkAnswer(ctx context.Context, requestID, shortID, val
 	state := s.state.AsyncQuestions[shortID].State
 	s.mu.Unlock()
 	outcome := "rejected"
-	if state == "accepted" {
+	if state == "answered" {
 		outcome = "accepted"
 	} else if state == "dispatching" || state == "unknown" {
 		outcome = "unknown"
@@ -181,10 +192,31 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	fingerprint := asyncFingerprint(item, owner, workID)
 	s.mu.Lock()
 	created := []string{}
-	var undoIDs []func()
+	previousQuestions, previousClosed := maps.Clone(s.state.AsyncQuestions), maps.Clone(s.state.AsyncClosed)
+	previousRetired := maps.Clone(s.state.AsyncRetired)
+	previousPrompts, previousNext := maps.Clone(s.state.Prompts), s.state.NextQuestion
+	rollback := func() {
+		s.state.AsyncQuestions, s.state.AsyncClosed = previousQuestions, previousClosed
+		s.state.AsyncRetired = previousRetired
+		s.state.Prompts, s.state.NextQuestion = previousPrompts, previousNext
+	}
 	previousActive, hadActive := s.state.AsyncActive[item.ID]
+	if hadActive && previousActive != fingerprint {
+		if s.state.AsyncRetired[fingerprint] {
+			// A late replay of the old schema must not overwrite the newer
+			// live card in the IM log under the same item ID.
+			item.Text = s.asyncCardTextLocked(item.ID, previousActive)
+			item.QuestionCards = nil
+			for _, q := range s.asyncButtonQuestionsLocked(item.ID, previousActive) {
+				item.QuestionCards = append(item.QuestionCards, questionCard(q))
+			}
+			s.mu.Unlock()
+			item.AsyncCallID, item.AsyncQuestions = "", nil
+			return item, nil
+		}
+	}
 	for index, q := range item.AsyncQuestions {
-		found := false
+		_, found := s.state.AsyncClosed[fmt.Sprintf("%s:%d", fingerprint, index)]
 		for _, old := range s.state.AsyncQuestions {
 			if old.ItemID == item.ID && old.Index == index && old.Fingerprint == fingerprint {
 				found = true
@@ -194,26 +226,33 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		if found || hadActive && previousActive == fingerprint {
 			continue
 		}
-		id, undo, err := s.nextShortIDLocked("Q")
+		id, _, err := s.nextShortIDLocked("Q")
 		if err != nil {
-			for i := len(undoIDs) - 1; i >= 0; i-- {
-				delete(s.state.AsyncQuestions, created[i])
-				undoIDs[i]()
-			}
+			rollback()
 			s.mu.Unlock()
 			return item, err
 		}
-		s.state.AsyncQuestions[id] = asyncQuestion{ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index, IssuedAt: time.Now().Unix()}
+		s.state.AsyncQuestions[id] = asyncQuestion{ShortID: id, ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index, IssuedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(asyncQuestionMaxAge).Unix()}
 		created = append(created, id)
-		undoIDs = append(undoIDs, undo)
+	}
+	// Retire display identity even when an answer is unknown or dispatching.
+	// Its receipt remains attached to that generation and is never overwritten.
+	if hadActive && previousActive != fingerprint {
+		s.state.AsyncRetired[previousActive] = true
+		for id, old := range s.state.AsyncQuestions {
+			if old.ItemID == item.ID && old.Fingerprint != fingerprint {
+				if old.State == "" {
+					s.closeAsyncLocked(id, old, "superseded", "question_replaced")
+				} else {
+					s.state.AsyncClosed[asyncKey(old)] = old
+				}
+			}
+		}
 	}
 	s.state.AsyncActive[item.ID] = fingerprint
 	if len(created) > 0 || !hadActive || previousActive != fingerprint {
 		if err := s.save(); err != nil {
-			for i := len(undoIDs) - 1; i >= 0; i-- {
-				delete(s.state.AsyncQuestions, created[i])
-				undoIDs[i]()
-			}
+			rollback()
 			if hadActive {
 				s.state.AsyncActive[item.ID] = previousActive
 			} else {
@@ -226,7 +265,7 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	item.Text = s.asyncCardTextLocked(item.ID, fingerprint)
 	item.QuestionCards = nil
 	for _, q := range s.asyncButtonQuestionsLocked(item.ID, fingerprint) {
-		item.QuestionCards = append(item.QuestionCards, api.QuestionCard{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State})
+		item.QuestionCards = append(item.QuestionCards, questionCard(q))
 	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
@@ -237,7 +276,7 @@ func (s *Store) asyncButtonQuestionsLocked(itemID, fingerprint string) []AsyncBu
 	var result []AsyncButtonQuestion
 	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
 		q := entry.Question
-		result = append(result, AsyncButtonQuestion{ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
+		result = append(result, AsyncButtonQuestion{ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...), TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented})
 	}
 	return result
 }
@@ -249,9 +288,16 @@ type indexedAsyncQuestion struct {
 
 func (s *Store) asyncQuestionsLocked(itemID, fingerprint string) []indexedAsyncQuestion {
 	var out []indexedAsyncQuestion
+	seen := map[int]bool{}
 	for id, q := range s.state.AsyncQuestions {
 		if q.ItemID == itemID && q.Fingerprint == fingerprint {
 			out = append(out, indexedAsyncQuestion{ID: id, Question: q})
+			seen[q.Index] = true
+		}
+	}
+	for _, q := range s.state.AsyncClosed {
+		if q.ItemID == itemID && q.Fingerprint == fingerprint && !seen[q.Index] {
+			out = append(out, indexedAsyncQuestion{ID: q.ShortID, Question: q})
 		}
 	}
 	slices.SortFunc(out, func(a, b indexedAsyncQuestion) int { return a.Question.Index - b.Question.Index })
@@ -259,9 +305,15 @@ func (s *Store) asyncQuestionsLocked(itemID, fingerprint string) []indexedAsyncQ
 }
 
 func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
+	return s.asyncCardTextForLocked(itemID, fingerprint, false)
+}
+func (s *Store) asyncCardTextForLocked(itemID, fingerprint string, presentedOnly bool) string {
 	var lines []string
 	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
 		id, q := entry.ID, entry.Question
+		if presentedOnly && !q.Presented {
+			continue
+		}
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
@@ -270,10 +322,14 @@ func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 			lines = append(lines, fmt.Sprintf("[%d] %s", number+1, option))
 		}
 		switch q.State {
-		case "accepted":
+		case "answered":
 			lines = append(lines, "回答已提交。")
 		case "expired":
-			lines = append(lines, "问题编号已过期。")
+			lines = append(lines, "问题已过期，未提供答案。")
+		case "dismissed":
+			lines = append(lines, "问题已关闭，未提供答案。")
+		case "superseded":
+			lines = append(lines, "问题已失效，未提供答案。")
 		case "dispatching", "unknown":
 			lines = append(lines, "回答投递结果待核对；不会自动重发。")
 		default:
@@ -297,7 +353,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		s.mu.Unlock()
 		return s.reply(key, "这条问题卡片已失效，请使用最新卡片。")
 	}
-	if q.State == "expired" || q.State == "" && shortIDExpired(q.IssuedAt) {
+	if q.State == "expired" || q.State == "" && asyncExpired(q) {
 		s.mu.Unlock()
 		return s.reply(key, "问题编号已过期，请查看最新问题。")
 	}
@@ -308,9 +364,13 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		s.mu.Unlock()
 		return s.reply(key, "问题已失效或 Runtime 尚未就绪，请查看最新消息。")
 	}
+	if closedAsync(q.State) {
+		s.mu.Unlock()
+		return s.reply(key, "问题已关闭或已失效，未提供答案。")
+	}
 	if q.State != "" {
 		feedback := "回答已提交，不会重复发送。"
-		if q.State != "accepted" {
+		if q.State != "answered" {
 			feedback = "回答投递结果待核对，不会重复发送。"
 		}
 		s.mu.Unlock()
@@ -349,7 +409,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 
 	s.mu.Lock()
 	current := s.state.AsyncQuestions[id]
-	if current.State != "" || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
+	if current.State != "" || current.Fingerprint != q.Fingerprint || asyncExpired(current) || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
 		s.mu.Unlock()
 		return s.reply(key, "问题已处理或已变化，请查看最新消息。")
 	}
@@ -374,7 +434,8 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	current = s.state.AsyncQuestions[id]
 	feedback := "回答投递结果待核对，不会自动重发。"
 	if err == nil && receipt.Outcome == "accepted" {
-		current.State = "accepted"
+		current.State = "answered"
+		current.ClosedAt = time.Now().Unix()
 		feedback = "回答已提交，等待后续回复。"
 	} else if receipt.Outcome == "rejected" || errors.Is(err, api.ErrRecoveryPending) {
 		current.State, current.ReplyID = "", ""
@@ -382,13 +443,23 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	} else {
 		current.State = "unknown"
 	}
+	if current.State == "" && s.state.AsyncRetired[current.Fingerprint] {
+		current.State, current.Reason, current.ClosedAt = "superseded", "question_replaced", time.Now().Unix()
+	}
 	s.state.AsyncQuestions[id] = current
+	if current.State == "answered" || s.state.AsyncRetired[current.Fingerprint] {
+		s.state.AsyncClosed[asyncKey(current)] = current
+	}
 	if saveErr := s.save(); saveErr != nil {
 		feedback = "回答投递后本地状态保存失败；请先核对 Bot 回复，不会自动重发。"
 	}
-	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextLocked(q.ItemID, q.Fingerprint)}
-	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, q.Fingerprint) {
-		updated.QuestionCards = append(updated.QuestionCards, api.QuestionCard{ShortID: question.ShortID, Binding: question.Fingerprint, Title: question.Title, Options: question.Options, State: question.State})
+	activeFingerprint := s.state.AsyncActive[q.ItemID]
+	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, activeFingerprint, q.WorkID != "")}
+	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, activeFingerprint) {
+		if q.WorkID != "" && !question.Presented {
+			continue
+		}
+		updated.QuestionCards = append(updated.QuestionCards, questionCard(question))
 	}
 	observer := s.onAsyncUpdate
 	s.mu.Unlock()

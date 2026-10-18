@@ -167,7 +167,7 @@ func (s *Session) WorkStates() []api.WorkState {
 				resolution = t.StopPendingStatus
 			}
 		}
-		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		state := api.WorkState{TaskEnded: t.Retired, TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
@@ -499,7 +499,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	}
 	params := map[string]any{"threadId": t.Thread, "clientUserMessageId": in.RequestID}
 	// Provenance stays in the binding. The worker receives the actual assignment.
-	params["input"] = []nativeInput{{Type: "text", Text: in.Prompt, TextElements: []any{}}}
+	params["input"] = []nativeInput{{Type: "text", Text: s.questionClosureContextLocked(t.Thread) + in.Prompt, TextElements: []any{}}}
 	s.mu.Unlock()
 	// Reattach an owned, idle thread after reconnect. This never imports App tasks.
 	if resume && !wasActive {

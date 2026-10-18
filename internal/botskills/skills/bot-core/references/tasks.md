@@ -23,7 +23,7 @@ handle for follow-up. Discover the current tool schema before calling it.
 | `bot_tasks.request.type: read` | Read completed User and Assistant messages of one task. |
 | `bot_tasks.request.type: stop` | Stop that task's active work while retaining its handle and history. |
 | `bot_tasks.request.type: pin` | Show or hide that task's desktop card without running work. |
-| `bot_interactions.request.type: list/decide/answer` | Inspect and resolve native Worker approvals or questions. |
+| `bot_interactions.request.type: list/decide/answer/present` | Inspect and resolve native Worker approvals or questions. |
 
 The Host derives each submission ID from the original native tool invocation;
 you do not supply a requestId to `bot_delegate`. Two separate calls may send the
@@ -239,3 +239,9 @@ task using its original handle, even when the current default is different. Do
 not ask the user to switch back just to access it. If its original owner is
 unavailable, report that condition and reconcile the same task; never create a
 replacement or retry through the new default to bypass an uncertain outcome.
+
+When replacing a task, explicitly stop the old task before delegating its
+replacement. The host closes its unanswered questions on the original stop or
+terminal fact. A new task or ordinary follow-up does not implicitly replace an
+old task. See [Interactions](interactions.md) for concise question presentation
+and the shared answer/close lifecycle.

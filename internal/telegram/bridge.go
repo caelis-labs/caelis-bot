@@ -1342,10 +1342,14 @@ func asyncQuestionButtons(questions []textchannel.AsyncButtonQuestion) (string, 
 	for _, q := range questions {
 		line := "[" + q.ShortID + "] " + q.Title
 		switch q.State {
-		case "accepted":
+		case "answered", "accepted":
 			line += "\n回答已提交。"
 		case "expired":
-			line += "\n问题编号已过期。"
+			line += "\n问题已过期。"
+		case "dismissed":
+			line += "\n问题已关闭。"
+		case "superseded":
+			line += "\n问题已失效。"
 		case "dispatching", "unknown":
 			line += "\n回答投递结果待核对；不会自动重发。"
 		case "":

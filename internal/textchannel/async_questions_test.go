@@ -49,6 +49,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	if err := json.Unmarshal([]byte(encoded), &payload); err != nil || len(payload) != 1 || payload[0].Answer != "乙" || payload[0].Question != "选哪项？" || payload[0].QuestionItemID != `["request_user_input_async","call_native_17",0]` {
 		t.Fatalf("invalid model reply envelope: %#v %v", payload, err)
 	}
+	staleCard := card
 	reopened, err := Open(root, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -60,8 +61,17 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	if feedback := reopened.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "paired", ID: "wx-2", Text: command}, snapshot); !strings.Contains(feedback, "已提交") {
 		t.Fatal(feedback)
 	}
+	projected, _ := reopened.ProjectQuestions([]api.Item{staleCard})
+	q := reopened.state.AsyncQuestions["Q1"]
+	if len(projected) != 1 || projected[0].QuestionCards[0].State != "answered" || q.State != "answered" || q.ReplyID != "tg-1" {
+		t.Fatal("stale chat history lost persisted answer state or receipt", projected, q)
+	}
+	archived := reopened.state.AsyncClosed[asyncKey(q)]
+	if archived.State != "answered" || archived.ReplyID != q.ReplyID || archived.Fingerprint != q.Fingerprint {
+		t.Fatal("answered tombstone was lost", archived)
+	}
 	card, err = reopened.AsyncCard(item, "runtime-owner-1")
-	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "accepted" {
+	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "answered" {
 		t.Fatalf("card did not converge: %q %v", card.Text, err)
 	}
 }
@@ -95,7 +105,7 @@ func TestAnsweredAsyncNumberCanBeReusedForNewQuestion(t *testing.T) {
 		t.Fatalf("current desktop card failed: %q, dispatches=%d", feedback, dispatched)
 	}
 	oldCard, err := s.AsyncCard(old, "owner")
-	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {
+	if err != nil || len(oldCard.QuestionCards) != 1 || oldCard.QuestionCards[0].State != "answered" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {
 		t.Fatal("retired item reissued a new question", oldCard, err)
 	}
 }
@@ -106,6 +116,7 @@ func TestUnansweredAsyncQuestionExpiresAndReleasesNumber(t *testing.T) {
 	_, _ = s.AsyncCard(old, "owner")
 	q := s.state.AsyncQuestions["Q1"]
 	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	q.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	s.state.AsyncQuestions["Q1"] = q
 	if got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "paired", ID: "late", Text: "/answer Q1 不回答"}, api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}); !strings.Contains(got, "已过期") {
 		t.Fatal(got)
@@ -123,7 +134,7 @@ func TestUnansweredAsyncQuestionExpiresAndReleasesNumber(t *testing.T) {
 		t.Fatal(card, err)
 	}
 	oldCard, err := s.AsyncCard(old, "owner")
-	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" {
+	if err != nil || len(oldCard.QuestionCards) != 1 || oldCard.QuestionCards[0].State != "expired" {
 		t.Fatal("expired item reissued a new question", oldCard, err)
 	}
 }
@@ -135,6 +146,7 @@ func TestUnknownAsyncResultRetainsNumberPastNormalExpiry(t *testing.T) {
 	q := s.state.AsyncQuestions["Q1"]
 	q.State = "unknown"
 	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	q.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	s.state.AsyncQuestions["Q1"] = q
 	s.state.NextQuestion = shortIDPoolSize
 	fresh := api.Item{ID: "fresh-item", TurnKey: "fresh", Kind: "assistant", AsyncCallID: "fresh-call", AsyncQuestions: []api.AsyncQuestion{{Title: "新问题"}}}

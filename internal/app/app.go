@@ -245,7 +245,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	app.textControl.SetNoticeObserver(showNotice)
 	app.textControl.SetAsyncUpdateObserver(func(item api.Item) {
-		if !strings.HasPrefix(item.ID, "worker-question:") {
+		if !strings.HasPrefix(item.ID, "worker-question:") || app.textControl.PresentedQuestion(item.ID) {
 			service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
 		}
 	})
@@ -253,6 +253,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return backend.SubmitRemote(ctx, service, api.Submission{ID: in.ID, Text: in.Text, ModelInputOverride: modelInput}, nil)
 	})
 	app.textControl.SetAsyncWorkAnswerer(app.answerWorkerQuestion)
+	service.SetQuestionLifecycle(app.textControl.ProjectQuestions, app.textControl.Revision, app.textControl.DismissQuestion)
 	service.SetCommandHandler(func(ctx context.Context, input api.Submission) (api.Receipt, bool, error) {
 		if !textchannel.IsCommand(input.Text) {
 			return api.Receipt{}, false, nil

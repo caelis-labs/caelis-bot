@@ -3,7 +3,7 @@
 package botpolicy
 
 // Worker role is execution context; Bot identity and coordination live in its skill.
-const WorkerInstructions = `Complete the assigned task in this dedicated workspace. Return concrete results, artifacts, verification, and any blockers to the coordinating assistant.`
+const WorkerInstructions = `Complete the assigned task in this dedicated workspace. Return concrete results, artifacts, verification, and any blockers to the coordinating assistant. Ask concise, complete questions naming their object, with at most one necessary background sentence and short distinct options. The exact option text is shown and submitted; write concise original choices without a separate display alias. A completed turn is not proof that unanswered questions are obsolete. Preserve targets and permission scope; do not send long task reports as questions. Async questions expire after 24 hours and can be dismissed. A host question-closure notice is not an answer or authorization. Keep steps requiring the missing information explicitly blocked; never select an option or infer permission from closure. Continue only independently authorized work.`
 
 // ApprovedTools lists observation and expression tools that need no review.
 // Presentation and stopping owned work are product-local operations.

@@ -69,6 +69,9 @@ type Service struct {
 	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	commandHandler              func(context.Context, api.Submission) (api.Receipt, bool, error)
+	questionDismisser           func(context.Context, string, string, string) string
+	questionProjector           func([]api.Item) ([]api.Item, uint64)
+	questionRevision            func() uint64
 	questionAnswerer            func(context.Context, string, string, string, string) string
 	controlNotices              func() ([]api.Item, uint64)
 	guardianNoticeAccepted      func(string) bool
@@ -224,6 +227,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	s.mu.Lock()
 	localRevision := s.presentationRevision
 	controlNotices := s.controlNotices
+	questionProjector, questionRevision := s.questionProjector, s.questionRevision
 	s.mu.Unlock()
 	v = s.decorate(v)
 	if s.chat != nil {
@@ -256,6 +260,13 @@ func (s *Service) Snapshot() api.Snapshot {
 		items, revision := controlNotices()
 		v.Items = append(v.Items, items...)
 		v.Revision += revision
+	}
+	if questionProjector != nil {
+		var revision uint64
+		v.Items, revision = questionProjector(v.Items)
+		v.Revision += revision
+	} else if questionRevision != nil {
+		v.Revision += questionRevision()
 	}
 	v.Revision += localRevision
 	s.projectIntroduction(&v)
@@ -398,6 +409,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	status := s.botStatus
 	localRevision := s.presentationRevision
 	controlNotices := s.controlNotices
+	questionRevision := s.questionRevision
 	needsReconcile := s.draftSend != nil && s.draftSend.Outcome == ""
 	s.mu.Unlock()
 	currentStatus := ""
@@ -406,6 +418,9 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	}
 	if source, ok := s.currentEngine().(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
 		combined := source.Revision() + localRevision
+		if questionRevision != nil {
+			combined += questionRevision()
+		}
 		if owner, ok := s.localWorkers.(interface {
 			RetainedApprovalState() ([]api.Approval, uint64)
 		}); ok {
@@ -868,4 +883,19 @@ func (s *Service) RuntimeDefaultModel() *api.WorkExecutionSettings {
 		return nil
 	}
 	return &v
+}
+
+func (s *Service) SetQuestionLifecycle(project func([]api.Item) ([]api.Item, uint64), revision func() uint64, dismiss func(context.Context, string, string, string) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.questionProjector, s.questionRevision, s.questionDismisser = project, revision, dismiss
+}
+func (s *Service) DismissQuestion(ctx context.Context, shortID, binding, requestID string) string {
+	s.mu.Lock()
+	dismiss := s.questionDismisser
+	s.mu.Unlock()
+	if dismiss == nil || shortID == "" || binding == "" || requestID == "" {
+		return "问题暂不可用。"
+	}
+	return dismiss(ctx, requestID, shortID, binding)
 }
