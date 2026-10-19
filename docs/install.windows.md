@@ -38,4 +38,16 @@ Use Settings → Updates when the release includes a valid signed update manifes
 
 Stable、Preview 和 Dev 的安装与数据相互独立，不自动迁移。支持签名更新清单的版本可从“设置 → 更新”更新，也可安装新版官方 Setup。手动替换 ZIP 前先退出应用，并保留 `%LOCALAPPDATA%` 下对应数据目录。更新清单签名不等于安装包具有 Authenticode 签名。
 
+ZIP is an installation-free distribution with persistent per-user data. Within the
+same channel, ZIP and Setup share the data directory. Deleting the extracted ZIP
+or uninstalling Setup preserves notes, memory, attachments and settings. Deleting
+user data is a separate explicit action, never part of ordinary uninstall.
+
+ZIP 免安装版与同渠道 Setup 共用用户数据；删除 ZIP 解压目录或卸载 Setup 都保留笔记、记忆、附件与设置。
+当前源码仅允许已确认的 Setup 安装注册通知、协议、开始菜单及自启动入口；ZIP 不注册这些入口，
+因此不提供依赖这些注册的系统通知和自启动，应用内消息仍保留。
+旧 ZIP 版本已创建的入口不会由新 ZIP 启动时擅自删除，以免影响同渠道安装版。
+若历史自启动项的渠道值名与完整命令行精确匹配当前 ZIP，可在设置中显式关闭；关闭后不能在 ZIP 中重新启用。其他安装的条目不会被覆盖或删除。
+共享 Host 的退出与剩余接入要求见 [Windows 发布与更新](windows-release.md#shared-host-lifecycle)。
+
 For build, channel and recovery details, see [Windows release operations](windows-release.md).

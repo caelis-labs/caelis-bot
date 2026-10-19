@@ -91,6 +91,9 @@ func Store(path string, loc ...i18n.Locale) (string, error) {
 // run bounds output and never returns raw stderr (which can include private configuration).
 func run(ctx context.Context, loc i18n.Locale, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	if err := prepareCommandDirectory(cmd); err != nil {
+		return nil, err
+	}
 	runtimeenv.BackgroundCommand(cmd)
 	out := limitedBuffer{loc: loc}
 	cmd.Stdout = &out
