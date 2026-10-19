@@ -105,8 +105,16 @@ func (e *Engine) SaveNative(n NativeArrangement, now time.Time, authorize func(P
 			return Plan{}, errors.New("arrangement id already bound; remove it and use a new id")
 		}
 	}
-	if activeEvents(e.state) >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
-		return Plan{}, errors.New("active arrangement limit reached")
+	// Plan and Event retention clocks differ. Even after the Plan is pruned,
+	// its retained (possibly archived) definition still owns this identity.
+	if slices.ContainsFunc(e.state.Events, func(old Event) bool { return old.ID == id }) {
+		return Plan{}, errors.New("arrangement id still retained; use a new id")
+	}
+	if err := e.planCapacity(); err != nil {
+		return Plan{}, err
+	}
+	if err := e.eventCapacity(); err != nil {
+		return Plan{}, err
 	}
 	if authorize != nil {
 		if err = authorize(p); err != nil {

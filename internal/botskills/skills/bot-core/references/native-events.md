@@ -24,9 +24,11 @@ Use only the user's requested condition; desktop locking never adds an outer dis
 Desktop-input tools still enforce their own permissions and lock boundaries. Sleep and app exit
 pause execution; they are distinct from locking the desktop.
 
-Preserve returned handles and original receipts. List/read before changing an arrangement. Remove
-its exact handle when work ends; changing a definition requires a new reviewed registration after
-removal. Never recreate unknown work or infer a missing phone origin from the latest conversation.
+Preserve returned handles and original receipts. List/read before changing an arrangement; list
+queries match the original native ID and label as well as internal handles. Remove its exact handle
+when work ends. A changed definition needs a fresh ID and reviewed registration; removal does not
+free an ID while its definition is retained. Never recreate unknown work or infer a missing phone
+origin from the latest conversation.
 Imported arrangements keep their original receipts and authorization. Native and collected events
 share the wake budget, busy admission and cancellation rules. Configure the budget only when the
 user explicitly requests it. Registration is not delivery; phone delivery requires a valid original

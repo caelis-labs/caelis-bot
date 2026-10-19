@@ -269,17 +269,9 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 		if err := r.events.Remove(id, r.now()); err != nil {
 			return fail(err)
 		}
-		if b, ok := r.engine.(api.BackgroundRuntime); ok {
-			grant := "schedule:" + id
-			for _, p := range r.events.Snapshot().Plans {
-				if p.ID == id {
-					grant = p.Authorization()
-				}
-			}
-			if err := b.RevokeBackground(ctx, grant); err != nil {
-				return fail(err)
-			}
-		}
+		// Cancellation is durable immediately. Tick's retirement path owns grant
+		// revocation, including shared migration grants, unresolved receipts and
+		// bounded retries. Removing one historical Plan cannot revoke its peers.
 		return compactValue(map[string]any{"ok": true}, false), true
 	}
 	raw, _ := json.Marshal(q)

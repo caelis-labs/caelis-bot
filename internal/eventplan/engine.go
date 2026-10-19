@@ -200,8 +200,8 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 			return old, nil
 		}
 	}
-	if activeEvents(e.state) >= MaxActive || len(e.state.Events) >= MaxActive+MaxHistory {
-		return Event{}, errors.New("active event limit reached; archive unused events")
+	if err := e.eventCapacity(); err != nil {
+		return Event{}, err
 	}
 	if len(authorize) > 0 {
 		if err := authorize[0](); err != nil {
@@ -221,6 +221,12 @@ func activeEvents(s State) int {
 		}
 	}
 	return n
+}
+func (e *Engine) eventCapacity() error {
+	if activeEvents(e.state) >= MaxActive || len(e.state.Events) >= MaxActive+MaxHistory {
+		return errors.New("active event limit reached; archive unused events")
+	}
+	return nil
 }
 func (e *Engine) event(id string) (Event, bool) {
 	for _, v := range e.state.Events {
@@ -380,14 +386,8 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 	if err != nil {
 		return p, err
 	}
-	active := 0
-	for _, s := range e.state.Plans {
-		if s.Finished.IsZero() || e.pending(s.ID) {
-			active++
-		}
-	}
-	if active >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
-		return p, errors.New("active arrangement limit reached")
+	if err := e.planCapacity(); err != nil {
+		return p, err
 	}
 	if len(authorize) > 0 {
 		if err := authorize[0](); err != nil {
@@ -401,6 +401,21 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 		}
 	}
 	return p, e.persist()
+}
+
+// Count arrangements, not their reusable definitions. Cancellation does not
+// release capacity until the original receipt has settled.
+func (e *Engine) planCapacity() error {
+	active := 0
+	for _, p := range e.state.Plans {
+		if p.Finished.IsZero() || e.pending(p.ID) {
+			active++
+		}
+	}
+	if active >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
+		return errors.New("active arrangement limit reached")
+	}
+	return nil
 }
 func unresolved(o Occurrence) bool { return o.Finished.IsZero() }
 func (e *Engine) pending(id string) bool {

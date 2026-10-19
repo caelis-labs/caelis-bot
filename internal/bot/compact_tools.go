@@ -245,11 +245,21 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		items = append(items, map[string]any{"automation": "calendar:" + s.ID, "kind": "calendar", "id": s.ID, "label": s.Label, "next": s.Next, "enabled": s.Enabled, "schedule": s})
 	}
 	if kind != "calendar" && r.events != nil {
-		for _, p := range r.events.Snapshot().Plans {
-			if (kind == "event" && p.Kind != "native") || !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event), query) {
+		state := r.events.Snapshot()
+		labels := make(map[string]string, len(state.Events))
+		for _, event := range state.Events {
+			labels[event.ID] = event.Label
+		}
+		for _, p := range state.Plans {
+			label := labels[p.Event]
+			if (kind == "event" && p.Kind != "native") || !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event+" "+p.NativeID+" "+label), query) {
 				continue
 			}
-			items = append(items, map[string]any{"automation": "schedule:" + p.ID, "kind": "registered", "id": p.ID, "event": "event:" + p.Event, "next": p.Next, "status": p.Status})
+			item := map[string]any{"automation": "schedule:" + p.ID, "kind": "registered", "id": p.ID, "label": label, "event": "event:" + p.Event, "next": p.Next, "status": p.Status}
+			if p.NativeID != "" {
+				item["nativeId"] = p.NativeID
+			}
+			items = append(items, item)
 		}
 	}
 	slices.SortFunc(items, func(a, b map[string]any) int { return strings.Compare(str(a, "automation"), str(b, "automation")) })
