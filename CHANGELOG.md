@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/caelis-labs/caelis-bot/compare/v0.17.0...v0.17.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **schedule:** retire care and unify scheduled attention ([#202](https://github.com/caelis-labs/caelis-bot/issues/202)) ([ace70e2](https://github.com/caelis-labs/caelis-bot/commit/ace70e2860c48041f2481bbeef722e1695bfa23a))
+
 ## [0.17.0](https://github.com/caelis-labs/caelis-bot/compare/v0.16.0...v0.17.0) (2026-10-19)
 
 
