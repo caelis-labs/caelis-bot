@@ -31,15 +31,19 @@ export function PortraitAvatar({portrait,clip,animate}:{portrait:Portrait;clip:P
    const current=++epoch;clock?.dispose();clock=undefined;
    if(disposed||!inView||document.hidden){showPoster();return;}
    const quiet=reduced.matches;
-   void cache.get(url(quiet?portrait.poster:atlas)).then(image=>{
+   void cache.get(url(atlas)).then(image=>{
     if(disposed||current!==epoch)return;
-    if(image.naturalWidth!==(quiet?portrait.frameSize:portrait.columns*portrait.frameSize)||image.naturalHeight!==(quiet?portrait.frameSize:Math.ceil(portrait.frameCount/portrait.columns)*portrait.frameSize)){showPoster();return;}
+    if(image.naturalWidth!==portrait.columns*portrait.frameSize||image.naturalHeight!==Math.ceil(portrait.frameCount/portrait.columns)*portrait.frameSize){showPoster();return;}
     let lastFrame=-1;
     clock=portraitClock(elapsed=>{
      if(quiet){
+      // Hold the middle of the selected state's clip, after its entry motion.
+      // Preserve think/waiting/focus expressions without replaying large gestures.
+      const {frame,x,y}=portraitFrame(portrait,portrait.frameCount/portrait.fps/2);
       const size=element.width*quietAvatarScale(elapsed),inset=(element.width-size)/2;
       context.clearRect(0,0,element.width,element.height);
-      context.drawImage(image,inset,inset,size,size);element.dataset.ready='true';return;
+      context.drawImage(image,x,y,portrait.frameSize,portrait.frameSize,inset,inset,size,size);
+      element.dataset.frame=String(frame);element.dataset.ready='true';return;
      }
      const {frame,x,y}=portraitFrame(portrait,elapsed);
      if(frame===lastFrame&&elapsed>.22)return;

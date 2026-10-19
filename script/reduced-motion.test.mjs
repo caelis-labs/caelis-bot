@@ -4,6 +4,7 @@ import {createServer} from 'vite';
 import {AnimationClip,NumberKeyframeTrack,Object3D} from 'three';
 import {animateAvatar,quietAvatarScale} from '../frontend/src/avatar-motion.ts';
 import {portraitClock} from '../frontend/src/portrait-player.ts';
+import {observeStatusMotion} from '../frontend/src/status-motion.ts';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {CharacterAnimation}=await server.ssrLoadModule('/src/character/animation.ts');
@@ -46,4 +47,37 @@ test('portrait quiet breath uses visible time, not elapsed hidden time',()=>{
  assert.ok(scales.at(-1)>scales[0]);player.setRunning(false);assert.equal(scheduler.size,0);
  const before=scales.at(-1);player.setRunning(true);scheduler.step(99999);assert.equal(scales.at(-1),before);
  player.dispose();assert.equal(scheduler.size,0);
+});
+
+test('status observer scans only added subtrees and cleans up removed indicators',t=>{
+ let mutations,intersections,visibility,scans=0;
+ const mock=(name,value)=>{const old=Object.getOwnPropertyDescriptor(globalThis,name);Object.defineProperty(globalThis,name,{value,writable:true,configurable:true});t.after(()=>{if(old)Object.defineProperty(globalThis,name,old);else delete globalThis[name];});};
+ const observed=new Set();
+ class Element {
+  constructor(indicator=false){this.indicator=indicator;this.children=[];this.dataset={};}
+  matches(){return this.indicator;}
+  contains(node){return node===this||this.children.some(child=>child.contains(node));}
+  querySelectorAll(){scans++;const found=[];const visit=node=>{for(const child of node.children){if(child.indicator)found.push(child);visit(child);}};visit(this);return found;}
+ }
+ mock('HTMLElement',Element);
+ mock('document',{hidden:false,addEventListener:(_,fn)=>{visibility=fn;},removeEventListener:()=>{}});
+ mock('IntersectionObserver',class {
+  constructor(fn){intersections=fn;}observe(node){observed.add(node);}unobserve(node){observed.delete(node);}disconnect(){observed.clear();}
+ });
+ mock('MutationObserver',class {constructor(fn){mutations=fn;}observe(){}disconnect(){}});
+ const root=new Element(),history=new Element(),indicator=new Element(true);
+ root.children=[history,indicator];for(let i=0;i<1000;i++)history.children.push(new Element());
+ const stop=observeStatusMotion(root);assert.equal(scans,1);assert.equal(observed.size,1);
+ for(let i=0;i<100;i++)mutations([{addedNodes:[{textContent:'stream'}],removedNodes:[]}]);
+ assert.equal(scans,1,'text streaming must never rescan the page');
+ const added=new Element(),nested=new Element(true);added.children=[nested];root.children.push(added);
+ mutations([{addedNodes:[added],removedNodes:[]}]);assert.equal(scans,2);assert.equal(observed.size,2);
+ intersections([{target:nested,isIntersecting:true}]);assert.equal(nested.dataset.motionPaused,'false');
+ document.hidden=true;visibility();assert.equal(nested.dataset.motionPaused,'true');
+ document.hidden=false;visibility();assert.equal(nested.dataset.motionPaused,'false');
+ mutations([{addedNodes:[],removedNodes:[added]}]);assert.ok(observed.has(nested),'moves within root retain observation');
+ root.children=root.children.filter(n=>n!==added);mutations([{addedNodes:[],removedNodes:[added]}]);
+ assert.ok(!observed.has(nested));assert.equal(nested.dataset.motionPaused,undefined);
+ intersections([{target:nested,isIntersecting:true}]);assert.equal(nested.dataset.motionPaused,undefined,'late IO cannot restore removed state');
+ stop();assert.equal(observed.size,0);assert.equal(indicator.dataset.motionPaused,undefined);
 });

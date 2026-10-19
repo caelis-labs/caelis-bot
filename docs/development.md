@@ -224,6 +224,12 @@ and pet must keep moving gently, history must stay still, and status indicators
 must pulse without rotation or travel. Scroll indicators/portraits offscreen and
 hide the page to verify pause/resume. `script/reduced-motion.test.mjs` covers
 amplitude, authored neutral-pose preservation, policy switching and frame cleanup.
+The fixture's state buttons cover `think`, `waiting`, `focus` and `companion`;
+each reduced-motion portrait must use different state artwork while breathing.
+`verifyReducedMotion(page)` from `script/reduced-motion-browser-check.mjs` accepts
+an isolated Playwright Page and checks those pixels, incremental DOM observation,
+visible production setup spinner, live media preference changes and offscreen recovery.
+The fixture is included in TypeScript checking so invalid clip names fail the build.
 Chrome media-query acceptance passed on Windows; this is not native WebView2 or
 macOS AppKit acceptance. Native checks must additionally cover live system
 preference changes and task indicators without changing execution state.
