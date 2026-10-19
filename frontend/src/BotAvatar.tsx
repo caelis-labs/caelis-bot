@@ -38,7 +38,7 @@ const MovingAvatar=memo(function MovingAvatar() {
    set(lookLeft,gaze);set(lookRight,gaze);
   },{request:callback=>window.requestAnimationFrame(callback),cancel:id=>window.cancelAnimationFrame(id)});
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');let inView=false;
-  const sync=()=>animator.setRunning(inView&&!document.hidden&&!reduced.matches);
+  const sync=()=>{animator.setReducedMotion(reduced.matches);animator.setRunning(inView&&!document.hidden);};
   const observer=new IntersectionObserver(entries=>{inView=entries.some(entry=>entry.isIntersecting);sync();});
   observer.observe(element);document.addEventListener('visibilitychange',sync);reduced.addEventListener('change',sync);
   return()=>{observer.disconnect();document.removeEventListener('visibilitychange',sync);reduced.removeEventListener('change',sync);animator.dispose();};

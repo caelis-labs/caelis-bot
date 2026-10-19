@@ -25,7 +25,7 @@ textarea::placeholder { color:var(--muted); }
 .send:not(:disabled) img { opacity:1; }
 .composer-stop { width:11px; height:11px; border-radius:2px; background:var(--on-accent); }
 .composer-progress { display:block; width:18px; height:18px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:activity-spin .8s linear infinite; }
-@media(prefers-reduced-motion:reduce) { .composer-progress { animation:none; } }
+@media(prefers-reduced-motion:reduce) { .composer-progress { animation:quiet-progress 2.4s ease-in-out infinite; } }
 /* Portalled menus never participate in the composer layout. */
 .attachment-menu { position:fixed; z-index:50; width:344px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:14px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b,0 1px 4px #00000012; }
 .attachment-menu-row { display:flex; align-items:center; gap:10px; width:100%; min-height:34px; padding:7px 9px; border:0; border-radius:8px; background:transparent; text-align:left; font-size:13px; }
@@ -84,7 +84,7 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 .working-message.is-active .loading-dots i:nth-child(2) { animation-delay:.15s; }
 .working-message.is-active .loading-dots i:nth-child(3) { animation-delay:.3s; }
 @keyframes reply-dot { 0%,60%,100% { opacity:.45; transform:translateY(0); } 30% { opacity:1; transform:translateY(-3px); } }
-@media(prefers-reduced-motion:reduce) { .working-message.is-active .loading-dots i { animation:none; transform:none; } }
+@media(prefers-reduced-motion:reduce) { .working-message.is-active .loading-dots i { animation-name:quiet-progress; animation-duration:2.4s; transform:none; } }
 .message { position:relative; min-width:0; font-size:14px; line-height:1.75; overflow-wrap:anywhere; }
 .message p { white-space:pre-wrap; margin:0; }
 .message.user,.message.assistant { width:fit-content; max-width:87%; padding:10px 15px; }
@@ -238,7 +238,7 @@ summary { cursor:pointer; }
 .bubble-standalone-progress { display:flex; align-items:center; gap:8px; }
 .activity-spinner { flex:none; width:10px; height:10px; border:1.5px solid var(--line); border-top-color:var(--muted); border-radius:50%; animation:activity-spin .9s linear infinite; }
 @keyframes activity-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { .activity-spinner { animation:none; } }
+@media(prefers-reduced-motion:reduce) { .activity-spinner { animation:quiet-progress 2.4s ease-in-out infinite; } }
 .bubble-actions { display:flex; flex:none; align-items:center; gap:2px; }
 .bubble-action { display:grid; place-items:center; width:28px; height:28px; border:0; border-radius:50%; background:transparent; color:var(--ink); font-size:18px; }
 .bubble-action:hover { background:var(--wash); }
@@ -502,7 +502,7 @@ summary { cursor:pointer; }
 .pet-dream{position:absolute;top:25px;right:17px;color:#59677f;font-size:19px;font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #fff;pointer-events:none;animation:dream-breathe 3s ease-in-out infinite}
 .dream-indicator{color:var(--muted);font-style:normal}
 @keyframes dream-breathe{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
-@media(prefers-reduced-motion:reduce){.pet-dream{animation:none}}
+@media(prefers-reduced-motion:reduce){.pet-dream{animation:quiet-progress 3.6s ease-in-out infinite}}
 
 /* Delivery status lives below the pill; acknowledgement does not resize it. */
 .message.assistant .assistant-status{display:block;margin-top:4px;font-size:11px;line-height:16px;color:var(--muted)}

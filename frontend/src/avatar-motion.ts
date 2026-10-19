@@ -2,6 +2,9 @@
 export type AvatarGesture='rest'|'bounce'|'peek'|'nod'|'listen'|'look-around';
 export type AvatarPose={gazeX:number;gazeY:number;tilt:number;openness:number;offsetX:number;offsetY:number;scaleX:number;scaleY:number;gesture:AvatarGesture};
 export const neutralAvatar:AvatarPose={gazeX:0,gazeY:0,tilt:0,openness:1,offsetX:0,offsetY:0,scaleX:1,scaleY:1,gesture:'rest'};
+// A quiet 4.8-second breath, with no travel or rotation. Used by both portrait
+// posters and the older SVG so reduced motion retains visible liveness.
+export function quietAvatarScale(elapsed:number){return 1+.02*(1-Math.cos(elapsed*Math.PI*2/4.8))/2;}
 type Axis={value:number;velocity:number};
 function spring(axis:Axis,target:number,dt:number,speed:number) {
  const displacement=axis.value-target,impulse=axis.velocity+speed*displacement,decay=Math.exp(-speed*dt);
@@ -49,11 +52,14 @@ export function avatarMotion(random:()=>number=Math.random) {
 
 type Clock={request:(callback:(time:number)=>void)=>number;cancel:(id:number)=>void};
 export function animateAvatar(paint:(pose:AvatarPose)=>void,clock:Clock,random:()=>number=Math.random) {
- let running=false,frame=0,last:number|undefined,disposed=false,advance=avatarMotion(random);
+ let running=false,frame=0,last:number|undefined,disposed=false,advance=avatarMotion(random),reduced=false,elapsed=0;
  const tick=(time:number)=>{
   if(!running)return;
   if(last===undefined)last=time;
-  if(time-last>=1000/30){paint(advance((time-last)/1000));last=time;}
+  if(time-last>=1000/(reduced?20:30)){
+   const dt=Math.min((time-last)/1000,.1);elapsed+=dt;
+   paint(reduced?{...neutralAvatar,scaleX:quietAvatarScale(elapsed),scaleY:quietAvatarScale(elapsed)}:advance(dt));last=time;
+  }
   frame=clock.request(tick);
  };
  const setRunning=(next:boolean)=>{
@@ -62,5 +68,5 @@ export function animateAvatar(paint:(pose:AvatarPose)=>void,clock:Clock,random:(
   if(next){last=undefined;frame=clock.request(tick);}
   else{clock.cancel(frame);advance=avatarMotion(random);paint(neutralAvatar);}
  };
- return {setRunning,dispose(){setRunning(false);disposed=true;}};
+ return {setRunning,setReducedMotion(value:boolean){reduced=value;elapsed=0;advance=avatarMotion(random);paint(neutralAvatar);},dispose(){setRunning(false);disposed=true;}};
 }

@@ -900,7 +900,14 @@ new foreground tool/thought segment or turn terminal. Child events and sparse to
 cannot end a concurrent reply; resumed text on the same message remains eligible for reveal.
 The player keeps at most three cached atlas entries (each decoded atlas at most 8 MiB), loads on
 visibility, fences late loads, crossfades through a small canvas and cancels frames on hide,
-offscreen, reduced motion and disposal. Explicit custom PNG avatars keep their existing behavior.
+offscreen and disposal. Reduced motion holds a representative middle frame from the selected
+state's atlas and adds a small, slow breathing loop, preserving activity expressions without
+playing the full gesture. SVG fallback uses the same bounded breath.
+The pet blends slow idle at low weight into its rest pose and retains facial blinking/state
+expression, while suppressing large gestures, drag-run poses and props. Necessary CSS status
+indicators use a slow opacity cycle without travel/rotation and pause when hidden/offscreen.
+System preference changes are observed live; history and explicit custom PNG avatars stay static.
+This is presentation policy only; Bot skill guidance and tool behavior are unchanged.
 
 Native screen input owns immutable image/thumbnail bytes and its independent durable receipt; renderer receives
 opaque handles. Capture preferences freeze at acquisition; redaction affects both images. Submitted documents

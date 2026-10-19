@@ -25,17 +25,17 @@ export function portraitFrame(sheet:PortraitSheet,elapsed:number){
 type Scheduler={request:(callback:(time:number)=>void)=>number;cancel:(id:number)=>void};
 // Separate visible time from wall time: returning to a window never fast-forwards
 // through missed gestures. Own exactly one RAF and cancel it on every exit.
-export function portraitClock(draw:(elapsed:number)=>void,scheduler:Scheduler){
- let request=0,running=false,disposed=false,elapsed=0,last:number|undefined;
+export function portraitClock(draw:(elapsed:number)=>void,scheduler:Scheduler,fps=30){
+ let request=0,running=false,disposed=false,elapsed=0,last:number|undefined,painted=-Infinity;
  const tick=(now:number)=>{
   if(!running||disposed)return;
   if(last!==undefined)elapsed+=Math.max(0,Math.min((now-last)/1000,.1));
-  last=now;draw(elapsed);request=scheduler.request(tick);
+  last=now;if(elapsed-painted>=1/fps){draw(elapsed);painted=elapsed;}request=scheduler.request(tick);
  };
  return {
   setRunning(value:boolean){
    if(disposed||value===running)return;
-   running=value;last=undefined;
+   running=value;last=undefined;painted=-Infinity;
    if(value)request=scheduler.request(tick);else scheduler.cancel(request);
   },
   dispose(){disposed=true;running=false;scheduler.cancel(request);},
