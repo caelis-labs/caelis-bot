@@ -27,6 +27,11 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 			b.recordTurnPhaseLocked(source.TurnKey, source.Phase)
 		}
 	}
+	for _, source := range snapshot.ScheduledSources {
+		if snapshot.RuntimeOwner != "" && source.RuntimeOwner == snapshot.RuntimeOwner && source.RequestID != "" && terminalTurn(source.Phase) && (source.Phase != "completed" || completedReplyForTurn(snapshot.Items, source.TurnKey)) {
+			b.recordTurnPhaseLocked(source.TurnKey, source.Phase)
+		}
+	}
 	if !terminalTurn(snapshot.Phase) {
 		if snapshot.CurrentTurn != "" && b.state.ObservedTurn != snapshot.CurrentTurn {
 			old := b.state.ObservedTurn

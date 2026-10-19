@@ -306,6 +306,7 @@ func Test(p Plan, data map[string]any, now time.Time) (bool, error) {
 	return care.Test(context.Background(), care.Rule{ID: "event-test", Label: "Event condition", Prompt: "Check event", On: "registered.event", When: when, TimeZone: zone}, data, now)
 }
 func definition(p Plan) Plan {
+ p.OriginRequests = nil // retries retain the original registration source
 	p.Created = time.Time{}
 	p.Next = time.Time{}
 	p.Expires = time.Time{}

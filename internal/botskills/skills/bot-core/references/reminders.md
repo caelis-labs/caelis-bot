@@ -46,3 +46,11 @@ delivery depends on the user's permissions and whether they are already chatting
 For care that depends on computer use, foreground app changes, or another
 registered data source, read [Proactive care](proactive-care.md). Use its local
 conditions to avoid waking a model just to check whether anything is relevant.
+
+
+Explicit calendar reminders do not depend on desktop unlock or known presence.
+Their native admission still requires an idle Bot and the original authorization.
+Actual computer sleep and quitting pause execution; locking the desktop alone
+must not block a promised result. Desktop input tools enforce their own boundaries.
+Phone delivery additionally requires the original channel's trusted routing and
+available delivery window; an accepted reminder is not a delivery receipt.

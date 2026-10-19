@@ -22,6 +22,9 @@ const MaxEventBytes = 16384
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type Rule struct {
+	// Empty retains historical proactive-care semantics; task is explicit work.
+	Purpose         string   `json:"purpose,omitempty"`
+	OriginRequests  []string `json:"originRequests,omitempty"`
 	ID              string   `json:"id"`
 	Label           string   `json:"label"`
 	On              string   `json:"on"`
@@ -44,6 +47,9 @@ type condition struct {
 
 func compile(r Rule) (Rule, condition, error) {
 	var c condition
+	if r.Purpose != "" && r.Purpose != "care" && r.Purpose != "task" {
+		return r, c, errors.New("invalid arrangement purpose")
+	}
 	if !identifier.MatchString(r.ID) || strings.TrimSpace(r.Label) == "" || len(r.Label) > 200 || strings.TrimSpace(r.Prompt) == "" || len(r.Prompt) > 4096 {
 		return r, c, errors.New("invalid rule id, label or prompt")
 	}

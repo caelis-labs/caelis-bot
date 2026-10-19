@@ -434,7 +434,7 @@ func TestDeferredWakeKeepsOriginalOccurrence(t *testing.T) {
 	d.Ready = true
 	d.Submit = func(context.Context, string, string, string) (string, error) { return "deferred", nil }
 	tick(t, e, p.Next, d)
-	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || !s.Plans[0].Finished.IsZero() {
+	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || !s.Plans[0].Finished.IsZero() || !s.Plans[0].LastWake.IsZero() || len(s.WakeAttempts) != 0 {
 		t.Fatal(s)
 	}
 	d.Submit = func(_ context.Context, got, _, _ string) (string, error) {
@@ -443,7 +443,7 @@ func TestDeferredWakeKeepsOriginalOccurrence(t *testing.T) {
 		}
 		return "accepted", nil
 	}
-	tick(t, e, p.Next.Add(5*time.Minute), d)
+	tick(t, e, p.Next.Add(time.Second), d)
 	if s := e.Snapshot(); s.Occurrences[0].Status != "accepted" {
 		t.Fatal(s)
 	}

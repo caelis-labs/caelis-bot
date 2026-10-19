@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
@@ -9,7 +10,7 @@ import (
 func TestLoginLaunchKeepsFirstRunSettingsClosed(t *testing.T) {
 	for _, atLogin := range []bool{false, true} {
 		root := t.TempDir()
-		assembly, err := newProductAssembly(root, []string{"en"}, func(*Service) app.Host { return app.Host{} })
+		assembly, err := newProductAssembly(root, []string{"en"}, func(*Service, *diagnosticlog.Logger) app.Host { return app.Host{} })
 		if err != nil {
 			t.Fatal(err)
 		}

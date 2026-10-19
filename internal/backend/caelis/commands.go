@@ -23,7 +23,7 @@ import (
 // command persists exact bytes before dispatch. Unknown journals are read only;
 // transport retries can never accidentally create a second native operation.
 // Caller serializes mutations with step; stream projection only takes mu.
-func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...bool) (wire.CommandResult, error) {
+func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...api.Submission) (wire.CommandResult, error) {
 	b, e := json.Marshal(req)
 	if e != nil {
 		return wire.CommandResult{}, e
@@ -48,10 +48,14 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		_ = json.Unmarshal(b, &prompt)
 		source = wire.SessionSource{Kind: value(prompt.SourceKind), OperationId: op, GrantId: prompt.GrantId}
 	}
-	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
-	if len(scheduled) > 1 {
+	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0].Scheduled}
+	if len(scheduled) > 0 {
 		j := s.state.Operations[op]
-		j.Dream = scheduled[1]
+		j.Dream = scheduled[0].Dream
+		if j.Scheduled && !j.Dream {
+			j.OriginRequests = slices.Clone(scheduled[0].OriginRequests)
+			j.OriginOwner = (inputScope{InstanceID: s.state.InstanceID, SessionID: s.state.Session.SessionId}).owner()
+		}
 		s.state.Operations[op] = j
 	}
 	if path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || source.Kind == "application_summary") && !s.state.Operations[op].Scheduled {
@@ -67,7 +71,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j.PendingInput = pending
 		s.state.Operations[op] = j
 	}
-	if len(scheduled) > 0 && scheduled[0] {
+	if len(scheduled) > 0 && scheduled[0].Scheduled {
 		s.sendingScheduled = op
 		s.scheduledPreviousTurn = observedTurn(s.state.Views[s.state.Session.SessionId])
 		defer func() {
@@ -320,7 +324,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
 		out, e = s.submitNativeInput(ctx, sid, in.ID, modelText, req.ContentParts, true)
 	} else {
-		out, e = s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled, in.Dream)
+		out, e = s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req, in)
 	}
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {

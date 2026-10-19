@@ -19,7 +19,7 @@ type productAssembly struct {
 	Diagnostics *diagnosticlog.Logger
 }
 
-func newProductAssembly(root string, languages []string, effects func(*Service) app.Host) (*productAssembly, error) {
+func newProductAssembly(root string, languages []string, effects func(*Service, *diagnosticlog.Logger) app.Host) (*productAssembly, error) {
 	diagnostics := diagnosticlog.NewAsync(filepath.Join(root, "Logs"))
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
@@ -30,7 +30,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	logError(s.configureLanguage(filepath.Join(root, "language.json"), languages))
 	logError(s.configureDisplay(filepath.Join(root, "display.json")))
 	s.content = contentpack.NewRecoveringRegistry(filepath.Join(root, "content"))
-	host := effects(s)
+	host := effects(s, diagnostics)
 	host.Locale = func() i18n.Locale { return s.LanguagePreferences().Locale }
 	host.Diagnostics = diagnostics
 	host.ResolveFiles = s.resolveDraftFiles

@@ -68,6 +68,14 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 				status = value(v.State.Run.Status)
 			}
 			turns[j.TurnID] = status
+			if status == "cancelled" {
+				status = "interrupted"
+			}
+			if !j.Dream && succeeded(wire.Outcome(j.Outcome)) {
+				for _, request := range j.OriginRequests {
+					out.ScheduledSources = append(out.ScheduledSources, api.ScheduledSource{RuntimeOwner: j.OriginOwner, TurnKey: j.TurnID, RequestID: request, Phase: status})
+				}
+			}
 			if j.Dream {
 				dreams[j.TurnID] = status
 			}

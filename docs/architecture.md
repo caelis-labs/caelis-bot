@@ -751,7 +751,13 @@ are clock.minute, desktop.usage and desktop.appChanged, carrying metadata rather
 `on` or nonempty `onAny` is exclusive; normalized sources share one rule, cooldown and pending occurrence.
 Conditions see the current event only. Unavailable sources cancel their queued events but retain rules/other sources.
 
-Every dispatch rechecks fresh native presence (unknown/locked/sleeping deny), busy state, expiry and budget.
+Proactive care rechecks fresh native desktop presence (unknown/locked/display-off deny),
+busy state, expiry and budget. Explicit native event arrangements use `purpose:task`
+and do not require desktop presence; `purpose:care` selects proactive behavior.
+The compact event save defaults to task; direct historical `bot_care` and existing
+unclassified care records retain care semantics rather than guessing intent.
+A purpose change is a reviewed rule replacement; it cannot rewrite an in-flight receipt.
+The native `Awake` field describes the desktop/display, not CPU sleep or process lifetime.
 Persist dispatching before native calls. Unknown/uncompleted work reserves one possible interruption;
 visible body/artifact/manual approval/failed review/error consumes it once, silent completion releases it.
 Reviews must belong to that native Thread/Turn; in-progress/approved or unrelated reviews do not consume it.
@@ -1053,12 +1059,28 @@ before dispatch and reconciles the original native receipt, never a new ID.
 
 Natural-language wakes describe the saved purpose and match, identify event,
 arrangement and occurrence, and label collected output as untrusted data. They
-retain typed scheduled provenance through the existing adapter. Busy/locked
-presence gates delivery while collection remains independent. A conservative
+retain typed scheduled provenance through the existing adapter. All explicit
+calendar, after/at/interval and script/tool/task-completion wakes use native busy
+admission without a global presence gate. A task may explicitly observe desktop
+state in its collector and use that output in CEL; unknown is never fabricated
+as unlocked. Desktop input tools retain their own permissions and lock boundaries.
+Actual machine sleep pauses execution; process exit stops it. A conservative
 separate event-plan admission budget allows eight wake attempts per rolling 24h,
 with a five-minute gap and one-hour default per-arrangement cooldown; it is not a
 claim that each attempt was visible. Existing care's visible-interruption budget
-and calendar reminder policies remain independent.
+and calendar reminder policies remain independent. A confirmed pre-dispatch busy
+refusal retains the original occurrence and restores its gap/cooldown reservation;
+errors and unknown receipts never enter that retry path.
+
+Registration captures the authenticated tool turn's native input request IDs,
+including mixed origins, in the schedule ledger. Dispatch persists these host-only
+links with the original native operation before sending. Both adapters expose
+scoped scheduled sources and terminal phases outside renderer JSON, so Weixin
+can attribute a completed scheduled reply even after a newer turn or restart.
+Missing legacy provenance is not inferred or backfilled from a later phone message.
+Re-pairing, mixed sources, unknown sends and expired/exhausted delivery windows
+retain the existing conservative behavior. Telegram continues its paired
+conversation mirror. Neither adapter promises phone delivery from registration alone.
 
 Active lists exclude terminal arrangements and archived definitions. One-shots
 finish after filtering/failure/expiry or confirmed Bot-turn completion. Recurring

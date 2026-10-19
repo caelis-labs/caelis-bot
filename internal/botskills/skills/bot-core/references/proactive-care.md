@@ -8,6 +8,13 @@ calendar trigger for an ordinary reminder. First call `bot_schedule` with
 presence and budget. Use `request:{"type":"list","kind":"event"}` for saved
 rules, policy and recent activation receipts.
 
+Choose `trigger.purpose:"care"` for discretionary care such as break suggestions.
+Use `trigger.purpose:"task"` (the default on new saves) for explicitly requested
+work, including a promised timed greeting or condition-based result. Task delivery
+does not wait for desktop unlock. Existing unclassified care records retain their
+care behavior; change the purpose only in line with the user's intended arrangement,
+without recreating unknown activations.
+
 An event trigger uses a nonempty `sources` list and a CEL `condition`. Any
 subscribed event evaluates the condition using only that event's fields; it does
 not merge source data. Use `has(event.field)` for optional fields. All sources
@@ -46,7 +53,7 @@ The test needs no save ID, label or prompt and never registers or publishes work
 A brief break suggestion after two hours of active use during weekday daytime:
 
 ```json
-{"request":{"type":"save","id":"work-break","label":"Work break","prompt":"Offer one brief break suggestion suited to my preferences. Skip it if it would interrupt something important.","trigger":{"type":"event","sources":["desktop.usage"],"condition":"event.activeSeconds >= 7200 && event.idleSeconds < 120 && local.weekday <= 5 && local.hour >= 9 && local.hour < 18","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":900}}}
+{"request":{"type":"save","id":"work-break","label":"Work break","prompt":"Offer one brief break suggestion suited to my preferences. Skip it if it would interrupt something important.","trigger":{"type":"event","purpose":"care","sources":["desktop.usage"],"condition":"event.activeSeconds >= 7200 && event.idleSeconds < 120 && local.weekday <= 5 && local.hour >= 9 && local.hour < 18","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":900}}}
 ```
 
 Test data: `{"activeSeconds":7300,"idleSeconds":20,"application":"com.apple.Terminal"}`.
@@ -56,7 +63,7 @@ also depends on when you run it.
 A greeting during a previously agreed date's morning window:
 
 ```json
-{"request":{"type":"save","id":"special-date","label":"Special date","prompt":"Give the greeting we agreed for this date, using the relevant saved context.","trigger":{"type":"event","sources":["clock.minute"],"condition":"local.month == 9 && local.day == 25 && local.hour >= 9 && local.hour < 10","timeZone":"Asia/Shanghai","cooldownSeconds":86400,"expiresSeconds":1800}}}
+{"request":{"type":"save","id":"special-date","label":"Special date","prompt":"Give the greeting we agreed for this date, using the relevant saved context.","trigger":{"type":"event","purpose":"task","sources":["clock.minute"],"condition":"local.month == 9 && local.day == 25 && local.hour >= 9 && local.hour < 10","timeZone":"Asia/Shanghai","cooldownSeconds":86400,"expiresSeconds":1800}}}
 ```
 
 Test data: `{}`. Date matching alone does not establish that this is the user's
@@ -65,7 +72,7 @@ birthday or another personal occasion; obtain that meaning from their request.
 A contextual nudge on switching into an agreed work application:
 
 ```json
-{"request":{"type":"save","id":"terminal-focus","label":"Terminal focus","prompt":"If there is a relevant unfinished commitment in our notes, briefly remind me of the next step. Otherwise stay quiet.","trigger":{"type":"event","sources":["desktop.appChanged"],"condition":"event.application == 'com.apple.Terminal' && local.weekday <= 5","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":300}}}
+{"request":{"type":"save","id":"terminal-focus","label":"Terminal focus","prompt":"If there is a relevant unfinished commitment in our notes, briefly remind me of the next step. Otherwise stay quiet.","trigger":{"type":"event","purpose":"care","sources":["desktop.appChanged"],"condition":"event.application == 'com.apple.Terminal' && local.weekday <= 5","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":300}}}
 ```
 
 Test data: `{"application":"com.apple.Terminal","previousApplication":"com.apple.finder"}`.
@@ -121,7 +128,8 @@ a user-originated authorization. Never raise limits merely to get more work thro
 These settings do not change ordinary reminders, user messages, or approval handling.
 
 The app must remain running. Hiding the pet does not stop collection. Delivery
-waits for an idle Bot and a known awake, unlocked session; stale pending work
+for `purpose:"care"` waits for an idle Bot and a known active, unlocked desktop;
+`purpose:"task"` requires idle admission but not desktop presence. Stale pending work
 expires. Quit stops observation, and restart does not replay missed clock samples.
 Rules stay with the Runtime where they were registered.
 

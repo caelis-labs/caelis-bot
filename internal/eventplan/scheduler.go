@@ -80,6 +80,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			return e.persist()
 		}
 		v, _ := e.event(o.Event)
+		previousWake := p.LastWake
 		p.LastWake = now
 		o.Status = "dispatching"
 		e.state.WakeAttempts = append(e.state.WakeAttempts, now)
@@ -87,7 +88,11 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			return err
 		}
 		outcome, err := d.Submit(ctx, o.ID, WakeText(v, *p, *o), p.ID)
-		if outcome == "deferred" {
+		if err == nil && outcome == "deferred" {
+			// The adapter proved no operation was created. A busy race must not
+			// consume the five-minute gap or cooldown before a first real wake.
+			p.LastWake = previousWake
+			e.state.WakeAttempts = e.state.WakeAttempts[:len(e.state.WakeAttempts)-1]
 			o.Status = "pending"
 		} else if outcome == "rejected" {
 			o.Status = "failed"

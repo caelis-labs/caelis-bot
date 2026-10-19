@@ -31,6 +31,8 @@ type Event struct {
 	Archived         time.Time       `json:"archived,omitempty"`
 }
 type Plan struct {
+ // Host-only registration provenance, persisted but redacted from tool reads.
+ OriginRequests []string `json:"originRequests,omitempty"`
 	Retired         bool      `json:"retired,omitempty"`
 	ID              string    `json:"id"`
 	Event           string    `json:"event"`

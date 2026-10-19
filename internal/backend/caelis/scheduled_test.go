@@ -166,3 +166,44 @@ func TestBackgroundGuardianReviewDoesNotCountAsVisibleFeedback(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduledOriginPersistsBeforeNativeDispatch(t *testing.T) {
+	var session *Session
+	session = fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		persisted, err := loadBinding(session.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		j := persisted.Operations["scheduled-input"]
+		if len(j.OriginRequests) != 1 || j.OriginRequests[0] != "original-phone-input" || j.OriginOwner == "" {
+			t.Fatal("source was not durable before dispatch")
+		}
+		writeFixture(w, wire.CommandResult{OperationId: "scheduled-input", Outcome: "accepted", Resource: &wire.CommandResource{Ref: pointer("turn")}})
+	})
+	in := api.Submission{ID: "scheduled-input", Scheduled: true, OriginRequests: []string{"original-phone-input"}}
+	_, err := session.command(t.Context(), in.ID, "/sessions/main/prompt", wire.PromptRequest{OperationId: pointer(in.ID), Input: pointer("fixture"), SourceKind: pointer("authorized_background")}, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := session.state.Operations[in.ID]
+	j.TurnID = "scheduled-turn"
+	session.state.Operations[in.ID] = j
+	session.state.Views["main"].Turns = map[string]string{"scheduled-turn": "completed"}
+	if err := session.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	session.state, err = loadBinding(session.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := session.Snapshot()
+	if len(got.ScheduledSources) != 1 || got.ScheduledSources[0].RequestID != "original-phone-input" || got.ScheduledSources[0].RuntimeOwner != got.RuntimeOwner || got.ScheduledSources[0].Phase != "completed" {
+		t.Fatal(got.ScheduledSources)
+	}
+	raw, _ := json.Marshal(got)
+	var visible map[string]any
+	_ = json.Unmarshal(raw, &visible)
+	if _, ok := visible["ScheduledSources"]; ok {
+		t.Fatal("native provenance escaped")
+	}
+}

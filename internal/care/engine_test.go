@@ -422,3 +422,50 @@ func TestConcurrentReceiveAndRemovalAreSerialized(t *testing.T) {
 		t.Fatal("removed rule dispatched")
 	}
 }
+
+func TestExplicitTaskBypassesPresenceButCareDoesNotAndBusyRaceKeepsIdentity(t *testing.T) {
+	e := opened(t)
+	save(t, e, rule("care"))
+	task := rule("task")
+	task.Purpose = "task"
+	save(t, e, task)
+	receive(t, e, instant)
+	calls := 0
+	original := ""
+	send := func(_ context.Context, a Activation) (api.Receipt, error) {
+		calls++
+		if a.RuleID != "task" {
+			t.Fatal("unknown presence admitted care")
+		}
+		if original == "" {
+			original = a.ID
+		} else if original != a.ID {
+			t.Fatal("busy retry changed identity")
+		}
+		if calls == 1 {
+			return api.Receipt{ID: a.ID, Outcome: "rejected", Deferred: true}, nil
+		}
+		return api.Receipt{ID: a.ID, Outcome: "accepted"}, nil
+	}
+	if err := e.Deliver(t.Context(), instant, Presence{}, false, noReceipt, send); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatal("busy gate bypassed")
+	}
+	if err := e.Deliver(t.Context(), instant, Presence{}, true, noReceipt, send); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.Snapshot(); len(s.Attempts) != 0 || !s.Rules[1].Last.IsZero() {
+		t.Fatal("deferred wake consumed budget")
+	}
+	if err := e.Deliver(t.Context(), instant.Add(time.Second), Presence{}, true, noReceipt, send); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Deliver(t.Context(), instant.Add(2*time.Second), Presence{}, true, noReceipt, send); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("submits %d", calls)
+	}
+}

@@ -211,6 +211,10 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		trigger := q["trigger"].(map[string]any)
 		args := map[string]any{"operation": "save", "id": q["id"], "label": q["label"], "prompt": q["prompt"]}
 		if str(trigger, "type") == "event" {
+			args["purpose"] = str(trigger, "purpose")
+			if args["purpose"] == "" {
+				args["purpose"] = "task"
+			}
 			for k, v := range eventArgs(trigger) {
 				args[k] = v
 			}
@@ -250,7 +254,7 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		items = append(items, map[string]any{"automation": "calendar:" + s.ID, "kind": "calendar", "id": s.ID, "label": s.Label, "next": s.Next, "enabled": s.Enabled, "schedule": s})
 	}
 	if kind != "calendar" && r.care != nil && r.careLoadErr == nil {
-		for _, rule := range r.care.Snapshot().Rules {
+		for _, rule := range r.careStateForRead().Rules {
 			if query != "" && !strings.Contains(strings.ToLower(rule.ID+" "+rule.Label), query) {
 				continue
 			}
@@ -345,6 +349,7 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
 		r.previousCompactToolConnection(),
 		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
+		{Host: priorPresenceTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 	}
 }

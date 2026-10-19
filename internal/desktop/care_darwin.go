@@ -10,27 +10,20 @@ package desktop
 */
 import "C"
 import (
-	"encoding/json"
 	"unsafe"
 
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
-func macCareSample() care.Sample {
-	p := C.bot_care_sample()
-	if p == nil {
-		return care.Sample{}
+func macCareSampler(log *diagnosticlog.Logger) func() care.Sample {
+	decoder := careSampleDecoder{write: log.Write}
+	return func() care.Sample {
+		p := C.bot_care_sample()
+		if p == nil {
+			return decoder.decode(nil)
+		}
+		defer C.free(unsafe.Pointer(p))
+		return decoder.decode([]byte(C.GoString(p)))
 	}
-	defer C.free(unsafe.Pointer(p))
-	var v struct {
-		Awake       bool
-		Unlocked    *bool
-		IdleSeconds float64
-		Application string
-		Epoch       uint64
-	}
-	if json.Unmarshal([]byte(C.GoString(p)), &v) != nil {
-		return care.Sample{}
-	}
-	return care.Sample{Presence: care.Presence{Awake: v.Awake, Unlocked: v.Unlocked}, Epoch: v.Epoch, IdleSeconds: v.IdleSeconds, Application: v.Application}
 }

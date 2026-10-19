@@ -84,7 +84,9 @@ func eventDefinition() api.ToolDefinition {
 		tc.Branch("read", tc.Schema{"event": text(128)}, "event"),
 		tc.Branch("archive", tc.Schema{"event": text(128)}, "event")))
 }
-func scheduleDefinitions() []api.ToolDefinition {
+func scheduleDefinitions() []api.ToolDefinition { return scheduleDefinitionsWithPurpose(true) }
+
+func scheduleDefinitionsWithPurpose(purpose bool) []api.ToolDefinition {
 	out := legacyScheduleDefinitions()
 	// Add simple, top-level variants without changing persisted legacy callbacks.
 	for i := range out {
@@ -94,9 +96,28 @@ func scheduleDefinitions() []api.ToolDefinition {
 		req := props["request"].(map[string]any)
 		branches := req["anyOf"].([]any)
 		if out[i].Name == "bot_schedule" {
+			for _, branch := range branches {
+				props := branch.(map[string]any)["properties"].(map[string]any)
+				if purpose && props["type"].(map[string]any)["const"] == "test" {
+					props["trigger"].(map[string]any)["properties"].(map[string]any)["purpose"] = tc.Enum("task", "care")
+				}
+			}
 			branches = append(branches, tc.Branch("events", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("arrangements", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("read", tc.Schema{"handle": text(256)}, "handle"), tc.Branch("condition", tc.Schema{"event": text(128), "when": text(2048), "sample": tc.Schema{"type": "object", "additionalProperties": true}, "timeZone": text(128)}, "event", "when", "sample"))
 			out[i].Description = "Read time (context), available observation sources (sources), registered events (events), active arrangements (arrangements), original result (read), or test CEL against sample data (condition). Reads never execute a collector or wake Bot. History is opt-in with archived:true; keep attention on active work. See bot-core events guide."
 		} else {
+			for _, branch := range branches {
+				b := branch.(map[string]any)
+				props := b["properties"].(map[string]any)
+				if purpose && props["type"].(map[string]any)["const"] == "save" {
+					triggers := props["trigger"].(map[string]any)["anyOf"].([]any)
+					for _, trigger := range triggers {
+						fields := trigger.(map[string]any)["properties"].(map[string]any)
+						if fields["type"].(map[string]any)["const"] == "event" {
+							fields["purpose"] = tc.Enum("task", "care")
+						}
+					}
+				}
+			}
 			for _, kind := range []string{"after", "at", "interval", "completion"} {
 				fields := tc.Schema{"id": text(64), "event": tc.String("event:<id>; omit for a plain timed Bot wakeup"), "label": text(160), "context": tc.String("Purpose / next step when creating a plain wakeup; no repeated prompt is needed for a registered event"), "when": text(2048), "timeZone": text(128), "until": tc.String("Optional RFC3339 expiry; recurring/completion default 30 days"), "cooldownSeconds": tc.Integer(60, 31622400)}
 				required := []string{"id"}
@@ -112,6 +133,9 @@ func scheduleDefinitions() []api.ToolDefinition {
 				branches = append(branches, tc.Branch(kind, fields, required...))
 			}
 			out[i].Description = "Arrange future Bot attention: after(seconds), at(timestamp), interval(seconds), or completion(original task event). Supply an event handle for collection; optional when is CEL over event output. Omit event for a simple wakeup with label/context. Default condition true. No model polls: only a matching result wakes Bot. Stable id preserves deadlines and receipts. Completion/expiry leaves active lists automatically. Remove the returned schedule handle when work ends. Existing save/configure requests remain supported."
+			if purpose {
+				out[i].Description += " Native event saves default to purpose task; set trigger.purpose care only for discretionary proactive care that should wait for desktop presence. Explicit tasks do not require desktop unlock."
+			}
 		}
 		req["anyOf"] = branches
 		out[i].InputSchema, _ = json.Marshal(schema)
@@ -247,6 +271,7 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 			h := str(q, "handle")
 			for _, p := range s.Plans {
 				if h == "schedule:"+p.ID {
+					p.OriginRequests = nil
 					return compactValue(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, false), true
 				}
 			}
@@ -273,6 +298,7 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 	raw, _ := json.Marshal(q)
 	var p eventplan.Plan
 	_ = json.Unmarshal(raw, &p)
+	p.OriginRequests = r.scheduleOrigin(ctx)
 	p.Kind = kind
 	p.Event = strings.TrimPrefix(p.Event, "event:")
 	if p.Event == "" {
@@ -301,7 +327,14 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 	if r.events == nil {
 		return nil
 	}
-	ready := r.careSample != nil && r.careSample().Available() && r.engine.Snapshot().CanSend
+	// Explicit arrangements can run while the desktop is locked or presence is
+	// unknown. A collector may observe presence and its CEL may require it; that
+	// is task data, not a global admission policy. The adapter rechecks busy state.
+	origins := map[string][]string{}
+	for _, p := range r.events.Snapshot().Plans {
+		origins[p.ID] = p.OriginRequests
+	}
+	ready := r.engine.Snapshot().CanSend
 	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: ready,
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {
@@ -310,12 +343,9 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return nil
 		},
 		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			if r.careSample == nil || !r.careSample().Available() {
-				return "deferred", nil
-			}
 			var receipt api.Receipt
 			var err error
-			in := api.Submission{ID: id, Text: text, Scheduled: true}
+			in := api.Submission{ID: id, Text: text, Scheduled: true, OriginRequests: origins[plan]}
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {
 				receipt, err = b.SubmitBackground(ctx, in, []string{"schedule:" + plan})
 			} else {
@@ -324,7 +354,7 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			if receipt.ID != id {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
-			if receipt.Outcome == "rejected" && receipt.Deferred {
+			if err == nil && receipt.Outcome == "rejected" && receipt.Deferred {
 				return "deferred", nil
 			}
 			return receipt.Outcome, err

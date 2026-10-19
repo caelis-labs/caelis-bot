@@ -30,6 +30,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		out := clone(*snapshot)
 		out.RuntimeOwner = snapshot.RuntimeOwner
 		out.InputSources = append([]api.InputSource(nil), snapshot.InputSources...)
+		out.ScheduledSources = append([]api.ScheduledSource(nil), snapshot.ScheduledSources...)
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID

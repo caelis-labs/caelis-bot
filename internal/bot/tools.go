@@ -134,13 +134,17 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 		case "list":
 			return result(r.State(), nil)
 		case "save":
+			in.Schedule.OriginRequests = r.scheduleOrigin(ctx)
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {
-				raw, _ := json.Marshal(in.Schedule)
+				definition := in.Schedule
+				definition.OriginRequests = nil
+				raw, _ := json.Marshal(definition)
 				if e := b.AuthorizeBackground(ctx, in.ID, string(raw)); e != nil {
 					return result(nil, e)
 				}
 			}
 			s, e := r.Upsert(in.Schedule)
+			s.OriginRequests = nil
 			return result(s, e)
 		case "remove":
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {

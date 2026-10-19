@@ -23,16 +23,18 @@ type Registration struct {
 	Issue   string    `json:"issue,omitempty"`
 }
 type Activation struct {
-	ID           string    `json:"id"`
-	RuleID       string    `json:"ruleId"`
-	Version      string    `json:"version"`
-	Prompt       string    `json:"prompt"`
-	Expires      time.Time `json:"expires"`
-	Status       string    `json:"status"`
-	Source       string    `json:"source,omitempty"`
-	DispatchedAt time.Time `json:"dispatchedAt,omitempty"`
-	VisibleAt    time.Time `json:"visibleAt,omitempty"`
-	Result       string    `json:"result,omitempty"` // visible, silent, or legacy (v1 attempt accounting)
+	Purpose        string    `json:"purpose,omitempty"`
+	OriginRequests []string  `json:"originRequests,omitempty"`
+	ID             string    `json:"id"`
+	RuleID         string    `json:"ruleId"`
+	Version        string    `json:"version"`
+	Prompt         string    `json:"prompt"`
+	Expires        time.Time `json:"expires"`
+	Status         string    `json:"status"`
+	Source         string    `json:"source,omitempty"`
+	DispatchedAt   time.Time `json:"dispatchedAt,omitempty"`
+	VisibleAt      time.Time `json:"visibleAt,omitempty"`
+	Result         string    `json:"result,omitempty"` // visible, silent, or legacy (v1 attempt accounting)
 }
 type State struct {
 	Version        int                  `json:"version"`
@@ -191,8 +193,13 @@ func (e *Engine) Save(ctx context.Context, r Rule, authorize func(context.Contex
 	next := copyState(e.state)
 	index := slices.IndexFunc(next.Rules, func(v Registration) bool { return v.ID == r.ID })
 	record := Registration{Rule: r, Version: rand.Text(), Issue: "authorization_pending"}
-	if index >= 0 && reflect.DeepEqual(next.Rules[index].Rule, r) {
+	same := r
+	if index >= 0 {
+		same.OriginRequests = next.Rules[index].OriginRequests
+	}
+	if index >= 0 && reflect.DeepEqual(next.Rules[index].Rule, same) {
 		record = next.Rules[index]
+		r = record.Rule
 		if record.Enabled {
 			e.mu.Unlock()
 			return record, nil
@@ -326,7 +333,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 			next.Rules[i].Issue = "queue_full"
 			continue
 		}
-		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Prompt: r.Prompt, Source: event.Source, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
+		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Purpose: r.Purpose, OriginRequests: slices.Clone(r.OriginRequests), Prompt: r.Prompt, Source: event.Source, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
 	}
 	if !interested {
 		return nil
@@ -422,22 +429,24 @@ func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend
 		}
 	}
 	b := budget(next, now)
-	if !canSend || !p.Available() || b.Remaining == 0 || len(next.Attempts) > 0 && now.Before(next.Attempts[len(next.Attempts)-1].Add(time.Duration(next.Policy.MinimumGapSeconds)*time.Second)) {
+	if !canSend || b.Remaining == 0 || len(next.Attempts) > 0 && now.Before(next.Attempts[len(next.Attempts)-1].Add(time.Duration(next.Policy.MinimumGapSeconds)*time.Second)) {
 		e.mu.Unlock()
 		return nil
 	}
 	index := slices.IndexFunc(next.Activations, func(a Activation) bool {
-		return a.Status == "pending" && !slices.ContainsFunc(next.Activations, func(other Activation) bool { return other.RuleID == a.RuleID && inFlight(other) })
+		return a.Status == "pending" && (a.Purpose == "task" || p.Available()) && !slices.ContainsFunc(next.Activations, func(other Activation) bool { return other.RuleID == a.RuleID && inFlight(other) })
 	})
 	if index < 0 {
 		e.mu.Unlock()
 		return nil
 	}
 	a := &next.Activations[index]
+	var previousLast time.Time
 	a.Status = "dispatching"
 	a.DispatchedAt = now
 	for i := range next.Rules {
 		if next.Rules[i].ID == a.RuleID && next.Rules[i].Version == a.Version {
+			previousLast = next.Rules[i].Last
 			next.Rules[i].Last = now
 		}
 	}
@@ -460,6 +469,18 @@ func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend
 		status = receipt.Outcome
 	}
 	next.Activations[index].Status = status
+	if err == nil && receipt.ID == dispatched.ID && receipt.Outcome == "rejected" && receipt.Deferred {
+		// Busy admission created no native operation; keep the same occurrence
+		// eligible without consuming its dispatch gap or rule cooldown.
+		next.Activations[index].Status = "pending"
+		next.Activations[index].DispatchedAt = time.Time{}
+		next.Attempts = next.Attempts[:len(next.Attempts)-1]
+		for i := range next.Rules {
+			if next.Rules[i].ID == dispatched.RuleID && next.Rules[i].Version == dispatched.Version {
+				next.Rules[i].Last = previousLast
+			}
+		}
+	}
 	if status == "rejected" {
 		releaseCooldown(&next, next.Activations[index])
 	}

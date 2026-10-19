@@ -53,10 +53,14 @@ func (r *Runtime) tickCare(ctx context.Context) error {
 	}
 	return r.care.Deliver(ctx, now, sample.Presence, r.engine.Snapshot().CanSend, r.backgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
 		// Re-sample immediately before submitting; time and event data cannot prove presence.
-		if !r.careSample().Available() {
+		if a.Purpose != "task" && !r.careSample().Available() {
 			return api.Receipt{ID: a.ID, Outcome: "rejected"}, nil
 		}
-		in := api.Submission{ID: a.ID, Text: carePrompt(a.Prompt), Scheduled: true}
+		prompt := carePrompt(a.Prompt)
+		if a.Purpose == "task" {
+			prompt = wakePrompt([]string{a.Prompt})
+		}
+		in := api.Submission{ID: a.ID, Text: prompt, Scheduled: true, OriginRequests: a.OriginRequests}
 		if b, ok := r.engine.(api.BackgroundRuntime); ok {
 			return b.SubmitBackground(ctx, in, []string{care.GrantID(a.RuleID)})
 		}
@@ -94,7 +98,7 @@ func (r *Runtime) callCare(ctx context.Context, args json.RawMessage) api.ToolRe
 	}
 	switch in.Operation {
 	case "list":
-		return result(map[string]any{"sources": r.care.Sources(), "state": r.care.Snapshot(), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now())}, nil)
+		return result(map[string]any{"sources": r.care.Sources(), "state": r.careStateForRead(), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now())}, nil)
 	case "configure":
 		if in.Policy == nil || in.Policy.MaximumInterruptionsPer24Hours == nil || in.Policy.MinimumGapSeconds == nil {
 			return result(nil, errors.New("care policy requires maximumInterruptionsPer24Hours and minimumGapSeconds"))
@@ -109,11 +113,13 @@ func (r *Runtime) callCare(ctx context.Context, args json.RawMessage) api.ToolRe
 		matched, err := r.care.Test(ctx, in.Rule, in.Event, r.now())
 		return result(map[string]bool{"matches": matched}, err)
 	case "save":
+		in.Rule.OriginRequests = r.scheduleOrigin(ctx)
 		var authorize func(context.Context, string, string) error
 		if b, ok := r.engine.(api.BackgroundRuntime); ok {
 			authorize = b.AuthorizeBackground
 		}
 		rule, err := r.care.Save(ctx, in.Rule, authorize)
+		rule.OriginRequests = nil
 		return result(rule, err)
 	case "remove":
 		var revoke func(context.Context, string) error
@@ -155,4 +161,15 @@ func careReadSpec() any {
 	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list", "test"}}
 	delete(properties, "policy")
 	return spec
+}
+
+func (r *Runtime) careStateForRead() care.State {
+	s := r.care.Snapshot()
+	for i := range s.Rules {
+		s.Rules[i].OriginRequests = nil
+	}
+	for i := range s.Activations {
+		s.Activations[i].OriginRequests = nil
+	}
+	return s
 }
