@@ -47,6 +47,7 @@ ZIP 免安装版与同渠道 Setup 共用用户数据；删除 ZIP 解压目录�
 当前源码仅允许已确认的 Setup 安装注册通知、协议、开始菜单及自启动入口；ZIP 不注册这些入口，
 因此不提供依赖这些注册的系统通知和自启动，应用内消息仍保留。
 旧 ZIP 版本已创建的入口不会由新 ZIP 启动时擅自删除，以免影响同渠道安装版。
+若历史自启动项的渠道值名与完整命令行精确匹配当前 ZIP，可在设置中显式关闭；关闭后不能在 ZIP 中重新启用。其他安装的条目不会被覆盖或删除。
 共享 Host 的退出与剩余接入要求见 [Windows 发布与更新](windows-release.md#shared-host-lifecycle)。
 
 For build, channel and recovery details, see [Windows release operations](windows-release.md).

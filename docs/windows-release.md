@@ -122,8 +122,11 @@ ZIP 在安装目录内创建当前用户私有的暂存/备份目录，按归属
 
 ## Shared Host lifecycle
 
-Windows CLI management commands now launch with the user home as their explicit
-process working directory. A detached Caelis Host inherits that stable directory,
+Windows CLI management commands now launch with the private directory
+`%LOCALAPPDATA%\Caelis Bot\host-workspace` as their explicit process working
+directory. It starts empty and is also Core's default workspace for clients that
+omit one; it is deliberately separate from the user home and Bot data.
+A detached Caelis Host inherits that stable directory,
 not the ZIP/Setup program directory. Session workspaces remain explicit: the Bot
 uses Notebook and Workers keep their own workspace. This does not rewrite global
 process CWD, move user data, or stop an already-running Host inherited from an old
@@ -141,3 +144,12 @@ Bot skill guidance is unchanged: these fixes affect packaging and process CWD;
 Notebook, tools, task ownership and recovery behavior remain unchanged. Validate
 ZIP exit/directory deletion separately from shared Host retirement, and verify
 that ZIP→Setup→ZIP preserves Notebook and memory data.
+
+`TestWindowsNativeHostDiscoveryAndLifecycle` with `CAELIS_BOT_TEST_BINARY` set
+to the packaged Core verifies an isolated Store: the detached Host survives
+deletion of its copied ZIP CLI directory, its default workspace is the private
+directory above, and explicit Notebook/Worker session directories are preserved.
+`TestWindowsZIPLoginMigrationToSetup` verifies explicit removal of the exact
+legacy ZIP Run entry, subsequent Setup registration, and rejection of foreign
+or partially matching commands. These checks do not replace full GUI/package
+migration acceptance.

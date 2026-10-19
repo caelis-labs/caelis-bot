@@ -7,23 +7,29 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 func TestWindowsRuntimeDoesNotInheritPackageDirectory(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
 	packageDir := t.TempDir()
 	t.Chdir(packageDir)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestWindowsRuntimeDirectoryChild$")
 	if err := prepareCommandDirectory(cmd); err != nil {
 		t.Fatal(err)
 	}
-	cmd.Env = append(os.Environ(), "CAELIS_DIRECTORY_CHILD="+home)
+	want := filepath.Join(home, "Caelis Bot", "host-workspace")
+	cmd.Env = append(os.Environ(), "CAELIS_DIRECTORY_CHILD="+want)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("child CWD: %v %s", err, out)
 	}
-	if cmd.Dir != home {
-		t.Fatal("runtime did not use stable home")
+	if cmd.Dir != want || !localstate.IsPrivate(want) {
+		t.Fatal("runtime did not use isolated private workspace")
+	}
+	if entries, err := os.ReadDir(want); err != nil || len(entries) != 0 {
+		t.Fatal("default workspace is not empty", err)
 	}
 	if got, _ := os.Getwd(); got != packageDir {
 		t.Fatal("changed global application CWD")
@@ -32,7 +38,7 @@ func TestWindowsRuntimeDoesNotInheritPackageDirectory(t *testing.T) {
 
 func TestWindowsBackgroundRuntimeAllowsPackageDeletion(t *testing.T) {
 	home, packageDir := t.TempDir(), t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
 	t.Chdir(packageDir)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -41,7 +47,7 @@ func TestWindowsBackgroundRuntimeAllowsPackageDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready, finish := filepath.Join(home, "ready"), filepath.Join(home, "finish")
-	cmd.Env = append(os.Environ(), "CAELIS_DIRECTORY_CHILD="+home, "CAELIS_DIRECTORY_READY="+ready, "CAELIS_DIRECTORY_FINISH="+finish)
+	cmd.Env = append(os.Environ(), "CAELIS_DIRECTORY_CHILD="+cmd.Dir, "CAELIS_DIRECTORY_READY="+ready, "CAELIS_DIRECTORY_FINISH="+finish)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
