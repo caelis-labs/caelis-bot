@@ -101,7 +101,9 @@ node script/windows-update-manifest.mjs verify DIST TAG SOURCE_SHA
 Setup 首次安装提供目录选择，可选其他本地磁盘及含空格、中文的路径；后续安装和更新记住该位置。
 安装器拒绝磁盘根目录、重定向目录和非空外来目录。移动安装须先卸载再安装，用户数据保留。
 Setup 更新自身安装位置；ZIP 更新原解压目录，数据保持在 AppData。自启动默认关闭，
-只管理当前安装自己注册的 HKCU Run 条目；移动 ZIP 后需重新注册。
+只管理当前 Setup 安装自己注册的 HKCU Run 条目。当前源码的 ZIP 不注册通知身份、URL 协议、
+快捷方式或自启动；未识别/损坏的包也不启用这些注册。ZIP 与同渠道 Setup 共用用户数据，
+删除 ZIP 或卸载 Setup 不删除用户数据。
 
 更新前冻结新输入、保留原回执；允许强制关闭归属已确认的观察终端，不停止 Worker/共享 Host。
 成功保存交接状态才写 commit；助手等原进程退出并校验 commit 后安装。
@@ -117,3 +119,25 @@ ZIP 在安装目录内创建当前用户私有的暂存/备份目录，按归属
 两版本 Host/TUI、完整 Application 带活跃对话/Worker 的重开换 Host，以及安装组件测试已通过；
 它们尚未串成 GUI 安装 App→App 带任务升级验收。真实登录、低磁盘、
 下载中断与完整 UI 的定向验证继续记录在[实施台账](windows-adaptation-issues.md)，不作为跨平台版本发布的人工门槛。
+
+## Shared Host lifecycle
+
+Windows CLI management commands now launch with the user home as their explicit
+process working directory. A detached Caelis Host inherits that stable directory,
+not the ZIP/Setup program directory. Session workspaces remain explicit: the Bot
+uses Notebook and Workers keep their own workspace. This does not rewrite global
+process CWD, move user data, or stop an already-running Host inherited from an old
+release. An old Host must finish its work and exit before its old CWD lock clears.
+
+Automatic retirement of a shared Host is deferred. The pinned runtime's
+`host-idle-shutdown-v1` supports an immediate conditional stop, but does not
+provide authoritative Bot launch ownership or a durable stop-after-work contract.
+ZIP exit therefore preserves the existing shared Host behavior. Do not kill it,
+claim ownership from a PID/status comparison, or install an extra background
+watcher. A future public runtime contract can cover Setup uninstall and deferred
+exit without interrupting other clients or active work.
+
+Bot skill guidance is unchanged: these fixes affect packaging and process CWD;
+Notebook, tools, task ownership and recovery behavior remain unchanged. Validate
+ZIP exit/directory deletion separately from shared Host retirement, and verify
+that ZIP→Setup→ZIP preserves Notebook and memory data.

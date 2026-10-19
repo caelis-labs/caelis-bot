@@ -11,6 +11,9 @@ import (
 )
 
 func (d *windowsDriver) startNotifications(root, name string) {
+	if !currentWindowsShellIntegration() {
+		return
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return

@@ -14,6 +14,9 @@ const windowsLoginRunKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 type windowsLoginAtLogin struct{ path, name, command string }
 
 func newWindowsLoginAtLogin() loginAtLoginController {
+	if !currentWindowsShellIntegration() {
+		return nil
+	}
 	_, id := applicationIdentity()
 	exe, e := os.Executable()
 	if e != nil || !filepath.IsAbs(exe) {
