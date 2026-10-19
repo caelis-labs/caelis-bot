@@ -1030,6 +1030,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	if (!s.state.CanSend && !s.state.CanSteer) || ((onlyIfIdle || in.Scheduled) && !s.state.CanSend) {
 		s.mu.Unlock()
+		r.Deferred = true
 		r.Message = "当前无法发送，请先处理待确认事项或恢复连接"
 		return r, nil
 	}

@@ -123,3 +123,11 @@ If execution is unconfirmed, inspect its original occurrence. If the saved state
 is unavailable, preserve it; do not delete it to clear cooldowns or uncertainty.
 Normal transient issues do not belong in user chat. Explain only an actual
 limitation or decision that prevents the agreed work from continuing.
+
+Task events pin the original execution, not just its reusable task handle. If a
+continuation replaces that execution before observation, collection stops and a
+maintenance wake asks you to verify the original result. Never interpret the
+continuation's result as the original task's result or recreate an uncertain call.
+Temporary busy/locked wake admission keeps the original occurrence queued within
+its expiry and rate budget. Cancellation prevents new wakes even when an in-flight
+collector later returns; any uncertain execution evidence remains available.

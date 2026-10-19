@@ -323,6 +323,7 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 	if err := e.usable(); err != nil {
 		return p, err
 	}
+	e.cleanup(now)
 	// Identical retries preserve relative deadlines, even after one-shot completion.
 	for _, old := range e.state.Plans {
 		if old.ID == p.ID {

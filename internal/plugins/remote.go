@@ -87,7 +87,7 @@ func relayRemoteWithOAuth(parent context.Context, server Server, spec *Connectio
 			if err != nil {
 				cancel()
 				if len(msg.ID) > 0 {
-					writeRelayError(written, msg.ID, "MCP authentication required")
+					writeRelayError(written, msg.ID, "MCP authentication required", "not_sent")
 				}
 				continue
 			}
@@ -251,7 +251,11 @@ func negotiatedProtocol(body, fallback string) string {
 	return v
 }
 
-func writeRelayError(out *bufio.Writer, id json.RawMessage, message string) {
+func writeRelayError(out *bufio.Writer, id json.RawMessage, message string, outcome ...string) {
+	classification := "unknown"
+	if len(outcome) > 0 {
+		classification = outcome[0]
+	}
 	if !json.Valid(id) {
 		return
 	}
@@ -260,6 +264,9 @@ func writeRelayError(out *bufio.Writer, id json.RawMessage, message string) {
 	out.Write(id)
 	out.WriteString(`,"error":{"code":-32000,"message":`)
 	out.Write(b)
+	data, _ := json.Marshal(map[string]string{"caelisOutcome": classification})
+	out.WriteString(`,"data":`)
+	out.Write(data)
 	out.WriteString("}}\n")
 	out.Flush()
 }

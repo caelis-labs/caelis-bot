@@ -21,6 +21,7 @@ type Event struct {
 	ExecutableDigest string          `json:"executableDigest,omitempty"`
 	Server           string          `json:"server,omitempty"`
 	Tool             string          `json:"tool,omitempty"`
+	TaskExecution    string          `json:"taskExecution,omitempty"`
 	Task             string          `json:"task,omitempty"`
 	Arguments        map[string]any  `json:"arguments,omitempty"`
 	Binding          string          `json:"binding,omitempty"`

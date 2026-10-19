@@ -73,6 +73,15 @@ func (m *Manager) CollectEvent(ctx context.Context, server, binding, tool string
 				continue
 			}
 			if len(r.Error) > 0 {
+				var failure struct {
+					Data struct {
+						Outcome string `json:"caelisOutcome"`
+					} `json:"data"`
+				}
+				_ = json.Unmarshal(r.Error, &failure)
+				if failure.Data.Outcome == "unknown" {
+					return nil, errors.New("collector result unconfirmed")
+				}
 				return nil, eventCollectionFailure("collector request failed")
 			}
 			return r.Result, nil

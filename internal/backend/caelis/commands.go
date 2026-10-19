@@ -195,6 +195,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if !retry && !v.CanSend && !(source == "user" && v.CanSteer) {
+		receipt.Deferred = true
 		receipt.Message = "Caelis 当前不能发送新消息"
 		return receipt, nil
 	}

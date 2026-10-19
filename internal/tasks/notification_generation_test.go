@@ -150,3 +150,24 @@ func TestNewExecutionWaitingApprovalStartsUnknownGraceOnUnknown(t *testing.T) {
 		t.Fatal("new unknown did not get its own grace", got, err)
 	}
 }
+
+func TestEventObservationReturnsOwnedExecutionGeneration(t *testing.T) {
+	f := newRuntime()
+	m := openFixture(t, t.TempDir(), "codex", f)
+	v := start(t, m, "event-generation")
+	_, generation, err := m.ObserveTaskExecution(v.ID)
+	if err != nil || generation != "native-turn-1" {
+		t.Fatal(generation, err)
+	}
+	s := f.states[v.ID]
+	s.ExecutionKey = "native-turn-2"
+	s.Task.Status = "failed"
+	f.states[v.ID] = s
+	task, generation, err := m.ObserveTaskExecution(v.ID)
+	if err != nil || generation != "native-turn-2" || task.Status != "failed" {
+		t.Fatal(task, generation, err)
+	}
+	if _, _, err = m.ObserveTaskExecution("unowned"); err == nil {
+		t.Fatal("unowned task observed")
+	}
+}

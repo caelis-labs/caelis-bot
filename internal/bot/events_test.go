@@ -138,3 +138,34 @@ func TestEventUnknownWakeCannotUseNewHumanReceipt(t *testing.T) {
 		t.Fatal("unrelated receipt settled original wake", s)
 	}
 }
+
+type eventTaskFixture struct {
+	compactTasks
+	generation string
+	status     string
+}
+
+func (f *eventTaskFixture) ObserveTaskExecution(id string) (api.Task, string, error) {
+	return api.Task{ID: id, Status: f.status, Outcome: "accepted"}, f.generation, nil
+}
+func TestTaskEventPinsOriginalExecution(t *testing.T) {
+	r, _, _ := fixture(t)
+	tasks := &eventTaskFixture{generation: "E1", status: "working"}
+	r.tasks = tasks
+	invokeCompact(t, r, "bot_event", `{"request":{"type":"task","id":"tests","label":"Tests","task":"owned"}}`)
+	v, err := r.events.Event("tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.TaskExecution != "E1" {
+		t.Fatal(v)
+	}
+	if _, err = r.runEvent(t.Context(), v); err != nil {
+		t.Fatal(err)
+	}
+	tasks.generation = "E2"
+	tasks.status = "failed"
+	if result, err := r.runEvent(t.Context(), v); err == nil || len(result) != 0 {
+		t.Fatal("observed continuation instead of original execution", string(result), err)
+	}
+}

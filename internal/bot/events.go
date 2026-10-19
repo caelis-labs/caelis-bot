@@ -50,10 +50,15 @@ func (r *Runtime) runEvent(ctx context.Context, v eventplan.Event) (json.RawMess
 		if tasks == nil {
 			return nil, errors.New("task source unavailable")
 		}
-		for _, t := range tasks.ListTasks() {
-			if t.ID == v.Task {
-				return json.Marshal(map[string]any{"task": t.ID, "status": t.Status, "outcome": t.Outcome})
+		if source, ok := tasks.(api.TaskExecutionSource); ok {
+			t, generation, err := source.ObserveTaskExecution(v.Task)
+			if err != nil {
+				return nil, err
 			}
+			if v.TaskExecution == "" || generation != v.TaskExecution {
+				return nil, errors.New("original task execution changed; verify original receipt")
+			}
+			return json.Marshal(map[string]any{"task": t.ID, "status": t.Status, "outcome": t.Outcome})
 		}
 		return nil, errors.New("original task unavailable")
 	}
@@ -160,7 +165,7 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 			return compactError("unavailable", errors.New("script collectors are currently macOS only"))
 		}
 		var err error
-		v, err = eventplan.PinScript(v)
+		v, err = eventplan.PinScriptContext(ctx, v)
 		if err != nil {
 			return compactError("invalid_arguments", err)
 		}
@@ -177,15 +182,15 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 		r.mu.Lock()
 		tasks := r.tasks
 		r.mu.Unlock()
-		found := false
-		if tasks != nil {
-			for _, t := range tasks.ListTasks() {
-				found = found || t.ID == v.Task
-			}
+		source, ok := tasks.(api.TaskExecutionSource)
+		if !ok {
+			return compactError("unavailable", errors.New("task execution identity unavailable"))
 		}
-		if !found {
-			return compactError("unavailable", errors.New("original owned task not found"))
+		_, generation, err := source.ObserveTaskExecution(v.Task)
+		if err != nil || generation == "" {
+			return compactError("unavailable", errors.New("original owned task execution unavailable"))
 		}
+		v.TaskExecution = generation
 	}
 	saved, err := r.events.Register(v, r.now(), func() error { return r.authorizeEvent(ctx, "event:"+v.ID, v) })
 	if err != nil {
@@ -306,7 +311,7 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 		},
 		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
 			if r.careSample == nil || !r.careSample().Available() {
-				return "rejected", nil
+				return "deferred", nil
 			}
 			var receipt api.Receipt
 			var err error
@@ -318,6 +323,9 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			}
 			if receipt.ID != id {
 				return "unknown", errors.New("wake receipt identity mismatch")
+			}
+			if receipt.Outcome == "rejected" && receipt.Deferred {
+				return "deferred", nil
 			}
 			return receipt.Outcome, err
 		}, Receipt: func(id string) string {

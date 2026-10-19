@@ -1,6 +1,10 @@
 package eventplan
 
-import "os/exec"
+import (
+	"errors"
+	"os"
+	"os/exec"
+)
 
 // Script collectors are not advertised on Windows until owned process-tree
 // cancellation is wired; this fallback only serves compilation.
@@ -10,4 +14,8 @@ func boundCollector(cmd *exec.Cmd) func() {
 			_ = cmd.Process.Kill()
 		}
 	}
+}
+
+func openInterpreter(string) (*os.File, error) {
+	return nil, errors.New("script collectors unavailable")
 }

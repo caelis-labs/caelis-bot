@@ -87,7 +87,13 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			return err
 		}
 		outcome, err := d.Submit(ctx, o.ID, WakeText(v, *p, *o), p.ID)
-		if err != nil || outcome == "unknown" {
+		if outcome == "deferred" {
+			o.Status = "pending"
+		} else if outcome == "rejected" {
+			o.Status = "failed"
+			o.Issue = "wake_rejected"
+			o.Finished = now
+		} else if err != nil || outcome == "unknown" {
 			o.Status = "unknown_wake"
 		} else if outcome == "accepted" {
 			o.Status = "accepted"
@@ -165,6 +171,23 @@ func (e *Engine) finishCollection(done completion, now time.Time) {
 			return
 		}
 		v, _ := e.event(o.Event)
+		// Cancellation is final for the arrangement, even if its in-flight
+		// observation returns later. Keep uncertainty without scheduling work.
+		if !p.Finished.IsZero() {
+			o.Status = "cancelled"
+			o.Finished = now
+			if done.err != nil {
+				var confirmed interface{ ConfirmedFailure() bool }
+				if !errors.As(done.err, &confirmed) || !confirmed.ConfirmedFailure() {
+					o.Status = "unknown"
+					o.Issue = "collection_unconfirmed"
+					o.Finished = time.Time{}
+				}
+			} else if _, err := ValidateOutput(v.OutputSchema, done.output); err == nil {
+				o.Result = append(json.RawMessage(nil), done.output...)
+			}
+			return
+		}
 		if done.err != nil {
 			var confirmed interface{ ConfirmedFailure() bool }
 			if errors.As(done.err, &confirmed) && confirmed.ConfirmedFailure() {
@@ -291,7 +314,18 @@ func (e *Engine) cleanup(now time.Time) {
 			v.Archived = now
 		}
 	}
-	trimHistory(&e.state.Occurrences, now, func(o Occurrence) time.Time { return o.Finished })
+	referenced := map[string]bool{}
+	for _, o := range e.state.Occurrences {
+		if o.AttentionFor != "" {
+			referenced[o.AttentionFor] = true
+		}
+	}
+	trimHistory(&e.state.Occurrences, now, func(o Occurrence) time.Time {
+		if referenced[o.ID] {
+			return time.Time{}
+		}
+		return o.Finished
+	})
 	// Keep the original definitions while receipts still reference them.
 	e.state.Plans = slices.DeleteFunc(e.state.Plans, func(p Plan) bool {
 		return p.Retired && !p.Finished.IsZero() && now.Sub(p.Finished) > Retention && !slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == p.ID })
@@ -300,7 +334,7 @@ func (e *Engine) cleanup(now time.Time) {
 		return v.Retired && !v.Archived.IsZero() && now.Sub(v.Archived) > Retention && !slices.ContainsFunc(e.state.Plans, func(p Plan) bool { return p.Event == v.ID })
 	})
 	// Bounds apply even to rapid create/remove cycles. Referenced history is retained.
-	prunePlans := len(e.state.Plans) - MaxActive - MaxHistory
+	prunePlans := len(e.state.Plans) - MaxHistory
 	e.state.Plans = slices.DeleteFunc(e.state.Plans, func(p Plan) bool {
 		if prunePlans > 0 && p.Retired && !p.Finished.IsZero() && !slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == p.ID }) {
 			prunePlans--
@@ -308,7 +342,7 @@ func (e *Engine) cleanup(now time.Time) {
 		}
 		return false
 	})
-	pruneEvents := len(e.state.Events) - MaxActive - MaxHistory
+	pruneEvents := len(e.state.Events) - MaxHistory
 	e.state.Events = slices.DeleteFunc(e.state.Events, func(v Event) bool {
 		if pruneEvents > 0 && v.Retired && !v.Archived.IsZero() && !slices.ContainsFunc(e.state.Plans, func(p Plan) bool { return p.Event == v.ID }) {
 			pruneEvents--

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -57,5 +59,22 @@ func TestEventCollectorRejectsErrorAndNonJSONWithoutReplay(t *testing.T) {
 				t.Fatal("invalid output accepted or retried", err, calls.Load())
 			}
 		})
+	}
+}
+
+func TestLostToolResponseIsUnconfirmed(t *testing.T) {
+	var calls atomic.Int32
+	m := configuredProbeFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		method, _ := probeMCPMethod(t, w, r)
+		if method == "tools/call" {
+			calls.Add(1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "event: error\ndata: {}\n\n")
+		}
+	})
+	_, err := m.CollectEvent(t.Context(), "fixture/docs", m.EventBindings()["fixture/docs"], "read", nil)
+	var confirmed interface{ ConfirmedFailure() bool }
+	if err == nil || errors.As(err, &confirmed) && confirmed.ConfirmedFailure() || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
 	}
 }

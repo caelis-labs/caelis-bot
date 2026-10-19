@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -420,5 +422,106 @@ func TestInterruptedCollectionRestoresOneMaintenanceWake(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatal("interrupted collector replayed")
+	}
+}
+
+func TestDeferredWakeKeepsOriginalOccurrence(t *testing.T) {
+	e, now := setup(t, func(context.Context, Event) (json.RawMessage, error) { return json.RawMessage(`{"count":1}`), nil })
+	p, _ := e.Save(Plan{ID: "once", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	collect(t, e, p.Next, noDelivery())
+	id := e.Snapshot().Occurrences[0].ID
+	d := noDelivery()
+	d.Ready = true
+	d.Submit = func(context.Context, string, string, string) (string, error) { return "deferred", nil }
+	tick(t, e, p.Next, d)
+	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || !s.Plans[0].Finished.IsZero() {
+		t.Fatal(s)
+	}
+	d.Submit = func(_ context.Context, got, _, _ string) (string, error) {
+		if got != id {
+			t.Fatal("identity changed")
+		}
+		return "accepted", nil
+	}
+	tick(t, e, p.Next.Add(5*time.Minute), d)
+	if s := e.Snapshot(); s.Occurrences[0].Status != "accepted" {
+		t.Fatal(s)
+	}
+}
+func TestCancelledCollectorCannotCreateMaintenanceWake(t *testing.T) {
+	for _, kind := range []string{"confirmed", "unknown", "invalid", "valid"} {
+		t.Run(kind, func(t *testing.T) {
+			e, now := setup(t, nil)
+			p, _ := e.Save(Plan{ID: "once", Event: "mail", Kind: "after", Seconds: 1}, *now)
+			e.state.Occurrences = append(e.state.Occurrences, Occurrence{ID: "original", Plan: p.ID, Event: p.Event, At: *now, Status: "collecting"})
+			if err := e.Remove(p.ID, *now); err != nil {
+				t.Fatal(err)
+			}
+			done := completion{id: "original", output: json.RawMessage(`{"count":1}`)}
+			switch kind {
+			case "confirmed":
+				done.err = collectorFailure("failed")
+			case "unknown":
+				done.err = errors.New("lost")
+			case "invalid":
+				done.output = json.RawMessage(`{}`)
+			}
+			e.finishCollection(done, *now)
+			s := e.Snapshot()
+			if len(s.Occurrences) != 1 || s.Plans[0].Status != "cancelled" {
+				t.Fatal(s)
+			}
+			if kind == "unknown" && (s.Occurrences[0].Status != "unknown" || !s.Occurrences[0].Finished.IsZero()) {
+				t.Fatal(s)
+			}
+		})
+	}
+}
+func TestExplicitRejectionWithErrorIsNotUnknown(t *testing.T) {
+	e, now := setup(t, func(context.Context, Event) (json.RawMessage, error) { return json.RawMessage(`{"count":1}`), nil })
+	p, _ := e.Save(Plan{ID: "once", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	collect(t, e, p.Next, noDelivery())
+	d := noDelivery()
+	d.Ready = true
+	d.Submit = func(context.Context, string, string, string) (string, error) {
+		return "rejected", errors.New("revoked")
+	}
+	tick(t, e, p.Next, d)
+	if s := e.Snapshot(); s.Occurrences[0].Status != "failed" {
+		t.Fatal(s)
+	}
+}
+func TestMaintenanceReferenceSurvivesHistoryPressure(t *testing.T) {
+	e, now := setup(t, nil)
+	e.state.Occurrences = []Occurrence{{ID: "original", Finished: *now, Status: "failed"}, {ID: "attention", AttentionFor: "original", At: *now, Status: "pending"}}
+	for i := 0; i < MaxHistory+20; i++ {
+		e.state.Occurrences = append(e.state.Occurrences, Occurrence{ID: fmt.Sprint(i), Finished: *now, Status: "filtered"})
+	}
+	e.cleanup(now.Add(time.Minute))
+	if !slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.ID == "original" }) {
+		t.Fatal("lost original evidence")
+	}
+}
+func TestRetiredDefinitionsRotateBeyondCapacity(t *testing.T) {
+	e, now := setup(t, nil)
+	for i := 0; i < MaxActive+MaxHistory+20; i++ {
+		id := fmt.Sprintf("plan-%d", i)
+		if _, err := e.Save(Plan{ID: id, Event: "mail", Kind: "after", Seconds: 3600}, *now); err != nil {
+			t.Fatal(i, err)
+		}
+		if err := e.Remove(id, *now); err != nil {
+			t.Fatal(err)
+		}
+		e.retire(*now, nil)
+	}
+	for i := 0; i < MaxActive+MaxHistory+20; i++ {
+		v := Event{ID: fmt.Sprintf("event-%d", i), Label: "Wake", Kind: "wake", OutputSchema: json.RawMessage(`{"type":"object"}`)}
+		if _, err := e.Register(v, *now); err != nil {
+			t.Fatal(i, err)
+		}
+		if err := e.ArchiveEvent(v.ID, *now); err != nil {
+			t.Fatal(err)
+		}
+		e.retire(*now, nil)
 	}
 }
