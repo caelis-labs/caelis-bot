@@ -5,7 +5,10 @@
 
 ### Bug Fixes
 
-* **schedule:** retire care and unify scheduled attention ([#202](https://github.com/caelis-labs/caelis-bot/issues/202)) ([ace70e2](https://github.com/caelis-labs/caelis-bot/commit/ace70e2860c48041f2481bbeef722e1695bfa23a))
+* **schedule:** allow user-arranged follow-ups while the desktop is locked or its presence is unknown, and fix macOS presence decoding. Desktop-input tools retain their own permissions. ([#202](https://github.com/caelis-labs/caelis-bot/pull/202))
+* **schedule:** retire the separate care tools and dispatcher; migrate existing arrangements into the shared scheduler while preserving original authorizations, pending work and uncertain receipts without replay.
+* **schedule:** prevent retained native IDs from corrupting the event ledger after extended app exit, preserve shared grants when removing historical arrangements, and enforce consistent capacity limits for unfinished work.
+* **schedule:** restore lookup by original native ID and name, defer busy submissions under their original IDs, and preserve original-channel attribution for scheduled follow-ups.
 
 ## [0.17.0](https://github.com/caelis-labs/caelis-bot/compare/v0.16.0...v0.17.0) (2026-10-19)
 
