@@ -216,6 +216,18 @@ with an isolated Bot profile. Draft writes coalesce only pending full replacemen
 submission waits for the newest saved draft. Snapshot reads are fenced by request order and
 visible-surface lifetime as well as backend revision.
 
+Reduced-motion feedback can be inspected with `node script/reduced-motion-preview.mjs`
+at `http://127.0.0.1:9247/acceptance`. The fixture mounts the production pet,
+portrait and status styles with synthetic native facts, without reading Bot data.
+Switch browser `prefers-reduced-motion` emulation while open; the current portrait
+and pet must keep moving gently, history must stay still, and status indicators
+must pulse without rotation or travel. Scroll indicators/portraits offscreen and
+hide the page to verify pause/resume. `script/reduced-motion.test.mjs` covers
+amplitude, authored neutral-pose preservation, policy switching and frame cleanup.
+Chrome media-query acceptance passed on Windows; this is not native WebView2 or
+macOS AppKit acceptance. Native checks must additionally cover live system
+preference changes and task indicators without changing execution state.
+
 Settings separate Connections & models, Messaging, Remote machines,
 Extras and Privacy & permissions. The model and AI account pages share one runtime
 settings owner; native `runtime` and `connections` repair links still open AI accounts.

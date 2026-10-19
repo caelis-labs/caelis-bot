@@ -10,7 +10,9 @@ export class CharacterAnimation {
  readonly mixer:AnimationMixer;
  private actions = new Map<string,AnimationAction>();
  private current:AnimationAction;
+ private quietRest:AnimationAction;
  private activity:Activity='idle';
+ private reduced=false;
  private fadeElapsed=0;
  private blend:Map<AnimationAction,number>|undefined;
  constructor(private root:Object3D, clips:AnimationClip[], strict=true) {
@@ -20,13 +22,18 @@ export class CharacterAnimation {
   for(const clip of clips)this.actions.set(clip.name,this.mixer.clipAction(clip));
   this.current=this.actions.get('idle')!;
   this.play('idle',false);
+  this.quietRest=this.mixer.clipAction(this.current.getClip().clone());
   this.mixer.addEventListener('finished',this.finished);
  }
  get clip() { return this.current.getClip().name; }
  get progress() { return this.current.time/this.current.getClip().duration; }
  get oneShot() { return isGesture(this.clip); }
  private finished=({action}:{action:AnimationAction})=>{if(action===this.current&&this.oneShot)this.play(this.base());};
- private base() { return this.activity==='working'?'working':'idle'; }
+ private base() { return !this.reduced&&this.activity==='working'?'working':'idle'; }
+ setReducedMotion(value:boolean) {
+  if(value===this.reduced)return;
+  this.reduced=value;this.rest();
+ }
  private play(name:string,fade=true) {
   if(!this.actions.has(name))name='idle';
   const next=this.actions.get(name)!;
@@ -43,14 +50,20 @@ export class CharacterAnimation {
  setActivity(activity:Activity,animate=true) {
   if(activity===this.activity)return;
   this.activity=activity;
-  if(activity==='waiting'&&animate)this.play('attention');
+  if(activity==='waiting'&&animate&&!this.reduced)this.play('attention');
   // Let feedback finish even when a tool's turn completes immediately after it.
   // Its completion callback returns to the latest authoritative base activity.
   else if(activity==='dreaming'||!animate||!this.oneShot)this.play(this.base());
  }
- gesture(name:Gesture) { this.play(name); }
- rest() { this.play(this.base(),false); }
+ gesture(name:Gesture) { if(!this.reduced)this.play(name); }
+ rest() { this.play(this.base(),false);if(this.reduced)this.update(0); }
  update(seconds:number) {
+  if(this.reduced){
+   // Blend a slow idle into its first authored frame, not the rig's bind pose.
+   // Slowing large working/celebration gestures alone would not reduce amplitude.
+   this.quietRest.reset().setEffectiveWeight(.82).play();this.quietRest.paused=true;
+   this.current.setEffectiveWeight(.18);this.mixer.update(seconds*.5);return;
+  }
   if(this.blend){
    this.fadeElapsed+=seconds;
    const t=Math.min(1,this.fadeElapsed/.4),weight=t*t*t*(t*(t*6-15)+10);

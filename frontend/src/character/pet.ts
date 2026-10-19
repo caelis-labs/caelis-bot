@@ -37,14 +37,14 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  function cancelFlight(){const id=flightID;flightID=undefined;flying=undefined;if(id)void desktop('FinishPlane',id,false);}
  function attachPlane(){
   if(!plane||!hand||!root)return;
-  plane.visible=animate()&&activity==='idle'&&!player?.oneShot&&!nearAction
+  plane.visible=expressive()&&activity==='idle'&&!player?.oneShot&&!nearAction
    &&!interactionBusy(context)&&!context?.pointer.hovering&&!flightID&&director.holdsPlane;
   planeAnchor?.place(plane);
  }
  function launchPlane(){
   // The held prop has already been hidden on this release frame; its updated
   // hand anchor still supplies the detached surface's launch point.
-  if(!plane||!hand||flightID||!animate())return;
+  if(!plane||!hand||flightID||!expressive())return;
   plane.getWorldPosition(release);release.project(camera);
   const id=crypto.randomUUID();flightID=id;plane.visible=false;
   void desktop<boolean>('LaunchPlane',id,(release.x+1)*width/2,(release.y+1)*height/2).then(accepted=>{
@@ -57,12 +57,13 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
   if(interactionBusy(context)||context.pointer.hovering)cancelFlight();
  };
  const touch=()=>{director.touched();face?.acknowledge();};
- const facePreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['blink','happy','curious','relaxed','soft_smile','joy','focused','expectant'].includes(name)&&animate())face?.preview(name as FacePreview);};
- const preview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(idleBehaviors.includes(name as IdleBehavior)&&activity==='idle'&&animate())director.preview(name as IdleBehavior);};
- const nearPreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['wave','think','ask'].includes(name)&&animate())performanceDirector.preview(name as NearGesture);};
+ const facePreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['blink','happy','curious','relaxed','soft_smile','joy','focused','expectant'].includes(name)&&expressive())face?.preview(name as FacePreview);};
+ const preview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(idleBehaviors.includes(name as IdleBehavior)&&activity==='idle'&&expressive())director.preview(name as IdleBehavior);};
+ const nearPreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['wave','think','ask'].includes(name)&&expressive())performanceDirector.preview(name as NearGesture);};
  let pendingMask:string|null=null,maskBusy=false,lastSent='';
  const canDraw=()=>!disposed&&visible&&loaded&&!contextLost&&!document.hidden;
- const animate=()=>canDraw()&&!reduced.matches&&!!player;
+ const animate=()=>canDraw()&&!!player;
+ const expressive=()=>animate()&&!reduced.matches;
  function releaseModel(model:Object3D) {
   const materials=new Set<Material>(),textures=new Set<Texture>();
   model.traverse(o=>{if(o instanceof Mesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);if('skeleton' in o)(o.skeleton as {dispose():void}).dispose();}});
@@ -98,6 +99,11 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  function tick(now:number) {
   frame=0;if(!animate())return;
   const dt=Math.min((now-lastFrame)/1000,.1);lastFrame=now;
+  if(reduced.matches){
+   player!.update(dt);
+   face?.update(dt,{activity,clip:player!.clip,progress:player!.progress,director,context});
+   draw(now);schedule();return;
+  }
   const launch=director.update(dt,activity,context,player!.oneShot);
   const point=flying?flightPoint(flying,Math.min(1,(now-flying.started)/7500)):undefined;
   const follow=point&&flying?{x:point.x+flying.originX,y:point.y+flying.originY}:undefined;
@@ -113,13 +119,14 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  function schedule() {
   // Throttle frame requests themselves: a permanent rAF still wakes WebKit's
   // compositor at the display refresh rate even when most callbacks skip drawing.
-  timer=window.setTimeout(()=>{timer=0;if(animate())frame=requestAnimationFrame(tick);},1000/30-6);
+  timer=window.setTimeout(()=>{timer=0;if(animate())frame=requestAnimationFrame(tick);},1000/(reduced.matches?20:30)-6);
  }
  function stopFrames() {
   clearTimeout(timer);cancelAnimationFrame(frame);timer=0;frame=0;
  }
  function resume() {
   stopFrames();lastFrame=performance.now();
+  player?.setReducedMotion(reduced.matches);
   if(!canDraw()||reduced.matches){cancelFlight();running?.rest();pose?.rest();player?.rest();pose?.capture();pose?.settle();face?.rest();performanceDirector.reset();nearAction=false;director.reset();}
   if(!canDraw())return;
   attachPlane();
@@ -133,9 +140,9 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  const visibility=(e:Event)=>{visible=(e as CustomEvent<boolean>).detail;resume();};
  const activityChanged=(e:Event)=>{
   const value=(e as CustomEvent<string>).detail;if(!['idle','working','waiting','dreaming'].includes(value))return;
-  activityEvents++;activity=value as Activity;running?.restore();pose?.restore();player?.setActivity(activity,animate());pose?.capture();if(activity!=='idle')cancelFlight();resume();
+  activityEvents++;activity=value as Activity;running?.restore();pose?.restore();player?.setActivity(activity,expressive());pose?.capture();if(activity!=='idle')cancelFlight();resume();
  };
- const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!animate()||activity==='dreaming')return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
+ const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!expressive()||activity==='dreaming')return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
  const lost=(e:Event)=>{e.preventDefault();contextLost=true;stopFrames();cancelFlight();};
  const restored=()=>{contextLost=false;lastSent='';resize();};
  window.addEventListener('pet-near-preview',nearPreview);window.addEventListener('pet-face-preview',facePreview);window.addEventListener('pet-context',desktopChanged);window.addEventListener('pet-touch',touch);window.addEventListener('pet-preview',preview);window.addEventListener('pet-prop-result',propResult);window.addEventListener('pet-prop-flight',propFlight);

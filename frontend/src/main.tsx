@@ -7,6 +7,7 @@ import { desktop } from './desktop';
 import { SurfaceBoundary } from './SurfaceBoundary';
 import { WindowsTaskDock } from './WindowsTaskDock';
 import { WindowsCapture } from './WindowsCapture';
+import { observeStatusMotion } from './status-motion';
 
 // Each native surface loads only its own UI. In particular, an explicit screen
 // capture must not parse chat, markdown, settings and provider configuration.
@@ -59,6 +60,8 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
+const stopStatusMotion=observeStatusMotion(document.body);
+if(import.meta.hot)import.meta.hot.dispose(stopStatusMotion);
 // Presentation only: native capabilities and authorization stay with the host.
 document.documentElement.dataset.platform = navigator.platform.toLowerCase().startsWith('win') ? 'windows' : 'other';
 createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary><Suspense fallback={null}>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'capture' ? <WindowsCapture /> : surface === 'windows-tasks' ? <WindowsTaskDock /> : surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</Suspense></SurfaceBoundary></I18nProvider>);

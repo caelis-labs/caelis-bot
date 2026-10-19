@@ -17,6 +17,6 @@ node --test \
   script/runtime-settings.test.mjs script/connections-loader.test.mjs script/codex-runtime-panel.test.mjs script/desktop-world.test.mjs \
   script/content-pack.test.mjs script/asset-pack.test.mjs \
   script/question-presentation.test.mjs script/chat-presentation.test.mjs script/chat-observation.test.mjs script/chat-time.test.mjs \
-  script/streaming-text.test.mjs script/markdown-chunks.test.mjs
+  script/reduced-motion.test.mjs script/streaming-text.test.mjs script/markdown-chunks.test.mjs
 go test -tags private_mac_apis ./...
 git diff --check

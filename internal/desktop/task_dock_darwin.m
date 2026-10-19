@@ -36,7 +36,7 @@
 @property NSArray<CALayer *> *dots;
 @property BOOL loading;
 @property BOOL locked;
-@property BOOL animateLoading;
+@property BOOL reducedMotion;
 - (void)updateProgress;
 @end
 
@@ -94,18 +94,21 @@
         dot.shadowColor=NSColor.blackColor.CGColor;dot.shadowRadius=1;dot.shadowOpacity=entry?0.55:0;dot.shadowOffset=CGSizeMake(0,-0.5);
         dot.borderColor=[NSColor.blackColor colorWithAlphaComponent:0.25].CGColor;dot.borderWidth=entry?0.5:0;
         dot.opacity=self.loading?0.7:0.45;
-        if(self.loading && self.animateLoading && !self.progress.hidden) {
-            if(![dot animationForKey:@"pulse"]) {
+        NSString *key=self.reducedMotion?@"quiet-pulse":@"pulse";
+        [dot removeAnimationForKey:self.reducedMotion?@"pulse":@"quiet-pulse"];
+        if(self.loading && !self.progress.hidden) {
+            if(![dot animationForKey:key]) {
                 CAKeyframeAnimation *movement=[CAKeyframeAnimation animationWithKeyPath:@"transform.translation.y"];
                 movement.duration=1.25;movement.values=@[@0,@3,@0,@0];movement.keyTimes=@[@0,@0.25,@0.5,@1];
                 CAKeyframeAnimation *opacity=[CAKeyframeAnimation animationWithKeyPath:@"opacity"];
                 opacity.duration=1.25;opacity.values=@[@0.35,@1,@0.35,@0.35];opacity.keyTimes=movement.keyTimes;
-                CAAnimationGroup *pulse=[CAAnimationGroup animation];pulse.animations=@[movement,opacity];
-                pulse.duration=1.25;pulse.repeatCount=HUGE_VALF;pulse.beginTime=CACurrentMediaTime()+i*0.14;
+                CAAnimationGroup *pulse=[CAAnimationGroup animation];pulse.animations=self.reducedMotion?@[opacity]:@[movement,opacity];
+                if(self.reducedMotion){opacity.duration=2.4;opacity.values=@[@0.6,@1,@0.6];opacity.keyTimes=@[@0,@0.5,@1];}
+                pulse.duration=self.reducedMotion?2.4:1.25;pulse.repeatCount=HUGE_VALF;pulse.beginTime=CACurrentMediaTime()+i*0.14;
                 pulse.timingFunction=[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-                [dot addAnimation:pulse forKey:@"pulse"];
+                [dot addAnimation:pulse forKey:key];
             }
-        } else [dot removeAnimationForKey:@"pulse"];
+        } else [dot removeAnimationForKey:key];
     }
     [CATransaction commit];self.needsDisplay=YES;
 }
@@ -422,7 +425,7 @@ static NSPanel *taskPanel(NSString *title) {
 - (void)updateActivity {
     BOOL anyActive=NO;
     for(NSDictionary *task in (self.pendingTasks ?: self.tasks)) if([self activeStatus:task[@"status"]])anyActive=YES;
-    BOOL animate=!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    BOOL reduced=NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     for(BotTaskButton *button in self.buttons) {
         NSString *status=button.tag>=0 && (NSUInteger)button.tag<self.tasks.count ? self.tasks[button.tag][@"status"] : @"";
         button.enabled=![status isEqual:@"unavailable"];
@@ -449,7 +452,7 @@ static NSPanel *taskPanel(NSString *title) {
             }
         }
         button.loading=(self.visible || self.shortcutPeek) && (opening || (button.tag<0 ? anyActive : [self activeStatus:status]));
-        button.animateLoading=animate; [button updateProgress];
+        button.reducedMotion=reduced; [button updateProgress];
     }
     [self updateStackCaption];
 }
@@ -457,7 +460,7 @@ static NSPanel *taskPanel(NSString *title) {
     if(!self.stackCaption)return;
     for(BotTaskButton *button in self.buttons)if(button.prominent) {
         self.stackCaption.detail=button.detail;self.stackCaption.statusText=button.statusText;
-        self.stackCaption.loading=button.loading;self.stackCaption.animateLoading=button.animateLoading;
+        self.stackCaption.loading=button.loading;self.stackCaption.reducedMotion=button.reducedMotion;
         [self.stackCaption updateProgress];break;
     }
 }

@@ -397,7 +397,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .runtime-install-progress { height:6px; border-radius:6px; overflow:hidden; margin:24px 0 18px; background:var(--wash); }
 .runtime-install-progress span { display:block; height:100%; width:36%; border-radius:inherit; background:var(--accent); animation:runtime-install-travel 1.6s ease-in-out infinite alternate; }
 @keyframes runtime-install-travel { from { transform:translateX(0); } to { transform:translateX(178%); } }
-@media(prefers-reduced-motion:reduce) { .runtime-install-progress span { animation:none; width:100%; opacity:.65; } }
+@media(prefers-reduced-motion:reduce) { .runtime-install-progress span { animation:quiet-progress 2.4s ease-in-out infinite; width:36%; transform:none; } }
 @media(max-width:760px) { .settings-window .codex-runtime-status { flex-wrap:wrap; } .codex-runtime-actions { margin-left:66px; } }
 .settings-window .connections-page .setting-list > button.connection-navigation-row { border-radius:0; }
 .settings-subpage-slot:empty { display:none; }
@@ -810,7 +810,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .setup-button[aria-busy=true] .setup-button-label { opacity:0; }
 .setup-button .setup-spinner { position:absolute; inset:0; margin:auto; width:18px; height:18px; border-width:2px; border-color:currentColor; border-right-color:transparent; }
 @keyframes setup-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { .setup-spinner { animation:none; } }
+@media(prefers-reduced-motion:reduce) { .setup-spinner { animation:quiet-progress 2.4s ease-in-out infinite; } }
 @media(max-width:540px) { .settings-window .setup-flow .onboarding-model-choice { grid-template-columns:1fr; gap:10px; } }
 .settings-window .setup-flow .onboarding-connection .provider-saved-credentials { color:var(--muted); font-size:12px; margin:0 0 16px; }
 

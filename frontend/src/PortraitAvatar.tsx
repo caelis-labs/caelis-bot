@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import pack from '../../resources/character-pack.json';
 import { PortraitCache, portraitClock, portraitFrame, type PortraitSheet } from './portrait-player';
 import type { PortraitClip } from './avatar-presentation';
+import { quietAvatarScale } from './avatar-motion';
 
 type Portrait=PortraitSheet&{poster:string;clips:Record<string,string>};
 // Official build-time contract only. Community packs keep their PNG contract.
@@ -28,12 +29,18 @@ export function PortraitAvatar({portrait,clip,animate}:{portrait:Portrait;clip:P
   const showPoster=()=>{context.clearRect(0,0,element.width,element.height);delete element.dataset.ready;};
   const sync=()=>{
    const current=++epoch;clock?.dispose();clock=undefined;
-   if(disposed||!inView||document.hidden||reduced.matches){showPoster();return;}
-   void cache.get(url(atlas)).then(image=>{
+   if(disposed||!inView||document.hidden){showPoster();return;}
+   const quiet=reduced.matches;
+   void cache.get(url(quiet?portrait.poster:atlas)).then(image=>{
     if(disposed||current!==epoch)return;
-    if(image.naturalWidth!==portrait.columns*portrait.frameSize||image.naturalHeight!==Math.ceil(portrait.frameCount/portrait.columns)*portrait.frameSize){showPoster();return;}
+    if(image.naturalWidth!==(quiet?portrait.frameSize:portrait.columns*portrait.frameSize)||image.naturalHeight!==(quiet?portrait.frameSize:Math.ceil(portrait.frameCount/portrait.columns)*portrait.frameSize)){showPoster();return;}
     let lastFrame=-1;
     clock=portraitClock(elapsed=>{
+     if(quiet){
+      const size=element.width*quietAvatarScale(elapsed),inset=(element.width-size)/2;
+      context.clearRect(0,0,element.width,element.height);
+      context.drawImage(image,inset,inset,size,size);element.dataset.ready='true';return;
+     }
      const {frame,x,y}=portraitFrame(portrait,elapsed);
      if(frame===lastFrame&&elapsed>.22)return;
      lastFrame=frame;context.clearRect(0,0,element.width,element.height);
@@ -42,7 +49,7 @@ export function PortraitAvatar({portrait,clip,animate}:{portrait:Portrait;clip:P
      context.globalAlpha=opacity;
      context.drawImage(image,x,y,portrait.frameSize,portrait.frameSize,0,0,element.width,element.height);
      context.globalAlpha=1;element.dataset.frame=String(frame);element.dataset.ready='true';
-    },{request:callback=>requestAnimationFrame(callback),cancel:id=>cancelAnimationFrame(id)});
+    },{request:callback=>requestAnimationFrame(callback),cancel:id=>cancelAnimationFrame(id)},quiet?20:30);
     clock.setRunning(true);
    }).catch(()=>{if(!disposed&&current===epoch)showPoster();});
   };
