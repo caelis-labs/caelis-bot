@@ -146,7 +146,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 				}
 				args, _ := json.Marshal(call.Arguments)
 				result := api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "The original application tool version is unavailable; no effect was performed."}}}
-				if host != nil {
+				if call.Name == "bot_care" || call.Name == "bot_care_read" {
+					result.Content = []map[string]string{{"type": "text", "text": "This tool is retired; use schedule. No effect was performed."}}
+				} else if host != nil {
 					invocation := api.ToolInvocation{Provider: "caelis", CallID: call.Id, Session: call.SessionId, Turn: call.TurnId, TurnKey: call.TurnId}
 					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
 					result = host.CallTool(callCtx, call.Name, args)

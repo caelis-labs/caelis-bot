@@ -67,7 +67,7 @@ func (r *Runtime) legacyDefinitions(retiredMemory bool) []api.ToolDefinition {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
-			return (!caps.WorkerExecution && strings.HasPrefix(d.Name, "bot_task")) || (!caps.ScheduledActivation && (d.Name == "bot_reminders" || d.Name == "bot_reminders_list" || d.Name == "bot_care" || d.Name == "bot_care_read"))
+			return (!caps.WorkerExecution && strings.HasPrefix(d.Name, "bot_task")) || (!caps.ScheduledActivation && (d.Name == "bot_reminders" || d.Name == "bot_reminders_list"))
 		})
 	}
 	return out
@@ -75,6 +75,9 @@ func (r *Runtime) legacyDefinitions(retiredMemory bool) []api.ToolDefinition {
 
 // CallTool is shared by the private MCP bridge and future native callbacks.
 func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	if name == "bot_care" || name == "bot_care_read" {
+		return compactError("retired", errors.New("This tool is retired; use schedule. No effect was performed."))
+	}
 	if err := ctx.Err(); err != nil {
 		return result(nil, err)
 	}
@@ -106,18 +109,6 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 			return result(nil, errors.New("reminder listing takes an empty object"))
 		}
 		return result(r.State(), nil)
-	}
-	if name == "bot_care_read" {
-		var input struct {
-			Operation string `json:"operation"`
-		}
-		if json.Unmarshal(args, &input) != nil || (input.Operation != "list" && input.Operation != "test") {
-			return result(nil, errors.New("only list and test are read-only care operations"))
-		}
-		return r.callCare(ctx, args)
-	}
-	if name == "bot_care" {
-		return r.callCare(ctx, args)
 	}
 	switch name {
 	case "bot_clock":
@@ -257,8 +248,6 @@ func toolSpecs() []any {
 		return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 	}
 	return []any{
-		careSpec(),
-		careReadSpec(),
 		map[string]any{"name": "bot_reminders_list", "description": "Read current Bot reminders and delivery state without changing schedules.", "inputSchema": schema(map[string]any{})},
 		taskCatalogSpec(),
 		map[string]any{"name": "bot_task_machines", "description": "List connected remote machines and their real work readiness. Use only to resolve a machine explicitly requested by the user. Never select a remote machine automatically; no remote entry means use local work.", "inputSchema": schema(map[string]any{})},
@@ -328,7 +317,7 @@ func RunStdio(in io.Reader, out io.Writer) error {
 					if json.Unmarshal([]byte(raw), &defs) != nil {
 						return errors.New("invalid native Bot catalog")
 					}
-					specs = defs
+					specs = slices.DeleteFunc(defs, func(d api.ToolDefinition) bool { return d.Name == "bot_care" || d.Name == "bot_care_read" })
 				} else if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "2" {
 					defs := toolDefinitions()
 					specs = defs

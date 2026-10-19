@@ -16,13 +16,13 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
-	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
@@ -33,8 +33,7 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
-	CareSample  func() care.Sample
-	CareSources []care.Source
+	ScheduleSample func() scheduledata.Sample
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale              func() i18n.Locale
 	Diagnostics         *diagnosticlog.Logger
@@ -83,7 +82,7 @@ type Application struct {
 	cancel              context.CancelFunc
 	startupCancel       context.CancelFunc
 	dreamReady          bool
-	careReady           bool
+	nativeSourcesReady  bool
 	workers             sync.WaitGroup
 	companion           *bot.Runtime
 	bridge              *bot.Bridge
@@ -421,11 +420,11 @@ func (a *Application) preparePersonalLocked() error {
 			a.host.ReportError(err)
 		}
 	}
-	if !a.careReady {
-		if err := resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
+	if !a.nativeSourcesReady {
+		if err := resident.ConfigureNativeSources(a.host.ScheduleSample); err != nil {
 			report(err)
 		} else {
-			a.careReady = true
+			a.nativeSourcesReady = true
 		}
 	}
 	if a.personal == nil {

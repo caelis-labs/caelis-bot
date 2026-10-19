@@ -64,8 +64,8 @@ Read only the guide that matches the current work:
 - [Received media](references/received-media.md): interpret an image, sticker,
   or sampled frame supplied in chat.
 - [Reminders](references/reminders.md): arrange future work or handle a reminder.
-- [Proactive care](references/proactive-care.md): condition-based care, event
-  data, and care activations.
+- [Native observations](references/native-events.md): native event arrangements, event
+  data, and scheduled activations.
 - [Expression](references/expression.md): accompany a response with a gesture.
 - [Telegram setup](references/telegram-setup.md): connect or troubleshoot
   Telegram; ordinary chat needs no channel guide.

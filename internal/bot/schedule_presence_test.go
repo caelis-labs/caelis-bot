@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 func waitOccurrence(t *testing.T, r *Runtime) {
@@ -30,11 +30,11 @@ func waitOccurrence(t *testing.T, r *Runtime) {
 
 func TestExplicitSchedulePresenceMatrix(t *testing.T) {
 	yes, no := true, false
-	cases := map[string]care.Sample{
-		"unlocked":    {Presence: care.Presence{Awake: true, Unlocked: &yes}},
-		"locked":      {Presence: care.Presence{Awake: true, Unlocked: &no}},
+	cases := map[string]scheduledata.Sample{
+		"unlocked":    {Presence: scheduledata.Presence{Awake: true, Unlocked: &yes}},
+		"locked":      {Presence: scheduledata.Presence{Awake: true, Unlocked: &no}},
 		"unknown":     {},
-		"display_off": {Presence: care.Presence{Unlocked: &yes}},
+		"display_off": {Presence: scheduledata.Presence{Unlocked: &yes}},
 	}
 	for name, sample := range cases {
 		for _, kind := range []string{"after", "at", "interval", "tool", "script", "completion", "calendar", "native_event"} {
@@ -43,7 +43,7 @@ func TestExplicitSchedulePresenceMatrix(t *testing.T) {
 					t.Skip("Windows script collectors intentionally unavailable")
 				}
 				r, f, now := fixture(t)
-				if err := r.ConfigureCare(func() care.Sample { return sample }); err != nil {
+				if err := r.ConfigureNativeSources(func() scheduledata.Sample { return sample }); err != nil {
 					t.Fatal(err)
 				}
 				r.ConfigureEvents(&eventFixtureTools{}, t.TempDir())
@@ -109,7 +109,7 @@ func TestExplicitSchedulesDoNotSamplePresence(t *testing.T) {
 		t.Run(fmt.Sprint(configured), func(t *testing.T) {
 			r, f, now := fixture(t)
 			if configured {
-				if err := r.ConfigureCare(func() care.Sample { t.Fatal("explicit wake sampled desktop"); return care.Sample{} }); err != nil {
+				if err := r.ConfigureNativeSources(func() scheduledata.Sample { t.Fatal("explicit wake sampled desktop"); return scheduledata.Sample{} }); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -117,7 +117,7 @@ func TestExplicitSchedulesDoNotSamplePresence(t *testing.T) {
 			*now = now.Add(time.Second)
 			waitOccurrence(t, r)
 			if len(f.submissions) != 1 {
-				t.Fatal("explicit schedule required native care")
+				t.Fatal("explicit schedule required native observations")
 			}
 		})
 	}
@@ -145,29 +145,6 @@ func TestExplicitEventConditionCanRequireUnlocked(t *testing.T) {
 				t.Fatal("explicit CEL was bypassed")
 			}
 		})
-	}
-}
-
-func TestNativeEventCarePurposeStillWaitsForPresence(t *testing.T) {
-	r, f, _ := fixture(t)
-	yes := true
-	sample := care.Sample{}
-	if err := r.ConfigureCare(func() care.Sample { return sample }); err != nil {
-		t.Fatal(err)
-	}
-	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"save","id":"care","label":"Care","prompt":"Offer a break","trigger":{"type":"event","purpose":"care","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`)
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.submissions) != 0 {
-		t.Fatal("care ignored unknown presence")
-	}
-	sample.Presence = care.Presence{Awake: true, Unlocked: &yes}
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.submissions) != 1 {
-		t.Fatal("care did not resume")
 	}
 }
 

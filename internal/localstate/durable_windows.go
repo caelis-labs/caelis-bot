@@ -34,6 +34,6 @@ func renameStateFile(from, to string) error {
 	}
 }
 
-// SyncParent is part of the common care contract. Windows performs its
+// SyncParent is part of the common durable storage contract. Windows performs its
 // write-through at the rename itself; directory File.Sync is unsupported.
 func SyncParent(string) error { return nil }

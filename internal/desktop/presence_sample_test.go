@@ -11,9 +11,9 @@ import (
 
 func splitJSONLines(raw []byte) [][]byte { return bytes.Split(bytes.TrimSpace(raw), []byte("\n")) }
 
-func TestCareDecodeFailureIsUnknownAndDiagnosticsAreBounded(t *testing.T) {
+func TestPresenceDecodeFailureIsUnknownAndDiagnosticsAreBounded(t *testing.T) {
 	var records []diagnosticlog.Record
-	d := careSampleDecoder{write: func(r diagnosticlog.Record) { records = append(records, r) }}
+	d := presenceSampleDecoder{write: func(r diagnosticlog.Record) { records = append(records, r) }}
 	for range 100 {
 		s := d.decode([]byte(`{"Awake":true,"Unlocked":1,"Application":"private.application"}`))
 		if s.Unlocked != nil || s.Available() {
@@ -28,12 +28,12 @@ func TestCareDecodeFailureIsUnknownAndDiagnosticsAreBounded(t *testing.T) {
 	if strings.Contains(string(raw), "private.application") {
 		t.Fatal("private native data logged")
 	}
-	s := d.decode([]byte(`{"Awake":true,"Unlocked":null,"Epoch":3}`))
-	if s.Unlocked != nil || s.Epoch != 3 || len(records) != 1 {
+	s := d.decode([]byte(`{"Awake":true,"Unlocked":null}`))
+	if s.Unlocked != nil || len(records) != 1 {
 		t.Fatal("genuine unknown was lost or logged as failure")
 	}
-	s = d.decode([]byte(`{"Awake":true,"Unlocked":true,"Epoch":4}`))
-	if !s.Available() || s.Epoch != 4 {
+	s = d.decode([]byte(`{"Awake":true,"Unlocked":true}`))
+	if !s.Available() {
 		t.Fatal("decoder did not recover")
 	}
 }

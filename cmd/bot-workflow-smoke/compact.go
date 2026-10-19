@@ -17,7 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
-	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -63,7 +63,9 @@ func runCompact() error {
 	// Presence is synthetic to keep condition tests deterministic. No test event
 	// is published and all saved event predicates are false.
 	yes := true
-	if e = resident.ConfigureCare(func() care.Sample { return care.Sample{Presence: care.Presence{Awake: true, Unlocked: &yes}} }); e != nil {
+	if e = resident.ConfigureNativeSources(func() scheduledata.Sample {
+		return scheduledata.Sample{Presence: scheduledata.Presence{Awake: true, Unlocked: &yes}}
+	}); e != nil {
 		return e
 	}
 	bridge, e := bot.Serve(resident)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
@@ -34,6 +35,9 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	return out
 }
 func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage) api.ToolResult {
+	if name == "bot_care" || name == "bot_care_read" {
+		return compactError("retired", errors.New("This tool is retired; use schedule. No effect was performed."))
+	}
 	r.toolAdmission.Lock()
 	defer r.toolAdmission.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -151,15 +155,6 @@ func compact(out api.ToolResult, next map[string]any) api.ToolResult {
 }
 func encoded(v any) json.RawMessage           { b, _ := json.Marshal(v); return b }
 func str(m map[string]any, key string) string { s, _ := m[key].(string); return s }
-func eventArgs(trigger map[string]any) map[string]any {
-	q := map[string]any{"onAny": trigger["sources"], "when": trigger["condition"], "timeZone": trigger["timeZone"]}
-	for _, key := range []string{"cooldownSeconds", "expiresSeconds"} {
-		if v, ok := trigger[key]; ok {
-			q[key] = v
-		}
-	}
-	return q
-}
 func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[string]any) api.ToolResult {
 	if out, handled := r.eventSchedule(ctx, name, q); handled {
 		return out
@@ -172,29 +167,24 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		case "list":
 			return r.schedulePage(q)
 		case "sources":
-			if r.careLoadErr != nil {
-				out := compactError("care_unavailable", errors.New("native care state unavailable; preserve existing data"))
-				out.StructuredContent["data"] = map[string]any{"eventTools": r.eventBindings(), "nativeCareAvailable": false}
-				return compactValue(out.StructuredContent, true)
+			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "clock": r.Clock(), "nativeAvailable": r.nativeErr == nil, "desktopObservationsAvailable": r.nativeSample != nil}
+			if r.events != nil {
+				data["policy"] = r.events.Snapshot().Policy
 			}
-			if r.care == nil {
-				return compactValue(map[string]any{"ok": true, "data": map[string]any{"sources": []any{}, "eventTools": r.eventBindings(), "nativeCareAvailable": false, "clock": r.Clock()}}, false)
-			}
-			return compactValue(map[string]any{"ok": true, "data": map[string]any{"sources": r.care.Sources(), "eventTools": r.eventBindings(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now()), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "clock": r.Clock()}}, false)
+			return compactValue(map[string]any{"ok": true, "data": data}, false)
 		case "test":
-			args := eventArgs(q["trigger"].(map[string]any))
-			args["operation"] = "test"
-			args["id"] = "condition-check"
-			args["label"] = "Condition check"
-			args["prompt"] = "Pure condition check"
-			args["event"] = q["event"]
-			return compact(r.callLegacyTool(ctx, "bot_care_read", encoded(args)), nil)
+			trigger := q["trigger"].(map[string]any)
+			matched, err := scheduledata.Test(ctx, str(trigger, "condition"), str(trigger, "timeZone"), q["event"].(map[string]any), r.now())
+			if err != nil {
+				return compactError("invalid_condition", err)
+			}
+			return compactValue(map[string]any{"ok": true, "data": map[string]bool{"matches": matched}}, false)
 		}
 	}
 	var out api.ToolResult
 	switch kind {
 	case "configure":
-		out = r.callLegacyTool(ctx, "bot_care", encoded(map[string]any{"operation": "configure", "policy": q["policy"]}))
+		return r.configureSchedulePolicy(ctx, q)
 	case "remove":
 		domain, id, ok := strings.Cut(str(q, "automation"), ":")
 		if !ok || id == "" {
@@ -202,7 +192,15 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		}
 		legacy := "bot_reminders"
 		if domain == "event" {
-			legacy = "bot_care"
+			if err := r.eventError(); err != nil {
+				return compactError("events_unavailable", err)
+			}
+			p, ok := r.events.NativePlan(id)
+			if !ok {
+				return compactError("unavailable", errors.New("native arrangement unavailable"))
+			}
+			out, _ := r.eventSchedule(ctx, name, map[string]any{"type": "remove", "automation": "schedule:" + p.ID})
+			return out
 		} else if domain != "calendar" {
 			return compactError("invalid_arguments", errors.New("unknown automation kind"))
 		}
@@ -211,14 +209,7 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		trigger := q["trigger"].(map[string]any)
 		args := map[string]any{"operation": "save", "id": q["id"], "label": q["label"], "prompt": q["prompt"]}
 		if str(trigger, "type") == "event" {
-			args["purpose"] = str(trigger, "purpose")
-			if args["purpose"] == "" {
-				args["purpose"] = "task"
-			}
-			for k, v := range eventArgs(trigger) {
-				args[k] = v
-			}
-			out = r.callLegacyTool(ctx, "bot_care", encoded(args))
+			return r.saveNativeSchedule(ctx, q)
 		} else {
 			schedule := trigger["schedule"].(map[string]any)
 			for k, v := range schedule {
@@ -253,17 +244,9 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		}
 		items = append(items, map[string]any{"automation": "calendar:" + s.ID, "kind": "calendar", "id": s.ID, "label": s.Label, "next": s.Next, "enabled": s.Enabled, "schedule": s})
 	}
-	if kind != "calendar" && r.care != nil && r.careLoadErr == nil {
-		for _, rule := range r.careStateForRead().Rules {
-			if query != "" && !strings.Contains(strings.ToLower(rule.ID+" "+rule.Label), query) {
-				continue
-			}
-			items = append(items, map[string]any{"automation": "event:" + rule.ID, "kind": "event", "id": rule.ID, "label": rule.Label, "rule": rule})
-		}
-	}
-	if kind == "" && r.events != nil {
+	if kind != "calendar" && r.events != nil {
 		for _, p := range r.events.Snapshot().Plans {
-			if !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event), query) {
+			if (kind == "event" && p.Kind != "native") || !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event), query) {
 				continue
 			}
 			items = append(items, map[string]any{"automation": "schedule:" + p.ID, "kind": "registered", "id": p.ID, "event": "event:" + p.Event, "next": p.Next, "status": p.Status})
@@ -302,21 +285,11 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		}{fingerprint, end}))
 	}
 	if kind != "calendar" {
-		data["careAvailable"] = r.care != nil && r.careLoadErr == nil
-		if r.care != nil && r.careLoadErr == nil {
-			state := r.care.Snapshot()
-			data["policy"] = state.Policy
-			data["budget"] = r.care.Budget(r.now())
-			data["status"] = r.care.Status()
-			pending := []map[string]any{}
-			// Recent receipts supplement the paged arrangements without loading the
-			// complete activation history into every model query.
-			for _, a := range state.Activations[max(0, len(state.Activations)-20):] {
-				pending = append(pending, map[string]any{"ruleId": a.RuleID, "status": a.Status, "result": a.Result, "expires": a.Expires})
-			}
-			data["activations"] = pending
-			data["activationTotal"] = len(state.Activations)
+		data["nativeAvailable"] = r.nativeErr == nil
+		if r.events != nil {
+			data["policy"] = r.events.Snapshot().Policy
 		}
+
 	}
 	return compactValue(map[string]any{"ok": true, "data": data}, false)
 }
@@ -324,12 +297,12 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 // Keep the legacy view private to the original versioned invocation binding.
 type legacyTools struct{ runtime *Runtime }
 
-func (v legacyTools) Definitions() []api.ToolDefinition { return v.runtime.LegacyDefinitions() }
+func (v legacyTools) Definitions() []api.ToolDefinition { return archivedCatalog("legacy") }
 func (v legacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 	return v.runtime.callLegacyTool(ctx, name, args)
 }
 func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
-	approved := botpolicy.LegacyApprovedTools()
+	approved := botpolicy.RetiredCatalogApprovedTools()
 	return &api.ToolConnection{Host: legacyTools{r}, ApprovedTools: approved}
 }
 
@@ -339,7 +312,7 @@ func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
 type historicalLegacyTools struct{ runtime *Runtime }
 
 func (v historicalLegacyTools) Definitions() []api.ToolDefinition {
-	return v.runtime.legacyDefinitions(true)
+	return archivedCatalog("legacy-memory")
 }
 func (v historicalLegacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 	return v.runtime.callLegacyTool(ctx, name, args)

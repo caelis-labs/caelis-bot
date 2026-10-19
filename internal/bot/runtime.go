@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 type Schedule struct {
@@ -70,10 +70,9 @@ type Runtime struct {
 	eventDirectory string
 	dream          *dreamController // guarded by step
 	handoff        *handoffStore    // application-private context seed
-	care           *care.Engine
-	careLoadErr    error
-	careSample     func() care.Sample
-	careSources    care.SourcesTracker
+	nativeErr      error
+	nativeSample   func() scheduledata.Sample
+	nativeSources  scheduledata.SourcesTracker
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex
@@ -386,7 +385,7 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
 		return nil
 	}
-	// Reconcile an uncertain reminder before any new care activation can
+	// Reconcile an uncertain reminder before any new scheduled activation can
 	// replace the latest receipt. Keep the wake unresolved if persistence fails.
 	r.mu.Lock()
 	if w := r.state.Wake; w != nil && w.Runtime == r.provider && (w.Status == "unknown" || w.Status == "dispatching") {
@@ -404,9 +403,9 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 		return err
 	}
 	r.mu.Unlock()
-	// A failed care store must not disable independently persisted reminders.
-	careErr := errors.Join(r.tickCare(ctx), r.tickEvents(ctx))
-	defer func() { err = errors.Join(err, careErr) }()
+	// A failed event store must not disable independently persisted reminders.
+	scheduleErr := r.tickEvents(ctx)
+	defer func() { err = errors.Join(err, scheduleErr) }()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -569,13 +568,8 @@ func wakePrompt(messages []string) string {
 func (r *Runtime) Status() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.careLoadErr != nil {
-		return r.careLoadErr.Error()
-	}
-	if r.care != nil {
-		if status := r.care.Status(); status != "" {
-			return status
-		}
+	if r.nativeErr != nil {
+		return "Saved native arrangements need recovery; original data is preserved."
 	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
 		return r.initialization.Initialization().Message

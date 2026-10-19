@@ -1,6 +1,6 @@
 # Arrange future work
 
-For simple timed follow-through, reusable tool/script observations, or task completion conditions, start with [Event arrangements](events.md). The contracts below remain available for native calendar and desktop care rules.
+For simple timed follow-through, reusable tool/script observations, or task completion conditions, start with [Event arrangements](events.md). The contracts below remain available for native calendar and native event arrangements.
 
 Use `bot_schedule` with `request:{"type":"context"}` for fresh local time and
 timezone; use `request:{"type":"list","kind":"calendar"}` for saved reminders.
@@ -43,8 +43,8 @@ shown in conversation and the pet bubble without a duplicate system notification
 Do not create a shell notification or a second reminder to compensate; system
 delivery depends on the user's permissions and whether they are already chatting.
 
-For care that depends on computer use, foreground app changes, or another
-registered data source, read [Proactive care](proactive-care.md). Use its local
+For an arrangement that depends on computer use, foreground app changes, or another
+registered data source, read [Native observations](native-events.md). Use its local
 conditions to avoid waking a model just to check whether anything is relevant.
 
 

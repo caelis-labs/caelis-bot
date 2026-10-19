@@ -234,7 +234,7 @@ func (a *Application) stopResidentRuntime() {
 	}
 	a.mu.Lock()
 	a.companion, a.bridge, a.tasks, a.started = nil, nil, nil, false
-	a.careReady, a.dreamReady = false, false
+	a.nativeSourcesReady, a.dreamReady = false, false
 	a.mu.Unlock()
 	a.Backend.SetBotStatus(nil)
 	a.Backend.SetUserSubmitter(nil)

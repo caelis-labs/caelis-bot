@@ -17,7 +17,7 @@ func TestPresenceChangeRetainsExactRunningReleaseCatalog(t *testing.T) {
 		t.Fatalf("historical catalog changed: %s", got)
 	}
 	current, _ := json.Marshal(r.Definitions())
-	if string(current) == string(raw) || !strings.Contains(string(current), "purpose") {
-		t.Fatal("new purpose is not discoverable")
+	if string(current) == string(raw) || strings.Contains(string(current), `"purpose":{"`) {
+		t.Fatal("retired purpose returned")
 	}
 }

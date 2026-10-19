@@ -1,4 +1,4 @@
-package care
+package scheduledata
 
 import (
 	"testing"
@@ -55,3 +55,7 @@ func TestClockCoalescesAndUsesRuleTimezone(t *testing.T) {
 		t.Fatal("replayed missed minutes")
 	}
 }
+
+var instant = time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+
+func presence() Presence { yes := true; return Presence{Awake: true, Unlocked: &yes} }

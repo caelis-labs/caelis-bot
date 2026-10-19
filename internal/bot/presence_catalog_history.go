@@ -13,17 +13,7 @@ import (
 // addition. Historical validation never publishes the old schema to new turns.
 type priorPresenceTools struct{ runtime *Runtime }
 
-func (v priorPresenceTools) Definitions() []api.ToolDefinition {
-	out := v.runtime.Definitions()
-	for i := range out {
-		for _, old := range scheduleDefinitionsWithPurpose(false) {
-			if out[i].Name == old.Name {
-				out[i] = old
-			}
-		}
-	}
-	return out
-}
+func (v priorPresenceTools) Definitions() []api.ToolDefinition { return archivedCatalog("e65385fa") }
 func (v priorPresenceTools) CallTool(ctx context.Context, name string, raw json.RawMessage) api.ToolResult {
 	for _, d := range v.Definitions() {
 		if d.Name == name {

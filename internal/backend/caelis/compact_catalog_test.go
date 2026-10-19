@@ -27,7 +27,7 @@ func TestCompactCatalogRestoresOriginalLegacyBinding(t *testing.T) {
 		t.Fatal(e)
 	}
 	version := old.profile.ToolsVersion
-	if len(old.profile.Tools) != len(r.LegacyDefinitions()) {
+	if len(old.profile.Tools) != len(original.Host.Definitions()) {
 		t.Fatal("historical fixture changed")
 	}
 	previous := New(Options{Directory: filepath.Join(root, "previous-binding")})
@@ -39,6 +39,13 @@ func TestCompactCatalogRestoresOriginalLegacyBinding(t *testing.T) {
 	restored := New(Options{Directory: filepath.Join(root, "binding")})
 	if e = restored.ConfigureBotTools(&api.ToolConnection{Host: r, ApprovedTools: botpolicy.ApprovedTools()}); e != nil {
 		t.Fatal(e)
+	}
+	for _, catalog := range restored.catalogs {
+		for _, name := range []string{"bot_care", "bot_care_read"} {
+			if catalog[name] != nil {
+				t.Fatal("retired care handler registered")
+			}
+		}
 	}
 	if len(restored.profile.Tools) != len(r.Definitions()) || restored.profile.ToolsVersion == version {
 		t.Fatal("new model catalog not replaced")
