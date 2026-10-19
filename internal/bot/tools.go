@@ -232,7 +232,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	config.Services = []api.ToolService{
 		{Name: "caelis_context", Tools: []string{"bot_dream"}},
 		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
-		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
+		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
 		{Name: "caelis_personal", Tools: []string{"bot_gesture"}},
 	}
 	return config
@@ -405,7 +405,19 @@ func forwardFailure(req toolRequest, message string) toolResult {
 	out.StructuredContent["outcome"] = "unknown"
 	var next map[string]any
 	if req.Name == "bot_schedule_update" {
-		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "list"}}
+		kind := "list"
+		var args struct {
+			Request struct {
+				Type string `json:"type"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(req.Arguments, &args) == nil && (args.Request.Type == "after" || args.Request.Type == "at" || args.Request.Type == "interval" || args.Request.Type == "completion") {
+			kind = "arrangements"
+		}
+		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": kind}}
+	}
+	if req.Name == "bot_event" {
+		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "events"}}
 	}
 	if next != nil {
 		out.StructuredContent["next"] = next

@@ -1,5 +1,7 @@
 # Arrange future work
 
+For simple timed follow-through, reusable tool/script observations, or task completion conditions, start with [Event arrangements](events.md). The contracts below remain available for native calendar and desktop care rules.
+
 Use `bot_schedule` with `request:{"type":"context"}` for fresh local time and
 timezone; use `request:{"type":"list","kind":"calendar"}` for saved reminders.
 Use `bot_schedule_update` to save or remove an arrangement. Follow the actual schema:

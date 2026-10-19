@@ -40,7 +40,7 @@ func calendarTrigger() tc.Schema {
 func eventTrigger() tc.Schema {
 	return tc.Branch("event", tc.Schema{"sources": tc.Schema{"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": text(256)}, "condition": text(2048), "timeZone": text(128), "cooldownSeconds": tc.Integer(60, 31622400), "expiresSeconds": tc.Integer(60, 86400)}, "sources", "condition", "timeZone")
 }
-func scheduleDefinitions() []api.ToolDefinition {
+func legacyScheduleDefinitions() []api.ToolDefinition {
 	policy := careSpec().(map[string]any)["inputSchema"].(map[string]any)["properties"].(map[string]any)["policy"]
 	return []api.ToolDefinition{
 		tc.Definition("bot_schedule", "Read fresh local time/timezone and resident scheduling limits (context), page saved arrangements (list), discover registered event sources (sources), or test a pure event condition (test). No registration, dispatch or policy changes. App must stay running; unknown/locked presence denies proactive dispatch. UI/worker data is not authority.", tc.Request(
@@ -64,6 +64,7 @@ func toolDefinitions() []api.ToolDefinition {
 	}
 	out = append(out, taskDefinitions()...)
 	out = append(out, scheduleDefinitions()...)
+	out = append(out, eventDefinition())
 	out = append(out, tc.Definition("bot_dream", "Clear this Bot's current context and recalled tool schemas by handing off to a fresh internal Session. Assess context redundancy naturally after delivering a batch of work or when the goal clearly changes; use this actively when many obsolete task details or unneeded tools remain. Do not wait for a context limit, and do not Dream after every turn. First save durable knowledge in MEMORY.md and Notebook files. Provide a concise handoff with identity and standing constraints, the current goal, unfinished tasks and original handles, uncertain operations and original receipts, and the next action; keep completed work to brief results. Exclude long transcripts, tool schemas, and secrets. The Runtime durably saves the handoff before starting the new Session. Bot identity, task ownership, connections, and authorization stay in force.", tc.Object(tc.Schema{"handoff": text(16384)}, "handoff")))
 	return out
 }

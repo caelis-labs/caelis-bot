@@ -992,3 +992,81 @@ an OS alert or retry. Native adapters suppress notifications while the conversat
 window is focused and decisions while the pet is visible. Reminders and downloaded
 updates may attract attention with a visible pet. Windows queues delivery and
 dismissal on the UI thread in order, without waiting while holding `Service.mu`.
+
+## Registered event arrangements
+
+`internal/eventplan` adds a provider-scoped durable event/arrangement store next
+to the existing calendar and native-care stores. `bot_event` registers immutable
+collectors; `bot_schedule_update` adds flat `after`, `at`, `interval`, `completion`
+requests. `bot_schedule` discovers/reads definitions and occurrences and evaluates
+sample conditions without executing collectors. Plain timed attention needs only
+an ID, timing and saved context; no collector or repeated prompt is required.
+
+```mermaid
+flowchart LR
+  A[Register tested event] --> B[Arrange timing]
+  B --> C[Bounded native collection]
+  C --> D[Validate declared output]
+  D --> E[Pure CEL condition]
+  E -->|matched| F[Natural-language Bot wakeup]
+  F --> G[Bot continues original work]
+  E -->|not matched| H[Finish check without model]
+```
+
+The Bot supplies the output JSON Schema subset after debugging. The host never
+infers a permanent schema from an MCP response. Tool collectors use only selected
+Bot plugin services through the existing generation-fenced relay, pinned to the
+package installation and credential-connection revision. They consume an object
+from structuredContent or a single JSON text content block. Arbitrary Runtime
+native tools and external MCP configurations are not automatically executable by
+this relay. `task` events observe the original product task's status without
+acknowledging its completion notice; `completion` is bounded status observation,
+not a general webhook or arbitrary native tool callback.
+
+Script registration contains inline source and an absolute interpreter, whose
+resolved executable bytes are pinned. The reviewed registration authorizes exact
+native collector execution, not an inherited Runtime sandbox. It is intentionally
+absent from automatic-approval lists. The registration review must cover ongoing
+observation and must not bypass a previously denied tool/sandbox operation. The
+script receives no Bot bridge environment, reads source on stdin and writes one
+bounded JSON object. macOS owns cancellation of the entire process group;
+Windows script registration stays unavailable pending equivalent lifecycle gates.
+The plugin relay retains its existing credentials and generation checks; neither
+an annotation nor model prose makes an arbitrary tool safe for background use.
+
+Collection is asynchronous relative to the resident tick and never runs an idle
+model. One collector runs at a time, with a five-second global start gap, a
+15-second deadline and 16 KiB result limit. Each occurrence is durable before
+execution. Unconfirmed collector effects suspend their arrangement and retain
+original identity; transport failure does not trigger automatic re-execution.
+Schema errors are distinct from false conditions. Exhausted collection failures or an
+unconfirmed execution queue one separately identified, budgeted maintenance wake
+so the Bot can inspect the original occurrence without replaying it. Wake submission is also durable
+before dispatch and reconciles the original native receipt, never a new ID.
+
+Natural-language wakes describe the saved purpose and match, identify event,
+arrangement and occurrence, and label collected output as untrusted data. They
+retain typed scheduled provenance through the existing adapter. Busy/locked
+presence gates delivery while collection remains independent. A conservative
+separate event-plan admission budget allows eight wake attempts per rolling 24h,
+with a five-minute gap and one-hour default per-arrangement cooldown; it is not a
+claim that each attempt was visible. Existing care's visible-interruption budget
+and calendar reminder policies remain independent.
+
+Active lists exclude terminal arrangements and archived definitions. One-shots
+finish after filtering/failure/expiry or confirmed Bot-turn completion. Recurring
+and completion waits default to a 30-day lifetime, with an explicit `until` up to
+one year. Pending wakes expire after one hour. Unreferenced events archive after
+24h. Terminal occurrences retain at most 128 records for seven days; unreferenced
+terminal definitions are pruned with bounded history after native grant revocation. Unresolved receipts are
+never pruned and still count against the 32-arrangement capacity even after
+cancellation. Registration IDs cannot be rebound while retained. A corrupt event
+store disables this capability without deleting evidence or blocking chat,
+ordinary reminders or native care.
+
+Evolution: add native push/completion adapters and more Runtime tool invocation
+ports behind the same event contract, then richer normalization and shared
+admission accounting. No workflow graph editor, recurring LLM polling, or global
+arbitrary event publication is introduced. The packaged Bot-core skill makes
+follow-through a core work mode with progressively loaded examples; automated
+contract coverage does not prove every model will choose to arrange follow-ups.
