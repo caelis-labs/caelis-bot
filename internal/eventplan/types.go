@@ -31,6 +31,14 @@ type Event struct {
 	Archived         time.Time       `json:"archived,omitempty"`
 }
 type Plan struct {
+	// Host-only migration identity: preserves the original native grant and handle.
+	NativeID       string   `json:"nativeId,omitempty"`
+	GrantID        string   `json:"grantId,omitempty"`
+	LegacyVersion  string   `json:"legacyVersion,omitempty"`
+	Sources        []string `json:"sources,omitempty"`
+	PendingSeconds int      `json:"pendingSeconds,omitempty"`
+	// Host-only registration provenance, persisted but redacted from tool reads.
+	OriginRequests  []string  `json:"originRequests,omitempty"`
 	Retired         bool      `json:"retired,omitempty"`
 	ID              string    `json:"id"`
 	Event           string    `json:"event"`
@@ -51,22 +59,29 @@ type Plan struct {
 	Failures        int       `json:"failures,omitempty"`
 }
 type Occurrence struct {
-	AttentionFor string          `json:"attentionFor,omitempty"`
-	ID           string          `json:"id"`
-	Plan         string          `json:"plan"`
-	Event        string          `json:"event"`
-	At           time.Time       `json:"at"`
-	Status       string          `json:"status"` // collecting, unknown, filtered, pending, dispatching, accepted, completed, expired, failed, cancelled
-	Result       json.RawMessage `json:"result,omitempty"`
-	Issue        string          `json:"issue,omitempty"`
-	Finished     time.Time       `json:"finished,omitempty"`
+	OriginRequests []string        `json:"originRequests,omitempty"`
+	Expires        time.Time       `json:"expires,omitempty"`
+	AttentionFor   string          `json:"attentionFor,omitempty"`
+	ID             string          `json:"id"`
+	Plan           string          `json:"plan"`
+	Event          string          `json:"event"`
+	At             time.Time       `json:"at"`
+	Status         string          `json:"status"` // collecting, unknown, filtered, pending, dispatching, accepted, completed, expired, failed, cancelled
+	Result         json.RawMessage `json:"result,omitempty"`
+	Issue          string          `json:"issue,omitempty"`
+	Finished       time.Time       `json:"finished,omitempty"`
 }
 type State struct {
-	WakeAttempts []time.Time  `json:"wakeAttempts,omitempty"`
-	Version      int          `json:"version"`
-	Events       []Event      `json:"events"`
-	Plans        []Plan       `json:"plans"`
-	Occurrences  []Occurrence `json:"occurrences"`
+	// Imported quota reservations are not dispatch attempts and do not advance the gap.
+	WakeReservations []time.Time          `json:"wakeReservations,omitempty"`
+	Policy           Policy               `json:"policy"`
+	NativeWatermarks map[string]time.Time `json:"nativeWatermarks,omitempty"`
+	Migration        *Migration           `json:"migration,omitempty"`
+	WakeAttempts     []time.Time          `json:"wakeAttempts,omitempty"`
+	Version          int                  `json:"version"`
+	Events           []Event              `json:"events"`
+	Plans            []Plan               `json:"plans"`
+	Occurrences      []Occurrence         `json:"occurrences"`
 }
 
 // Runner executes the exact reviewed, pinned collector. It must be cancellable,

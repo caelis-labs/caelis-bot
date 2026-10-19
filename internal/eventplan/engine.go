@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
@@ -40,7 +40,7 @@ type Engine struct {
 }
 
 func Open(path string, run Runner, now time.Time) (*Engine, error) {
-	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), state: State{Version: 1}}
+	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
 	var interrupted []Occurrence
 	raw, err := os.ReadFile(path)
 	if err == nil {
@@ -61,6 +61,12 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	if e.state.Migration != nil && (e.state.Migration.Version != 1 || e.state.Migration.Digest == "" || e.state.Migration.Completed.IsZero()) {
+		return nil, errors.New("unsupported native migration checkpoint")
+	}
+	if !e.state.Policy.valid() {
+		return nil, errors.New("invalid schedule policy")
+	}
 	// Validate definitions before any restored executable or expression is used.
 	seen := map[string]bool{}
 	for _, v := range e.state.Events {
@@ -70,15 +76,27 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 		seen[v.ID] = true
 	}
 	plans := map[string]bool{}
+	imported := map[string]bool{}
 	for _, p := range e.state.Plans {
 		if plans[p.ID] || p.Created.IsZero() || p.Expires.IsZero() || p.Next.IsZero() || p.CooldownSeconds < 60 || p.CooldownSeconds > 31622400 || !slices.Contains([]string{"active", "suspended", "cancelled", "expired", "filtered", "failed", "completed"}, p.Status) {
 			return nil, errors.New("invalid saved arrangement state")
 		}
+		if p.Kind == "native" {
+			if p.PendingSeconds < 60 || p.PendingSeconds > 86400 || len(p.Sources) > 32 || p.Status == "active" && len(p.Sources) == 0 {
+				return nil, errors.New("invalid saved native subscription")
+			}
+			for _, source := range p.Sources {
+				if !scheduledata.KnownSource(source) {
+					return nil, errors.New("unsupported saved native source")
+				}
+			}
+		}
 		plans[p.ID] = true
+		imported[p.ID] = e.state.Migration != nil && p.LegacyVersion != "" && strings.HasPrefix(p.GrantID, "care:")
 		if p.Kind == "interval" && (p.Seconds < 60 || p.Seconds > 604800) || p.Kind == "completion" && p.Seconds != 30 || p.Kind == "after" && (p.Seconds < 1 || p.Seconds > 31622400) {
 			return nil, errors.New("invalid saved timing")
 		}
-		if !identifier.MatchString(p.ID) || !seen[p.Event] || (p.Kind != "at" && p.Kind != "after" && p.Kind != "interval" && p.Kind != "completion") {
+		if !identifier.MatchString(p.ID) || !seen[p.Event] || (p.Kind != "at" && p.Kind != "after" && p.Kind != "interval" && p.Kind != "completion" && p.Kind != "native") {
 			return nil, errors.New("invalid saved arrangement")
 		}
 		if err := validateCondition(p); err != nil {
@@ -87,12 +105,12 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 	}
 	occurrences := map[string]bool{}
 	for _, o := range e.state.Occurrences {
-		if occurrences[o.ID] || !strings.HasPrefix(o.ID, "occurrence:") || !plans[o.Plan] || !seen[o.Event] || o.At.IsZero() || !slices.Contains([]string{"collecting", "unknown", "unknown_wake", "filtered", "pending", "dispatching", "accepted", "completed", "expired", "failed", "cancelled"}, o.Status) {
+		if occurrences[o.ID] || (o.ID == "" || !strings.HasPrefix(o.ID, "occurrence:") && !imported[o.Plan]) || !plans[o.Plan] || !seen[o.Event] || o.At.IsZero() || !slices.Contains([]string{"collecting", "unknown", "unknown_wake", "filtered", "pending", "dispatching", "accepted", "completed", "expired", "failed", "cancelled"}, o.Status) {
 			return nil, errors.New("invalid saved occurrence")
 		}
 		occurrences[o.ID] = true
 	}
-	if len(e.state.Plans) > 512 || len(e.state.Events) > 512 || len(e.state.Occurrences) > 512 {
+	if len(e.state.Plans) > 1024 || len(e.state.Events) > 1024 || len(e.state.Occurrences) > 1024 {
 		return nil, errors.New("event state exceeds bounded capacity")
 	}
 	for _, o := range interrupted {
@@ -131,14 +149,14 @@ func validateEvent(v Event) error {
 	if err != nil || len(raw) > 32<<10 {
 		return errors.New("event definition exceeds 32 KiB")
 	}
-	if !identifier.MatchString(v.ID) || strings.TrimSpace(v.Label) == "" || len(v.Label) > 160 || len(v.Context) > 4096 {
+	if !identifier.MatchString(v.ID) || strings.TrimSpace(v.Label) == "" || len(v.Label) > 200 || len(v.Context) > 4096 {
 		return errors.New("event needs a stable id, label and bounded context")
 	}
 	if err := ValidateSchema(v.OutputSchema); err != nil {
 		return err
 	}
 	switch v.Kind {
-	case "wake":
+	case "wake", "native":
 		if v.Script != "" || v.Tool != "" || v.Task != "" {
 			return errors.New("wake event cannot execute a collector")
 		}
@@ -182,8 +200,8 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 			return old, nil
 		}
 	}
-	if activeEvents(e.state) >= MaxActive || len(e.state.Events) >= MaxActive+MaxHistory {
-		return Event{}, errors.New("active event limit reached; archive unused events")
+	if err := e.eventCapacity(); err != nil {
+		return Event{}, err
 	}
 	if len(authorize) > 0 {
 		if err := authorize[0](); err != nil {
@@ -203,6 +221,12 @@ func activeEvents(s State) int {
 		}
 	}
 	return n
+}
+func (e *Engine) eventCapacity() error {
+	if activeEvents(e.state) >= MaxActive || len(e.state.Events) >= MaxActive+MaxHistory {
+		return errors.New("active event limit reached; archive unused events")
+	}
+	return nil
 }
 func (e *Engine) event(id string) (Event, bool) {
 	for _, v := range e.state.Events {
@@ -292,7 +316,7 @@ func validateCondition(p Plan) error {
 	if zone == "" {
 		zone = "UTC"
 	}
-	return care.Validate(care.Rule{ID: "event-test", Label: "Event condition", Prompt: "Check event", On: "registered.event", When: when, TimeZone: zone})
+	return scheduledata.Validate(when, zone)
 }
 func Test(p Plan, data map[string]any, now time.Time) (bool, error) {
 	when := p.When
@@ -303,9 +327,10 @@ func Test(p Plan, data map[string]any, now time.Time) (bool, error) {
 	if zone == "" {
 		zone = "UTC"
 	}
-	return care.Test(context.Background(), care.Rule{ID: "event-test", Label: "Event condition", Prompt: "Check event", On: "registered.event", When: when, TimeZone: zone}, data, now)
+	return scheduledata.Test(context.Background(), when, zone, data, now)
 }
 func definition(p Plan) Plan {
+	p.OriginRequests = nil // retries retain the original registration source
 	p.Created = time.Time{}
 	p.Next = time.Time{}
 	p.Expires = time.Time{}
@@ -350,6 +375,9 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 	if !ok {
 		return p, errors.New("register the event first")
 	}
+	if v.Kind == "native" {
+		return p, errors.New("native observations use source subscriptions, not timed collectors")
+	}
 	if p.Kind == "completion" && v.Kind != "task" {
 		return p, errors.New("completion requires an owned-task event")
 	}
@@ -358,14 +386,8 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 	if err != nil {
 		return p, err
 	}
-	active := 0
-	for _, s := range e.state.Plans {
-		if s.Finished.IsZero() || e.pending(s.ID) {
-			active++
-		}
-	}
-	if active >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
-		return p, errors.New("active arrangement limit reached")
+	if err := e.planCapacity(); err != nil {
+		return p, err
 	}
 	if len(authorize) > 0 {
 		if err := authorize[0](); err != nil {
@@ -379,6 +401,21 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 		}
 	}
 	return p, e.persist()
+}
+
+// Count arrangements, not their reusable definitions. Cancellation does not
+// release capacity until the original receipt has settled.
+func (e *Engine) planCapacity() error {
+	active := 0
+	for _, p := range e.state.Plans {
+		if p.Finished.IsZero() || e.pending(p.ID) {
+			active++
+		}
+	}
+	if active >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
+		return errors.New("active arrangement limit reached")
+	}
+	return nil
 }
 func unresolved(o Occurrence) bool { return o.Finished.IsZero() }
 func (e *Engine) pending(id string) bool {

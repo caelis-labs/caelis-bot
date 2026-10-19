@@ -1,4 +1,4 @@
-package care
+package scheduledata
 
 import (
 	"math"
@@ -9,8 +9,6 @@ import (
 // It is supplied by the native host, never a model tool or renderer.
 type Sample struct {
 	Presence
-	// Native sleep/wake and lock/unlock generation, metadata only.
-	Epoch       uint64
 	IdleSeconds float64
 	Application string
 }
@@ -49,4 +47,17 @@ func (s *SourcesTracker) Poll(now time.Time, v Sample) []Event {
 		s.usage = now
 	}
 	return events
+}
+
+type Presence struct {
+	Awake    bool
+	Unlocked *bool
+}
+
+func (p Presence) Available() bool { return p.Awake && p.Unlocked != nil && *p.Unlocked }
+
+type Event struct {
+	Source string
+	At     time.Time
+	Data   map[string]any
 }

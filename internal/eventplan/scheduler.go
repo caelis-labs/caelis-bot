@@ -44,7 +44,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 				o.Finished = now
 			}
 		}
-		if o.Status == "accepted" && d.Complete(o.ID) {
+		if (o.Status == "accepted" || o.Status == "unknown_wake") && d.Complete(o.ID) {
 			o.Status = "completed"
 			o.Finished = now
 		}
@@ -62,12 +62,16 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if o.Status != "pending" {
 			continue
 		}
-		if !now.Before(o.At.Add(time.Hour)) {
+		expiry := o.Expires
+		if expiry.IsZero() {
+			expiry = o.At.Add(time.Hour)
+		}
+		if !now.Before(expiry) {
 			o.Status = "expired"
 			o.Finished = now
 			return e.persist()
 		}
-		if !d.Ready || len(e.state.WakeAttempts) >= 8 || len(e.state.WakeAttempts) > 0 && now.Before(e.state.WakeAttempts[len(e.state.WakeAttempts)-1].Add(5*time.Minute)) {
+		if !d.Ready || len(e.state.WakeAttempts)+len(e.state.WakeReservations) >= e.state.Policy.MaximumInterruptionsPer24Hours || len(e.state.WakeAttempts) > 0 && now.Before(e.state.WakeAttempts[len(e.state.WakeAttempts)-1].Add(time.Duration(e.state.Policy.MinimumGapSeconds)*time.Second)) {
 			continue
 		}
 		p := e.plan(o.Plan)
@@ -79,7 +83,13 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			o.Finished = now
 			return e.persist()
 		}
+		if slices.ContainsFunc(e.state.Occurrences, func(other Occurrence) bool {
+			return other.Plan == p.ID && other.ID != o.ID && (other.Status == "unknown_wake" || other.Status == "dispatching" || other.Status == "accepted")
+		}) {
+			continue
+		}
 		v, _ := e.event(o.Event)
+		previousWake := p.LastWake
 		p.LastWake = now
 		o.Status = "dispatching"
 		e.state.WakeAttempts = append(e.state.WakeAttempts, now)
@@ -87,7 +97,11 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			return err
 		}
 		outcome, err := d.Submit(ctx, o.ID, WakeText(v, *p, *o), p.ID)
-		if outcome == "deferred" {
+		if err == nil && outcome == "deferred" {
+			// The adapter proved no operation was created. A busy race must not
+			// consume the five-minute gap or cooldown before a first real wake.
+			p.LastWake = previousWake
+			e.state.WakeAttempts = e.state.WakeAttempts[:len(e.state.WakeAttempts)-1]
 			o.Status = "pending"
 		} else if outcome == "rejected" {
 			o.Status = "failed"
@@ -117,7 +131,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 	slices.SortFunc(order, func(a, b int) int { return e.state.Plans[a].Next.Compare(e.state.Plans[b].Next) })
 	for _, i := range order {
 		p := &e.state.Plans[i]
-		if p.Status != "active" || p.Next.After(now) || e.pending(p.ID) || e.unknownEvent(p.Event) {
+		if p.Kind == "native" || p.Status != "active" || p.Next.After(now) || e.pending(p.ID) || e.unknownEvent(p.Event) {
 			continue
 		}
 		if !p.LastWake.IsZero() && now.Before(p.LastWake.Add(time.Duration(p.CooldownSeconds)*time.Second)) {
@@ -261,6 +275,7 @@ func (e *Engine) finishCollection(done completion, now time.Time) {
 	}
 }
 func (e *Engine) cleanup(now time.Time) {
+	e.state.WakeReservations = slices.DeleteFunc(e.state.WakeReservations, func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) })
 	e.state.WakeAttempts = slices.DeleteFunc(e.state.WakeAttempts, func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) })
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
@@ -275,7 +290,7 @@ func (e *Engine) cleanup(now time.Time) {
 			p.Finished = now
 			continue
 		}
-		if p.Kind == "interval" {
+		if p.Kind == "interval" || p.Kind == "native" {
 			continue
 		}
 		for j := len(e.state.Occurrences) - 1; j >= 0; j-- {
@@ -422,7 +437,10 @@ func (e *Engine) retire(now time.Time, revoke func(string) error) {
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
 		if !p.Retired && !p.Finished.IsZero() && !e.pending(p.ID) {
-			p.Retired = apply("schedule:" + p.ID)
+			shared := slices.ContainsFunc(e.state.Plans, func(other Plan) bool {
+				return other.ID != p.ID && other.Authorization() == p.Authorization() && (other.Finished.IsZero() || e.pending(other.ID))
+			})
+			p.Retired = shared || apply(p.Authorization())
 			if revoke != nil {
 				return
 			}

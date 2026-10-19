@@ -148,7 +148,11 @@ func (b *Bridge) ownsTurn(snapshot api.Snapshot, turn string) bool {
 		observe(inherited)
 		owner = source.RuntimeOwner
 	}
-	for _, source := range snapshot.InputSources {
+	sources := append([]api.InputSource(nil), snapshot.InputSources...)
+	for _, source := range snapshot.ScheduledSources {
+		sources = append(sources, api.InputSource{RuntimeOwner: source.RuntimeOwner, TurnKey: source.TurnKey, RequestID: source.RequestID})
+	}
+	for _, source := range sources {
 		if source.TurnKey != turn {
 			continue
 		}

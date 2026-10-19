@@ -168,8 +168,8 @@ func TestTaskReadUsesCompletedMessageIdentityAndUTF8ByteFolding(t *testing.T) {
 }
 func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
 	r, base, now := fixture(t)
-	configureCare(t, r)
-	grant := &careGrantEngine{fakeEngine: base}
+	configureNativeSources(t, r)
+	grant := &scheduleGrantEngine{fakeEngine: base}
 	r.engine = grant
 	calendar := `{"request":{"type":"save","id":"same-id","label":"Calendar","prompt":"Reminder","trigger":{"type":"calendar","timeZone":"UTC","schedule":{"type":"interval","everyMinutes":1}}}}`
 	event := `{"request":{"type":"save","id":"same-id","label":"Event","prompt":"Care","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`
@@ -178,8 +178,9 @@ func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
 		t.Fatal("calendar native grant changed")
 	}
 	invokeCompact(t, r, "bot_schedule_update", event)
-	if grant.authorized != "care:same-id" {
-		t.Fatal("care native grant changed")
+	native, _ := r.events.NativePlan("same-id")
+	if grant.authorized != native.Authorization() {
+		t.Fatal("native schedule grant changed")
 	}
 	out := invokeCompact(t, r, "bot_schedule", `{"request":{"type":"list","limit":1}}`)
 	data := out.StructuredContent["data"].(map[string]any)
@@ -193,11 +194,11 @@ func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
 		t.Fatal("pure test dispatched")
 	}
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"remove","automation":"calendar:same-id"}}`)
-	if len(r.State().Schedules) != 0 || len(r.care.Snapshot().Rules) != 1 {
+	if len(r.State().Schedules) != 0 || len(r.events.Snapshot().Plans) != 1 {
 		t.Fatal("namespace collision")
 	}
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"remove","automation":"event:same-id"}}`)
-	if len(r.care.Snapshot().Rules) != 0 {
+	if r.events.Snapshot().Plans[0].Status != "cancelled" {
 		t.Fatal("event remove")
 	}
 	grant.deny = true

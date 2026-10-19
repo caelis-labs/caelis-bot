@@ -249,7 +249,7 @@ the default test path. Inspect the actual settings surface through
 
 ```sh
 source script/env.sh
-go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care
+go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/eventplan ./internal/scheduledata
 CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis
 ```
 

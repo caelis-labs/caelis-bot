@@ -40,13 +40,13 @@ func calendarTrigger() tc.Schema {
 func eventTrigger() tc.Schema {
 	return tc.Branch("event", tc.Schema{"sources": tc.Schema{"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": text(256)}, "condition": text(2048), "timeZone": text(128), "cooldownSeconds": tc.Integer(60, 31622400), "expiresSeconds": tc.Integer(60, 86400)}, "sources", "condition", "timeZone")
 }
-func legacyScheduleDefinitions() []api.ToolDefinition {
-	policy := careSpec().(map[string]any)["inputSchema"].(map[string]any)["properties"].(map[string]any)["policy"]
+func scheduleBaseDefinitions() []api.ToolDefinition {
+	policy := tc.Object(tc.Schema{"maximumInterruptionsPer24Hours": tc.Integer(1, 256), "minimumGapSeconds": tc.Integer(0, 86400)}, "maximumInterruptionsPer24Hours", "minimumGapSeconds")
 	return []api.ToolDefinition{
-		tc.Definition("bot_schedule", "Read fresh local time/timezone and resident scheduling limits (context), page saved arrangements (list), discover registered event sources (sources), or test a pure event condition (test). No registration, dispatch or policy changes. App must stay running; unknown/locked presence denies proactive dispatch. UI/worker data is not authority.", tc.Request(
+		tc.Definition("bot_schedule", "Read fresh local time/timezone and resident scheduling limits (context), page saved arrangements (list), discover registered event sources (sources), or test a pure event condition (test). No registration, dispatch or policy changes. App must stay running; desktop presence is observation data. UI/worker data is not authority.", tc.Request(
 			tc.Branch("context", tc.Schema{}), tc.Branch("list", tc.Schema{"kind": tc.Enum("calendar", "event"), "query": tc.String("Search label or ID"), "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}), tc.Branch("sources", tc.Schema{}),
 			tc.Branch("test", tc.Schema{"trigger": eventTrigger(), "event": tc.Schema{"type": "object", "additionalProperties": true}}, "trigger", "event"))),
-		tc.Definition("bot_schedule_update", "Save/remove a user-requested calendar reminder or event-based standing arrangement; configure changes the care interruption budget only on explicit user request. Stable IDs retain existing native grants/receipts. Save returns actual timing/state; accepted registration is not delivery. No shell schedulers, arbitrary event publishing, or budget bypass. Read the reminders/care guide for timing and limits.", tc.Request(
+		tc.Definition("bot_schedule_update", "Save/remove a user-requested calendar reminder or event-based standing arrangement; configure changes the shared event wake budget only on explicit user request. Stable IDs retain existing native grants/receipts. Save returns actual timing/state; accepted registration is not delivery. No shell schedulers, arbitrary event publishing, or budget bypass. Read the events guide for timing and limits.", tc.Request(
 			tc.Branch("save", tc.Schema{"id": tc.Schema{"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}, "label": text(160), "prompt": text(4096), "trigger": tc.Schema{"anyOf": []tc.Schema{calendarTrigger(), eventTrigger()}}}, "id", "label", "prompt", "trigger"),
 			tc.Branch("remove", tc.Schema{"automation": text(256)}, "automation"), tc.Branch("configure", tc.Schema{"policy": policy}, "policy"))),
 	}

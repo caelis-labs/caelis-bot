@@ -8,7 +8,7 @@ limits live in [development](development.md). Source contracts remain authoritat
 
 ```text
 native desktop surfaces → internal/desktop assembly → internal/app → backend.Service → adapter → native Runtime
-                        ├── bot / care / tasks / notebook / botmemory
+                        ├── bot / eventplan / tasks / notebook / botmemory
                         └── plugins → built-in Desktop World MCP → private CUA worker
 renderer → typed product DTOs; no credentials, native IDs or local paths as authority
 ```
@@ -19,7 +19,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/app` | Single product assembly, configuration, start/quit and admission fences |
 | `internal/backend/api` | Product DTOs and explicit engine/capability ports; host-only ToolConnection stays private |
 | `internal/backend/{codex,caelis}` | Native protocol projection, identity, execution policy, receipts, replay and recovery |
-| `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
+| `internal/bot`, `eventplan`, `scheduledata`, `tasks` | Persistent identity, introduction, scheduling, wake budget, delegation ledger and reports |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
 | `internal/machines` | Native SSH profiles, host trust, machine identity, original task routing and cached observations |
@@ -740,36 +740,40 @@ the Notebook file remains untouched. Rejected renewal continues the old binding.
 Runtime tool publication remains gated on an atomic terminal-result contract in
 both adapters. A tool result followed by a best-effort cancellation is insufficient.
 
-## Scheduling and care
+## Scheduling and native observations
 
-Reminders run only while Bot is alive. Schedules and accepted/unknown dispatches retain exact original IDs.
-Admission waits for initialization, idle native state and update fences. Background text is typed automatic
-input, not a fabricated human message. Silent marker handling uses the same projection in chat and accounting.
+Calendar reminders retain their original store and receipts. `internal/eventplan` owns the single
+condition-based arrangement engine, including native observations, scripts, tools and task completion.
+`internal/scheduledata` owns bounded pure CEL and native metadata sampling; it has no dispatcher,
+authorization, storage engine or interruption policy. `clock.minute`, `desktop.usage` and
+`desktop.appChanged` feed the same occurrence queue and receipt path as collected events.
+Desktop activity sampling requires a meaningful active-desktop sample, but dispatch never uses
+presence as a global gate. No separate care purpose, prompt or engine remains. Lock/unknown data
+may be used explicitly by a task's collector or condition; the built-in activity payloads do not
+invent a presence variable. Desktop input permissions remain independent.
 
-`care` evaluates bounded CEL over registered JSON events; no I/O functions or arbitrary script eval. Built-ins
-are clock.minute, desktop.usage and desktop.appChanged, carrying metadata rather than screen/input content.
-`on` or nonempty `onAny` is exclusive; normalized sources share one rule, cooldown and pending occurrence.
-Conditions see the current event only. Unavailable sources cancel their queued events but retain rules/other sources.
+`save` with a native event trigger is a schedule API, not a call into a retired tool. Stable native
+handles map to schedule records; changed definitions require removal and a fresh registration ID.
+New native arrangements use schedule grants. Shared event admission defaults to eight wake attempts
+per rolling 24 hours and a five-minute gap; explicit `configure` changes that budget through review.
+Silent completion still counts as an attempted wake. Calendar policy remains unchanged.
 
-Every dispatch rechecks fresh native presence (unknown/locked/sleeping deny), busy state, expiry and budget.
-Persist dispatching before native calls. Unknown/uncompleted work reserves one possible interruption;
-visible body/artifact/manual approval/failed review/error consumes it once, silent completion releases it.
-Reviews must belong to that native Thread/Turn; in-progress/approved or unrelated reviews do not consume it.
-Human steering ends automatic attribution. Once visible, a later silent completion cannot refund it.
+On first opening a provider's event store, a bounded read-only decoder imports `care-<provider>.json`.
+Imported definitions retain their original handle, grant ID/version, cooldown, origin requests,
+source watermarks and pending expiry. Original activation IDs become occurrences. Removed or
+superseded definitions remain terminal records for receipt reconciliation only. `unknown` and
+`dispatching` become uncertain wakes, never new submissions. A destination checkpoint and all
+imported records commit atomically; after that checkpoint the old file is never read or modified.
+Failed migration preserves the old file and disables native registration/observation while ordinary
+chat, calendar and existing event plans remain usable. Destination write failure freezes that store.
+Old accounting creates conservative one-day reservations; the stricter old/new limit is retained.
+Unknown records remain until original receipt evidence resolves them. Migration does not fabricate
+channel provenance or renew expired operations.
 
-Default policy: 8 visible interruptions per rolling 24 h, minimum 5-minute dispatch gap; 32 rules/sources,
-32 unresolved records, 256 terminal receipts, 2 KiB CEL/1,000 cost, 16 KiB event, 4 KiB prompt. Cooldown minimum
-60 seconds, default 1 h; expiry default 1 h. v1 attempts migrate as bounded legacy reservations, not invented
-visible events. Per-source host observation watermarks survive receipt pruning and reject replay/out-of-order data.
-
-Rule mutation disables/revokes old queued work durably before changing native grants. Failed storage freezes
-care without losing unknown IDs; corrupt/unreadable care stops only care, preserving files and ordinary reminders.
-Reminder receipt recovery runs before care admission. Only an exact accepted receipt successfully saved releases
-its unknown barrier. Other rules can use remaining budget once native idle is known.
-
-Host adapters register `CareSources` and publish via `Application.PublishCareEvent`; renderer/test inputs cannot
-publish real events. A future connector owns consent, cadence, bounded output/schema, cancellation and credentials.
-No gh executor, arbitrary script discovery, mail or calendar subscription is implied by this extension point.
+The old `bot_care` and `bot_care_read` names are absent from current and legacy MCP discovery and
+have no executable historical callback binding. Calls return an explicit retirement result with
+no effects. Frozen catalog metadata exists only to match unrelated pending Caelis callbacks;
+it cannot register or dispatch care work. There is no public event-publishing extension hook.
 
 ## Tasks and external terminals
 
@@ -1002,8 +1006,7 @@ dismissal on the UI thread in order, without waiting while holding `Service.mu`.
 
 ## Registered event arrangements
 
-`internal/eventplan` adds a provider-scoped durable event/arrangement store next
-to the existing calendar and native-care stores. `bot_event` registers immutable
+`internal/eventplan` adds a provider-scoped durable event/arrangement store alongside the calendar store. `bot_event` registers immutable
 collectors; `bot_schedule_update` adds flat `after`, `at`, `interval`, `completion`
 requests. `bot_schedule` discovers/reads definitions and occurrences and evaluates
 sample conditions without executing collectors. Plain timed attention needs only
@@ -1053,12 +1056,27 @@ before dispatch and reconciles the original native receipt, never a new ID.
 
 Natural-language wakes describe the saved purpose and match, identify event,
 arrangement and occurrence, and label collected output as untrusted data. They
-retain typed scheduled provenance through the existing adapter. Busy/locked
-presence gates delivery while collection remains independent. A conservative
+retain typed scheduled provenance through the existing adapter. All explicit
+calendar, after/at/interval and script/tool/task-completion wakes use native busy
+admission without a global presence gate. A task may explicitly observe desktop
+state in its collector and use that output in CEL; unknown is never fabricated
+as unlocked. Desktop input tools retain their own permissions and lock boundaries.
+Actual machine sleep pauses execution; process exit stops it. A conservative
 separate event-plan admission budget allows eight wake attempts per rolling 24h,
 with a five-minute gap and one-hour default per-arrangement cooldown; it is not a
-claim that each attempt was visible. Existing care's visible-interruption budget
-and calendar reminder policies remain independent.
+claim that each attempt was visible. Native observations use the same queue and wake budget; calendar reminder policy remains independent. A confirmed pre-dispatch busy
+refusal retains the original occurrence and restores its gap/cooldown reservation;
+errors and unknown receipts never enter that retry path.
+
+Registration captures the authenticated tool turn's native input request IDs,
+including mixed origins, in the schedule ledger. Dispatch persists these host-only
+links with the original native operation before sending. Both adapters expose
+scoped scheduled sources and terminal phases outside renderer JSON, so Weixin
+can attribute a completed scheduled reply even after a newer turn or restart.
+Missing legacy provenance is not inferred or backfilled from a later phone message.
+Re-pairing, mixed sources, unknown sends and expired/exhausted delivery windows
+retain the existing conservative behavior. Telegram continues its paired
+conversation mirror. Neither adapter promises phone delivery from registration alone.
 
 Active lists exclude terminal arrangements and archived definitions. One-shots
 finish after filtering/failure/expiry or confirmed Bot-turn completion. Recurring
@@ -1069,11 +1087,10 @@ terminal definitions are pruned with bounded history after native grant revocati
 never pruned and still count against the 32-arrangement capacity even after
 cancellation. Registration IDs cannot be rebound while retained. A corrupt event
 store disables this capability without deleting evidence or blocking chat,
-ordinary reminders or native care.
+ordinary reminders.
 
 Evolution: add native push/completion adapters and more Runtime tool invocation
-ports behind the same event contract, then richer normalization and shared
-admission accounting. No workflow graph editor, recurring LLM polling, or global
+ports behind the same event contract, then richer normalization. No workflow graph editor, recurring LLM polling, or global
 arbitrary event publication is introduced. The packaged Bot-core skill makes
 follow-through a core work mode with progressively loaded examples; automated
 contract coverage does not prove every model will choose to arrange follow-ups.

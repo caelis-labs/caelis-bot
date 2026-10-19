@@ -17,8 +17,9 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
-	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 // Real App Server and native file tool, local deterministic provider. No account
@@ -271,23 +272,23 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, "You are Caelis Bot, a persistent personal assistant.") {
 		t.Fatal("resident skill leaked into native worker")
 	}
-	careEngine, err := care.Open(filepath.Join(dir, "care.json"))
+	nativeEngine, err := eventplan.Open(filepath.Join(dir, "events.json"), nil, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = careEngine.Save(ctx, care.Rule{ID: "native-care", Label: "Care fixture", On: "clock.minute", When: "true", Prompt: "Synthetic care activation", TimeZone: "UTC"}, nil)
+	_, err = nativeEngine.SaveNative(eventplan.NativeArrangement{ID: "native-event", Label: "Native fixture", Sources: []string{"clock.minute"}, When: "true", Prompt: "Synthetic scheduled activation", TimeZone: "UTC"}, time.Now(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	if err = careEngine.Receive(ctx, care.Event{Source: "clock.minute", At: now, Data: map[string]any{}}, now); err != nil {
+	if err = nativeEngine.ReceiveNative(ctx, []scheduledata.Event{{Source: "clock.minute", At: now, Data: map[string]any{}}}, now); err != nil {
 		t.Fatal(err)
 	}
 	before := s.Snapshot().CurrentTurn
-	yes := true
-	err = careEngine.Deliver(ctx, now, care.Presence{Awake: true, Unlocked: &yes}, s.Snapshot().CanSend, s.BackgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
-		return s.Submit(ctx, api.Submission{ID: a.ID, Text: a.Prompt, Scheduled: true}, nil)
-	})
+	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
+		receipt, err := s.Submit(ctx, api.Submission{ID: id, Text: text, Scheduled: true}, nil)
+		return receipt.Outcome, err
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,19 +302,19 @@ func TestNativeProgressiveSkill(t *testing.T) {
 			break
 		}
 	}
-	a := careEngine.Snapshot().Activations[0]
+	a := nativeEngine.Snapshot().Occurrences[0]
 	if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
-		t.Fatal("care did not use native background projection")
+		t.Fatal("native event did not use native background projection")
 	}
 	result := s.BackgroundResult(a.ID)
 	if !result.Complete || !result.Visible {
 		t.Fatal("native visible result was not retained", result)
 	}
-	if err = careEngine.Deliver(ctx, time.Now(), care.Presence{}, false, s.BackgroundReceipt, nil, s.BackgroundResult); err != nil {
+	if err = nativeEngine.Tick(ctx, time.Now(), eventplan.Delivery{Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }}); err != nil {
 		t.Fatal(err)
 	}
-	if b := careEngine.Budget(time.Now()); b.InterruptionsUsed != 1 || b.Reserved != 0 {
-		t.Fatal("native visible result not accounted", b)
+	if nativeEngine.Snapshot().Occurrences[0].Status != "completed" {
+		t.Fatal("original native completion not retained")
 	}
 	t.Log("native provider requests contain metadata first, then only the explicitly loaded body/reference")
 }

@@ -44,19 +44,20 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context         contextseed.State         `json:"context,omitempty"`
-	ContextInputs   map[string]int            `json:"contextInputs,omitempty"`
-	Dreams          map[string]dreamRecord    `json:"dreams,omitempty"`
-	PastThreads     []string                  `json:"pastThreads,omitempty"`
-	RenewedBy       string                    `json:"renewedBy,omitempty"`
-	ToolRenewal     *toolRenewalRecord        `json:"toolRenewal,omitempty"`
-	Scheduled       map[string]string         `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
-	HostReports     map[string]bool           `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
-	HostReportTurns map[string]hostReportTurn `json:"hostReportTurns,omitempty"`
-	RecoveryNotices map[string]bool           `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets  []string                  `json:"cleanupTargets,omitempty"`
-	StopState       string                    `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns        map[string]string         `json:"stopRuns,omitempty"`
+	Context          contextseed.State            `json:"context,omitempty"`
+	ContextInputs    map[string]int               `json:"contextInputs,omitempty"`
+	Dreams           map[string]dreamRecord       `json:"dreams,omitempty"`
+	PastThreads      []string                     `json:"pastThreads,omitempty"`
+	RenewedBy        string                       `json:"renewedBy,omitempty"`
+	ToolRenewal      *toolRenewalRecord           `json:"toolRenewal,omitempty"`
+	ScheduledOrigins map[string][]api.InputSource `json:"scheduledOrigins,omitempty"`
+	Scheduled        map[string]string            `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
+	HostReports      map[string]bool              `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
+	HostReportTurns  map[string]hostReportTurn    `json:"hostReportTurns,omitempty"`
+	RecoveryNotices  map[string]bool              `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets   []string                     `json:"cleanupTargets,omitempty"`
+	StopState        string                       `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns         map[string]string            `json:"stopRuns,omitempty"`
 
 	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
 	CapacityStopThread   string `json:"capacityStopThread,omitempty"`
@@ -424,6 +425,13 @@ func (s *Session) publishSnapshot() {
 	}
 	out = s.presentScheduled(out)
 	out.ReportSources = s.reportSources()
+	for id, sources := range s.binding.ScheduledOrigins {
+		if turn := s.binding.Scheduled[id]; turn != "" {
+			for _, source := range sources {
+				out.ScheduledSources = append(out.ScheduledSources, api.ScheduledSource{RuntimeOwner: source.RuntimeOwner, TurnKey: opaque(turn), RequestID: source.RequestID, Phase: s.runs[turn]})
+			}
+		}
+	}
 	for _, item := range out.Items {
 		if source, ok := s.inputSources[item.ID]; ok && item.Kind == "user" && source.RuntimeOwner != "" && source.RequestID == item.RequestID && source.TurnKey == item.TurnKey {
 			out.InputSources = append(out.InputSources, source)
@@ -446,6 +454,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		_ = json.Unmarshal(b, &out)
 		out.RuntimeOwner = snapshot.RuntimeOwner
 		out.InputSources = append([]api.InputSource(nil), snapshot.InputSources...)
+		out.ScheduledSources = append([]api.ScheduledSource(nil), snapshot.ScheduledSources...)
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Items {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
@@ -1097,6 +1106,16 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	if in.Scheduled {
 		s.binding.Scheduled[in.ID] = ""
+		if len(in.OriginRequests) > 0 && !in.Dream {
+			if s.binding.ScheduledOrigins == nil {
+				s.binding.ScheduledOrigins = map[string][]api.InputSource{}
+			}
+			sources := make([]api.InputSource, 0, len(in.OriginRequests))
+			for _, id := range in.OriginRequests {
+				sources = append(sources, api.InputSource{RuntimeOwner: opaque("codex", threadID), RequestID: id})
+			}
+			s.binding.ScheduledOrigins[in.ID] = sources
+		}
 	}
 	if in.Dream {
 		if s.binding.Dreams == nil {

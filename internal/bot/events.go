@@ -10,6 +10,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
@@ -28,6 +29,9 @@ func (r *Runtime) ConfigureEvents(tools EventTools, directory string) {
 }
 func (r *Runtime) initEvents() {
 	r.events, r.eventsErr = eventplan.Open(filepath.Join(filepath.Dir(r.path), "events-"+r.provider+".json"), r.runEvent, r.now())
+	if r.eventsErr == nil {
+		r.nativeErr = r.events.MigrateLegacy(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), r.now())
+	}
 }
 func (r *Runtime) runEvent(ctx context.Context, v eventplan.Event) (json.RawMessage, error) {
 	r.mu.Lock()
@@ -85,20 +89,18 @@ func eventDefinition() api.ToolDefinition {
 		tc.Branch("archive", tc.Schema{"event": text(128)}, "event")))
 }
 func scheduleDefinitions() []api.ToolDefinition {
-	out := legacyScheduleDefinitions()
-	// Add simple, top-level variants without changing persisted legacy callbacks.
+	out := scheduleBaseDefinitions()
 	for i := range out {
 		var schema tc.Schema
 		_ = json.Unmarshal(out[i].InputSchema, &schema)
-		props := schema["properties"].(map[string]any)
-		req := props["request"].(map[string]any)
+		req := schema["properties"].(map[string]any)["request"].(map[string]any)
 		branches := req["anyOf"].([]any)
 		if out[i].Name == "bot_schedule" {
 			branches = append(branches, tc.Branch("events", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("arrangements", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("read", tc.Schema{"handle": text(256)}, "handle"), tc.Branch("condition", tc.Schema{"event": text(128), "when": text(2048), "sample": tc.Schema{"type": "object", "additionalProperties": true}, "timeZone": text(128)}, "event", "when", "sample"))
-			out[i].Description = "Read time (context), available observation sources (sources), registered events (events), active arrangements (arrangements), original result (read), or test CEL against sample data (condition). Reads never execute a collector or wake Bot. History is opt-in with archived:true; keep attention on active work. See bot-core events guide."
+			out[i].Description = "Read time, native observation sources, arrangements and original results, or test a pure CEL condition. Reads never execute collectors or wake Bot. History is opt-in. See bot-core events guide."
 		} else {
 			for _, kind := range []string{"after", "at", "interval", "completion"} {
-				fields := tc.Schema{"id": text(64), "event": tc.String("event:<id>; omit for a plain timed Bot wakeup"), "label": text(160), "context": tc.String("Purpose / next step when creating a plain wakeup; no repeated prompt is needed for a registered event"), "when": text(2048), "timeZone": text(128), "until": tc.String("Optional RFC3339 expiry; recurring/completion default 30 days"), "cooldownSeconds": tc.Integer(60, 31622400)}
+				fields := tc.Schema{"id": text(64), "event": tc.String("event:<id>; omit for a plain timed Bot wakeup"), "label": text(160), "context": tc.String("Saved purpose and next step"), "when": text(2048), "timeZone": text(128), "until": tc.String("Optional RFC3339 expiry"), "cooldownSeconds": tc.Integer(60, 31622400)}
 				required := []string{"id"}
 				if kind == "at" {
 					fields["at"] = text(128)
@@ -111,7 +113,7 @@ func scheduleDefinitions() []api.ToolDefinition {
 				}
 				branches = append(branches, tc.Branch(kind, fields, required...))
 			}
-			out[i].Description = "Arrange future Bot attention: after(seconds), at(timestamp), interval(seconds), or completion(original task event). Supply an event handle for collection; optional when is CEL over event output. Omit event for a simple wakeup with label/context. Default condition true. No model polls: only a matching result wakes Bot. Stable id preserves deadlines and receipts. Completion/expiry leaves active lists automatically. Remove the returned schedule handle when work ends. Existing save/configure requests remain supported."
+			out[i].Description = "Arrange user-authorized attention with after, at, interval, completion, or save for calendar/native event sources. Optional CEL filters observed data. Desktop lock or unknown presence never blocks dispatch globally. Stable IDs preserve original deadlines, grants and receipts. Remove the returned handle when work ends. Configure changes the shared event wake budget only on explicit user request. See bot-core events guide."
 		}
 		req["anyOf"] = branches
 		out[i].InputSchema, _ = json.Marshal(schema)
@@ -247,11 +249,15 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 			h := str(q, "handle")
 			for _, p := range s.Plans {
 				if h == "schedule:"+p.ID {
+					p.OriginRequests = nil
+					p.GrantID = ""
+					p.LegacyVersion = ""
 					return compactValue(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, false), true
 				}
 			}
 			for _, o := range s.Occurrences {
 				if h == o.ID {
+					o.OriginRequests = nil
 					return compactValue(map[string]any{"ok": true, "data": o}, false), true
 				}
 			}
@@ -263,16 +269,15 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 		if err := r.events.Remove(id, r.now()); err != nil {
 			return fail(err)
 		}
-		if b, ok := r.engine.(api.BackgroundRuntime); ok {
-			if err := b.RevokeBackground(ctx, "schedule:"+id); err != nil {
-				return fail(err)
-			}
-		}
+		// Cancellation is durable immediately. Tick's retirement path owns grant
+		// revocation, including shared migration grants, unresolved receipts and
+		// bounded retries. Removing one historical Plan cannot revoke its peers.
 		return compactValue(map[string]any{"ok": true}, false), true
 	}
 	raw, _ := json.Marshal(q)
 	var p eventplan.Plan
 	_ = json.Unmarshal(raw, &p)
+	p.OriginRequests = r.scheduleOrigin(ctx)
 	p.Kind = kind
 	p.Event = strings.TrimPrefix(p.Event, "event:")
 	if p.Event == "" {
@@ -301,7 +306,32 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 	if r.events == nil {
 		return nil
 	}
-	ready := r.careSample != nil && r.careSample().Available() && r.engine.Snapshot().CanSend
+	// Explicit arrangements can run while the desktop is locked or presence is
+	// unknown. A collector may observe presence and its CEL may require it; that
+	// is task data, not a global admission policy. The adapter rechecks busy state.
+	if r.nativeErr == nil && r.events.HasNativePlans() {
+		sample := scheduledata.Sample{}
+		if r.nativeSample != nil {
+			sample = r.nativeSample()
+		}
+		if err := r.events.ReceiveNative(ctx, r.nativeSources.Poll(r.now(), sample), r.now()); err != nil {
+			return err
+		}
+	}
+	origins := map[string][]string{}
+	grants := map[string]string{}
+	occOrigins := map[string][]string{}
+	state := r.events.Snapshot()
+	for _, p := range state.Plans {
+		origins[p.ID] = p.OriginRequests
+		grants[p.ID] = p.Authorization()
+	}
+	for _, o := range state.Occurrences {
+		if o.OriginRequests != nil {
+			occOrigins[o.ID] = o.OriginRequests
+		}
+	}
+	ready := r.engine.Snapshot().CanSend
 	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: ready,
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {
@@ -310,21 +340,22 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return nil
 		},
 		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			if r.careSample == nil || !r.careSample().Available() {
-				return "deferred", nil
-			}
 			var receipt api.Receipt
 			var err error
-			in := api.Submission{ID: id, Text: text, Scheduled: true}
+			source := origins[plan]
+			if original, ok := occOrigins[id]; ok {
+				source = original
+			}
+			in := api.Submission{ID: id, Text: text, Scheduled: true, OriginRequests: source}
 			if b, ok := r.engine.(api.BackgroundRuntime); ok {
-				receipt, err = b.SubmitBackground(ctx, in, []string{"schedule:" + plan})
+				receipt, err = b.SubmitBackground(ctx, in, []string{grants[plan]})
 			} else {
 				receipt, err = r.engine.Submit(ctx, in, nil)
 			}
 			if receipt.ID != id {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
-			if receipt.Outcome == "rejected" && receipt.Deferred {
+			if err == nil && receipt.Outcome == "rejected" && receipt.Deferred {
 				return "deferred", nil
 			}
 			return receipt.Outcome, err

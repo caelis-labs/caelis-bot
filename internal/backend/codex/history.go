@@ -102,6 +102,7 @@ func (s *Session) RecentSnapshot() api.Snapshot {
 	_ = json.Unmarshal(b, &out)
 	out.RuntimeOwner = v.RuntimeOwner
 	out.InputSources = append([]api.InputSource(nil), v.InputSources...)
+	out.ScheduledSources = append([]api.ScheduledSource(nil), v.ScheduledSources...)
 	out.ReportSources = append([]api.ReportSource(nil), v.ReportSources...)
 	return out
 }

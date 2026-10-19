@@ -22,6 +22,9 @@ type Snapshot struct {
 	// InputSources is adapter-owned native request/turn/scope evidence. Neither
 	// retained adapter history nor local chat may infer it from RuntimeOwner.
 	InputSources []InputSource `json:"-"`
+	// ScheduledSources links a native scheduled turn to the trusted input(s) that
+	// registered its arrangement. Never inferred from prose or current channel.
+	ScheduledSources []ScheduledSource `json:"-"`
 	// ReportSources carries native receipt provenance independently of hidden
 	// hostNotice items. It is private routing metadata, never renderer input.
 	ReportSources    []ReportSource `json:"-"`
@@ -52,6 +55,10 @@ type ReportSource struct {
 	TurnKey      string
 	ReportID     string
 	Phase        string
+}
+
+type ScheduledSource struct {
+	RuntimeOwner, TurnKey, RequestID, Phase string
 }
 
 type InputSource struct {
@@ -301,6 +308,8 @@ type Submission struct {
 	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
 	Scheduled bool `json:"-"`
+	// OriginRequests is host-captured registration provenance, not a grant.
+	OriginRequests []string `json:"-"`
 	// ModelInputOverride is a host-owned model input for an async question reply.
 	// The visible user body remains Text and is retained under the original ID.
 	ModelInputOverride string         `json:"-"`

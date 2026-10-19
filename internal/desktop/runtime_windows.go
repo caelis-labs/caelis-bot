@@ -55,8 +55,8 @@ func Run(assets fs.FS) error {
 	if err = localstate.EnsurePrivateDirectory(root); err != nil {
 		return err
 	}
-	assembly, err := newProductAssembly(root, windowsPreferredLanguages(), func(*Service) app.Host {
-		return app.Host{OpenURL: windowsOpenURL, RevealFile: windowsRevealFile, TrashFile: windowsTrashFile, CareSample: windowsCareSample}
+	assembly, err := newProductAssembly(root, windowsPreferredLanguages(), func(*Service, *diagnosticlog.Logger) app.Host {
+		return app.Host{OpenURL: windowsOpenURL, RevealFile: windowsRevealFile, TrashFile: windowsTrashFile, ScheduleSample: windowsPresenceSample}
 	})
 	if err != nil {
 		return err

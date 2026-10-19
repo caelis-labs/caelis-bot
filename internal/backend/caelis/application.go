@@ -116,7 +116,9 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 					content[d.Name] = true
 				}
 				definitions = append(definitions, item)
-				handlers[d.Name] = legacy.Host
+				if d.Name != "bot_care" && d.Name != "bot_care_read" {
+					handlers[d.Name] = legacy.Host
+				}
 			}
 			sort.Slice(definitions, func(i, j int) bool { return definitions[i].Name < definitions[j].Name })
 			raw, _ := json.Marshal(definitions)

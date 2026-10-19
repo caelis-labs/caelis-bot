@@ -20,8 +20,8 @@ func (f *eventFixtureTools) CollectEvent(context.Context, string, string, string
 }
 func TestRegisteredToolArrangementUsesNativeGrantAndNaturalWake(t *testing.T) {
 	r, base, now := fixture(t)
-	configureCare(t, r)
-	grant := &careGrantEngine{fakeEngine: base}
+	configureNativeSources(t, r)
+	grant := &scheduleGrantEngine{fakeEngine: base}
 	r.engine = grant
 	tools := &eventFixtureTools{}
 	r.ConfigureEvents(tools, t.TempDir())
@@ -80,7 +80,7 @@ func TestSimpleWakeIsOneSmallCallAndCancelledArrangementLeavesActiveList(t *test
 }
 func TestEventRegistrationDeniedDoesNotPersistAndReadCannotExecute(t *testing.T) {
 	r, base, _ := fixture(t)
-	r.engine = &careGrantEngine{fakeEngine: base, deny: true}
+	r.engine = &scheduleGrantEngine{fakeEngine: base, deny: true}
 	r.ConfigureEvents(&eventFixtureTools{}, t.TempDir())
 	raw := `{"request":{"type":"tool","id":"denied","label":"Denied","server":"fixture/mail","tool":"read","arguments":{},"outputSchema":{"type":"object"}}}`
 	if !r.CallTool(t.Context(), "bot_event", json.RawMessage(raw)).IsError || len(r.events.Snapshot().Events) != 0 {
@@ -114,7 +114,7 @@ func TestEventCatalogIsReviewedAndOlderCatalogsStayStable(t *testing.T) {
 
 func TestEventUnknownWakeCannotUseNewHumanReceipt(t *testing.T) {
 	r, base, now := fixture(t)
-	configureCare(t, r)
+	configureNativeSources(t, r)
 	base.outcome = "unknown"
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"unknown-wake","seconds":1,"context":"Follow up the original goal"}}`)
 	*now = now.Add(time.Second)

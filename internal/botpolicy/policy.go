@@ -12,13 +12,13 @@ const WorkerInstructions = `Complete the assigned task in this dedicated workspa
 // persistent schedules use automatic review.
 // It grants neither worker execution nor arbitrary MCP/server-wide approval.
 func LegacyApprovedTools() []string {
-	return []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_task_machines", "bot_reminders_list", "bot_care_read", "bot_task_stop"}
+	return []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_task_machines", "bot_reminders_list", "bot_task_stop"}
 }
 
 // HistoricalLegacyApprovedTools reproduces the old version hash for pending
 // callbacks only. The retired memory dispatcher rejects every call.
 func HistoricalLegacyApprovedTools() []string {
-	return append(LegacyApprovedTools(), "bot_memory")
+	return append(RetiredCatalogApprovedTools(), "bot_memory")
 }
 
 // PreviousCompactApprovedTools preserves the direct/required policies in the
@@ -30,3 +30,6 @@ func PreviousCompactApprovedTools() []string {
 func ApprovedTools() []string {
 	return []string{"bot_tasks", "bot_interactions", "bot_schedule", "bot_gesture", "bot_dream"}
 }
+
+// RetiredCatalogApprovedTools is digest metadata only, never current approval authority.
+func RetiredCatalogApprovedTools() []string { return append(LegacyApprovedTools(), "bot_care_read") }

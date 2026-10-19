@@ -22,9 +22,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
-	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
@@ -148,7 +149,7 @@ func (h *acceptanceTools) CallTool(ctx context.Context, name string, args json.R
 }
 func fixtureDefinitions(kind string) []api.ToolDefinition {
 	out := []api.ToolDefinition{}
-	for _, name := range []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"} {
+	for _, name := range []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"} {
 		out = append(out, api.ToolDefinition{Name: name, Description: "Controlled acceptance tool", InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{"key":{"type":%q}},"additionalProperties":false}`, kind))})
 	}
 	return out
@@ -276,9 +277,9 @@ func TestNativeHostIntegration(t *testing.T) {
 	var oldEffects, newEffects atomic.Int32
 	h := &acceptanceTools{defs: fixtureDefinitions("string")}
 	var s *Session
-	careEngine, careErr := care.Open(filepath.Join(root, "care.json"))
-	if careErr != nil {
-		t.Fatal(careErr)
+	nativeEngine, nativeErr := eventplan.Open(filepath.Join(root, "events.json"), nil, time.Now())
+	if nativeErr != nil {
+		t.Fatal(nativeErr)
 	}
 	var taskError atomic.Value
 	workerA, workerB := make(chan struct{}), make(chan struct{})
@@ -300,8 +301,10 @@ func TestNativeHostIntegration(t *testing.T) {
 					break
 				}
 			}
-		case "FixtureCare":
-			_, err = careEngine.Save(callCtx, care.Rule{ID: "native-care", Label: "Native care", On: "clock.minute", When: "true", Prompt: "CASE_CARE_FIRE", TimeZone: "UTC"}, s.AuthorizeBackground)
+		case "FixtureNativeEvent":
+			_, err = nativeEngine.SaveNative(eventplan.NativeArrangement{ID: "native-event", Label: "Native event", Sources: []string{"clock.minute"}, When: "true", Prompt: "CASE_NATIVE_EVENT_FIRE", TimeZone: "UTC"}, time.Now(), func(p eventplan.Plan) error {
+				return s.AuthorizeBackground(callCtx, p.Authorization(), "original-native-arrangement")
+			})
 		case "FixtureSchedule":
 			err = s.AuthorizeBackground(callCtx, "fixture-reminder", "original-user-schedule")
 		}
@@ -315,7 +318,7 @@ func TestNativeHostIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
 		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
@@ -564,44 +567,47 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	if !t.Run("B00_care_activation", func(t *testing.T) {
-		model.set("CASE_CARE", modelStep{Name: "FixtureCare", Args: map[string]string{"key": "save"}})
-		submitAcceptance(t, ctx, s, "CASE_CARE")
-		saved := careEngine.Snapshot()
-		if len(saved.Rules) != 1 || !saved.Rules[0].Enabled {
-			t.Fatal("native care registration failed")
+	if !t.Run("B00_native_event_activation", func(t *testing.T) {
+		model.set("CASE_NATIVE_EVENT", modelStep{Name: "FixtureNativeEvent", Args: map[string]string{"key": "save"}})
+		submitAcceptance(t, ctx, s, "CASE_NATIVE_EVENT")
+		saved := nativeEngine.Snapshot()
+		if len(saved.Plans) != 1 || saved.Plans[0].Status != "active" {
+			t.Fatal("native event registration failed")
 		}
 		now := time.Now()
-		if err := careEngine.Receive(ctx, care.Event{Source: "clock.minute", At: now, Data: map[string]any{}}, now); err != nil {
+		if err := nativeEngine.ReceiveNative(ctx, []scheduledata.Event{{Source: "clock.minute", At: now, Data: map[string]any{}}}, now); err != nil {
 			t.Fatal(err)
 		}
-		model.set("CASE_CARE_FIRE", modelStep{Reply: api.SilentReminder})
+		model.set("CASE_NATIVE_EVENT_FIRE", modelStep{Reply: api.SilentReminder})
 		before := s.Snapshot().CurrentTurn
-		yes := true
-		err := careEngine.Deliver(ctx, now, care.Presence{Awake: true, Unlocked: &yes}, s.Snapshot().CanSend, s.BackgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
-			return s.SubmitBackground(ctx, api.Submission{ID: a.ID, Text: a.Prompt, Scheduled: true}, []string{care.GrantID(a.RuleID)})
-		})
+		delivery := eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
+			receipt, err := s.SubmitBackground(ctx, api.Submission{ID: id, Text: text, Scheduled: true}, []string{"schedule:" + plan})
+			return receipt.Outcome, err
+		}}
+		err := nativeEngine.Tick(ctx, now, delivery)
 		if err != nil {
 			t.Fatal(err)
 		}
 		waitTurn(t, ctx, s, before)
-		a := careEngine.Snapshot().Activations[0]
+		a := nativeEngine.Snapshot().Occurrences[0]
 		if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
-			t.Fatal("care did not use native silent background path")
+			t.Fatal("native event did not use native silent background path")
 		}
 		result := s.BackgroundResult(a.ID)
 		if !result.Complete || result.Visible {
 			t.Fatal("native silent result was not retained", result)
 		}
-		if err = careEngine.Deliver(ctx, now, care.Presence{}, false, s.BackgroundReceipt, nil, s.BackgroundResult); err != nil {
+		delivery.Ready = false
+		if err = nativeEngine.Tick(ctx, now, delivery); err != nil {
 			t.Fatal(err)
 		}
-		if b := careEngine.Budget(now); b.InterruptionsUsed != 0 || b.Reserved != 0 {
-			t.Fatal("native silent result retained budget", b)
+		if nativeEngine.Snapshot().Occurrences[0].Status != "completed" {
+			t.Fatal("original native completion lost")
 		}
-		if err = careEngine.Remove(ctx, "native-care", s.RevokeBackground); err != nil {
+		if err = nativeEngine.Remove(saved.Plans[0].ID, now); err != nil {
 			t.Fatal(err)
 		}
+
 	}) {
 		return
 	}

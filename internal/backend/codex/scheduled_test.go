@@ -7,7 +7,7 @@ import (
 
 func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 	s, f := sessionPair(t, "")
-	in := api.Submission{ID: "automatic-fixture", Text: "private reminder instruction", Scheduled: true}
+	in := api.Submission{ID: "automatic-fixture", Text: "private reminder instruction", Scheduled: true, OriginRequests: []string{"original-phone-input"}}
 	receipt, e := s.Submit(testContext(t), in, nil)
 	if e != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, e)
@@ -30,6 +30,9 @@ func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 	v = restored.Snapshot()
 	if !v.Quiet || len(v.Items) != 0 {
 		t.Fatal("restart lost provenance", v)
+	}
+	if len(v.ScheduledSources) != 1 || v.ScheduledSources[0].RequestID != "original-phone-input" || v.ScheduledSources[0].RuntimeOwner != v.RuntimeOwner || v.ScheduledSources[0].Phase != "completed" {
+		t.Fatal("scheduled origin lost on restart", v.ScheduledSources)
 	}
 	// Identical prose in a real human message must remain visible.
 	restored.applyTurn(restored.binding.ThreadID, nativeTurn{ID: "human", Status: "completed", Items: []nativeItem{{ID: "real", Type: "userMessage", ClientID: "human-fixture", Content: []nativeInput{{Type: "text", Text: in.Text}}}}}, true)

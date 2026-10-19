@@ -10,39 +10,42 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 type Schedule struct {
-	Runtime      string    `json:"runtime,omitempty"`
-	ID           string    `json:"id"`
-	Label        string    `json:"label"`
-	Prompt       string    `json:"prompt"`
-	At           string    `json:"at,omitempty"`
-	EveryMinutes int       `json:"everyMinutes,omitempty"`
-	Daily        string    `json:"daily,omitempty"`
-	Times        []string  `json:"times,omitempty"`
-	Weekdays     []int     `json:"weekdays,omitempty"`
-	WindowStart  string    `json:"windowStart,omitempty"`
-	WindowEnd    string    `json:"windowEnd,omitempty"`
-	TimeZone     string    `json:"timeZone,omitempty"`
-	Next         time.Time `json:"next"`
-	Enabled      bool      `json:"enabled"`
+	OriginRequests []string  `json:"originRequests,omitempty"`
+	Runtime        string    `json:"runtime,omitempty"`
+	ID             string    `json:"id"`
+	Label          string    `json:"label"`
+	Prompt         string    `json:"prompt"`
+	At             string    `json:"at,omitempty"`
+	EveryMinutes   int       `json:"everyMinutes,omitempty"`
+	Daily          string    `json:"daily,omitempty"`
+	Times          []string  `json:"times,omitempty"`
+	Weekdays       []int     `json:"weekdays,omitempty"`
+	WindowStart    string    `json:"windowStart,omitempty"`
+	WindowEnd      string    `json:"windowEnd,omitempty"`
+	TimeZone       string    `json:"timeZone,omitempty"`
+	Next           time.Time `json:"next"`
+	Enabled        bool      `json:"enabled"`
 }
 type Wake struct {
-	Runtime     string   `json:"runtime,omitempty"`
-	ID          string   `json:"id"`
-	Prompt      string   `json:"prompt"`
-	Messages    []string `json:"messages"`
-	ScheduleIDs []string `json:"scheduleIds"`
-	Status      string   `json:"status"` // pending, dispatching, accepted, unknown
+	OriginRequests []string `json:"originRequests,omitempty"`
+	Runtime        string   `json:"runtime,omitempty"`
+	ID             string   `json:"id"`
+	Prompt         string   `json:"prompt"`
+	Messages       []string `json:"messages"`
+	ScheduleIDs    []string `json:"scheduleIds"`
+	Status         string   `json:"status"` // pending, dispatching, accepted, unknown
 }
 type State struct {
 	Version         int                         `json:"version"`
@@ -67,10 +70,9 @@ type Runtime struct {
 	eventDirectory string
 	dream          *dreamController // guarded by step
 	handoff        *handoffStore    // application-private context seed
-	care           *care.Engine
-	careLoadErr    error
-	careSample     func() care.Sample
-	careSources    care.SourcesTracker
+	nativeErr      error
+	nativeSample   func() scheduledata.Sample
+	nativeSources  scheduledata.SourcesTracker
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex
@@ -158,6 +160,12 @@ func (r *Runtime) State() State {
 	b, _ := json.Marshal(r.state)
 	var out State
 	_ = json.Unmarshal(b, &out)
+	for i := range out.Schedules {
+		out.Schedules[i].OriginRequests = nil
+	}
+	if out.Wake != nil {
+		out.Wake.OriginRequests = nil
+	}
 	return out
 }
 func (r *Runtime) saveLocked() error { return localstate.Write(r.path, r.state) }
@@ -181,9 +189,11 @@ func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 				return s, errors.New("该提醒属于其他运行时，请切换后管理")
 			}
 			index = i
+			old.OriginRequests = nil
 			old.Next = time.Time{}
 			old.Enabled = false
 			copy := s
+			copy.OriginRequests = nil
 			copy.Next = time.Time{}
 			copy.Enabled = false
 			if reflect.DeepEqual(old, copy) {
@@ -375,7 +385,7 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
 		return nil
 	}
-	// Reconcile an uncertain reminder before any new care activation can
+	// Reconcile an uncertain reminder before any new scheduled activation can
 	// replace the latest receipt. Keep the wake unresolved if persistence fails.
 	r.mu.Lock()
 	if w := r.state.Wake; w != nil && w.Runtime == r.provider && (w.Status == "unknown" || w.Status == "dispatching") {
@@ -393,9 +403,9 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 		return err
 	}
 	r.mu.Unlock()
-	// A failed care store must not disable independently persisted reminders.
-	careErr := errors.Join(r.tickCare(ctx), r.tickEvents(ctx))
-	defer func() { err = errors.Join(err, careErr) }()
+	// A failed event store must not disable independently persisted reminders.
+	scheduleErr := r.tickEvents(ctx)
+	defer func() { err = errors.Join(err, scheduleErr) }()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -408,7 +418,7 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	previous := r.state
 	previous.Schedules = append([]Schedule(nil), r.state.Schedules...)
 	if r.state.Wake == nil || r.state.Wake.Status == "accepted" {
-		var ids, texts []string
+		var ids, texts, origins []string
 		for i, s := range r.state.Schedules {
 			if s.Runtime != r.provider || !s.Enabled || s.Next.After(now) {
 				continue
@@ -430,7 +440,13 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 				r.state.Schedules[i] = s
 				continue
 			}
+			// Do not combine known phone work with a different or missing source.
+			// A pending batch retains its captured origin through later edits.
+			if len(ids) > 0 && !slices.Equal(origins, s.OriginRequests) {
+				continue
+			}
 			ids = append(ids, s.ID)
+			origins = slices.Clone(s.OriginRequests)
 			texts = append(texts, s.Label+"："+s.Prompt)
 			next, e := nextTime(s, now)
 			if e != nil {
@@ -447,7 +463,7 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 			}
 		}
 		if len(ids) > 0 {
-			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, Status: "pending"}
+			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, OriginRequests: origins, Status: "pending"}
 			if e := r.saveLocked(); e != nil {
 				r.state = previous
 				r.mu.Unlock()
@@ -494,12 +510,15 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	var receipt api.Receipt
 	var e error
 	if b, ok := r.engine.(api.BackgroundRuntime); ok {
-		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true}, wake.ScheduleIDs)
+		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true, OriginRequests: wake.OriginRequests}, wake.ScheduleIDs)
 	} else {
-		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true}, nil)
+		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true, OriginRequests: wake.OriginRequests}, nil)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if receipt.ID != wake.ID {
+		e = errors.Join(e, errors.New("reminder receipt identity mismatch"))
+	}
 	if e != nil || receipt.Outcome == "unknown" {
 		r.state.Wake.Status = "unknown"
 	} else if receipt.Outcome == "accepted" {
@@ -549,13 +568,8 @@ func wakePrompt(messages []string) string {
 func (r *Runtime) Status() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.careLoadErr != nil {
-		return r.careLoadErr.Error()
-	}
-	if r.care != nil {
-		if status := r.care.Status(); status != "" {
-			return status
-		}
+	if r.nativeErr != nil {
+		return "Saved native arrangements need recovery; original data is preserved."
 	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
 		return r.initialization.Initialization().Message

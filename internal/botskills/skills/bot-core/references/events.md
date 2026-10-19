@@ -128,6 +128,20 @@ Task events pin the original execution, not just its reusable task handle. If a
 continuation replaces that execution before observation, collection stops and a
 maintenance wake asks you to verify the original result. Never interpret the
 continuation's result as the original task's result or recreate an uncertain call.
-Temporary busy/locked wake admission keeps the original occurrence queued within
+Temporary busy admission keeps the original occurrence queued within
 its expiry and rate budget. Cancellation prevents new wakes even when an in-flight
 collector later returns; any uncertain execution evidence remains available.
+
+
+Explicit arrangements run without requiring an unlocked desktop or known native
+presence. Use a tested collector and an explicit CEL condition if this particular
+task depends on lock state; preserve unknown as unknown. Waking does not grant
+permission to use desktop input tools or bypass their lock/permission checks.
+Computer sleep pauses execution and app exit stops it; neither is merely locking
+the screen. Keep original authorization, busy admission, expiry and budgets.
+
+A new arrangement retains its trusted originating input for channel routing.
+Replies may reach the user's phone without desktop unlock, subject to the paired
+channel and its delivery window/budget. Do not claim delivery from registration
+or a completed Bot turn. Old records without source evidence are not re-attributed
+to a newer phone message; never recreate or replay uncertain work to repair routing.
