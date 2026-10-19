@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.0](https://github.com/caelis-labs/caelis-bot/compare/v0.16.0...v0.17.0) (2026-10-19)
+
+
+### Features
+
+* add registered events and proactive Bot wakeups ([#197](https://github.com/caelis-labs/caelis-bot/issues/197)) ([16b96ee](https://github.com/caelis-labs/caelis-bot/commit/16b96ee83596b660555c88f436da005ae804eda1))
+
+
+### Bug Fixes
+
+* 优化 Windows ZIP 免安装与目录释放 ([#199](https://github.com/caelis-labs/caelis-bot/issues/199)) ([35f111f](https://github.com/caelis-labs/caelis-bot/commit/35f111f690d2255f550a369c49794b114d83e231))
+* 减少动画时保留角色、头像和 loading 动态反馈 ([#201](https://github.com/caelis-labs/caelis-bot/issues/201)) ([4386703](https://github.com/caelis-labs/caelis-bot/commit/43867034a3004ce81a59b0137d271cf0818c9655)), closes [#200](https://github.com/caelis-labs/caelis-bot/issues/200)
+
 ## [0.16.0](https://github.com/caelis-labs/caelis-bot/compare/v0.15.2...v0.16.0) (2026-10-18)
 
 
