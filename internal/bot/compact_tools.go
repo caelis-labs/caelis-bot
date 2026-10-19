@@ -20,7 +20,7 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
-			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate" || d.Name == "bot_interactions") || !caps.ScheduledActivation && d.Name == "bot_schedule_update"
+			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate" || d.Name == "bot_interactions") || !caps.ScheduledActivation && (d.Name == "bot_schedule_update" || d.Name == "bot_event")
 		})
 		if !caps.ScheduledActivation {
 			for i, d := range out {
@@ -75,6 +75,8 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	}
 	req := args["request"].(map[string]any)
 	switch name {
+	case "bot_event":
+		return r.callEvent(ctx, req)
 	case "bot_tasks":
 		return r.callTasksV3(ctx, req)
 	case "bot_interactions":
@@ -159,6 +161,9 @@ func eventArgs(trigger map[string]any) map[string]any {
 	return q
 }
 func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[string]any) api.ToolResult {
+	if out, handled := r.eventSchedule(ctx, name, q); handled {
+		return out
+	}
 	kind := str(q, "type")
 	if name == "bot_schedule" {
 		switch kind {
@@ -167,10 +172,15 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		case "list":
 			return r.schedulePage(q)
 		case "sources":
-			if r.care == nil || r.careLoadErr != nil {
-				return compactError("care_unavailable", errors.New("native event sources unavailable"))
+			if r.careLoadErr != nil {
+				out := compactError("care_unavailable", errors.New("native care state unavailable; preserve existing data"))
+				out.StructuredContent["data"] = map[string]any{"eventTools": r.eventBindings(), "nativeCareAvailable": false}
+				return compactValue(out.StructuredContent, true)
 			}
-			return compactValue(map[string]any{"ok": true, "data": map[string]any{"sources": r.care.Sources(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now()), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "clock": r.Clock()}}, false)
+			if r.care == nil {
+				return compactValue(map[string]any{"ok": true, "data": map[string]any{"sources": []any{}, "eventTools": r.eventBindings(), "nativeCareAvailable": false, "clock": r.Clock()}}, false)
+			}
+			return compactValue(map[string]any{"ok": true, "data": map[string]any{"sources": r.care.Sources(), "eventTools": r.eventBindings(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now()), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "clock": r.Clock()}}, false)
 		case "test":
 			args := eventArgs(q["trigger"].(map[string]any))
 			args["operation"] = "test"
@@ -245,6 +255,14 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 				continue
 			}
 			items = append(items, map[string]any{"automation": "event:" + rule.ID, "kind": "event", "id": rule.ID, "label": rule.Label, "rule": rule})
+		}
+	}
+	if kind == "" && r.events != nil {
+		for _, p := range r.events.Snapshot().Plans {
+			if !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event), query) {
+				continue
+			}
+			items = append(items, map[string]any{"automation": "schedule:" + p.ID, "kind": "registered", "id": p.ID, "event": "event:" + p.Event, "next": p.Next, "status": p.Status})
 		}
 	}
 	slices.SortFunc(items, func(a, b map[string]any) int { return strings.Compare(str(a, "automation"), str(b, "automation")) })
@@ -326,6 +344,7 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 	return []*api.ToolConnection{
 		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
 		r.previousCompactToolConnection(),
+		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 	}
 }

@@ -603,3 +603,15 @@ start after recovery, absence of private error text, and recovery buttons that c
 The fixture has no account or real mutation authority.
 `script/build_and_run.sh --chat-preview` also retains the mounted send/refusal/unknown/draft-read scenarios.
 These browser/WebKit fixtures do not prove real-account authentication or Windows native behavior.
+
+## Registered-event verification
+
+Run `go test -race ./internal/eventplan ./internal/bot ./internal/plugins
+./internal/botskills` under `script/env.sh`. Fixtures cover scripted collection,
+MCP handshake/call and generation fences, declared output validation, CEL
+filtering, native grant rejection, original wake receipt recovery, cancellation,
+and terminal archive retention. Run `make check`, `make smoke`, `make build` for
+the full preparation paths. These are source/fixture checks; they do not claim
+live mailbox/calendar acceptance, universal model adoption, or Windows script
+collector support. Current model-facing examples live in Bot-core's
+`references/events.md`.

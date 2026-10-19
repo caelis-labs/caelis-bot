@@ -321,7 +321,7 @@ func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
 func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	r, _, _ := fixture(t)
 	defs := r.Definitions()
-	if len(defs) != 7 {
+	if len(defs) != 8 {
 		t.Fatal("incomplete application catalog")
 	}
 	defs[0].Name = "foreign"

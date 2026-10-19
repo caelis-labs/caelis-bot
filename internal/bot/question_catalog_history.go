@@ -14,7 +14,7 @@ import (
 type priorQuestionTools struct{ runtime *Runtime }
 
 func (v priorQuestionTools) Definitions() []api.ToolDefinition {
-	out := v.runtime.Definitions()
+	out := (priorEventTools{v.runtime}).Definitions()
 	for i, d := range out {
 		if d.Name == "bot_interactions" {
 			out[i] = tc.Definition("bot_interactions", "Inspect and resolve native Worker approvals and asynchronous questions. Use current offered options and exact request IDs. Answer from known task context or ask the user when unclear. Runtime remains authoritative; never decide this Bot's own approval or retry an unknown result.", tc.Request(

@@ -185,3 +185,9 @@ func (r Rule) subscriptions() []string {
 	return r.OnAny
 }
 func (r Rule) subscribes(source string) bool { return slices.Contains(r.subscriptions(), source) }
+
+// Validate checks a pure condition without requiring sample fields or evaluating it.
+func Validate(r Rule) error {
+	_, _, err := compile(r)
+	return err
+}

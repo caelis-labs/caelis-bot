@@ -72,3 +72,16 @@ func TestPreparedWorkerReceiptSettlesOnlyProvenUnsentRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduledBusyAdmissionIsExplicitlyDeferred(t *testing.T) {
+	s, _ := sessionPair(t, "hold")
+	sendSynthetic(t, s, "original-user-input")
+	receipt, err := s.Submit(t.Context(), api.Submission{ID: "event-wake-busy", Text: "Continue", Scheduled: true}, nil)
+	if err != nil || receipt.Outcome != "rejected" || !receipt.Deferred {
+		t.Fatal(receipt, err)
+	}
+	invalid, _ := s.Submit(t.Context(), api.Submission{ID: "bad", Text: "Continue", Scheduled: true}, nil)
+	if invalid.Deferred {
+		t.Fatal("permanent invalid request marked deferred")
+	}
+}

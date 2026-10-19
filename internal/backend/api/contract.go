@@ -311,9 +311,12 @@ type Submission struct {
 	Quoted             *QuotedMessage `json:"quoted,omitempty"` // channel-neutral user context, never decision authority
 }
 type Receipt struct {
-	ID      string `json:"id"`
-	Outcome string `json:"outcome"` // accepted, rejected or unknown; never inferred from prose.
-	Message string `json:"message"`
+	// Deferred means admission refused before creating any native operation.
+	// Only meaningful with rejected; the same ID may safely wait and try again.
+	Deferred bool   `json:"deferred,omitempty"`
+	ID       string `json:"id"`
+	Outcome  string `json:"outcome"` // accepted, rejected or unknown; never inferred from prose.
+	Message  string `json:"message"`
 }
 type Decision struct {
 	ID      string              `json:"id"`

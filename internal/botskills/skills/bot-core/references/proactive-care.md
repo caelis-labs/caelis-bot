@@ -1,5 +1,7 @@
 # Arrange condition-based care
 
+For simple timed follow-through, reusable tool/script observations, or task completion conditions, start with [Event arrangements](events.md). The contracts below remain available for native calendar and desktop care rules.
+
 Use `bot_schedule_update` for a condition-based standing arrangement, or a
 calendar trigger for an ordinary reminder. First call `bot_schedule` with
 `request:{"type":"sources"}` to discover registered source names/fields,

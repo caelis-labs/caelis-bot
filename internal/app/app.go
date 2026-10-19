@@ -549,6 +549,11 @@ func (a *Application) startRuntime() error {
 		err = resident.ConfigureTasks(manager, manager)
 	}
 	resident.ConfigureWorkerInteractions(a)
+	if a.plugins != nil {
+		resident.ConfigureEvents(a.plugins, filepath.Join(a.root, "Notebook"))
+	} else {
+		resident.ConfigureEvents(nil, filepath.Join(a.root, "Notebook"))
+	}
 	if err != nil && manager != nil {
 		return err
 	}

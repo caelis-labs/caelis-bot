@@ -16,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
@@ -60,6 +61,10 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	events         *eventplan.Engine
+	eventsErr      error
+	eventTools     EventTools
+	eventDirectory string
 	dream          *dreamController // guarded by step
 	handoff        *handoffStore    // application-private context seed
 	care           *care.Engine
@@ -144,6 +149,7 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 	if e := r.saveLocked(); e != nil {
 		return nil, e
 	}
+	r.initEvents()
 	return r, nil
 }
 func (r *Runtime) State() State {
@@ -299,6 +305,9 @@ func (r *Runtime) Stop() {
 	if cancel != nil {
 		cancel()
 	}
+	if r.events != nil {
+		r.events.Close()
+	}
 }
 func (r *Runtime) Close() {
 	r.Stop()
@@ -385,7 +394,7 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	}
 	r.mu.Unlock()
 	// A failed care store must not disable independently persisted reminders.
-	careErr := r.tickCare(ctx)
+	careErr := errors.Join(r.tickCare(ctx), r.tickEvents(ctx))
 	defer func() { err = errors.Join(err, careErr) }()
 	if ctx.Err() != nil {
 		return ctx.Err()

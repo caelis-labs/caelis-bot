@@ -229,6 +229,7 @@ export interface QuotedMessage {
   omittedChars?: number;
 }
 export interface Receipt {
+  deferred?: boolean;
   id: string;
   outcome: string;
   message: string;

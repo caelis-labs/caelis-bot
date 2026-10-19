@@ -127,3 +127,9 @@ type TaskHistoryEntry struct {
 	CreatedAt   string `json:"createdAt,omitempty"`
 	Environment string `json:"environment"`
 }
+
+// TaskExecutionSource fixes completion observers to one execution of a reusable task.
+// A missing or changed identity must never follow a subsequent continuation.
+type TaskExecutionSource interface {
+	ObserveTaskExecution(string) (Task, string, error)
+}
