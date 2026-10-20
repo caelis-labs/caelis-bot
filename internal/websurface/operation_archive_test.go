@@ -82,3 +82,20 @@ func TestTerminalRetirementSurvivesCapacityRestartAndNeverReplays(t *testing.T) 
 		t.Fatal("capacity still blocked", got.Body.String())
 	}
 }
+
+func TestLargeUnknownReceiptKeepsOriginalReconciliationTarget(t *testing.T) {
+	s := testServer(t)
+	c := pairClient(t, s)
+	value := map[string]string{"outcome": "unknown", "id": "native-original", "detail": strings.Repeat("fixture", 6000)}
+	s.register(action{Path: "/api/test/unknown", Function: func() any { return value }})
+	if got := c.request("/api/test/unknown", map[string]any{"id": "original-large-unknown", "args": []any{}}); got.Code != 200 {
+		t.Fatal(got.Code)
+	}
+	var stored map[string]string
+	if err := json.Unmarshal(s.operations["original-large-unknown"].Value, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored["id"] != "native-original" || stored["detail"] != value["detail"] || s.UpdateQuiescent() {
+		t.Fatal("unknown reconciliation evidence trimmed")
+	}
+}

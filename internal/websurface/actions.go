@@ -160,14 +160,11 @@ func (s *Server) register(a action) {
 		record := pending
 		record.State = "complete"
 		record.Value = result
-		if len(result) > 32<<10 {
-			if operationTerminal(record) {
-				record.Value = nil
-				record.Error = "operation_retired"
-			} else {
-				record.Value = nil
-				record.Error = "operation_unconfirmed"
-			}
+		// Bound confirmed display payloads only. An unknown native receipt may
+		// contain its original reconciliation target; never trim that evidence.
+		if len(result) > 32<<10 && operationTerminal(record) {
+			record.Value = nil
+			record.Error = "operation_retired"
 		}
 		if e != nil {
 			record.Error = "operation_unconfirmed"
