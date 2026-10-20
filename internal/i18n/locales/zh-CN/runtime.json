@@ -299,6 +299,5 @@
   "deviceOtherSession": "请在发起登录的浏览器中继续，或等待该登录结束。",
   "deviceActionFailed": "暂时无法确认操作结果，请稍后重试。",
   "deviceCopyFailed": "未能复制，请选中验证码手动复制。",
-  "deviceOpenFailed": "未能打开页面，请使用下方官方链接。",
-  "codexServerInstall": "请在运行 CaelisBot 的服务端主机安装 Codex，再重新检测。"
+  "deviceOpenFailed": "未能打开页面，请使用下方官方链接。"
 }

@@ -837,6 +837,9 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	if a.setup != nil && a.setup.codexInstallation != nil {
+		a.setup.codexInstallation.close()
+	}
 	if a.modelSelections != nil {
 		a.modelSelections.Close()
 	}

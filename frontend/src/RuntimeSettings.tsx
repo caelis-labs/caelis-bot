@@ -1,3 +1,4 @@
+import {useCodexInstallation} from './settings/runtime/CodexInstallation';
 import {CodexLogin} from './settings/runtime/CodexLogin';
 import {isWebSurface} from './transport';
 import {Recovery} from './SurfaceBoundary';
@@ -39,6 +40,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const [overview, setOverview] = useState<SetupOverview | null>(null), [id, setID] = useState(initialRuntime);
  const [profile, setProfile] = useState<Profile>(empty('')), [state, setState] = useState<SetupState | null>(null);
  const [installProgress,setInstallProgress]=useState<{phase:string;downloaded:number;total:number;bytesPerSecond:number}|null>(null);
+ const codexInstall=useCodexInstallation(active&&id==='codex',profile,call,async()=>{const v=await call<SetupState>('InspectSetup',profile);setState(v)});
  const cancelRequested=useRef(false);
  const [installCancelled,setInstallCancelled]=useState(false);
  const [installOperation,setInstallOperation]=useState(''),[installError,setInstallError]=useState('');
@@ -58,7 +60,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const progressPercent=measured?Math.min(100,100*installProgress!.downloaded/installProgress!.total):undefined;
  const progressAmount=installProgress?.downloaded?`${(installProgress.downloaded/1048576).toFixed(1)} MB${installProgress.total?` / ${(installProgress.total/1048576).toFixed(1)} MB`:''} · ${((installProgress.bytesPerSecond||0)/1048576).toFixed(1)} MB/s`:'';
  const connectionClient = useMemo(() => createRuntimeSettingsClient(call, profile), [profile]);
- const name = onboarding ? (id === 'caelis' ? 'Caelis CLI' : 'Codex CLI') : names[id] ?? '', blocked = !!busy || !!confirm;
+ const name = onboarding ? (id === 'caelis' ? 'Caelis CLI' : 'Codex CLI') : names[id] ?? '', blocked = !!busy || !!confirm || codexInstall.running;
  const selectedActive = !!overview?.hasRuntimeChoice && overview.active === id;
  useEffect(() => { if (confirm) document.querySelector('.runtime-confirm')?.scrollIntoView({ block: 'nearest' }); }, [confirm]);
  useEffect(() => { onBusy?.(blocked || !!form || !!confirm || locationOpen); return () => onBusy?.(false); }, [blocked, form, confirm, locationOpen, onBusy]);
@@ -76,6 +78,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   }).catch(e => { if (generation === epoch.current) { setError(errorText(e)); setPreparationFailed(true); } }).finally(() => { if (generation === epoch.current) { working.current = false; setBusy(''); } });
  }, [id, preparationAttempt]);
  const run = async (action: string, fields: Partial<SetupRequest> = {}) => {
+  if(id==='codex'&&['install','update'].includes(action)){await codexInstall.start(action);return;}
   if (working.current) return; working.current = true; setBusy(action); setError(''); setNotice('');
   if(['install','update'].includes(action)){cancelRequested.current=false;setInstallCancelled(false);setInstallOperation(action);setInstallError('');setInstallProgress(null);}
   try {
@@ -144,7 +147,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  if (onboarding && !locationOpen && (!state||profile.runtime!==id)) return preparationFailed ? <section className="runtime-onboarding">
   <SetupBack onClick={() => setID('')}/>
   <button className="primary" onClick={() => setPreparationAttempt(v => v + 1)}>{t('settings.runtimeTryAgain')}</button>
- </section> : <SetupLoading/>;
+ </section> : <>{codexInstall.dialog}<SetupLoading/></>;
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && !(onboarding && state.installation.bundled && ['ready','models'].includes(state.state)) && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const updateAvailable = !state?.installation.bundled && state?.installation.updateState === 'available';
  const {models:existingModels,selected:selectedModel}=existingModelChoice(state,draftModel);
@@ -177,7 +180,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </dl>}
    {serviceNeedsApply && !(onboarding && state?.state==='service') && <p className="runtime-update-hint">{state?.state === 'service' ? t('runtime.readyAfterServiceStart') : t('runtime.newVersionNotActivated')}</p>}
    <div className="runtime-program-actions">
-    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => isWebSurface() ? setLocationOpen(true) : void run('install')}>{isWebSurface() ? '安装指引' : onboarding ? t('runtime.onboardingInstallAction') : t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding && !state.installation.bundled ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
+    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => void run('install')}>{t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding && !state.installation.bundled ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
     <button className="text-action" disabled={blocked || !id} onClick={() => void run('detect')}>{t('runtime.recheck')}</button>
    </div>
    {state?.installation.bundled && <p className="settings-note">{t('runtime.bundledUpdateHint')}</p>}
@@ -196,7 +199,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </div>}
 
   </>}
-  {(!onboarding||!state?.installation.installed||['incompatible','unavailable'].includes(state.state)||state.login?.state==='unsupported')&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t('runtime.programAndDataDirectory')}</button>}
+  {(!onboarding||!!profile.cliPath||id!=='codex'&&!state?.installation.installed||['incompatible','unavailable'].includes(state?.state||'')||state?.login?.state==='unsupported')&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t('runtime.programAndDataDirectory')}</button>}
   {locationOpen&&<SettingsDialog title={t('runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
    {isWebSurface()&&<p className="settings-note">检测与路径属于运行 CaelisBot 的服务端主机。Codex 需在该主机安装；Caelis 随发行包提供。</p>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
@@ -209,6 +212,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   {!onboarding && !oauthPage && busy && !['install','update'].includes(busy) && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
   {!oauthPage && (error ? <Recovery message={error}/> : notice && !(onboarding && state && ['ready','models'].includes(state.state)) ? <p className="settings-note" role="status">{notice}</p> : state && !(onboarding && (!state.installation.installed || state.state==='login')) && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>)}
   {!(onboarding&&id==='caelis') && state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (reconnectNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end"><SetupButton busy={busy==='activate'} className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('settings.permissionContinue') : t('runtime.restartAndApply')}</SetupButton></div>}
+  {codexInstall.dialog}
   {installOperation&&<SettingsDialog className="runtime-install-dialog" title={t(installError?(installCancelled?'settings.runtimeInstallCancelled':'settings.runtimeInstallFailed'):installOperation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name})} busy={!!busy} onClose={()=>{if(!busy){setInstallOperation('');setInstallError('')}}}>
    {installError?<Recovery message={installError}/>:<><div className={`runtime-install-progress${measured?' is-measured':''}`} role="progressbar" aria-valuemin={measured?0:undefined} aria-valuemax={measured?100:undefined} aria-valuenow={progressPercent} aria-label={t(installOperation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name})}><span style={measured?{width:`${progressPercent}%`}:undefined}/></div>{progressAmount&&<p className="settings-note">{progressAmount}</p>}<p className="settings-note" role="status">{t(id==='caelis'&&installProgress?.phase==='verifying'?'settings.runtimeVerifying':id==='caelis'&&installProgress?.phase==='installing'?'settings.runtimeFinishing':'settings.runtimeInstallWait')}</p><div className="setup-end"><button disabled={installCancelled} onClick={()=>{cancelRequested.current=true;setInstallCancelled(true);void call('CancelSetupOperation').catch(()=>{cancelRequested.current=false;setInstallCancelled(false)})}}>{t('common.cancel')}</button></div></>}
    {installError&&<div className="setup-end"><button onClick={()=>{setInstallOperation('');setInstallError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void run(installOperation)}>{t('settings.runtimeTryAgain')}</button></div>}

@@ -76,7 +76,7 @@ func ManageRuntime(ctx context.Context, action, path string) (api.RuntimeStatus,
 			return current, errors.New("自定义位置请通过原安装方式更新，或切回自动发现安装官方版本")
 		}
 		if action == "install" && current.Installed {
-			return current, errors.New("已找到 Codex，请使用更新")
+			return current, nil // A late second install observes the existing program; never replaces it.
 		}
 		// Do not overwrite a Homebrew/npm installation with another package manager.
 		home, _ := os.UserHomeDir()

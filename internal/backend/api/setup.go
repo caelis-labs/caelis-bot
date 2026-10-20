@@ -73,6 +73,11 @@ type SetupController interface {
 
 // SetupInstallProgress reports measured download bytes, never an estimated completion.
 type SetupInstallProgress struct {
+	Runtime        string `json:"runtime,omitempty"`
+	ID             string `json:"id,omitempty"`
+	Action         string `json:"action,omitempty"`
+	State          string `json:"state,omitempty"`
+	Error          string `json:"error,omitempty"`
 	Phase          string `json:"phase"`
 	Downloaded     int64  `json:"downloaded"`
 	Total          int64  `json:"total"`

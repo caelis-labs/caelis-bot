@@ -300,6 +300,5 @@
   "deviceOtherSession": "Continue in the browser that started sign-in, or wait for it to finish.",
   "deviceActionFailed": "The result is not confirmed yet. Please try again shortly.",
   "deviceCopyFailed": "Could not copy. Select the code to copy it manually.",
-  "deviceOpenFailed": "Could not open the page. Use the official link below.",
-  "codexServerInstall": "Install Codex on the CaelisBot server, then check again."
+  "deviceOpenFailed": "Could not open the page. Use the official link below."
 }

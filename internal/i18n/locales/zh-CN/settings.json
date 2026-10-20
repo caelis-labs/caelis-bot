@@ -668,5 +668,10 @@
   "modelSelectionRecovering": "已记住你的选择，连接就绪后会自动生效。",
   "modelCatalogRecovering": "正在连接，模型列表会自动恢复。",
   "runtimeStatusFailed": "状态刷新失败，已保留保存的配置。",
-  "runtimeLastChecked": "上次检测"
+  "runtimeLastChecked": "上次检测",
+  "codexPrepareStage": "正在准备官方安装程序…",
+  "codexDownloadStage": "正在下载 Codex…",
+  "codexCheckStage": "正在检测安装结果…",
+  "codexInstallRetryHint": "安装未完成。请检查网络和可用磁盘空间后重试。",
+  "codexInstallUnknown": "安装结果尚未确认。请重新检测，暂不重复安装。"
 }

@@ -1,6 +1,5 @@
 import {CodexLogin} from './CodexLogin';
 import type {SetupRequest} from '../../backend/contract';
-import {isWebSurface} from '../../transport';
 import type {SetupState} from '../../backend/contract';
 import {useI18n} from '../../i18n';
 import {SettingGroup,SettingRow} from '../../SettingsUI';
@@ -12,7 +11,6 @@ export function CodexRuntimePanel({state,busy,checking,error=false,onAction,onDe
  const {t}=useI18n();
  const installed=state.installation.installed,ready=state.state==='ready';
  const login=installed&&(state.state==='login'||state.loginPending);
- if(isWebSurface()&&!installed)return <div className="codex-runtime-panel"><p className="settings-note">{t('runtime.codexServerInstall')}</p><button disabled={busy||checking} onClick={onDetect}>{t('runtime.recheck')}</button></div>;
  const available=state.installation.updateState==='available';
 
  return <div className="codex-runtime-panel">
@@ -28,7 +26,7 @@ export function CodexRuntimePanel({state,busy,checking,error=false,onAction,onDe
   {installed&&!ready&&!login&&<p className="inline-error" role="alert">{t(setupStatusKey(state))}</p>}
   {installed&&<SettingGroup><SettingRow label={t('settings.codexVersion')} description={<>{state.installation.version}{state.installation.updateState==='current'&&<span className="codex-version-status" role="status"> · {t('settings.codexUpToDate')}</span>}</>}>
    <button disabled={busy||checking} onClick={()=>onAction('check-update')}>{t(checking?'settings.codexCheckingUpdate':'runtime.checkUpdate')}</button>
-  </SettingRow>{available&&!isWebSurface()&&<SettingRow label={t('runtime.newVersionAvailable',{version:state.installation.latestVersion})}><button className="primary" disabled={busy||checking} onClick={()=>onAction('update')}>{t('runtime.update')}</button></SettingRow>}
+  </SettingRow>{available&&<SettingRow label={t('runtime.newVersionAvailable',{version:state.installation.latestVersion})}><button className="primary" disabled={busy||checking} onClick={()=>onAction('update')}>{t('runtime.update')}</button></SettingRow>}
 </SettingGroup>}
   {!installed&&<button className="text-action" disabled={busy||checking} onClick={onDetect}>{t('settings.codexDetectExisting')}</button>}
  </div>;

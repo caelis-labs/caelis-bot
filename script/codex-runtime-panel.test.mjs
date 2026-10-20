@@ -183,3 +183,13 @@ test('owned pending challenge exposes only official user instructions, never ano
  assert.doesNotMatch(other,/TEST-1234|verification page|Cancel/);
  assert.match(other,/browser that started/);
 });
+
+test('Web shares the App Codex installer rather than replacing it with a guide',async()=>{
+ const {installTransport}=await server.ssrLoadModule('/src/transport.ts');
+ installTransport(async()=>{});
+ try{
+  const html=render({...base,installation:{installed:false}});
+  assert.match(html,/Install Codex/);
+  assert.doesNotMatch(html,/Install Codex on the CaelisBot server|Installation guide|Program and paths/);
+ }finally{installTransport(undefined);}
+});

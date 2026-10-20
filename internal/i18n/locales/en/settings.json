@@ -669,5 +669,10 @@
   "modelSelectionRecovering": "Your choice is saved and will apply when the connection is ready.",
   "modelCatalogRecovering": "Connecting. Your model list will return automatically.",
   "runtimeStatusFailed": "Status could not be refreshed. Saved configuration is retained.",
-  "runtimeLastChecked": "Last checked"
+  "runtimeLastChecked": "Last checked",
+  "codexPrepareStage": "Preparing the official installer…",
+  "codexDownloadStage": "Downloading Codex…",
+  "codexCheckStage": "Checking the installed program…",
+  "codexInstallRetryHint": "Installation did not finish. Check the network and available disk space, then try again.",
+  "codexInstallUnknown": "The installation result is not confirmed. Check the program again; installation will not be repeated."
 }

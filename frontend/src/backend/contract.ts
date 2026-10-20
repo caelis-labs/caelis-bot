@@ -424,6 +424,17 @@ export interface SetupChoice {
   noAuth: boolean;
   current: boolean;
 }
+export interface SetupInstallProgress {
+  runtime?: string;
+  id?: string;
+  action?: string;
+  state?: string;
+  error?: string;
+  phase: string;
+  downloaded: number;
+  total: number;
+  bytesPerSecond: number;
+}
 export interface SetupLogin {
   id: string;
   state: string;

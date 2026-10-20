@@ -19,6 +19,7 @@ import (
 )
 
 type runtimeSetup struct {
+	codexInstallation *codexInstallation
 	progressMu        sync.Mutex
 	progress          api.SetupInstallProgress
 	operationMu       sync.Mutex
@@ -38,15 +39,27 @@ type runtimeSetup struct {
 
 func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
 	s.progressMu.Lock()
-	defer s.progressMu.Unlock()
-	return s.progress
+	progress := s.progress
+	s.progressMu.Unlock()
+	if progress.State == "running" {
+		return progress
+	}
+	if s.codexInstallation != nil {
+		if p := s.codexInstallation.snapshot(); p.State != "" {
+			return p
+		}
+	}
+	return progress
 }
 func (s *runtimeSetup) setInstallProgress(p caelisruntime.InstallProgress) {
 	s.progressMu.Lock()
 	defer s.progressMu.Unlock()
-	s.progress = api.SetupInstallProgress{Phase: p.Phase, Downloaded: p.Downloaded, Total: p.Total, BytesPerSecond: p.BytesPerSecond}
+	s.progress.Phase, s.progress.Downloaded, s.progress.Total, s.progress.BytesPerSecond = p.Phase, p.Downloaded, p.Total, p.BytesPerSecond
 }
 func (s *runtimeSetup) CancelOperation() bool {
+	if s.codexInstallation != nil && s.codexInstallation.stop() {
+		return true
+	}
 	s.operationMu.Lock()
 	defer s.operationMu.Unlock()
 	if s.operationCancel == nil {
@@ -61,7 +74,7 @@ func (a *Application) configureSetup() {
 	if _, e := os.Stat(filepath.Join(a.root, "setup.json")); !os.IsNotExist(e) {
 		fresh = false
 	}
-	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}}
+	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}, codexInstallation: newCodexInstallation(a.root)}
 	a.Backend.ConfigureSetup(a.setup)
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
@@ -114,6 +127,11 @@ func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
 	return nil
 }
 func (s *runtimeSetup) Inspect(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
+	if s.codexInstallation != nil {
+		if state, running := s.codexInstallation.runningState(v); running {
+			return state, nil
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.prepared, v.Runtime) // Explicit recheck always observes the Runtime.
@@ -206,9 +224,36 @@ func (s *runtimeSetup) Catalog(ctx context.Context, r api.SetupRequest) ([]api.S
 	return caelis.SetupCatalog(ctx, r)
 }
 func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
+	if r.Settings.Runtime == "codex" && s.codexInstallation != nil {
+		if r.Action == "install" || r.Action == "update" {
+			if err := validSetup(r.Settings, s.app.locale()); err != nil {
+				return api.SetupState{}, err
+			}
+			return s.codexInstallation.start(ctx, r, s.applySetup)
+		}
+		if r.Action == "prepare" {
+			if state, running := s.codexInstallation.runningState(r.Settings); running {
+				return state, nil
+			}
+		}
+	}
+	return s.applySetup(ctx, r)
+}
+
+func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r.Action == "install" || r.Action == "update" {
+		if r.Settings.Runtime != "codex" {
+			s.progressMu.Lock()
+			s.progress = api.SetupInstallProgress{Runtime: r.Settings.Runtime, State: "running"}
+			s.progressMu.Unlock()
+			defer func() {
+				s.progressMu.Lock()
+				s.progress.State = "complete"
+				s.progressMu.Unlock()
+			}()
+		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 		s.operationMu.Lock()

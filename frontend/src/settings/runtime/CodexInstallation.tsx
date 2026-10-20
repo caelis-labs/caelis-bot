@@ -1,0 +1,60 @@
+import {useEffect,useRef,useState} from 'react';
+import type {backend} from '../../desktop';
+import type {RuntimeSettings,SetupInstallProgress,SetupRequest} from '../../backend/contract';
+import {useI18n} from '../../i18n';
+import {SettingsDialog} from './SettingsDialog';
+
+// Both App and Web observe the same host operation. Polling never starts or
+// retries installation; refreshing/mounting a second tab only adopts its state.
+export function useCodexInstallation(active:boolean,profile:RuntimeSettings,call:typeof backend,onSettled:()=>Promise<unknown>){
+ const {t}=useI18n();
+ const [progress,setProgress]=useState<SetupInstallProgress|null>(null),[starting,setStarting]=useState(false),[error,setError]=useState(''),[dismissed,setDismissed]=useState(''),[cancelling,setCancelling]=useState(false);
+ const flight=useRef(false),settled=useRef(''),settling=useRef(false),callback=useRef(onSettled);
+ callback.current=onSettled;
+ useEffect(()=>{
+  if(!active)return;
+  let live=true,reading=false;
+  const read=async()=>{
+   if(reading)return;reading=true;
+   try{
+    const p=await call<SetupInstallProgress>('SetupInstallProgress');
+    if(!live||p.runtime!=='codex')return;
+    setProgress(p);
+    if(p.state!=='running'&&p.id&&p.id!==settled.current&&!settling.current){
+     settling.current=true;
+     try{await callback.current();if(live)settled.current=p.id;}finally{settling.current=false;}
+    }
+   }catch{/* Keep known progress; a transient read is never an effect retry. */}
+   finally{reading=false;}
+  };
+  void read();const timer=window.setInterval(()=>void read(),750);
+  return()=>{live=false;clearInterval(timer)};
+ },[active,call]);
+ const start=async(action:string)=>{
+  if(flight.current)return;
+  flight.current=true;setStarting(true);setError('');setDismissed('');setCancelling(false);
+  try{
+   // Reconcile an existing host operation before admitting a new write.
+   const current=await call<SetupInstallProgress>('SetupInstallProgress');
+   if(current.runtime==='codex'&&['running','unknown'].includes(current.state||'')){setProgress(current);return;}
+   const request:SetupRequest={settings:profile,action,provider:'',baseUrl:'',model:'',apiKey:''};
+   await call('ApplySetup',request);
+   setProgress(await call<SetupInstallProgress>('SetupInstallProgress'));
+  }catch{setError(t('settings.codexInstallRetryHint'));}
+  finally{flight.current=false;setStarting(false);}
+ };
+ const running=starting||progress?.state==='running';
+ const failed=progress&&['failed','cancelled','unknown'].includes(progress.state||'');
+ const show=active&&(running||!!error||!!failed&&dismissed!==progress?.id);
+ const phase=progress?.phase;
+ const phaseKey=phase==='downloading'?'settings.codexDownloadStage':phase==='installing'?'settings.runtimeFinishing':phase==='verifying'?'settings.codexCheckStage':'settings.codexPrepareStage';
+ const action=progress?.action==='update'?'update':'install';
+ const close=()=>{if(!running){setDismissed(progress?.id||'');setError('')}};
+ const dialog=show?<SettingsDialog className="runtime-install-dialog" title={t(running?(action==='update'?'settings.codexUpdating':'settings.codexInstalling'):progress?.state==='cancelled'?'settings.runtimeInstallCancelled':'settings.runtimeInstallFailed',{name:'Codex'})} busy={!!running} onClose={close}>
+  {running?<><div className="runtime-install-progress" role="progressbar" aria-label={t(phaseKey)} aria-valuetext={t(phaseKey)} aria-busy="true"><span/></div><p className="settings-note" role="status">{t(phaseKey)}</p><div className="setup-end"><button disabled={cancelling} onClick={()=>{setCancelling(true);void call('CancelSetupOperation').catch(()=>setCancelling(false))}}>{t('common.cancel')}</button></div></>:<>
+   <p className="inline-error" role="alert">{progress?.state==='unknown'?t('settings.codexInstallUnknown'):error||t('settings.codexInstallRetryHint')}</p>
+   <div className="setup-end"><button onClick={close}>{t('common.close')}</button>{progress?.state==='unknown'?<button className="primary" onClick={()=>void callback.current().catch(()=>{})}>{t('runtime.recheck')}</button>:<button className="primary" onClick={()=>void start(action)}>{t('settings.runtimeTryAgain')}</button>}</div>
+  </>}
+ </SettingsDialog>:null;
+ return {running:!!running,start,dialog};
+}

@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,5 +65,48 @@ func TestCodexOfficialRedirectDownload(t *testing.T) {
 	defer response.Body.Close()
 	if calls != 2 || response.StatusCode != 200 {
 		t.Fatal("official redirect did not complete")
+	}
+}
+
+func TestManagedInstallerRefusesEscapingDirectory(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("automatic installer supports macOS/Linux")
+	}
+	home, other := t.TempDir(), t.TempDir()
+	if err := os.Symlink(other, filepath.Join(home, ".local")); err != nil {
+		t.Fatal(err)
+	}
+	if managedDirectory(home, filepath.Join(home, ".local", "bin")) == nil {
+		t.Fatal("followed redirected directory")
+	}
+}
+
+func TestInstallerReportsOnlyRealStagesAndFixesDestination(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("automatic installer supports macOS/Linux")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_INSTALL_DIR", "/not-the-server-user")
+	t.Setenv("CODEX_INSTALL_DAEMON_ONLY", "1")
+	t.Setenv("CODEX_RELEASE", "untrusted-override")
+	script := filepath.Join(t.TempDir(), "installer.sh")
+	body := `test "$CODEX_INSTALL_DIR" = "$HOME/.local/bin" || exit 2
+ test "$CODEX_NON_INTERACTIVE" = 1 || exit 3
+ test -z "${CODEX_RELEASE:-}${CODEX_INSTALL_DAEMON_ONLY:-}" || exit 4
+ echo '==> Downloading Codex CLI'
+ echo 'PRIVATE_AUTH_SECRET'
+ echo '==> Installing standalone package to /PRIVATE_PATH'
+ `
+	if err := os.WriteFile(script, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var phases []string
+	ctx := WithProgress(t.Context(), func(p string) { phases = append(phases, p) })
+	if err := runCodexInstaller(ctx, script); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(phases, ",") != "downloading,installing,verifying" {
+		t.Fatal(phases)
 	}
 }
