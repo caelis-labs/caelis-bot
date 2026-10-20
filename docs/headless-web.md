@@ -5,13 +5,14 @@
 
 ## 本机开始
 
-需要 Go（见 go.mod）、Node 24（见 package.json）。不需要显示器、Wails、GTK 或 Docker。
+源码构建需要 Go（见 go.mod）、Node 24（见 package.json）和 Python 3；预构建归档无需这些工具。Linux 主机需提供 bubblewrap 和可用的非特权 user namespaces，Core 不会在沙箱不可用时降级执行。Rocky 体验环境已具备这些条件。不需要显示器、Wails、GTK 或 Docker。
 
 ```sh
 ./script/npm.sh ci
-./script/build-headless.sh          # Linux；其他构建主机生成 Linux binary
-install -m 755 dist/headless/caelisbot ~/.local/bin/caelisbot
-caelisbot serve                    # 默认 127.0.0.1:9317
+./script/build-headless.sh          # Linux arm64/amd64，默认构建主机架构
+# BOT_HEADLESS_ARCH=amd64 ./script/build-headless.sh 可交叉构建
+# 保留整个目录；也可解压 dist/headless/caelisbot-*-linux-*.tar.gz
+./dist/headless/linux-arm64/caelisbot serve                    # 默认 127.0.0.1:9317
 ```
 
 打开 `http://127.0.0.1:9317` 即可使用，无需配对。只有绑定 loopback 的监听器、真实 loopback TCP 客户端及精确 localhost Origin 同时满足，才自动建立 HttpOnly 会话；仍检查 Host、Origin 和 CSRF。任何 Forwarded/X-Forwarded-* 声明都不能建立本机信任。
@@ -22,10 +23,19 @@ caelisbot serve                    # 默认 127.0.0.1:9317
 - 一个目录只允许一个 headless 进程。**不要与桌面 App 共用正在使用的数据目录**，也不要给容器挂载用户整个 HOME/密钥目录。
 - `Ctrl-C` 或服务管理器 SIGTERM 停止服务。关闭浏览器仅断开显示；已接受的 Bot/Worker 工作继续由原 owner 管理。
 - `serve --web=false` 只运行后台服务。`pair` 必须使用与 `serve` 相同的 `--data-dir`。
-- Runtime 未安装也能打开聊天和设置，首次引导右上角的齿轮可直接进入设置。连接页引导在**执行主机**安装 CLI、指定路径、重新检测和连接模型。浏览器电脑的本地路径不可代替主机路径。Linux 不伪装桌面自动安装器。
-- Codex 登录保持原第三方行为。远程环境优先主机侧先登录后重新检测，或共享设置中的 API Key；OAuth loopback 回调需要回到 Runtime 主机。API Key 只作为现有配置操作的写入参数，Web 不返回原始密钥。
+- 归档和 Docker 均携带 `resources/caelis-runtime/release.json` 锁定的 Caelis v0.72.2。发行目录必须保留 `Helpers/caelis`、`Resources/Caelis-Runtime.json` 和许可证；构建核对归档、可执行文件 SHA-256 与 ELF 架构。选择默认连接后沿用 App 的自动准备和模型配置，无需另装 Caelis。
+- 显式 CLI 路径优先，其次是程序自身发行目录，最后才是 PATH/用户安装。随包程序禁止自更新，随 Bot 完整归档/镜像更新；缺失或损坏时不悄悄改用系统 CLI。不会向系统 PATH 安装或覆盖已有 Caelis。
+- 程序暂不可用时设置和恢复入口仍可达。所有检测、程序路径与数据目录均属于**执行主机**，不是浏览器电脑；Linux 不伪装桌面文件选择器。
+- Codex 不随包交付。App 的自动安装器当前仅支持 macOS；Web 使用官方安装指引，在服务主机安装后重新检测。检测复用现有 PATH/用户目录和标准 App Server 握手。已安装时可在服务主机执行 `codex login --device-auth` 后重新检测，或在首启使用 API Key；已有认证直接进入模型选择。App 的浏览器登录依赖服务主机 localhost 回调，不把远程浏览器冒充该主机。API Key 只传给原登录操作，Web 不返回密钥。
+- `--data-dir` 隔离 Bot 数据，不改变 CLI 的既有 Store 规则。需要完全隔离测试/服务时另设独立 HOME/CODEX_HOME；Docker 的 HOME=/data，Caelis Store 与可选 Codex 登录随专用卷持久化，不挂载生产用户 HOME。
 
-## Docker：guest loopback 不等于 host loopback
+## Docker：发行兼容待解决
+
+镜像已包含锁定 CLI、CA 证书和 bubblewrap，但本机 OrbStack Docker 默认 seccomp/systempaths 保护阻止 Core 的内部沙箱启动；**尚未通过 Docker 完整验收，当前请用 Linux VM/Rocky 体验**。不能用 `--privileged`、`systempaths=unconfined` 或 Core 的跳过权限参数绕过。以下仅说明镜像构建与 HTTP 入口边界，不承诺 Docker 内模型/任务可用。
+
+Docker 的 [seccomp 默认规则](https://docs.docker.com/engine/security/seccomp/)与 [bubblewrap 的 namespace 需求](https://github.com/containers/bubblewrap)需在后续发行兼容工作中协调；本轮未修改 Docker 或宿主全局安全配置。
+
+### guest loopback 不等于 host loopback
 
 容器的 TCP peer 通常是 NAT 网关，不能据此判断浏览器在宿主。提供两种入口：
 
@@ -55,11 +65,11 @@ docker run -d --name caelisbot-web \
 
 浏览器打开 relay 的 `http://127.0.0.1:9317`，无需配对。proof 不发给浏览器、不入 URL/日志。停止 relay 用 Ctrl-C；停止/启动原服务用 `docker stop/start caelisbot-web`，保留数据卷。若已有 secret 管理器，可使用非 root 可读的只读 secret mount 替代初始化 helper。验收交付目录提供已配置的专用启动脚本。
 
-按 [Docker 端口发布文档](https://docs.docker.com/engine/network/port-publishing/)，宿主映射必须显式为 127.0.0.1。**不要把 relay 放到容器内后发布到所有接口，不要将 relay 接到 Tailscale/公网代理**；远程代理走原始服务的认证入口。镜像没有模型 Runtime/真实凭据；可通过扩展镜像安装 Runtime，保持同一非 root 用户。不要挂载 Docker socket。
+按 [Docker 端口发布文档](https://docs.docker.com/engine/network/port-publishing/)，宿主映射必须显式为 127.0.0.1。**不要把 relay 放到容器内后发布到所有接口，不要将 relay 接到 Tailscale/公网代理**；远程代理走原始服务的认证入口。镜像已带 Caelis，未带 Codex 或真实凭据；可按官方方式扩展镜像安装 Codex，保持同一非 root 用户。不要挂载 Docker socket。
 
 ## VM / WSL
 
-原生 Linux binary 为首选；VM 中运行与本机相同。可以使用 SSH 本地转发：
+完整原生 Linux 发行目录为首选；VM 中运行与本机相同。可以使用 SSH 本地转发：
 
 ```sh
 # guest: 默认 loopback；browser origin 为转发后的地址
@@ -68,9 +78,11 @@ caelisbot serve --origin http://127.0.0.1:9317
 ssh -N -L 127.0.0.1:9317:127.0.0.1:9317 user@guest
 ```
 
+本轮 Rocky 体验采用更明确的上游边界：guest 仅监听 loopback 并启用 `--require-pairing`，宿主 SSH 仅转发 `127.0.0.1:19318`，上述 host-only relay 在 `127.0.0.1:19317` 加私有证明。浏览器本机免配对，直接访问原始转发端口仍需认证；不依赖 SSH peer=loopback 来信任任意代理来源。
+
 也可显式 `--listen <guest私网IP>:9317 --origin http://<guest私网IP>:9317`，仅适用于可信宿主/VM 私网；配对仍必需。不得默认无认证监听全部网卡。
 
-WSL 使用 Linux binary。[Microsoft 网络文档](https://learn.microsoft.com/en-us/windows/wsl/networking)说明 localhost 与私网访问的区别。先在 WSL 内检查监听和页面，再在 Windows 浏览器实际验证 localhost 转发。若当前 WSL 网络模式没有转发，使用已验证的私网地址或 SSH 转发；本文不自动修改 WSL 网络、防火墙、登录或系统设置，也不宣称已完成 WSL 实机验收。WSL Windows GUI 桥接和 Linux/WSL DTW 电脑操作均不支持。
+WSL 使用对应架构 Linux 发行目录。[Microsoft 网络文档](https://learn.microsoft.com/en-us/windows/wsl/networking)说明 localhost 与私网访问的区别。先在 WSL 内检查监听和页面，再在 Windows 浏览器实际验证 localhost 转发。若当前 WSL 网络模式没有转发，使用已验证的私网地址或 SSH 转发；本文不自动修改 WSL 网络、防火墙、登录或系统设置，也不宣称已完成 WSL 实机验收。WSL Windows GUI 桥接和 Linux/WSL DTW 电脑操作均不支持。
 
 ## Tailscale 等私网
 
@@ -106,7 +118,7 @@ Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate
 
 `deploy/headless/caelisbot.service` 是用户级 systemd 示例。确认路径后复制到用户 unit 目录，再启用；需要退出登录后常驻时，由用户选择是否开启 linger。本次实现不改系统配置。WSL 有 systemd 时可用同一 unit；否则在 WSL 会话或用户既有进程管理器中启动，不保证关闭 WSL 实例后继续运行。
 
-更新时停止 headless owner、备份数据目录、替换 binary / container、重启。没有 Web 自更新执行入口。只新增 Web 私有状态；既有 Notebook、schedule、渠道、Runtime 数据和 receipt 格式不迁移。历史 Memory 退役与 Notebook 无关。
+更新时停止 headless owner、备份数据目录、替换完整发行目录 / container、重启。没有 Web 自更新执行入口。只新增 Web 私有状态；既有 Notebook、schedule、渠道、Runtime 数据和 receipt 格式不迁移。历史 Memory 退役与 Notebook 无关。
 
 ## 施工接缝与验证
 

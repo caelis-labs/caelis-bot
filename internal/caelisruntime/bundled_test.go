@@ -59,7 +59,18 @@ func TestBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
 	}
 	root := t.TempDir()
 	contents := filepath.Join(root, "Test.app", "Contents")
-	for _, dir := range []string{"MacOS", "Helpers"} {
+	binaryDirectory := "MacOS"
+	if os.Getenv("BOT_PORTABLE_BUNDLE_TEST") == "1" {
+		contents = filepath.Join(root, "portable")
+		binaryDirectory = "."
+		if err := os.MkdirAll(filepath.Join(contents, "Resources"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(contents, "Resources", "Caelis-Runtime.json"), []byte(`{}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{binaryDirectory, "Helpers"} {
 		if err := os.MkdirAll(filepath.Join(contents, dir), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +80,7 @@ func TestBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child := filepath.Join(contents, "MacOS", "test")
+	child := filepath.Join(contents, binaryDirectory, "test")
 	if err = os.WriteFile(child, data, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -105,4 +116,9 @@ func TestOrdinaryExecutableHasNoBundleCandidate(t *testing.T) {
 	if path := bundledPath(executable); path != "" {
 		t.Fatal("ordinary CLI inferred a bundle", path)
 	}
+}
+
+func TestPortableBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
+	t.Setenv("BOT_PORTABLE_BUNDLE_TEST", "1")
+	TestBundledRuntimeDiscoveryAndUpdateBoundary(t)
 }

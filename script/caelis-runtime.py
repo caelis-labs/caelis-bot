@@ -128,5 +128,56 @@ def verify_windows(bundle):
     check_version(binary, expected)
 
 
+def stage_headless(bundle, target_name):
+    """Stage a portable Linux distribution; never install into the user's PATH."""
+    manifest = json.loads((ROOT / 'resources/caelis-runtime/release.json').read_text())
+    if target_name not in ('linux-amd64', 'linux-arm64'):
+        raise ValueError('Unsupported headless target: ' + target_name)
+    target = manifest['targets'][target_name]
+    cache = ROOT / '.cache/caelis-runtime' / manifest['version']
+    cache.mkdir(parents=True, exist_ok=True)
+    archive = cache / target['artifact']
+    if not archive.exists():
+        with tempfile.TemporaryDirectory(dir=cache) as directory:
+            downloaded = pathlib.Path(directory) / 'download.tar.gz'
+            subprocess.run(['node', str(ROOT / 'script/release-network.mjs'), 'curl',
+                            '--fail', '--silent', '--show-error', '--location', '--max-time', '180',
+                            'https://github.com/caelis-labs/caelis/releases/download/' + manifest['version'] + '/' + target['artifact'],
+                            '--output', str(downloaded)], check=True)
+            if hashlib.sha256(downloaded.read_bytes()).hexdigest() != target['sha256']:
+                raise ValueError('Caelis archive checksum mismatch')
+            downloaded.replace(archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != target['sha256']:
+        raise ValueError('Cached Caelis archive checksum mismatch')
+    with tarfile.open(archive) as tar:
+        members = {}
+        for name in ['caelis', 'LICENSE']:
+            matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
+            if len(matches) != 1 or not matches[0].isfile():
+                raise ValueError('Invalid Caelis release member: ' + name)
+            members[name] = tar.extractfile(matches[0]).read()
+    binary = members['caelis']
+    if hashlib.sha256(binary).hexdigest() != target['binary_sha256']:
+        raise ValueError('Caelis executable checksum mismatch')
+    # Cross-builds cannot execute the target binary. Validate ELF identity here;
+    # native Docker/Linux acceptance additionally checks the CLI release identity.
+    machine = 62 if target_name == 'linux-amd64' else 183
+    if binary[:6] != b'\x7fELF\x02\x01' or int.from_bytes(binary[18:20], 'little') != machine:
+        raise ValueError('Caelis executable architecture mismatch')
+    helpers, resources = bundle / 'Helpers', bundle / 'Resources'
+    helpers.mkdir(parents=True, exist_ok=True)
+    resources.mkdir(parents=True, exist_ok=True)
+    destination = helpers / 'caelis'
+    if destination.is_symlink():
+        raise ValueError('Refusing to overwrite a symlink')
+    destination.write_bytes(binary)
+    destination.chmod(0o755)
+    (resources / 'Caelis-Runtime-LICENSE').write_bytes(members['LICENSE'])
+    shutil.copyfile(ROOT / 'resources/caelis-runtime/release.json', resources / 'Caelis-Runtime.json')
+
+
 if __name__ == '__main__':
-    {'stage': stage, 'verify': verify, 'stage-windows': stage_windows, 'verify-windows': verify_windows}[sys.argv[1]](pathlib.Path(sys.argv[2]))
+    if sys.argv[1] == 'stage-headless':
+        stage_headless(pathlib.Path(sys.argv[2]), sys.argv[3])
+    else:
+        {'stage': stage, 'verify': verify, 'stage-windows': stage_windows, 'verify-windows': verify_windows}[sys.argv[1]](pathlib.Path(sys.argv[2]))

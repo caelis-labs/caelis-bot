@@ -239,8 +239,8 @@ Extras and Privacy & permissions. The model and AI account pages share one runti
 settings owner; native `runtime` and `connections` repair links still open AI accounts.
 `telegram` opens Telegram detail, `chat` opens the channel overview and `capture`
 opens Extras.
-`runtime-settings-preview.html` uses the same components with
-example data for narrow layouts, without modifying daily accounts or calling a model.
+The retired `RuntimeWorkspace` preview was removed; use the production Settings
+surface or the runtime recovery fixture below for connection review.
 The development-only `settings-extras-preview.html` mounts production Settings
 and first-run navigation with synthetic statuses for manual layout review. The old
 WKWebView settings fixture and its screenshot assertion matrix were removed from
@@ -469,11 +469,7 @@ Do not add Python dependencies to the APP. The macOS Keychain canary lifecycle i
 opt-in via `CAELIS_BOT_KEYCHAIN_TEST=1`; it creates, updates and deletes only one
 uniquely named disposable item.
 
-The development-only `runtime-settings-preview.html?machine=login&lang=en` renders
-the same settings components with visual fixtures. Scenarios include `missing`,
-`offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. The
-`caelis-advanced-reopen` scenario holds advanced reads until the fixture releases
-them. Inspect the native
+Inspect the native
 settings on the real node in both languages and wide/narrow layouts. Resize must
 keep the same draft; primary connection actions stay visible at the 860×640 minimum.
 Check private-key fields, trust confirmation, error messages, the collapsed optional

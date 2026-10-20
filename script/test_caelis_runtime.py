@@ -149,5 +149,47 @@ class WindowsReleaseGuards(unittest.TestCase):
             run.assert_not_called()
 
 
+class HeadlessReleaseGuards(unittest.TestCase):
+    def setUp(self):
+        WindowsReleaseGuards.setUp(self)
+
+    def test_portable_archive_guards(self):
+        target = {'artifact': 'caelis-linux.tar.gz', 'sha256': '', 'binary_sha256': ''}
+        self.manifest['targets']['linux-arm64'] = target
+        cache = self.root / '.cache/caelis-runtime/v1.2.3'
+        cache.mkdir(parents=True)
+        archive = cache / target['artifact']
+        binary = b'\x7fELF\x02\x01' + bytes(12) + (183).to_bytes(2, 'little') + b'fixture'
+        def write(binary, symlink=False):
+            with tarfile.open(archive, 'w:gz') as tar:
+                for name, body in [('caelis', binary), ('LICENSE', b'license')]:
+                    entry = tarfile.TarInfo(name)
+                    if name == 'caelis' and symlink:
+                        entry.type, entry.linkname = tarfile.SYMTYPE, '/outside'
+                        tar.addfile(entry)
+                    else:
+                        entry.size = len(body)
+                        tar.addfile(entry, io.BytesIO(body))
+            target.update(sha256=hashlib.sha256(archive.read_bytes()).hexdigest(), binary_sha256=hashlib.sha256(binary).hexdigest())
+            pin = self.root / 'resources/caelis-runtime/release.json'
+            pin.parent.mkdir(parents=True, exist_ok=True)
+            pin.write_text(json.dumps(self.manifest))
+        with patch.object(runtime.subprocess, 'run') as execute:
+            write(binary)
+            runtime.stage_headless(self.bundle, 'linux-arm64')
+            self.assertEqual((self.bundle / 'Helpers/caelis').read_bytes(), binary)
+            self.assertTrue((self.bundle / 'Helpers/caelis').stat().st_mode & 0o111)
+            archive.write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                runtime.stage_headless(self.bundle, 'linux-arm64')
+            write(binary, symlink=True)
+            with self.assertRaisesRegex(ValueError, 'Invalid Caelis release member'):
+                runtime.stage_headless(self.bundle, 'linux-arm64')
+            write(binary[:18] + (62).to_bytes(2, 'little') + binary[20:])
+            with self.assertRaisesRegex(ValueError, 'architecture mismatch'):
+                runtime.stage_headless(self.bundle, 'linux-arm64')
+            execute.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

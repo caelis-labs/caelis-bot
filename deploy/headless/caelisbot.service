@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/caelisbot serve
+ExecStart=%h/.local/lib/caelisbot/caelisbot serve
 Restart=on-failure
 RestartSec=5
 UMask=0077
