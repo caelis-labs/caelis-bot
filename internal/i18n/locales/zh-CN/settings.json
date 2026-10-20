@@ -742,5 +742,18 @@
   "managedRuntime_external": "正在运行 {actual}（自选程序）",
   "managedRuntime_failed": "暂时无法确认服务状态，请在连接设置中重新检查。",
   "managedReason_runtime_start_failed": "内置服务未能启动，更新未完成。请在连接设置中检查服务。",
-  "managedReason_runtime_readback_failed": "未能确认实际运行的服务，更新未完成。请在连接设置中重新检查。"
+  "managedReason_runtime_readback_failed": "未能确认实际运行的服务，更新未完成。请在连接设置中重新检查。",
+  "experimentalTitle": "实验特性",
+  "experimentalScope": "影响共享此 Runtime 的客户端；下次运行时激活时生效。",
+  "experimentalAsync": "异步压缩",
+  "experimentalRefresh": "MCP 动态刷新",
+  "experimentalRetirement": "延迟工具卸载",
+  "experimentalUnsupported": "此 Runtime 尚不支持实验特性，请更新后再试。",
+  "experimentalSaving": "正在保存…",
+  "experimentalLoading": "正在读取…",
+  "experimentalPending": "正在核对保存结果，暂时不能继续修改。",
+  "experimentalSaved": "已保存，下次运行时激活时生效。",
+  "experimentalChanged": "设置已被其他客户端修改，请核对后再试。",
+  "experimentalFailed": "未能确认保存结果，请重新检查。",
+  "experimentalRejected": "未保存，请重新检查后重试。"
 }

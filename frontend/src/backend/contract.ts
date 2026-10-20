@@ -320,6 +320,22 @@ export interface RuntimeConnectionModel {
   uses: Array<string>;
   unavailable: boolean;
 }
+export interface RuntimeExperiment {
+  id: string;
+  enabled: boolean;
+}
+export interface RuntimeExperimentChange {
+  id: string;
+  enabled: boolean;
+  expectedRevision: string;
+}
+export interface RuntimeExperiments {
+  supported: boolean;
+  revision: string;
+  features: Array<RuntimeExperiment>;
+  saveState: string;
+  operationId: string;
+}
 export interface RuntimeFlow {
   id: string;
   revision: string;

@@ -2,8 +2,10 @@
 export const fixtureRuntime=String.raw`
 const params=new URLSearchParams(location.search),calls=[];
 window.fixtureCalls=calls;
+window.fixtureSetExperiments=(values,state='')=>{for(const f of experiments.features)if(f.id in values)f.enabled=values[f.id];experiments.revision=String(Number(experiments.revision)+1);experiments.saveState=state};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let section=params.get('section')||'connections',draft={revision:1,referenceIds:[],text:'保留的草稿 · retained draft',references:[],quote:null},revision=1;
+const experiments={supported:true,revision:'1',features:['async_compact','mcp_catalog_refresh','deferred_tool_retirement'].map(id=>({id,enabled:true})),saveState:'',operationId:''};
 const files=[{id:'fixture-file',name:'fixture-notes.txt',size:32,type:'text/plain',image:false,unavailable:false}];
 const option={model:'fixture/model',name:'Saved Model',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],default:false,imageInput:false};
 const selections=[];
@@ -70,6 +72,16 @@ export const Call={ByName:async(name,...args)=>{
   await sleep(window.fixtureRefreshDelay||800);
   if(window.fixtureRuntimeFailure===args[0].runtime)throw Error('Synthetic Runtime read failure');
   return {settings:args[0],installation:{installed:true,version:'fixture',path:'',updateState:''},state:'ready',models:[{value:option.model,label:option.name,parameters:option,current:true,noAuth:false}],selectedModel:option.model,accountType:'chatgpt',loginPending:false};
+ }
+ case 'RuntimeExperiments':if(window.fixtureExperimentalInFlight)await window.fixtureExperimentalInFlight;if(window.fixtureExperimentalReadFailure)throw Error('synthetic read failure');return structuredClone(experiments);
+ case 'ChangeRuntimeExperiments':{
+  const input=args[0];window.fixtureExperimentalInFlight=sleep(window.fixtureExperimentalDelay||250);await window.fixtureExperimentalInFlight;window.fixtureExperimentalInFlight=null;
+  if(input.expectedRevision!==experiments.revision)return {...structuredClone(experiments),saveState:'conflicted'};
+  if(window.fixtureExperimentalReject)return {...structuredClone(experiments),saveState:'rejected'};
+  if(experiments.saveState==='pending')return structuredClone(experiments);
+  experiments.operationId='fixture-'+calls.length;
+  if(window.fixtureExperimentalPending){experiments.saveState='pending';return structuredClone(experiments)}
+  experiments.features.find(f=>f.id===input.id).enabled=input.enabled;experiments.revision=String(Number(experiments.revision)+1);experiments.saveState='saved';return structuredClone(experiments);
  }
  case 'ProfileConfiguration':return {revision:'fixture',models:[option],connections:[],team:{models:[],roles:[]}};
  default:throw Error('Fixture method unavailable: '+method);

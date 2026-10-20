@@ -339,6 +339,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if err := initializeExperiments(ctx, host, info, filepath.Dir(s.path)); err != nil {
+		s.diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "caelis", Code: "experimental_defaults_unavailable"})
+	}
 	if e = s.ensureSession(ctx, host); e != nil {
 		return e
 	}

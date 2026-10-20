@@ -743,5 +743,18 @@
   "managedRuntime_external": "Running {actual} (custom program)",
   "managedRuntime_failed": "Service status could not be confirmed. Check it again in connection settings.",
   "managedReason_runtime_start_failed": "The built-in service could not start. The update did not complete. Check the service in connection settings.",
-  "managedReason_runtime_readback_failed": "The running service could not be confirmed. The update did not complete. Check it again in connection settings."
+  "managedReason_runtime_readback_failed": "The running service could not be confirmed. The update did not complete. Check it again in connection settings.",
+  "experimentalTitle": "Experimental features",
+  "experimentalScope": "Shared with other clients of this Runtime. Applies at the next Runtime activation.",
+  "experimentalAsync": "Async compaction",
+  "experimentalRefresh": "Dynamic MCP refresh",
+  "experimentalRetirement": "Deferred tool retirement",
+  "experimentalUnsupported": "This Runtime does not support experimental features yet. Update it to continue.",
+  "experimentalSaving": "Saving…",
+  "experimentalLoading": "Loading…",
+  "experimentalPending": "Checking the save result. Further changes are paused.",
+  "experimentalSaved": "Saved. Applies at the next Runtime activation.",
+  "experimentalChanged": "Another client changed these settings. Review them before trying again.",
+  "experimentalFailed": "Could not confirm the save. Check again.",
+  "experimentalRejected": "Not saved. Check the current settings before trying again."
 }

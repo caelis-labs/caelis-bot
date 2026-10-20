@@ -128,6 +128,18 @@ ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认�
 选择其他模型创建 preparation 子版本，不重复安装。交互式终端认证仍在 TUI 完成。
 `self` 只读；无候选的角色不可绑定。断开外部 Agent 明确移除整个 Agent 的模型连接。
 
+## 共享 Host 实验特性
+
+设置中的 Caelis Runtime → 高级配置使用 Core `experimental-features-v1`：
+`GET/POST /configuration/experimental` 读取或分别保存异步压缩、MCP 动态刷新、延迟工具卸载。
+这是共享 Host 的 desired 配置，下次 Runtime 激活生效；不热改当前 Runtime，也不重启 Host。
+桌面和 Web 使用同一组件与配置入口，页面读取不会写入默认值。
+
+Bot 首次实际接入此 Store 时，通过固定 bootstrap operation ID 开启三项；随后保留用户修改。
+跨 Bot profile 先查询该原生回执，本地只保存初始化标记与原请求元数据，不复制配置权威。
+单项保存携带读取的 revision；冲突读取当前值，未知结果只查原 ID，不重放。
+缺少可选能力不阻塞 Bot 连接，设置页如实提示不支持。
+
 ## 所有权与公开接口
 
 | 产品能力 | 应用责任与 Runtime 映射 |
