@@ -430,6 +430,9 @@ export interface SetupInstallProgress {
   action?: string;
   state?: string;
   error?: string;
+  code?: string;
+  exitCode?: number;
+  httpStatus?: number;
   phase: string;
   downloaded: number;
   total: number;

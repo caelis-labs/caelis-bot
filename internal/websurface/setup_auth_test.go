@@ -46,3 +46,27 @@ func TestSetupChallengeIsSessionBoundAndNeverPersistedInReceipts(t *testing.T) {
 		t.Fatal("invalid receipt")
 	}
 }
+
+func TestKnownSetupRefusalHasDurableReceiptWithoutReplaying(t *testing.T) {
+	for _, code := range []string{"runtime_recovery_required", "runtime_not_ready"} {
+		t.Run(code, func(t *testing.T) {
+			s := testServer(t)
+			c := pairClient(t, s)
+			calls := 0
+			s.register(action{Path: "/api/test/activate", Function: func(context.Context) error {
+				calls++
+				return &api.SetupBlockedError{Code: code, Message: "private internal message"}
+			}})
+			body := map[string]any{"id": "original-activate", "args": []any{}}
+			for range 2 {
+				w := c.request("/api/test/activate", body)
+				if w.Code != 409 || !strings.Contains(w.Body.String(), "setup_blocked_"+code) || strings.Contains(w.Body.String(), "private") {
+					t.Fatal(w.Code, w.Body.String())
+				}
+			}
+			if calls != 1 {
+				t.Fatal("original operation replayed", calls)
+			}
+		})
+	}
+}

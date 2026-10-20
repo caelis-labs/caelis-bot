@@ -5,9 +5,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,7 +19,7 @@ const CodexURL = "https://chatgpt.com/codex/install.sh"
 
 func Codex(ctx context.Context) error {
 	if (runtime.GOOS != "darwin" && runtime.GOOS != "linux") || (runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64") {
-		return errors.New("此平台暂未支持自动安装")
+		return &Failure{Code: "unsupported_platform"}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -37,14 +35,14 @@ func Codex(ctx context.Context) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return fmt.Errorf("Codex 官方安装程序下载失败（HTTP %d），请稍后重试", res.StatusCode)
+		return &Failure{Code: "download_http", HTTPStatus: res.StatusCode}
 	}
 	b, e := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
 	if e != nil {
-		return errors.New("Codex 安装程序下载中断，请重试")
+		return codexDownloadError(e)
 	}
 	if len(b) > 1<<20 || len(b) == 0 {
-		return errors.New("安装程序内容无效")
+		return &Failure{Code: "archive_invalid"}
 	}
 	directory, e := os.MkdirTemp("", "codex-installer-")
 	if e != nil {
@@ -77,7 +75,8 @@ func runCodexInstaller(ctx context.Context, script string) error {
 		return errors.New("无法启动 Codex 安装")
 	}
 	defer output.Close()
-	cmd.Stderr = io.Discard
+	stderr := &boundedOutput{}
+	cmd.Stderr = stderr
 	for _, v := range os.Environ() {
 		if !strings.HasPrefix(v, "PATH=") && !strings.HasPrefix(v, "CODEX_INSTALL") && !strings.HasPrefix(v, "CODEX_NON_INTERACTIVE=") && !strings.HasPrefix(v, "CODEX_RELEASE=") {
 			cmd.Env = append(cmd.Env, v)
@@ -109,7 +108,7 @@ func runCodexInstaller(ctx context.Context, script string) error {
 		}
 		var exit *exec.ExitError
 		if errors.As(e, &exit) {
-			return fmt.Errorf("Codex 官方安装脚本执行失败（退出码 %d），请检查下载连接和安装目录权限", exit.ExitCode())
+			return classifyInstallerExit(stderr.String(), exit.ExitCode())
 		}
 		return errors.New("无法启动 Codex 官方安装脚本，请检查本机执行权限")
 	}
@@ -175,12 +174,9 @@ func codexDownloadError(err error) error {
 	if errors.Is(err, errCodexRedirectLimit) {
 		return errCodexRedirectLimit
 	}
-	if errors.Is(err, context.Canceled) {
-		return errors.New("Codex 安装已取消")
+	failure := Classify(err)
+	if failure.Code == "unclassified" {
+		failure.Code = "download_network"
 	}
-	var timeout net.Error
-	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout() {
-		return errors.New("Codex 安装请求超时，请检查网络后重试")
-	}
-	return errors.New("无法连接 Codex 官方下载服务，请检查网络、代理或证书设置")
+	return failure
 }

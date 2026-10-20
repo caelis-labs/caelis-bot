@@ -673,6 +673,19 @@
   "codexPrepareStage": "Preparing the official installer…",
   "codexDownloadStage": "Downloading Codex…",
   "codexCheckStage": "Checking the installed program…",
-  "codexInstallRetryHint": "Installation did not finish. Check the network and available disk space, then try again.",
-  "codexInstallUnknown": "The installation result is not confirmed. Check the program again; installation will not be repeated."
+  "codexInstallRetryHint": "Installation did not finish. The cause is not confirmed; check installation diagnostics before retrying.",
+  "codexInstallUnknown": "The installation result is not confirmed. Check the program again; installation will not be repeated.",
+  "codexInstallNetwork": "Cannot reach the official download service. Check the server connection and retry.",
+  "codexInstallTimeout": "The official download timed out. Try again shortly.",
+  "codexInstallHTTP": "The official download service did not provide the installer. Try again shortly.",
+  "codexInstallTLS": "The download certificate could not be verified. Check the server certificate settings.",
+  "codexInstallPermission": "The server cannot write to its installation directory. Check its permissions.",
+  "codexInstallStorage": "The server is out of disk space. Free space and retry.",
+  "codexInstallDependency": "The server is missing a required installation tool. Repair it and retry.",
+  "codexInstallArchive": "The downloaded file failed verification. Download it again.",
+  "codexInstallExit": "The official installer did not finish. Check installation diagnostics before retrying.",
+  "codexInstallBlocked": "The previous connection needs review. This operation has not started; recover that connection first.",
+  "setupActivationFailed": "Your selected connection is not ready, so the introduction was not sent. Your name and description are preserved.",
+  "setupCheckConnection": "Check connection again",
+  "setupActivationRecovery": "The previous connection still has work to reconcile. Your name and description are kept. Return to connection setup to recover it first."
 }

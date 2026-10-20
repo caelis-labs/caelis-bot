@@ -158,6 +158,10 @@ func (s *Server) register(a action) {
 		record.Value = result
 		if e != nil {
 			record.Error = "operation_unconfirmed"
+			var blocked *api.SetupBlockedError
+			if errors.As(e, &blocked) && (blocked.Code == "runtime_recovery_required" || blocked.Code == "runtime_not_ready") {
+				record.Error = "setup_blocked_" + blocked.Code
+			}
 			record.Value = nil
 		}
 		s.operations[in.ID] = record
@@ -166,7 +170,11 @@ func (s *Server) register(a action) {
 			s.operations[in.ID] = pending
 		}
 		s.mu.Unlock()
-		if e != nil || persistErr != nil {
+		if e != nil && persistErr == nil {
+			fail(w, 409, record.Error)
+			return
+		}
+		if persistErr != nil {
 			fail(w, 409, "operation_unconfirmed")
 			return
 		}

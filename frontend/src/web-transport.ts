@@ -40,7 +40,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
  window.addEventListener('popstate',restoreNavigation);
  window.addEventListener('hashchange',restoreNavigation);
- class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':notice)}}
+ class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice)}}
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
   try{
@@ -65,7 +65,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   try{const result=await request(route.path,{id,args},route.read?8000:120000);if(!route.read)finish(route.path);return result.value as T;}
   catch(error){
    if(!route.read){
-    if(error instanceof HTTPFailure&&['composer_owned_elsewhere','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required','not_dispatched'].includes(error.code)){finish(route.path);throw error}
+    if(error instanceof HTTPFailure&&['composer_owned_elsewhere','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required','not_dispatched','setup_blocked_runtime_recovery_required','setup_blocked_runtime_not_ready'].includes(error.code)){finish(route.path);throw error}
     // Read the original ingress receipt. A changed payload cannot inherit a
     // prior result, and a pending receipt never authorizes a fresh write ID.
     if(!(error instanceof HTTPFailure&&error.code==='request_conflict'))for(let attempt=0;attempt<3;attempt++){

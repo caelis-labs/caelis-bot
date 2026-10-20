@@ -75,6 +75,7 @@ func (a *Application) configureSetup() {
 		fresh = false
 	}
 	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}, codexInstallation: newCodexInstallation(a.root)}
+	a.setup.codexInstallation.log = a.host.Diagnostics
 	a.Backend.ConfigureSetup(a.setup)
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
@@ -272,9 +273,16 @@ func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
-	if r.Action != "use-model" && r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
+	// Restoring a missing Codex executable does not replace the active process,
+	// connect it, or reconcile/replay any of its work.
+	restoreMissing := false
+	if r.Action == "install" && r.Settings.Runtime == "codex" && r.Settings.CLIPath == "" {
+		status, err := codex.InspectRuntime(ctx, "")
+		restoreMissing = err == nil && !status.Installed
+	}
+	if !restoreMissing && r.Action != "use-model" && r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
-			return api.SetupState{}, e
+			return api.SetupState{}, &api.SetupBlockedError{Code: "runtime_recovery_required", Message: "原连接尚有工作需要核对，请先恢复连接；本次操作尚未开始"}
 		}
 	}
 	if r.Action == "use-model" {
@@ -411,15 +419,15 @@ func (s *runtimeSetup) selectModel(ctx context.Context, r api.SetupRequest) (api
 func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.app.guardConversationChange(); e != nil {
-		return e
+	if e := s.app.guardRuntimeActivation(v.Runtime); e != nil {
+		return &api.SetupBlockedError{Code: "runtime_recovery_required", Message: "原连接还有工作需要核对，尚未切换连接。你的输入已保留"}
 	}
 	out, e := s.preparedState(ctx, v)
 	if e != nil {
 		return e
 	}
 	if out.State != "ready" {
-		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
+		return &api.SetupBlockedError{Code: "runtime_not_ready", Message: s.app.text("completeRuntimeConnectionFirst", nil)}
 	}
 
 	if !s.reconnectRequired && s.canReuseRuntime(v) {

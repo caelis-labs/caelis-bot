@@ -78,6 +78,9 @@ type SetupInstallProgress struct {
 	Action         string `json:"action,omitempty"`
 	State          string `json:"state,omitempty"`
 	Error          string `json:"error,omitempty"`
+	Code           string `json:"code,omitempty"`
+	ExitCode       int    `json:"exitCode,omitempty"`
+	HTTPStatus     int    `json:"httpStatus,omitempty"`
 	Phase          string `json:"phase"`
 	Downloaded     int64  `json:"downloaded"`
 	Total          int64  `json:"total"`

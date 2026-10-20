@@ -79,7 +79,7 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	if closed {
 		return errors.New(a.text("appStopped"))
 	}
-	guard := func() error { return a.guardConversationChange() }
+	guard := func() error { return a.guardRuntimeActivation(settings.Runtime) }
 	if manager != nil {
 		if err = manager.PauseForUpdate(guard); err != nil {
 			return err

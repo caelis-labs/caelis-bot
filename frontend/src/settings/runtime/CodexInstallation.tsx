@@ -1,3 +1,4 @@
+import type {MessageKey} from '../../i18n/catalogs';
 import {useEffect,useRef,useState} from 'react';
 import type {backend} from '../../desktop';
 import type {RuntimeSettings,SetupInstallProgress,SetupRequest} from '../../backend/contract';
@@ -49,10 +50,11 @@ export function useCodexInstallation(active:boolean,profile:RuntimeSettings,call
  const phase=progress?.phase;
  const phaseKey=phase==='downloading'?'settings.codexDownloadStage':phase==='installing'?'settings.runtimeFinishing':phase==='verifying'?'settings.codexCheckStage':'settings.codexPrepareStage';
  const action=progress?.action==='update'?'update':'install';
+ const failureKey:Record<string,MessageKey>={download_network:'settings.codexInstallNetwork',download_timeout:'settings.codexInstallTimeout',download_http:'settings.codexInstallHTTP',download_tls:'settings.codexInstallTLS',installation_permission:'settings.codexInstallPermission',storage_unavailable:'settings.codexInstallStorage',missing_dependency:'settings.codexInstallDependency',archive_invalid:'settings.codexInstallArchive',installer_exit:'settings.codexInstallExit',runtime_recovery_required:'settings.codexInstallBlocked'};
  const close=()=>{if(!running){setDismissed(progress?.id||'');setError('')}};
  const dialog=show?<SettingsDialog className="runtime-install-dialog" title={t(running?(action==='update'?'settings.codexUpdating':'settings.codexInstalling'):progress?.state==='cancelled'?'settings.runtimeInstallCancelled':'settings.runtimeInstallFailed',{name:'Codex'})} busy={!!running} onClose={close}>
   {running?<><div className="runtime-install-progress" role="progressbar" aria-label={t(phaseKey)} aria-valuetext={t(phaseKey)} aria-busy="true"><span/></div><p className="settings-note" role="status">{t(phaseKey)}</p><div className="setup-end"><button disabled={cancelling} onClick={()=>{setCancelling(true);void call('CancelSetupOperation').catch(()=>setCancelling(false))}}>{t('common.cancel')}</button></div></>:<>
-   <p className="inline-error" role="alert">{progress?.state==='unknown'?t('settings.codexInstallUnknown'):error||t('settings.codexInstallRetryHint')}</p>
+   <p className="inline-error" role="alert">{progress?.state==='unknown'?t('settings.codexInstallUnknown'):error||t(failureKey[progress?.code||'']||'settings.codexInstallRetryHint')}</p>
    <div className="setup-end"><button onClick={close}>{t('common.close')}</button>{progress?.state==='unknown'?<button className="primary" onClick={()=>void callback.current().catch(()=>{})}>{t('runtime.recheck')}</button>:<button className="primary" onClick={()=>void start(action)}>{t('settings.runtimeTryAgain')}</button>}</div>
   </>}
  </SettingsDialog>:null;

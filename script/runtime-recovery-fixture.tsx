@@ -34,16 +34,16 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
   await wait(()=>state.reads>0);
   if(mode==='transient'){
    await wait(()=>state.starts===1);check(state.reads===2,'transient read budget');
-   check(!document.querySelector('.surface-recovery'),'transient showed recovery');
+   check(!document.querySelector('.operation-error'),'transient showed recovery');
   }else{
-   await wait(()=>state.reads===3&&!!document.querySelector('.surface-recovery'));
+   await wait(()=>state.reads===3&&!!document.querySelector('.operation-error'));
    check(state.reads===3&&state.starts===0,'catalog failure dispatched auth or retried forever');
    check(!document.querySelector('.setup-loading'),'catalog exhausted but spinner remained');
    const back=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('Back'));
    check(!!back&&!back.disabled,'missing Back after failed catalog');
    back!.click();check(state.backs===1,'Back failed');
    state.recover();
-   const retry=document.querySelector<HTMLButtonElement>('.surface-recovery-primary');
+   const retry=document.querySelector<HTMLButtonElement>('.operation-error button');
    check(!!retry&&!retry.disabled,'missing retry');retry!.click();
    await wait(()=>state.starts===1);check(state.reads===4,'retry did not load catalog once');
   }
@@ -66,7 +66,7 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
   root.render(<I18nProvider bridge={bridge}><ConnectionWizard key={++serial} inline onboarding initialKind="api-key" initialChoice="magpie" client={client as any} onClose={()=>{}} onConnected={async()=>{}}/></I18nProvider>);
   await wait(()=>!!document.querySelector('.gateway-read-notice'));
   check(reads===(failure==='reject'?3:1),'gateway reads did not use bounded retry');
-  check(!document.querySelector('.surface-recovery'),'gateway failure showed window recovery');
+  check(!document.querySelector('.operation-error'),'gateway failure showed window recovery');
   const address=document.querySelector<HTMLInputElement>('input[type=url]')!;
   check(address.value==='http://127.0.0.1:3425/v1'&&!address.disabled,'gateway form was lost');
   check(!document.body.innerText.includes('PRIVATE_SENTINEL'),'gateway leaked error');
@@ -79,7 +79,7 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
  phase='setup';let setupReads=0;
  (window as any).acceptanceNative=async(name:string)=>{if(name.endsWith('.FeatureGuidePending'))setupReads++;phase='setup reads='+setupReads;throw Error('PRIVATE_SENTINEL first-run read');};
  root.render(<I18nProvider bridge={bridge}><BotSetup onDone={()=>{throw Error('failed setup completed')}}/></I18nProvider>);
- await wait(()=>setupReads===3&&!!document.querySelector('.surface-recovery'));
+ await wait(()=>setupReads===3&&!!document.querySelector('.operation-error'));
  check(!document.body.innerText.includes('PRIVATE_SENTINEL'),'setup exposed technical error');
  await delay(1600);check(setupReads===3,'setup read retried after exhaustion');
  phase='preview';let previewReads=0,previewReady=false;
@@ -88,17 +88,17 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
   if(name.endsWith('.PreviewArtifact'))return {text:'Recovered preview',truncated:false};
  };
  root.render(<I18nProvider bridge={bridge}><ArtifactPreviewWindow/></I18nProvider>);
- await wait(()=>previewReads===3&&!!document.querySelector('.surface-recovery'));
+ await wait(()=>previewReads===3&&!!document.querySelector('.operation-error'));
  check(!document.body.innerText.includes('PRIVATE_SENTINEL'),'preview exposed technical error');
- previewReady=true;document.querySelector<HTMLButtonElement>('.surface-recovery-primary')!.click();
+ previewReady=true;document.querySelector<HTMLButtonElement>('.operation-error button')!.click();
  await wait(()=>document.body.innerText.includes('Recovered preview'));
  check(previewReads===4,'preview retry did not reconcile once');
  phase='form';let retries=0,submits=0;
- root.render(<I18nProvider bridge={bridge}><form data-recovery-form onSubmit={event=>{event.preventDefault();submits++}}><Recovery onRetry={()=>retries++}/></form></I18nProvider>);
+ root.render(<I18nProvider bridge={bridge}><form data-recovery-form onSubmit={event=>{event.preventDefault();submits++}}><Recovery message="This action needs another check." onRetry={()=>retries++}/></form></I18nProvider>);
  await wait(()=>!!document.querySelector('[data-recovery-form]'));
- document.querySelector<HTMLButtonElement>('[data-recovery-form] .surface-recovery-primary')!.click();
+ document.querySelector<HTMLButtonElement>('[data-recovery-form] .operation-error button')!.click();
  check(retries===1&&submits===0,'recovery accidentally submitted enclosing form');
- check(document.querySelector('.surface-recovery')!.getBoundingClientRect().height<200,'local recovery took over the whole window');
+ check(document.querySelector('.operation-error')!.getBoundingClientRect().height<200,'local recovery took over the whole window');
  check(!document.body.innerText.includes('needs to reopen'),'local retry described window restart');
  return (window as any).recoveryResult={ok:true,evidence,gatewayEvidence,setupReads,previewReads,recoveryForm:{retries,submits}};
 };
@@ -107,3 +107,44 @@ const runButton=document.createElement('button');runButton.textContent='Run reco
 const result=document.createElement('pre');result.setAttribute('data-testid','result');
 runButton.onclick=()=>{runButton.disabled=true;void (window as any).runRecoveryRegression().then((value:unknown)=>{result.textContent=JSON.stringify(value,null,2)}).catch((error:Error)=>{result.textContent=JSON.stringify({ok:false,error:error.message})}).finally(()=>runButton.disabled=false)};
 document.body.append(runButton,result);
+
+(window as any).runIntroductionRegression=async()=>{
+ let ready=true,initializations=0,opened=0,done=0;
+ (window as any).acceptanceNative=async(name:string)=>{
+  switch(name.split('.').at(-1)){
+   case 'FeatureGuidePending':return false;
+   case 'SetupOverview':return {hasRuntimeChoice:true,active:'caelis',onboarding:true};
+   case 'Snapshot':return {connection:ready?'ready':'offline',phase:'idle',canSend:ready};
+   case 'BotInitialization':return {required:true,status:'required'};
+   case 'InitializeBot':initializations++;return {required:false,status:'pending'};
+   case 'OpenHistory':opened++;return;
+   default:throw Error('unexpected method '+name);
+  }
+ };
+ document.body.dataset.surface='settings';
+ const previousName=document.querySelector('#bot-name');
+ root.render(<I18nProvider bridge={bridge}><main className="settings-window setup-window"><div className="setup-page"><BotSetup key={++serial} onDone={()=>done++}/></div></main></I18nProvider>);
+ await wait(()=>!!document.querySelector('#bot-name')&&document.querySelector('#bot-name')!==previousName);
+ const name=document.querySelector<HTMLInputElement>('#bot-name')!;
+ const setValue=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!;
+ setValue.call(name,'Retained introduction');name.dispatchEvent(new Event('input',{bubbles:true}));
+ await wait(()=>!(document.querySelector('.setup-end .primary') as HTMLButtonElement)?.disabled);
+ ready=false;
+ document.querySelector<HTMLButtonElement>('.setup-end .primary')!.click();
+ await wait(()=>!!document.querySelector('.bot-introduction .operation-error'));
+ check(initializations===0&&opened===0,'failed preflight dispatched introduction');
+ check(name.value==='Retained introduction','failed preflight erased input');
+ check(document.querySelector('.setup-end .primary')?.textContent==='Start chatting','primary label silently changed');
+ check(!document.body.innerText.includes('Copy feedback'),'feedback mounted in introduction');
+ (window as any).resumeIntroductionRegression=async()=>{
+  ready=true;
+  const recheck=[...document.querySelectorAll('button')].find(b=>b.textContent==='Check connection again')!;
+  recheck.click();await wait(()=>!(document.querySelector('.setup-end .primary') as HTMLButtonElement).disabled);
+  check(initializations===0,'read-only recheck dispatched work');
+  document.querySelector<HTMLButtonElement>('.setup-end .primary')!.click();
+  await wait(()=>done>0);
+  check(initializations===1&&opened===1,'introduction duplicated or did not navigate');
+  return {fixtureOnly:true,initializations,opened,inputRetained:true,readOnlyRecheck:true};
+ };
+ return {fixtureOnly:true,failedPreflight:true,initializations,opened,inputRetained:name.value==='Retained introduction'};
+};

@@ -672,6 +672,19 @@
   "codexPrepareStage": "正在准备官方安装程序…",
   "codexDownloadStage": "正在下载 Codex…",
   "codexCheckStage": "正在检测安装结果…",
-  "codexInstallRetryHint": "安装未完成。请检查网络和可用磁盘空间后重试。",
-  "codexInstallUnknown": "安装结果尚未确认。请重新检测，暂不重复安装。"
+  "codexInstallRetryHint": "安装未完成，具体原因尚未确认。请查看安装诊断后重试。",
+  "codexInstallUnknown": "安装结果尚未确认。请重新检测，暂不重复安装。",
+  "codexInstallNetwork": "无法连接官方下载服务，请检查服务端网络后重试。",
+  "codexInstallTimeout": "官方下载超时，请稍后重试。",
+  "codexInstallHTTP": "官方下载服务暂未提供安装文件，请稍后重试。",
+  "codexInstallTLS": "无法验证官方下载服务的证书，请检查服务端证书设置。",
+  "codexInstallPermission": "无法写入服务端安装目录，请检查目录权限。",
+  "codexInstallStorage": "服务端磁盘空间不足，请释放空间后重试。",
+  "codexInstallDependency": "服务端缺少安装所需的系统工具，请修复后重试。",
+  "codexInstallArchive": "下载文件未通过校验，请重新下载。",
+  "codexInstallExit": "官方安装程序未能完成，请查看安装诊断后重试。",
+  "codexInstallBlocked": "原连接还有工作需要核对，本次操作尚未开始。请先恢复原连接。",
+  "setupActivationFailed": "所选连接尚未就绪，介绍还没有发送。你的名字和描述已保留。",
+  "setupCheckConnection": "重新检查连接",
+  "setupActivationRecovery": "原连接还有工作需要核对，尚未切换连接。你的名字和描述已保留，请返回连接设置恢复原连接。"
 }

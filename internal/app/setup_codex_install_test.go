@@ -129,3 +129,20 @@ func TestCodexInstallationCancellationAndRestartNeverReplay(t *testing.T) {
 		t.Fatal("closed owner accepted work")
 	}
 }
+
+func TestCodexInstallationPreservesKnownPreconditionFailure(t *testing.T) {
+	root := t.TempDir()
+	c := newCodexInstallation(root)
+	defer c.close()
+	_, err := c.start(t.Context(), api.SetupRequest{Settings: api.RuntimeSettings{Runtime: "codex"}, Action: "install"}, func(context.Context, api.SetupRequest) (api.SetupState, error) {
+		return api.SetupState{}, &api.SetupBlockedError{Code: "runtime_recovery_required", Message: "原工作需要核对"}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-c.done
+	v := newCodexInstallation(root).snapshot()
+	if v.State != "failed" || v.Code != "runtime_recovery_required" || v.Error != "原工作需要核对" || v.ExitCode != 0 {
+		t.Fatal(v)
+	}
+}

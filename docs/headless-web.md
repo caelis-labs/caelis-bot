@@ -156,3 +156,34 @@ and gateway authentication; the product does not auto-trust VM hostnames.
 The default Docker bubblewrap compatibility issue remains unresolved. No
 `systempaths=unconfined`, outer sandbox relaxation or Core sandbox bypass was
 introduced by this follow-up. Real WSL and Tailscale hardware are still untested.
+
+### First-run recovery and installation evidence
+
+Restoring a **missing** automatically discovered Codex executable is an explicit
+installation action. It does not reconnect the previous owner or replay work, so
+an unavailable old owner must not block putting the executable back. Updates and
+configured external executables retain their existing guards and priority.
+
+First onboarding can select a different Runtime when the Codex adapter proves
+that its exact private process has exited and its thread was never submitted,
+with no requests, receipts, approvals, workers, stop operations or older owners.
+The original ledger remains intact. This narrow setup guard is rechecked under
+the existing switch fences; ordinary recovery and #204 owner contracts remain
+unchanged. Returning to the same lost owner still uses its explicit recovery path.
+
+The introduction form checks the selected active Runtime, retains a tab-local
+draft through failed reads/navigation, and presents failures in place. Rechecking
+connection state does not repeat activation, login or the introduction. Completed
+native initialization keeps its original request identity. Known pre-dispatch
+setup refusals have explicit Web receipts; old unknown receipts are not rewritten
+or discarded by an upgrade.
+
+Installer progress journals now include an allowlisted error category and, when
+available, numeric HTTP status / exit code. Raw installer stderr is bounded in
+memory and classified, never persisted or displayed. An older failure without
+these fields is reported as unconfirmed cause, not guessed network/disk failure.
+Only explicit retry starts a new installation after a definite failure.
+
+This does not change Bot-facing capabilities or tools, so no additional bot-core
+skill update is needed for this repair. Session limits are unchanged: do not
+bulk-delete sessions with unknown ownership to make acceptance clients connect.

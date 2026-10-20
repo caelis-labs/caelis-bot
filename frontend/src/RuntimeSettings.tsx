@@ -29,11 +29,11 @@ const names: Record<string, string> = { caelis: 'built-in', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
-export function RuntimeSettings({ onboarding = false, onBack,onDone,onActivating,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>)=>void; active?:boolean; refreshKey?:number }) {
+export function RuntimeSettings({ onboarding = false, onBack,onDone,onActivating,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>,runtime:string)=>void; active?:boolean; refreshKey?:number }) {
  return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onActivating={onActivating}/> : <ConnectionsPage active={active} refreshKey={refreshKey}/>;
 }
 
-export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone,onActivating, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>)=>void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
+export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone,onActivating, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; onActivating?:(work:()=>Promise<void>,runtime:string)=>void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
  const { t } = useI18n();
  const errorText = (e: unknown) => e instanceof Error?e.message:t('runtime.actionFailed');
  const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [reconnectNeeded, setReconnectNeeded] = useState(false);
@@ -102,7 +102,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   if (working.current) return; working.current = true; setBusy('activate'); setError('');
   try {
    if(model&&state)await selectExistingModel(call,profile,state,model);
-   if(onboarding&&onActivating){onActivating(async()=>{await call('ActivateRuntime',profile)});return;}
+   if(onboarding&&onActivating){onActivating(async()=>{await call('ActivateRuntime',profile)},profile.runtime);return;}
    await call('ActivateRuntime', profile);
    if(onboarding)void refreshOverview().catch(()=>presentationWarning('background_read_failed'));else await refreshOverview();
    setActiveProfile(profile); setReconnectNeeded(false); setNotice(t('runtime.connectionCheckPassed')); onDone?.();
@@ -132,7 +132,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    await connectionClient.saveModel('conversation',{model:selected.value,effort,serviceTier:parameters.serviceTier});
   }
   };
-  if(onActivating){onActivating(complete);return;}
+  if(onActivating){onActivating(complete,profile.runtime);return;}
   await complete();
   void refreshOverview().catch(()=>presentationWarning('background_read_failed'));
   setForm('');onDone?.();

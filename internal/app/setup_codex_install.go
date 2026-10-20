@@ -7,10 +7,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeinstall"
 )
@@ -26,6 +28,7 @@ type codexInstallation struct {
 	cancel   context.CancelFunc
 	done     chan struct{}
 	closed   bool
+	log      *diagnosticlog.Logger
 }
 
 func newCodexInstallation(root string) *codexInstallation {
@@ -112,15 +115,24 @@ func (c *codexInstallation) start(ctx context.Context, r api.SetupRequest, run f
 		c.cancel = nil
 		c.progress.State = "complete"
 		if err != nil {
-			c.progress.State, c.progress.Error = "failed", "安装未完成，请检查网络和安装目录后重试"
+			failure := runtimeinstall.Classify(err)
+			c.progress.State, c.progress.Error, c.progress.Code = "failed", failure.Error(), failure.Code
+			c.progress.ExitCode, c.progress.HTTPStatus = failure.ExitCode, failure.HTTPStatus
+			var blocked *api.SetupBlockedError
+			if errors.As(err, &blocked) {
+				c.progress.Code, c.progress.Error = blocked.Code, blocked.Message
+			}
 			if errors.Is(ctx.Err(), context.Canceled) {
-				c.progress.State, c.progress.Error = "cancelled", "安装已取消"
+				c.progress.State, c.progress.Error, c.progress.Code = "cancelled", "安装已取消", "cancelled"
 			}
 		} else {
 			c.progress.Phase = "complete"
 		}
 		if localstate.Write(c.path, c.progress) != nil {
 			c.progress.State, c.progress.Error = "unknown", "无法确认安装结果，请重新检测程序"
+		}
+		if err != nil {
+			c.log.Write(diagnosticlog.Record{Component: "codex_install", Code: c.progress.Code, Item: c.progress.ID, Phase: c.progress.Phase, HTTPStatus: c.progress.HTTPStatus, Reason: "exit_code=" + strconv.Itoa(c.progress.ExitCode)})
 		}
 	}()
 	return api.SetupState{Settings: r.Settings, State: "installing", Models: []api.SetupChoice{}}, nil
