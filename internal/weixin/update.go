@@ -1,6 +1,9 @@
 package weixin
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Keep the original durable inbox, cursor, delivery intents and pause setting.
 // Close's existing join owns channel effects; no second delivery ledger exists.
@@ -8,7 +11,11 @@ func (b *Bridge) PrepareUpdate() error {
 	b.configMu.Lock()
 	defer b.configMu.Unlock()
 	b.mu.Lock()
-	if b.closed || b.loadErr || b.pairCancel != nil || len(b.secretInbox) != 0 {
+	// pollPair leaves its cancel function behind after confirmation/expiry.
+	// That function's existence is not an active user interaction.
+	pairing := b.candidate != nil || (b.state.BotID == "" && b.pairCancel != nil &&
+		time.Now().Before(b.expires) && (b.phase == "pairing" || b.phase == "scanned" || b.phase == "verify"))
+	if b.closed || b.loadErr || pairing || len(b.secretInbox) != 0 {
 		b.mu.Unlock()
 		return errors.New("channel interaction pending")
 	}

@@ -5,7 +5,28 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+func TestUpdateIgnoresCompletedPairingCancelButPreservesPendingPairing(t *testing.T) {
+	b, _ := Open(t.TempDir(), Host{})
+	cancelled := false
+	b.state.BotID = "original-bot"
+	b.state.BaseURL = defaultBase
+	b.phase = "connected"
+	b.expires = time.Now().Add(time.Minute)
+	b.pairCancel = func() { cancelled = true }
+	if err := b.PrepareUpdate(); err != nil || !cancelled || b.state.BotID != "original-bot" {
+		t.Fatal("completed pairing blocked update", err)
+	}
+	b, _ = Open(t.TempDir(), Host{})
+	b.phase = "verify"
+	b.expires = time.Now().Add(time.Minute)
+	b.pairCancel = func() { t.Fatal("active pairing cancelled") }
+	if b.PrepareUpdate() == nil || b.updating {
+		t.Fatal("active pairing was discarded")
+	}
+}
 
 func TestUpdatePreservesPausedAndEnabledUnknown(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
