@@ -56,7 +56,7 @@ export function WebApp({client}:{client:WebClient}){
    {onboarding?<div className="web-settings"><main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true))}/></div></main></div>:nav&&<>
     <div className="web-chat" hidden={nav.view==='settings'}>
      <div className="web-tools"><button aria-label="后台任务" title="后台任务" onClick={()=>{if(!settingsHasModal())setTasksOpen(true)}}><ListChecksIcon size={19}/></button><button className="context-navigation" aria-label="设置" title="设置" onClick={()=>void client.navigation({view:'settings',section:'general'}).catch(()=>setNavigationFailed(true))}><GearSixIcon size={18}/></button></div>
-     <History key={editorGeneration}/>
+     <History composerGeneration={editorGeneration}/>
     </div>
     <div className="web-settings" hidden={nav.view!=='settings'}><Settings onNavigate={section=>void client.navigation({view:'settings',section}).catch(()=>setNavigationFailed(true))}/></div>
    </>}

@@ -116,6 +116,13 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 			}
 		}
 		if confirmed {
+			// The adapter echo and the independent application observer race.
+			// Publish this exact, already-visible input to the IM before retiring
+			// its outbox row. Otherwise Snapshot drops the echo (IM owns history)
+			// while the IM still has no row. This grants no receipt authority.
+			if s.chat != nil {
+				s.chat.Observe([]api.Item{pending.item})
+			}
 			s.messageMedia.Resolve(pending.item.RequestID)
 			continue
 		}

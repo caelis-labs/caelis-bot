@@ -73,7 +73,9 @@ export function chatActivity(snapshot: Snapshot | null, outgoing: Item[] = []): 
  if (snapshot.approvals.some(p => p.status !== 'resolved' && belongsToTurn(p,snapshot.currentTurn))) return null;
  // The visible outbox can precede the first Runtime snapshot. A local send
  // belongs to the same waiting row, without inventing execution capabilities.
- const sending=withOutgoing(snapshot.items,outgoing).some(item=>item.kind==='user'&&item.status==='sending');
+ const known=new Set(snapshot.items.filter(item=>item.kind==='user').map(item=>item.requestId));
+ const awaitingObservation=outgoing.some(item=>item.status==='accepted'&&!known.has(item.requestId));
+ const sending=awaitingObservation||withOutgoing(snapshot.items,outgoing).some(item=>item.kind==='user'&&item.status==='sending');
  if(sending&&!activeReplyID(snapshot))return 'thinking';
  if (snapshot.maintenance === 'dreaming' && snapshot.phase === 'working' && !snapshot.message) return 'dreaming';
  if (snapshot.quiet) return null;

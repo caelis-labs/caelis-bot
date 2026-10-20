@@ -98,3 +98,27 @@ slow/failed observations, read-only task results and unknown-submission readback
 first-run guards and read-only Magpie model listing, injected HTTP failures,
 and seven settings pages at 390/900/1600 pixels using a browser-only completed
 setup projection. Neither fixture is evidence of completed account login.
+
+## Installation cancellation and chat continuity
+
+Cancelling a Codex installation dismisses the shared progress dialog immediately.
+The host operation and its original cancellation receipt remain authoritative;
+progress reads continue, and a running/unknown installation cannot start another
+write. A settled `cancelled` state is not a failed install or a retry dialog,
+including after remount. Actual failure still has an operation-local recovery.
+
+When the Runtime echoes an already-visible user input, the shared backend
+publishes that exact outbox row to the local IM before retiring it. The
+independent application observer may arrive later. This applies to both first
+introduction and ordinary input, preserves the original request ID, and does not
+promote or replay an execution receipt. Accepted local input keeps the waiting
+indicator until its matching transcript observation arrives.
+
+Web edit-lease recovery refreshes only the composer, retaining the mounted
+conversation and its optimistic rows. `web-message-stability-browser.cjs` checks
+DOM identity and every rendered frame across delayed observations, stale SSE,
+reconnection, edit-lease loss and reload. `codex-install-cancel-browser.cjs`
+checks immediate dismissal, remount, original operation count and real-failure
+presentation using a synthetic host. These checks do not establish live model
+or account acceptance. Bot skill guidance is unchanged: no Bot tool, permission,
+execution or recovery workflow changes.
