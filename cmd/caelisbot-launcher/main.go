@@ -62,7 +62,9 @@ func run() error {
 			return e
 		}
 		if command == "upgrade" {
-			return managedupdate.ScheduleLocalUpgrade(context.Background(), *root, *archive, o, trust, platform)
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return managedupdate.ScheduleLocalUpgrade(ctx, *root, *archive, o, trust, platform)
 		}
 		args := []string{"--listen", *listen}
 		if *origin != "" {
@@ -82,6 +84,10 @@ func run() error {
 }
 func main() {
 	if e := run(); e != nil {
+		if managedupdate.Code(e) == "update_scheduled_waiting_idle" {
+			fmt.Fprintln(os.Stderr, "Update scheduled, waiting for the existing Bot's idle handoff. The service is still running; the launcher was not replaced. Check Settings > Updates, then rerun --upgrade after installation completes.")
+			os.Exit(1)
+		}
 		// Stable codes only. No private paths, arguments or conversation logs.
 		fmt.Fprintln(os.Stderr, strings.TrimSpace(managedupdate.Code(e)))
 		os.Exit(1)

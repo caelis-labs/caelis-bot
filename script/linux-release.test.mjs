@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,chmodSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,chmodSync,statSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {create} from './linux-update-manifest.mjs';
@@ -23,6 +24,16 @@ test('QA bootstrap signs actual launcher, installer, package and notices; tamper
  writeFileSync(join(dir,n.manifest),JSON.stringify(create(root,join(dir,n.archive),'0.17.1-qa.9','a'.repeat(40),'linux-arm64','qa')));
  const {publicKey,privateKey}=generateKeyPairSync('ed25519'),pub=join(dir,'qa.pub'),priv=join(dir,'qa.key');
  writeFileSync(pub,publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('base64'));writeFileSync(priv,privateKey.export({format:'pem',type:'pkcs8'}),{mode:0o600});
+ // Exercise the actual CI artifact extraction -> prepare path as a non-root
+ // signing process with umask 077. The ELF/package bytes remain a QA fixture.
+ const unsigned=join(dir,'unsigned.tar.gz'),extracted=join(dir,'extracted');
+ execFileSync('tar',['-czf',unsigned,'-C',dir,'package',n.archive,n.launcher,n.manifest]);
+ mkdirSync(extracted);
+ execFileSync('bash',['-c','umask 077; bash script/extract-linux-build.sh "$1" "$2"; node --input-type=module - "$2" "$3" "$4" <<\'JS\'\nimport {prepareLinux} from "./script/linux-release.mjs"; const [dir,key,pub]=process.argv.slice(2); prepareLinux(dir,"arm64",key,pub);\nJS','sign-fixture',unsigned,extracted,priv,pub]);
+ assert.equal(statSync(join(extracted,'package/caelisbot')).mode&0o777,0o755);
+ assert.equal(statSync(join(extracted,'package/LICENSE')).mode&0o777,0o644);
+ assert.equal(statSync(priv).mode&0o777,0o600);
+ assert.equal(verifyLinux(extracted,'arm64',pub,true).index.assets.length,7);
  const release=prepareLinux(dir,'arm64',priv,pub);assert.equal(release.names.length,9);
  assert.throws(()=>verifyLinux(dir,'arm64',pub),/QA is not a release/);
  for(const name of [n.launcher,n.installer,n.script,n.archive,n.checksum,n.manifest+'.sig']){

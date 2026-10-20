@@ -45,6 +45,25 @@ func (m *Manager) handler() http.Handler {
 		v, e := m.Command(c)
 		write(w, v, e)
 	})
+	// Same-user Unix socket only. This is deliberately absent from the Web
+	// allowlist: browsers cannot supply archive paths or signing material.
+	mux.HandleFunc("POST /local-upgrade", func(w http.ResponseWriter, r *http.Request) {
+		var in localUpgrade
+		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
+		d.DisallowUnknownFields()
+		if d.Decode(&in) != nil || d.Decode(&struct{}{}) != io.EOF {
+			write(w, nil, problem("invalid_request"))
+			return
+		}
+		write(w, struct{}{}, m.scheduleLocal(in))
+	})
+	mux.HandleFunc("GET /local-upgrade/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !hexID.MatchString(r.PathValue("id")) {
+			write(w, nil, problem("invalid_request"))
+			return
+		}
+		write(w, m.localUpgradeState(r.PathValue("id")), nil)
+	})
 	mux.HandleFunc("POST /ready", func(w http.ResponseWriter, r *http.Request) {
 		var b Boot
 		if e := decode(w, r, &b); e != nil {

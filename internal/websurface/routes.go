@@ -43,7 +43,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/connections/media-image", Function: b.MediaImage, Read: true, Composer: false},
 		{Path: "/api/v1/connections/screen-image", Function: b.ScreenImage, Read: true, Composer: false},
 		{Path: "/api/v1/connections/image-input", Function: b.ImageInput, Read: true, Composer: false},
-		{Path: "/api/v1/conversation/submit", Function: b.Submit, Read: false, Composer: true},
+		{Path: "/api/v1/conversation/submit", Function: b.Submit, Read: false, Composer: true, NativeReceipt: true},
 		{Path: "/api/v1/conversation/save-draft", Function: b.SaveDraft, Read: false, Composer: true, Local: true},
 		{Path: "/api/v1/conversation/load-earlier", Function: b.LoadEarlier, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/dismiss-preview", Function: b.DismissPreview, Local: true, Read: false, Composer: false},

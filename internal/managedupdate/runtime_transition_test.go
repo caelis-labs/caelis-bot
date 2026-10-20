@@ -115,7 +115,7 @@ func TestInstallerUpgradeSchedulesExistingHandoffWithoutChangingSelection(t *tes
 		t.Fatal(err)
 	}
 	defer lease.Close()
-	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); Code(err) != "installation_owned" {
+	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); Code(err) != "launcher_unavailable" {
 		t.Fatal("live owner bypassed", err)
 	}
 }

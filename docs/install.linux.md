@@ -82,8 +82,11 @@ Computer Use and Web terminals are unavailable; the interface hides those entrie
 
 - **Managed:** Settings → Updates checks, downloads with actual byte progress,
   and schedules installation through the existing idle handoff. `--upgrade` can
-  replace the stable launcher and stage the full package, then the old Bot performs
-  the same handoff. Scheduling is not success; read the actual version in Settings.
+  stage the full package through the live owner without stopping the service.
+  It replaces the on-disk launcher for its next start only after candidate health
+  is confirmed. Busy work leaves the update scheduled and the old service running;
+  rerun `--upgrade` after Settings confirms installation to finish launcher repair.
+  A stopped installation stages the package for the same handoff on service start.
 - **External/manual:** stop the owner and replace its complete directory yourself;
   the Web surface does not claim it can install into arbitrary paths.
 - **Image/development Docker:** updates belong to the image operator. Docker sandbox

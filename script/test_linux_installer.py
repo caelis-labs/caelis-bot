@@ -30,6 +30,22 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(sum(len(c)>1 and c[1]=='init' for c in calls),1)
                 sys.argv=argv+['--upgrade'];installer.install()
                 self.assertEqual(sum(len(c)>1 and c[1]=='upgrade' for c in calls),1)
+                self.assertFalse(any('stop' in c or 'restart' in c for c in calls))
+                # A busy/unknown owner must leave the live service, launcher
+                # and profile intact, with no stop/start fallback.
+                original=(home/'.local/bin/caelisbot-launcher').read_bytes()
+                (bundle/'caelisbot-launcher-1.2.3-linux-arm64').write_bytes(b'new fixture launcher')
+                calls.clear()
+                def busy(args,**kwargs):
+                    calls.append(args)
+                    if len(args)>1 and args[1]=='upgrade':
+                        self.assertEqual((home/'.local/bin/caelisbot-launcher').read_bytes(),original)
+                        raise subprocess.CalledProcessError(1,args)
+                    return subprocess.CompletedProcess(args,0,b'',b'')
+                with patch.object(installer.subprocess,'run',side_effect=busy):
+                    with self.assertRaises(subprocess.CalledProcessError): installer.install()
+                self.assertEqual((home/'.local/bin/caelisbot-launcher').read_bytes(),original)
+                self.assertFalse(any('stop' in c or 'start' in c or 'restart' in c or 'enable' in c for c in calls))
             self.assertEqual((home/'data/caelisbot/history').read_text(),'original')
             unit=(home/'config/systemd/user/caelisbot.service').read_text()
             self.assertIn('UMask=0077',unit);self.assertIn('caelisbot-launcher',unit)

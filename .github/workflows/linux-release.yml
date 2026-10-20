@@ -116,7 +116,7 @@ jobs:
           for arch in amd64 arm64; do
             dir="dist/sign-$arch"
             mkdir "$dir"
-            tar -xzf "dist/unsigned-linux-$arch.tar.gz" -C "$dir"
+            bash script/extract-linux-build.sh "dist/unsigned-linux-$arch.tar.gz" "$dir"
             node script/verify-linux-build.mjs "$dir" "$arch" "$SOURCE" "${TAG#v}"
             node script/linux-release.mjs prepare "$dir" "$arch" "$key"
             node --input-type=module - "$dir" "$arch" <<'JS'

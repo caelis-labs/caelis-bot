@@ -5,6 +5,7 @@ source "$(dirname "$0")/env.sh"
 # No account, model, desktop, system service or existing profile is used.
 go test -race ./internal/managedupdate ./internal/headless ./internal/websurface ./internal/localproxy
 (umask 077; go test ./internal/managedupdate -count=1)
+node --test script/linux-release.test.mjs
 npm run build
 export BOT_UPDATE_REUSE_FRONTEND=1 BOT_UPDATE_KIND=qa
 base="$BOT_ROOT/.cache/ci-linux-managed"

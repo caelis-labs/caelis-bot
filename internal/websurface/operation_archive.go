@@ -62,7 +62,8 @@ func (s *Server) archiveDB() (*sql.DB, error) {
 }
 func (s *Server) lookupOperation(id string) (operation, bool, error) {
 	if op, ok := s.operations[id]; ok {
-		return op, true, nil
+		op, err := s.reconcileOperation(id, op)
+		return op, true, err
 	}
 	db, err := s.archiveDB()
 	if err != nil {

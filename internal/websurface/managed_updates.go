@@ -41,8 +41,9 @@ func (s *Server) RegisterManagedUpdates(owner managedupdate.Owner) {
 func (s *Server) UpdateQuiescent() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, op := range s.operations {
-		if !operationTerminal(op) {
+	for id, op := range s.operations {
+		op, err := s.reconcileOperation(id, op)
+		if err != nil || !operationTerminal(op) {
 			return false
 		}
 	}

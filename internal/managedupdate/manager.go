@@ -134,6 +134,9 @@ func (m *Manager) Receipt(id string) (Receipt, error) {
 func (m *Manager) Command(c Command) (Receipt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.commandLocked(c)
+}
+func (m *Manager) commandLocked(c Command) (Receipt, error) {
 	if !ingressID.MatchString(c.ID) {
 		return Receipt{}, problem("request_id_required")
 	}

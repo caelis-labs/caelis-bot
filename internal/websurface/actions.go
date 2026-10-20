@@ -19,6 +19,7 @@ type operation struct {
 	Value  json.RawMessage `json:"value,omitempty"`
 	Error  string          `json:"error,omitempty"`
 	At     int64           `json:"at"`
+	Native *nativeReceipt  `json:"native,omitempty"`
 }
 type actionRequest struct {
 	ID   string            `json:"id"`
@@ -28,6 +29,7 @@ type action struct {
 	Path                  string
 	Function              any
 	Read, Composer, Local bool
+	NativeReceipt         bool
 }
 
 // bind only decodes the signature of a function explicitly listed in routes.go.
@@ -153,13 +155,29 @@ func (s *Server) register(a action) {
 		// the original owner still govern lifetime; no automatic effect retry.
 		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Minute)
 		defer cancel()
+		// Capture the execution owner, not a browser-supplied identity. Retain
+		// that engine across dispatch so a later binding cannot claim its reply.
+		var before api.Snapshot
+		var engine api.Engine
+		if a.NativeReceipt {
+			engine = s.services.Backend.CurrentRuntimeBinding().Engine
+			before = engine.Snapshot()
+		}
 		value, e := invoke(api.WithSetupAccess(ctx, "web:"+owner), in.Args)
+		var native *nativeReceipt
+		if receipt, ok := value.(api.Receipt); ok && e == nil && receipt.Outcome == "unknown" && engine != nil {
+			after := engine.Snapshot()
+			if after.RuntimeOwner != "" && after.LastReceipt.ID == receipt.ID && (after.RuntimeOwner == before.RuntimeOwner || before.RuntimeOwner == "") {
+				native = &nativeReceipt{Owner: after.RuntimeOwner, ID: receipt.ID}
+			}
+		}
 		result, _ := json.Marshal(receiptValue(value))
 		s.mu.Lock()
 		pending := s.operations[in.ID]
 		record := pending
 		record.State = "complete"
 		record.Value = result
+		record.Native = native
 		// Bound confirmed display payloads only. An unknown native receipt may
 		// contain its original reconciliation target; never trim that evidence.
 		if len(result) > 32<<10 && operationTerminal(record) {

@@ -35,7 +35,7 @@ type client struct {
 	csrf, tab, epoch string
 }
 
-func testServer(t *testing.T) *Server {
+func testServer(t *testing.T, engines ...api.Engine) *Server {
 	t.Helper()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("Web service requires Unix private filesystem; Windows uses WSL")
@@ -49,7 +49,11 @@ func testServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { core.Close() })
-	s, err := New(Config{Directory: filepath.Join(root, "Web"), Origins: []string{testOrigin}, Version: "test"}, Services{Backend: backend.NewService(testEngine{}, nil, nil, nil, nil), Surface: surface}, fstest.MapFS{"web.html": {Data: []byte("CaelisBot")}})
+	var engine api.Engine = testEngine{}
+	if len(engines) > 0 {
+		engine = engines[0]
+	}
+	s, err := New(Config{Directory: filepath.Join(root, "Web"), Origins: []string{testOrigin}, Version: "test"}, Services{Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil), Surface: surface}, fstest.MapFS{"web.html": {Data: []byte("CaelisBot")}})
 	if err != nil {
 		t.Fatal(err)
 	}

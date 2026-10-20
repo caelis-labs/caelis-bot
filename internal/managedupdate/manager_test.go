@@ -24,13 +24,16 @@ type fixture struct {
 	a, b          Offer
 }
 
-func fixtureManager(t *testing.T) (*Manager, fixture) {
+func fixtureManager(t *testing.T, directories ...string) (*Manager, fixture) {
 	t.Helper()
 	pub, key, e := ed25519.GenerateKey(rand.Reader)
 	if e != nil {
 		t.Fatal(e)
 	}
 	base := t.TempDir()
+	if len(directories) > 0 {
+		base = directories[0]
+	}
 	resolved, e := filepath.EvalSymlinks(base)
 	if e != nil {
 		t.Fatal(e)

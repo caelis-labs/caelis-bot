@@ -60,19 +60,15 @@ def install():
     if not root.exists() or args.upgrade:
         binary.parent.mkdir(parents=True,exist_ok=True)
         root.parent.mkdir(parents=True,exist_ok=True)
-        # Stop only our unit. The launcher's inherited lease must also confirm
-        # that no orphan Bot still owns this root before scheduling an upgrade.
+        # A live owner stages/schedules and confirms the new Bot's health before
+        # this command returns. Busy/unknown work leaves the old service running.
+        # Atomic replacement affects the launcher's next start, not its live PID.
         existing=root.exists()
-        if existing: run('systemctl','--user','stop','caelisbot.service')
-        try:
-            run(str(source), 'upgrade' if existing else 'init', *common, *([] if existing else ['--data-dir',str(profile)]))
-            temporary=binary.with_name(binary.name+'.installing')
-            with temporary.open('xb') as out,source.open('rb') as inp:
-                shutil.copyfileobj(inp,out);os.fchmod(out.fileno(),0o755);out.flush();os.fsync(out.fileno())
-            os.replace(temporary,binary)
-        except BaseException:
-            if existing: subprocess.run(['systemctl','--user','start','caelisbot.service'],check=False)
-            raise
+        run(str(source), 'upgrade' if existing else 'init', *common, *([] if existing else ['--data-dir',str(profile)]))
+        temporary=binary.with_name(binary.name+'.installing')
+        with temporary.open('xb') as out,source.open('rb') as inp:
+            shutil.copyfileobj(inp,out);os.fchmod(out.fileno(),0o755);out.flush();os.fsync(out.fileno())
+        os.replace(temporary,binary)
     def quote(value):
         return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%').replace('$','$$')+'"'
     unit.parent.mkdir(parents=True,exist_ok=True)
