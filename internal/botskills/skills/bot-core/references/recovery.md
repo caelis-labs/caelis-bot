@@ -83,3 +83,8 @@ resumes execution. Do not auto-continue cancelled work or replay input/tools.
 A user may explicitly reopen the original terminal independently of a task turn's
 status. Unknown terminal launch receipts still prohibit another launch; let the
 existing terminal controller reconcile or revoke that attempt.
+
+A disconnect, interrupted turn or hidden card does not make a worktree unused.
+Preserve its files while execution or effects remain uncertain. Once the original
+task is reconciled, follow [workspace cleanup](tasks.md#finish-workspace-cleanup).
+Carry any retained path, reason and cleanup owner into your next handoff.
