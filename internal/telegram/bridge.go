@@ -234,7 +234,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 	closed := b.closed || b.updating
 	b.mu.Unlock()
 	if closed {
-		return b.Status(), errors.New("closed")
+		return b.Status(), &api.ActionRejectedError{Code: "closed"}
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -242,27 +242,27 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 		token, e = b.secrets.Load(b.account)
 		if e != nil {
 			b.setIssue("credential")
-			return b.Status(), errors.New("credential")
+			return b.Status(), &api.ActionRejectedError{Code: "credential"}
 		}
 	}
 	c, e := b.newClient(token)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	me, e := c.Me(ctx)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	webhook, e := c.Webhook(ctx)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	if webhook && !takeOver {
 		b.setIssue("webhook")
-		return b.Status(), errors.New("webhook")
+		return b.Status(), &api.ActionRejectedError{Code: "webhook"}
 	}
 	b.stop()
 	if webhook {

@@ -1,3 +1,4 @@
+import {createWebOperations} from './web-operations';
 import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
@@ -41,7 +42,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
  window.addEventListener('popstate',restoreNavigation);
  window.addEventListener('hashchange',restoreNavigation);
- class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice)}}
+ class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice)}}
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
   try{
@@ -55,31 +56,14 @@ export function createWebTransport(bootstrap:WebBootstrap){
   const response=await fetch(path,{signal:AbortSignal.timeout(8000)});const result=await response.json();
   if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}return result;
  }});
- // Only opaque ingress IDs persist in this tab. Credentials and request bodies
- // never enter browser storage. A retry retains its ID even after a reload.
- const pendingKey='caelisbot.pending-operations';
- let pending:Record<string,string>={};try{const saved=JSON.parse(sessionStorage.getItem(pendingKey)||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))pending=Object.fromEntries(Object.entries(saved).filter((entry):entry is [string,string]=>typeof entry[1]==='string'))}catch{/* Start with an empty transport journal. */}
- const bodies=new Map<string,string>();
- const remember=()=>sessionStorage.setItem(pendingKey,JSON.stringify(pending));
- const finish=(path:string)=>{delete pending[path];bodies.delete(path);remember()};
+ const invoke=createWebOperations({storage:sessionStorage,identity,post:request,failure:code=>new HTTPFailure(code,409),receipt:async(id)=>{
+  const response=await fetch('/api/v1/operations/'+id,{signal:AbortSignal.timeout(8000)});
+  if(!response.ok)throw new HTTPFailure('operation_unconfirmed',response.status);
+  return await response.json();
+ }});
  const call=async<T>(key:string,args:unknown[]):Promise<T>=>{
   const route=webRoutes[key];if(!route)throw new Error(unavailable);
-  const previous=pending[route.path],body=JSON.stringify(args),same=!previous||bodies.get(route.path)===body;
-  const id=previous||identity();
-  if(!route.read){pending[route.path]=id;bodies.set(route.path,body);remember()}
-  try{const result=await request(route.path,{id,args},route.read?8000:120000);if(!route.read)finish(route.path);return result.value as T;}
-  catch(error){
-   if(!route.read){
-    if(error instanceof HTTPFailure&&['composer_owned_elsewhere','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required','not_dispatched','setup_blocked_runtime_recovery_required','setup_blocked_runtime_not_ready'].includes(error.code)){finish(route.path);throw error}
-    // Read the original ingress receipt. A changed payload cannot inherit a
-    // prior result, and a pending receipt never authorizes a fresh write ID.
-    if(!(error instanceof HTTPFailure&&error.code==='request_conflict'))for(let attempt=0;attempt<3;attempt++){
-     try{const response=await fetch('/api/v1/operations/'+id);if(response.ok){const op=await response.json();if(op.state==='complete'&&!op.error){finish(route.path);if(same)return op.value as T;break}}}catch{/* Keep the original identity. */}
-     await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
-    }
-   }
-   throw error;
-  }
+  return await invoke(route.path,args,route.read) as T;
  };
  const openURL=(value:string)=>{const url=new URL(value);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('链接不可用');window.open(url.href,'_blank','noopener,noreferrer');};
  const copy=async(text:string)=>{if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(text);const node=document.createElement('textarea');node.value=text;document.body.append(node);node.select();const ok=document.execCommand('copy');node.remove();if(!ok)throw new Error('请手动复制内容');};

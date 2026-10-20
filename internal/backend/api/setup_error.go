@@ -5,3 +5,9 @@ package api
 type SetupBlockedError struct{ Code, Message string }
 
 func (e *SetupBlockedError) Error() string { return e.Message }
+
+// ActionRejectedError certifies that the owning boundary refused an action
+// before dispatching any effect. It never classifies transport/write failures.
+type ActionRejectedError struct{ Code string }
+
+func (e *ActionRejectedError) Error() string { return e.Code }

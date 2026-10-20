@@ -1,11 +1,11 @@
 # CaelisBot 无桌面服务与 Web
 
-本实现基于 Bot v0.17.1 / `2d94f101638a46321209c1ad5ebe2784d68f7d4c`。
+Linux/WSL 正式发行形态与安装入口状态见[安装说明](install.linux.md)。
 一个常驻 `app.Application` 拥有 Bot、渠道、schedule、任务与回执；Web 与桌面使用同一套 React 聊天、设置、审批、问题卡片和样式。`desktop.ts` 选择 transport，不建立第二个 Runtime/Core Host。
 
-## 本机开始
+## 源码 / 手动管理环境
 
-源码构建需要 Go（见 go.mod）、Node 24（见 package.json）和 Python 3；预构建归档无需这些工具。Linux 主机需提供 bubblewrap 和可用的非特权 user namespaces，Core 不会在沙箱不可用时降级执行。Rocky 体验环境已具备这些条件。不需要显示器、Wails、GTK 或 Docker。
+源码构建需要 Go（见 go.mod）、Node 24（见 package.json）和 Python 3；正式 managed 包不需要 Go/Node，安装器需要 Python 3/OpenSSL。Linux 主机需提供 bubblewrap 和可用的非特权 user namespaces，Core 不会在沙箱不可用时降级执行。Rocky 体验环境已具备这些条件。不需要显示器、Wails、GTK 或 Docker。
 
 ```sh
 ./script/npm.sh ci
@@ -26,7 +26,7 @@
 - 归档和 Docker 均携带 `resources/caelis-runtime/release.json` 锁定的 Caelis v0.72.2。发行目录必须保留 `Helpers/caelis`、`Resources/Caelis-Runtime.json` 和许可证；构建核对归档、可执行文件 SHA-256 与 ELF 架构。选择默认连接后沿用 App 的自动准备和模型配置，无需另装 Caelis。
 - 显式 CLI 路径优先，其次是程序自身发行目录，最后才是 PATH/用户安装。随包程序禁止自更新，随 Bot 完整归档/镜像更新；缺失或损坏时不悄悄改用系统 CLI。不会向系统 PATH 安装或覆盖已有 Caelis。
 - 程序暂不可用时设置和恢复入口仍可达。所有检测、程序路径与数据目录均属于**执行主机**，不是浏览器电脑；Linux 不伪装桌面文件选择器。
-- Codex 不随包交付。App 的自动安装器当前仅支持 macOS；Web 使用官方安装指引，在服务主机安装后重新检测。检测复用现有 PATH/用户目录和标准 App Server 握手。已安装时可在服务主机执行 `codex login --device-auth` 后重新检测，或在首启使用 API Key；已有认证直接进入模型选择。App 的浏览器登录依赖服务主机 localhost 回调，不把远程浏览器冒充该主机。API Key 只传给原登录操作，Web 不返回密钥。
+- Codex 不随包交付。App/Web 共用明确用户动作触发的 Linux/macOS 安装服务与真实进度；已有外部安装优先。认证主路径为服务端原生 ChatGPT device-auth，Web 展示用户验证码及官方验证链接，成功自动继续；API Key 仅次级入口。已有认证保留，不依赖服务主机图形浏览器。见 [Codex 安装合同](codex-installation.md)。
 - `--data-dir` 隔离 Bot 数据，不改变 CLI 的既有 Store 规则。需要完全隔离测试/服务时另设独立 HOME/CODEX_HOME；Docker 的 HOME=/data，Caelis Store 与可选 Codex 登录随专用卷持久化，不挂载生产用户 HOME。
 
 ## Docker：发行兼容待解决
@@ -112,13 +112,13 @@ caelisbot serve --require-pairing --listen 127.0.0.1:9317 --origin https://your-
 | 内容包 | 浏览器上传 `.caelispack`，复用原 Registry 校验和资源路由，不引入执行脚本 |
 | 权限 | 浏览器不获得服务端桌面权限。终端、系统快捷键、桌宠窗口及 Linux/WSL DTW 的无效入口隐藏，能力标记仍明确不可用；任务结果不依赖终端窗口 |
 
-Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate 写入。遇到未知写入，保留原操作/业务回执，查看当前状态，不用新 ID 自动重试。Ingress 当前保留最多 4096 条记录，不按时间删除后重新接受旧 ID；达到上限会停止接纳新副作用，需要后续有安全高水位的账本压缩，不能手删 operations 来“恢复”。上传暂存目录总量上限 512 MiB；未知结果先查看原草稿附件。
+Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate 写入。遇到未知写入，保留原操作/业务回执，查看当前状态，不用新 ID 自动重试。已确认终态定期压缩为私有 SQLite 不可重放标记，保留原 ID 归属与摘要；最近回执供响应丢失对账。真正 unknown 永不退休；只有累计 4096 条尚未确认记录才停止新写入。不能手删 operations 或退休标记来“恢复”。上传暂存目录总量上限 512 MiB；未知结果先查看原草稿附件。
 
 ## 部署与更新
 
-`deploy/headless/caelisbot.service` 是用户级 systemd 示例。确认路径后复制到用户 unit 目录，再启用；需要退出登录后常驻时，由用户选择是否开启 linger。本次实现不改系统配置。WSL 有 systemd 时可用同一 unit；否则在 WSL 会话或用户既有进程管理器中启动，不保证关闭 WSL 实例后继续运行。
+正式 Linux/WSL 使用[签名完整包安装器](install.linux.md)和 `systemd --user`；缺少用户服务管理器时明确拒绝，不提供前台安装模式。`deploy/headless/caelisbot.service` 是 launcher unit 示例；installer 自动写入当前用户路径，不修改系统服务或 linger。
 
-更新时停止 headless owner、备份数据目录、替换完整发行目录 / container、重启。没有 Web 自更新执行入口。只新增 Web 私有状态；既有 Notebook、schedule、渠道、Runtime 数据和 receipt 格式不迁移。历史 Memory 退役与 Notebook 无关。
+Managed 安装在 Web 设置更新，原 launcher 校验完整包并通过原 Bot 闲时交接，实际新 boot/版本/Host 读回后才确认。显式 installer `--upgrade` 也可替换 launcher，再由旧 Bot 完成同一交接；不以停止进程冒充业务确认。External 手动目录及开发 Docker 分别由操作者/镜像管理器更新，Web 仅显示能力边界。Notebook、schedule、渠道、Runtime 数据和原业务 receipt 不迁移；历史 Memory 退役与 Notebook 无关。
 
 ## 施工接缝与验证
 

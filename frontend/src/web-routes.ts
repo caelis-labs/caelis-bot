@@ -159,7 +159,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  },
  "backend.LoadEarlier": {
   "path": "/api/v1/conversation/load-earlier",
-  "read": false
+  "read": true
  },
  "backend.DismissPreview": {
   "path": "/api/v1/conversation/dismiss-preview",

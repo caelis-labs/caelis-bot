@@ -18,6 +18,7 @@ Caelis Bot 是一个带有可拖动 3D 角色的个人桌面助手。与本机 C
 | --- | --- | --- |
 | macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · 已签名、公证 | [安装说明](docs/install.zh-CN.md) |
 | Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · 未签名 | [安装说明](docs/install.windows.md) |
+| Linux / WSL · amd64、arm64 | 签名完整 tar.gz + 用户服务 · 首次发布待配置 | [安装说明](docs/install.linux.md) |
 
 使用安装包附带的 `.sha256` 文件核验下载。各平台独立发布，请按指南选择对应安装包和渠道。
 

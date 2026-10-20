@@ -1,3 +1,5 @@
+//go:build darwin || linux
+
 package managedupdate
 
 import (
@@ -81,5 +83,39 @@ func TestRuntimeFailureDoesNotConfirmCandidateOrDowngradeHost(t *testing.T) {
 	// rollback only changes the Bot selector; the launcher has no Core command.
 	if id, _ := selected(f.root); id != f.a.ID {
 		t.Fatal("Bot selector not restored")
+	}
+}
+
+func TestInstallerUpgradeSchedulesExistingHandoffWithoutChangingSelection(t *testing.T) {
+	m, f := fixtureManager(t)
+	m.Close()
+	// fixtureManager staged B, but has no active transaction yet.
+	offer, data := testPackage(t, f.key, "0.17.1-qa.3", nil)
+	path := filepath.Join(t.TempDir(), "new.tar.gz")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); err != nil {
+		t.Fatal(err)
+	}
+	selectedID, err := selected(f.root)
+	if err != nil || selectedID != f.a.ID {
+		t.Fatal("installer bypassed old owner", selectedID, err)
+	}
+	next, err := Open(t.Context(), f.root, "linux-arm64", f.trust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	if next.state.Transaction == nil || next.state.Transaction.Phase != "waiting" {
+		t.Fatal("missing normal handoff", next.state.Transaction)
+	}
+	lease, err := acquireLease(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); Code(err) != "installation_owned" {
+		t.Fatal("live owner bypassed", err)
 	}
 }

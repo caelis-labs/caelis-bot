@@ -4,7 +4,7 @@ import {existsSync,readFileSync,readdirSync} from 'node:fs';
 import {readManifest} from './asset-pack.mjs';
 const paths=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{encoding:'utf8'}).split('\0').filter(p=>p&&existsSync(p));
 // These Python files package/verify the product; character authoring remains private.
-const packagingPython=new Set(['script/caelis-runtime.py','script/test_caelis_runtime.py','script/dmg-settings.py','script/verify-dmg-layout.py','script/stage-desktop-world-plugin.py','script/test_desktop_world_staging.py','script/test-managed-update-linux.py']);
+const packagingPython=new Set(['script/caelis-runtime.py','script/test_caelis_runtime.py','script/dmg-settings.py','script/verify-dmg-layout.py','script/stage-desktop-world-plugin.py','script/test_desktop_world_staging.py','script/test-managed-update-linux.py','script/test_linux_installer.py']);
 // Product interaction fixtures are public; character authoring previews are not.
 const runtimePreviews=new Set(['frontend/runtime-preview.html','frontend/settings-extras-preview.html','frontend/desktop-settings-preview.html','frontend/i18n-preview.html']);
 const forbidden=p=>/^(characters\/|resources\/brand\/|docs\/verification\/|script\/humanoid\/)/.test(p)||/\.(blend\d*|blend\.gz|bundle|fbx|psd|kra)$/i.test(p)||p.startsWith('script/')&&p.endsWith('.py')&&!packagingPython.has(p)||/^frontend\/.*-preview\.html$/.test(p)&&!runtimePreviews.has(p);

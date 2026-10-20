@@ -16,7 +16,7 @@ import (
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("use init or serve")
+		return fmt.Errorf("use init, upgrade or serve")
 	}
 	command := os.Args[1]
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -48,7 +48,7 @@ func run() error {
 	}
 	platform := "linux-" + runtime.GOARCH
 	switch command {
-	case "init":
+	case "init", "upgrade":
 		data, e := os.ReadFile(*manifest)
 		if e != nil {
 			return e
@@ -60,6 +60,9 @@ func run() error {
 		o, e := managedupdate.Verify(data, sig, trust.Key, platform, trust.QA)
 		if e != nil {
 			return e
+		}
+		if command == "upgrade" {
+			return managedupdate.ScheduleLocalUpgrade(context.Background(), *root, *archive, o, trust, platform)
 		}
 		args := []string{"--listen", *listen}
 		if *origin != "" {
@@ -74,7 +77,7 @@ func run() error {
 		defer stop()
 		return managedupdate.Launch(ctx, managedupdate.LaunchOptions{Root: *root, Platform: platform, Trust: trust})
 	default:
-		return fmt.Errorf("use init or serve")
+		return fmt.Errorf("use init, upgrade or serve")
 	}
 }
 func main() {

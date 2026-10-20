@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--port", type=int, default=29417)
     parser.add_argument("--feed-port", type=int, default=29418)
     parser.add_argument("--pending-operation", action="store_true")
+    parser.add_argument("--arch", choices=["amd64","arm64"], required=True)
     args = parser.parse_args()
     root = pathlib.Path(args.root)
     if sys.platform != "linux" or root.parent != pathlib.Path("/tmp") or not root.name.startswith("caelisbot-managed-update-qa-"):
@@ -38,7 +39,7 @@ def main():
     packages = {}
     for name in ("a", "b", "bad"):
         directory = pathlib.Path(getattr(args, name)).resolve()
-        manifest_file = directory / "linux-arm64-update.json"
+        manifest_file = directory / f"linux-{args.arch}-update.json"
         manifest = json.loads(manifest_file.read_text())
         assert manifest["buildKind"] == "qa" and "-qa." in manifest["version"]
         packages[name] = (directory, manifest)
@@ -62,7 +63,7 @@ def main():
     trust.write_text(json.dumps({"publicKey": pathlib.Path(args.public_key).read_text().strip(), "origin": feed_origin}))
     trust.chmod(0o600)
     install, profile = root / "install", root / "profile"
-    launcher = packages["a"][0] / "caelisbot-launcher"
+    launcher = packages["a"][0] / f'caelisbot-launcher-{packages["a"][1]["version"]}-linux-{args.arch}'
 
     class Feed(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -74,7 +75,7 @@ def main():
                 for name in offered[:]:
                     _, manifest = packages[name]
                     tag = "v" + manifest["version"]
-                    assets = ["linux-arm64-update.json", "linux-arm64-update.json.sig", manifest["file"]]
+                    assets = [f"linux-{args.arch}-update.json", f"linux-{args.arch}-update.json.sig", manifest["file"]]
                     releases.append({"tag_name": tag, "prerelease": True, "assets": [
                         {"name": asset, "browser_download_url": feed_origin + "/releases/download/" + tag + "/" + asset}
                         for asset in assets]})
@@ -88,7 +89,7 @@ def main():
                 if not self.path.startswith(prefix):
                     continue
                 name = self.path[len(prefix):]
-                if name not in ("linux-arm64-update.json", "linux-arm64-update.json.sig", manifest["file"]):
+                if name not in (f"linux-{args.arch}-update.json", f"linux-{args.arch}-update.json.sig", manifest["file"]):
                     break
                 path = directory / name
                 self.send_response(200)
@@ -193,13 +194,13 @@ def main():
         print(json.dumps(result), flush=True)
 
     evidence = {"kind": "synthetic-qa-not-published", "source": packages["a"][1]["source"],
-                "platform": "linux-arm64", "versions": {k: v[1]["version"] for k, v in packages.items()}, "cases": []}
+                "platform": "linux-"+args.arch, "versions": {k: v[1]["version"] for k, v in packages.items()}, "cases": []}
     try:
         directory, a = packages["a"]
         subprocess.run([str(launcher), "init", "--root", str(install), "--data-dir", str(profile),
                         "--listen", f"127.0.0.1:{args.port}", "--archive", str(directory / a["file"]),
-                        "--manifest", str(directory / "linux-arm64-update.json"),
-                        "--signature", str(directory / "linux-arm64-update.json.sig"), "--qa-trust", str(trust)],
+                        "--manifest", str(directory / f"linux-{args.arch}-update.json"),
+                        "--signature", str(directory / f"linux-{args.arch}-update.json.sig"), "--qa-trust", str(trust)],
                        env=env, check=True, timeout=60)
         if args.pending_operation:
             (profile / "Web").mkdir(mode=0o700, exist_ok=True)

@@ -189,6 +189,18 @@ func stage(root, archive string, o Offer, t Trust, platform string) (string, err
 			return "", e
 		}
 		_, e = io.Copy(out, tr)
+		// The service deliberately runs with umask 0077. Restore signed file
+		// modes inside the private staging directory, never alter process umask.
+		if e == nil {
+			e = out.Chmod(os.FileMode(member.Mode))
+			if e == nil {
+				info, statErr := out.Stat()
+				e = statErr
+				if e == nil && int64(info.Mode().Perm()) != member.Mode {
+					e = problem("member_mode_mismatch")
+				}
+			}
+		}
 		if e == nil {
 			e = out.Sync()
 		}

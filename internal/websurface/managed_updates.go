@@ -1,9 +1,7 @@
 package websurface
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/managedupdate"
 )
@@ -44,12 +42,7 @@ func (s *Server) UpdateQuiescent() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, op := range s.operations {
-		var receipt struct {
-			Outcome string `json:"outcome"`
-			State   string `json:"state"`
-		}
-		_ = json.Unmarshal(op.Value, &receipt)
-		if op.State != "complete" || strings.HasPrefix(op.Error, "operation_unconfirmed") || receipt.Outcome == "unknown" || receipt.State == "unknown" {
+		if !operationTerminal(op) {
 			return false
 		}
 	}

@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"reflect"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type operation struct {
@@ -51,14 +49,14 @@ func bind(function any) (func(context.Context, []json.RawMessage) (any, error), 
 			offset = 1
 		}
 		if len(raw) != t.NumIn()-offset {
-			return nil, errors.New("invalid argument count")
+			return nil, &api.ActionRejectedError{Code: "invalid_argument_count"}
 		}
 		for i, b := range raw {
 			v := reflect.New(t.In(i + offset))
 			d := json.NewDecoder(bytes.NewReader(b))
 			d.DisallowUnknownFields()
 			if e := d.Decode(v.Interface()); e != nil {
-				return nil, errors.New("invalid argument")
+				return nil, &api.ActionRejectedError{Code: "invalid_argument"}
 			}
 			args[i+offset] = v.Elem()
 		}
@@ -113,7 +111,13 @@ func (s *Server) register(a action) {
 		fingerprint := digest(a.Path + string(body))
 		owner := sessionID(r)
 		s.mu.Lock()
-		if old, exists := s.operations[in.ID]; exists {
+		old, exists, lookupErr := s.lookupOperation(in.ID)
+		if lookupErr != nil {
+			s.mu.Unlock()
+			fail(w, 503, "receipt_unavailable")
+			return
+		}
+		if exists {
 			s.mu.Unlock()
 			if old.Owner != owner || old.Digest != fingerprint {
 				fail(w, 409, "request_conflict")
@@ -132,7 +136,7 @@ func (s *Server) register(a action) {
 		}
 		// Retain identity tombstones. Expiry must never authorize replay. Local
 		// draft CAS is handled by its existing owner, not this effect journal.
-		if len(s.operations) > 4096 {
+		if len(s.operations) >= 4096 {
 			s.mu.Unlock()
 			fail(w, 503, "operation_capacity")
 			return
@@ -156,8 +160,21 @@ func (s *Server) register(a action) {
 		record := pending
 		record.State = "complete"
 		record.Value = result
+		if len(result) > 32<<10 {
+			if operationTerminal(record) {
+				record.Value = nil
+				record.Error = "operation_retired"
+			} else {
+				record.Value = nil
+				record.Error = "operation_unconfirmed"
+			}
+		}
 		if e != nil {
 			record.Error = "operation_unconfirmed"
+			var rejected *api.ActionRejectedError
+			if errors.As(e, &rejected) {
+				record.Error = "operation_rejected"
+			}
 			var blocked *api.SetupBlockedError
 			if errors.As(e, &blocked) && (blocked.Code == "runtime_recovery_required" || blocked.Code == "runtime_not_ready") {
 				record.Error = "setup_blocked_" + blocked.Code
@@ -182,7 +199,7 @@ func (s *Server) register(a action) {
 	})
 }
 func (s *Server) saveOperations() error {
-	return localstate.Write(filepath.Join(s.config.Directory, "operations.json"), s.operations)
+	return s.compactOperations()
 }
 
 func (s *Server) ownsComposer(r *http.Request) bool {

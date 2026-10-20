@@ -106,8 +106,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	v, ok := s.operations[r.PathValue("id")]
+	v, ok, err := s.lookupOperation(r.PathValue("id"))
 	s.mu.Unlock()
+	if err != nil {
+		fail(w, 503, "receipt_unavailable")
+		return
+	}
 	if !ok || v.Owner != sessionID(r) {
 		fail(w, 404, "operation_unavailable")
 		return

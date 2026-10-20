@@ -98,8 +98,9 @@ Core owns compatible busy-Host reuse, deferred idle replacement, exclusive Store
 writes and older-client non-downgrade. Bot coalesces requests using its existing
 recovery coordinator and then negotiates the discovered endpoint normally.
 The CLI release pin and consumed OpenAPI pin are distinct; distribution version
-equality is never a connection requirement. Packaging currently targets the
-qualified macOS arm64 app; this does not claim Windows GUI distribution.
+equality is never a connection requirement. Packaging stages the pinned CLI for macOS arm64, Windows amd64 and Linux
+amd64/arm64. Linux uses the complete managed bundle and a systemd user launcher;
+this does not add Linux desktop or imply native Windows GUI acceptance.
 
 
 The General settings login switch reads macOS `SMAppService.mainApp` through a

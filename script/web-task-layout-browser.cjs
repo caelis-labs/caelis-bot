@@ -23,7 +23,7 @@ async(page)=>{
  });
  await page.setViewportSize({width:1600,height:1000});await page.goto(base+'/web.html#/chat');
  await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();
- 
+
  await page.getByText('fixture-notes.txt',{exact:true}).waitFor();
  await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
  const retained=()=>page.evaluate(()=>({draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,same:window.retainedComposer===document.querySelector('textarea')}));

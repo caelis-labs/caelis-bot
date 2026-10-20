@@ -8,8 +8,8 @@ Linux Bot release is implied by the implementation or the QA artifacts.
 ## Deployment and ownership
 
 One stable `caelisbot-launcher` owns one private, same-user installation root and
-one external private Bot profile. It can run as a user process or as the main
-process of a user-owned systemd unit. The launcher remains alive when its Bot child
+one external private Bot profile. The distributed installer requires a user-owned systemd unit (including WSL);
+direct launcher invocation is reserved for development and isolated QA. The launcher remains alive when its Bot child
 changes. Do not run each version as a separate service or restart a shared Runtime
 unit. An installation root, its profile and configuration must be absolute,
 canonical, owned by the current UID and private. No elevation or directory
@@ -62,10 +62,16 @@ The stable launcher is distributed alongside the initial archive and is not
 self-updated by protocol 1. Release builds require a clean tree, exact version tag
 and matching package version. `script/build-managed-headless.sh` builds the Bot,
 launcher and unsigned manifest, never signs or publishes. It reuses the existing
-pinned Runtime cache and checks its checksum and ELF architecture. Signing is an
-explicit separate invocation of `script/linux-update-manifest.mjs sign`; a
-production signature must match the embedded public key. Linux runtime identity
-must additionally be read back on a real machine before release.
+pinned Runtime cache and checks its checksum and ELF architecture. `script/linux-release.mjs prepare` signs the update manifest and an install index
+covering the versioned launcher, archive, manifest/signature, checksum and both
+installer files. The same embedded Ed25519 key verifies both; no second trust
+system is introduced. `linux-release.yml` builds both real architecture packages
+from the exact main tag without credentials, then signs in `linux-release`.
+The sole manual release configuration is the persistent identity: commit its
+32-byte base64 public key in `release-key.txt` and configure the matching PEM
+`LINUX_RELEASE_ED25519_PRIVATE_KEY` environment secret with main-only protection.
+Do not generate that identity in CI or use a QA key. Existing R2 credentials are
+reused; no new publishing account or paid certificate is required.
 
 QA builds require `BOT_UPDATE_KIND=qa`, a `-qa.N` version, the `managed_update_qa`
 build tag and an explicit private `--qa-trust` file with an ephemeral public key
@@ -204,7 +210,7 @@ storage before dispatch, reads its receipt after ambiguous replies/reload, and
 does not resubmit an unknown command. Installation success requires the original
 transaction, expected version/kind, signed-owner source identity and a new boot.
 Download percentages use actual bytes; unknown totals are indeterminate. Channel
-handoff and Runtime-pin refusal remain explicit local reasons. External/image
+handoff and actual Runtime startup/readback failures remain explicit local reasons. External/image
 installs show checking and their actual management boundary, without install
 controls. No native updater UI or channel lifecycle is replaced.
 
@@ -222,3 +228,20 @@ unresolved original Web operation prevents installation and survives cancellatio
 A/B must be real QA Bot bundles; BAD is deliberately fault-injected QA content,
 not a source-authentic release or evidence of a public Linux asset. The runner
 records evidence in its private root and stops only its own created processes.
+
+## Installer and publication
+
+[User installation](install.linux.md) uses systemd user services only. The
+versioned bootstrap pins the release key, verifies each asset before execution,
+and refuses foreign installation paths. `launcher upgrade` acquires the same
+installation lease and only stages/schedules; old Bot admission/receipt checks
+still own the handoff. File modes are explicitly restored with f.Chmod in private
+staging, so UMask=0077 does not corrupt the signed inventory.
+
+Linux asset names are unique per architecture; common versioned installer files
+are byte-identical. GitHub upload reconciles unknown outcomes by exact name/hash.
+R2 mirrors all nine assets per architecture under `releases/linux-<arch>/<tag>/`,
+reads immutable bytes back, then moves each signed download pointer and finally
+`install.sh`. A pointer/signature mismatch fails closed during publication.
+Retention deletes only older releases in that architecture namespace, never
+macOS/Windows. The new workflow and retry sync do not publish until explicitly run.

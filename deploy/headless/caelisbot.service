@@ -5,10 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/lib/caelisbot/caelisbot serve
+ExecStart=%h/.local/bin/caelisbot-launcher serve --root %h/.local/share/caelisbot-install
 Restart=on-failure
 RestartSec=5
 UMask=0077
+TimeoutStopSec=40
+KillMode=process
+SendSIGKILL=no
 
 [Install]
 WantedBy=default.target

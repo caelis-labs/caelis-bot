@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -69,6 +70,7 @@ type Server struct {
 	pair        pairing
 	attempts    []time.Time
 	operations  map[string]operation
+	retired     *sql.DB
 	composerMu  sync.Mutex
 	writer      string
 	writerEpoch string
@@ -124,7 +126,7 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 	if s.auth.Sessions == nil {
 		s.auth.Sessions = map[string]session{}
 	}
-	if err = readState(filepath.Join(config.Directory, "operations.json"), &s.operations); err != nil {
+	if err = s.loadOperations(); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -447,5 +449,13 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, nil)
 }
 
-func (s *Server) Close()         { s.cancel(); s.workers.Wait() }
+func (s *Server) Close() {
+	s.cancel()
+	s.workers.Wait()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.retired != nil {
+		_ = s.retired.Close()
+	}
+}
 func (s *Server) String() string { return fmt.Sprintf("CaelisBot Web (%s)", s.config.Version) }

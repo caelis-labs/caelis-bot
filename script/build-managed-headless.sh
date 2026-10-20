@@ -28,12 +28,8 @@ test -f frontend/dist/web.html
 python3 script/caelis-runtime.py stage-headless "$BOT_UPDATE_OUTPUT/package" "linux-$BOT_UPDATE_ARCH"
 BOT_UPDATE_LDFLAGS="-X github.com/caelis-labs/caelis-bot/internal/updates.Version=$BOT_UPDATE_VERSION -X github.com/caelis-labs/caelis-bot/internal/managedupdate.Source=$BOT_UPDATE_SOURCE -X github.com/caelis-labs/caelis-bot/internal/managedupdate.BuildKind=$BOT_UPDATE_KIND"
 CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_UPDATE_ARCH" go build -tags "$BOT_UPDATE_TAGS" -trimpath -ldflags "$BOT_UPDATE_LDFLAGS" -o "$BOT_UPDATE_OUTPUT/package/caelisbot" .
-CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_UPDATE_ARCH" go build -tags "$BOT_UPDATE_TAGS" -trimpath -o "$BOT_UPDATE_OUTPUT/caelisbot-launcher" ./cmd/caelisbot-launcher
-cp LICENSE "$BOT_UPDATE_OUTPUT/package/LICENSE"
-cp ASSET-LICENSE.md "$BOT_UPDATE_OUTPUT/package/ASSET-LICENSE.md"
-cp protocol/caelis/LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/Caelis-Protocol-LICENSE"
-cp licenses/openclaw-weixin-LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/OpenClaw-Weixin-LICENSE"
-cp licenses/go-qrcode-LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/Go-QRCode-LICENSE"
+CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_UPDATE_ARCH" go build -tags "$BOT_UPDATE_TAGS" -trimpath -o "$BOT_UPDATE_OUTPUT/caelisbot-launcher-$BOT_UPDATE_VERSION-linux-$BOT_UPDATE_ARCH" ./cmd/caelisbot-launcher
+bash script/headless-notices.sh "$BOT_UPDATE_OUTPUT/package"
 cp docs/managed-updates.md "$BOT_UPDATE_OUTPUT/package/README.md"
 chmod 644 "$BOT_UPDATE_OUTPUT/package/ASSET-LICENSE.md" "$BOT_UPDATE_OUTPUT/package/LICENSE" "$BOT_UPDATE_OUTPUT/package/README.md" "$BOT_UPDATE_OUTPUT/package/Resources/"*
 chmod 755 "$BOT_UPDATE_OUTPUT/package/caelisbot" "$BOT_UPDATE_OUTPUT/package/Helpers/caelis"

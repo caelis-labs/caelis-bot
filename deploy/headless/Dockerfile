@@ -27,11 +27,15 @@ COPY --from=frontend /src/frontend/dist ./frontend/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOWORK=off go build -trimpath -ldflags "-X github.com/caelis-labs/caelis-bot/internal/updates.Version=${VERSION}" -o /caelisbot .
 
+COPY --from=runtime /bundle/Resources/Caelis-Runtime-LICENSE /notices/Resources/Caelis-Runtime-LICENSE
+RUN bash script/headless-notices.sh /notices
+
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-client git bubblewrap && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 10001 --create-home bot && install -d -m 0700 -o bot -g bot /data
 COPY --from=backend /caelisbot /opt/caelisbot/caelisbot
 COPY --from=runtime /bundle/ /opt/caelisbot/
+COPY --from=backend /notices/ /opt/caelisbot/
 RUN ln -s /opt/caelisbot/caelisbot /usr/local/bin/caelisbot
 # Core/Codex credentials and Store persist with this isolated service profile.
 ENV HOME=/data

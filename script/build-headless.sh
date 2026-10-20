@@ -12,6 +12,8 @@ BOT_VERSION="$(node -p 'JSON.parse(require("fs").readFileSync("package.json","ut
 CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_HEADLESS_ARCH" go build -trimpath \
   -ldflags "-X github.com/caelis-labs/caelis-bot/internal/updates.Version=$BOT_VERSION" \
   -o "$BOT_HEADLESS_DIST/caelisbot" .
-cp LICENSE "$BOT_HEADLESS_DIST/LICENSE"
+bash script/headless-notices.sh "$BOT_HEADLESS_DIST"
 cp docs/headless-web.md "$BOT_HEADLESS_DIST/README.md"
 tar -czf "dist/headless/caelisbot-${BOT_VERSION}-linux-${BOT_HEADLESS_ARCH}.tar.gz" -C "$BOT_HEADLESS_DIST" .
+
+shasum -a 256 "dist/headless/caelisbot-${BOT_VERSION}-linux-${BOT_HEADLESS_ARCH}.tar.gz" > "dist/headless/caelisbot-${BOT_VERSION}-linux-${BOT_HEADLESS_ARCH}.tar.gz.sha256"
