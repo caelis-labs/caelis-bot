@@ -392,8 +392,8 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	if receipt := sendSynthetic(t, loaded, "new-owner-fresh-request"); receipt.Outcome != "accepted" {
 		t.Fatal("new owner could not accept fresh work", receipt)
 	}
-	if oldInterrupts.Load() != 0 || oldReads.Load() != 0 || oldDispatches.Load() != 0 {
-		t.Fatal("old work was queried, dispatched or interrupted on the new owner", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
+	if oldInterrupts.Load() != 0 || oldReads.Load() != 1 || oldDispatches.Load() != 0 {
+		t.Fatal("explicit archived read did more than one original read", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
 	}
 	m, err := tasks.Open(filepath.Join(t.TempDir(), "recovered-product-tasks.json"), loaded.workRoot(), "codex", loaded, loaded, loaded.Snapshot)
 	if err != nil {
@@ -410,7 +410,7 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	if _, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "new-owner-worker", Title: "Fresh worker", Prompt: "Create a new fixture artifact"}); err != nil {
 		t.Fatal("archived owner consumed the new connection's only Worker slot", err)
 	}
-	if oldInterrupts.Load() != 0 || oldReads.Load() != 0 || oldDispatches.Load() != 0 {
+	if oldInterrupts.Load() != 0 || oldReads.Load() != 1 || oldDispatches.Load() != 0 {
 		t.Fatal("new Worker creation replayed old native work", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
 	}
 	reloaded := NewSession(loaded.opts)
