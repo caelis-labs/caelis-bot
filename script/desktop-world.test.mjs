@@ -7,9 +7,9 @@ import {expectedVersion, verifyVersion} from './verify-desktop-world-version.mjs
 
 test('both platforms verify the complete version from pinned CUA metadata', () => {
   const pin=JSON.parse(readFileSync('resources/desktop-world/release.json','utf8'));
-  assert.equal(expectedVersion(pin),'dtw 0.1.0 (CUA 0.35.4 source d74a9cab3fb2)');
+  assert.equal(expectedVersion(pin),'dtw 0.1.2 (CUA 0.37.0 source 2d2f99228d4d)');
   verifyVersion(expectedVersion(pin)+'\r\n',pin);
-  assert.throws(()=>verifyVersion('dtw 0.1.0 (CUA source d74a9cab3fb2)',pin));
+  assert.throws(()=>verifyVersion('dtw 0.1.2 (CUA source 2d2f99228d4d)',pin));
   assert.throws(()=>verifyVersion(expectedVersion(pin),{...pin,cua_version:'0.35.3'}));
 });
 
