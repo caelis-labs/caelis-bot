@@ -424,6 +424,13 @@ export interface SetupChoice {
   noAuth: boolean;
   current: boolean;
 }
+export interface SetupLogin {
+  id: string;
+  state: string;
+  userCode?: string;
+  verificationUrl?: string;
+  expiresAt?: string;
+}
 export interface SetupOverview {
   active: string;
   hasRuntimeChoice: boolean;
@@ -431,6 +438,7 @@ export interface SetupOverview {
   onboarding: boolean;
 }
 export interface SetupRequest {
+  loginId?: string;
   settings: RuntimeSettings;
   action: string;
   provider: string;
@@ -439,6 +447,7 @@ export interface SetupRequest {
   apiKey: string;
 }
 export interface SetupState {
+  login?: SetupLogin | null;
   serviceUpdateAvailable: boolean;
   serviceVersion: string;
   serviceState: string;

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
@@ -96,7 +97,7 @@ func (s *Server) register(a action) {
 			}
 		}
 		if a.Read || a.Local {
-			value, e := invoke(r.Context(), in.Args)
+			value, e := invoke(api.WithSetupAccess(r.Context(), "web:"+sessionID(r)), in.Args)
 			if e != nil {
 				fail(w, 503, "read_unavailable")
 				return
@@ -148,8 +149,8 @@ func (s *Server) register(a action) {
 		// the original owner still govern lifetime; no automatic effect retry.
 		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Minute)
 		defer cancel()
-		value, e := invoke(ctx, in.Args)
-		result, _ := json.Marshal(value)
+		value, e := invoke(api.WithSetupAccess(ctx, "web:"+owner), in.Args)
+		result, _ := json.Marshal(receiptValue(value))
 		s.mu.Lock()
 		pending := s.operations[in.ID]
 		record := pending
@@ -207,4 +208,14 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		epoch = s.writerEpoch
 	}
 	jsonOut(w, 200, map[string]any{"editing": s.writer == key, "epoch": epoch})
+}
+
+// A completed receipt proves dispatch; challenge bytes are read from the live
+// owner with InspectSetup. Do not persist codes or replay expired challenges.
+func receiptValue(value any) any {
+	if state, ok := value.(api.SetupState); ok {
+		state.Login = nil
+		return state
+	}
+	return value
 }

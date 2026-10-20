@@ -38,6 +38,12 @@ test('model summaries start in an explicit loading state before any runtime fact
 });
 const render=(state)=>renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state,busy:false,checking:false,onAction:()=>{},onDetect:()=>{}}));
 const base={state:'login',installation:{installed:true,version:'1.0',updateState:''},loginPending:false};
+test('Codex authentication action failures remain local without a feedback card',()=>{
+ const html=renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state:base,busy:false,checking:false,error:true,onAction:()=>{},onDetect:()=>{}}));
+ assert.match(html,/role="status"/);
+ assert.doesNotMatch(html,/Copy feedback|SurfaceBoundary|recovery-actions/);
+ assert.match(html,/Log in with ChatGPT/);
+});
 test('Codex offers installation only when absent, login only after handshake, and updates independently',()=>{
  const absent=render({...base,installation:{installed:false}});
  assert.match(absent,/Install Codex/);assert.doesNotMatch(absent,/Log in with ChatGPT|Check for updates/);
@@ -148,4 +154,21 @@ test('onboarding progress retains the action label and disables repeated submiss
  const page=renderToStaticMarkup(React.createElement(SetupLoading));
  assert.match(page,/role="status"/);assert.match(page,/aria-busy="true"/);
  assert.doesNotMatch(page,/Ready|Continue|Connecting/);
+});
+
+const {CodexLogin}=await server.ssrLoadModule('/src/settings/runtime/CodexLogin.tsx');
+test('shared device ceremony has one account primary and one secondary key entry',()=>{
+ const html=renderToStaticMarkup(React.createElement(CodexLogin,{state:base,onAction:()=>{}}));
+ assert.equal((html.match(/>Log in with ChatGPT</g)||[]).length,1);
+ assert.equal((html.match(/>Use OpenAI API Key</g)||[]).length,1);
+ assert.doesNotMatch(html,/device-auth|Advanced options|Program and paths|Recheck|Reopen window/);
+});
+test('owned pending challenge exposes only official user instructions, never another start or API key',()=>{
+ const state={...base,loginPending:true,login:{id:'attempt',state:'pending',userCode:'TEST-1234',verificationUrl:'https://auth.openai.com/codex/device',expiresAt:'2026-10-20T12:00:00Z'}};
+ const html=renderToStaticMarkup(React.createElement(CodexLogin,{state,onAction:()=>{}}));
+ assert.match(html,/TEST-1234/);assert.match(html,/Copy verification code/);assert.match(html,/Open verification page/);assert.match(html,/Waiting for your authorization/);
+ assert.doesNotMatch(html,/>Log in with ChatGPT<|API Key|Use OpenAI|attempt/);
+ const other=renderToStaticMarkup(React.createElement(CodexLogin,{state:{...state,login:{state:'other-session'}},onAction:()=>{}}));
+ assert.doesNotMatch(other,/TEST-1234|verification page|Cancel/);
+ assert.match(other,/browser that started/);
 });

@@ -160,3 +160,21 @@ and 2 output tokens, response `OK`. This is a gateway inference check, not a
 claim of full live Bot/Worker/channel acceptance. Default Docker nested-sandbox
 compatibility, real WSL and real Tailscale device acceptance remain outside this
 follow-up's evidence.
+
+## Codex device-login follow-up (2026-10-20)
+
+[Source, lifetime, privacy and version boundary](codex-device-login.md). The shared
+App/Web login ceremony now uses the native `chatgptDeviceCode` App Server method,
+with a secondary API Key form and no normal-login advanced/path dialog. Real empty
+profiles on macOS 0.162.1 and Rocky 0.153.4 issued and cancelled codes without account
+authorization. Mounted completion/expiry/failure cases are fixtures. Shared feedback
+mounting and whole-Web alignment still await the separate UI worker; this follow-up
+does not modify those files or claim that pending work is complete.
+
+The final follow-up passed `make check` (249 Node tests plus Go suites),
+`make smoke`, isolated native `make build`, `make build-headless`, and the affected
+Go packages with `-race`. Real Web refresh/multi-tab checks kept one native login
+attempt; 640/390-pixel layouts had no overflow. Native screenshots are from the
+actual isolated App, and that Dev process was stopped after acceptance. The
+remaining legacy chat `Login` action is a named integration seam in
+`codex-device-login.md`, not an exposed Web RPC.

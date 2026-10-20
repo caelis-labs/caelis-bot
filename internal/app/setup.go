@@ -268,7 +268,7 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 			return api.SetupState{}, errors.New(s.app.text("installCodexFirst", nil))
 		}
 		var u string
-		u, e = s.codex.Apply(ctx, path.Path, r.Action, r.APIKey)
+		u, e = s.codex.Apply(ctx, path.Path, r.Action, r.APIKey, r.LoginID)
 		if e == nil && u != "" {
 			if s.app.host.OpenURL == nil {
 				e = errors.New(s.app.text("cannotOpenBrowser", nil))

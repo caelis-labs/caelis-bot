@@ -65,12 +65,18 @@ func TestPreparedHomeRequiresTheSameLiveManagementClient(t *testing.T) {
 func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	const id = "setup-login"
 	logged := false
+	started := false
 	s := setupFixture(t, func(_ *Setup, m wireMessage, c net.Conn) {
 		switch m.Method {
 		case "account/login/start":
-			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"type":"chatgpt","loginId":"setup-login","authUrl":"https://auth.openai.com/authorize"}`)})
+			started = true
+			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"type":"chatgptDeviceCode","loginId":"setup-login","verificationUrl":"https://auth.openai.com/codex/device","userCode":"ABCD-1234"}`)})
 		case "account/read":
 			logged = true
+			if !started {
+				writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"account":null,"requiresOpenaiAuth":true}`)})
+				return
+			}
 			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"account":{"type":"chatgpt"},"requiresOpenaiAuth":true}`)})
 		case "model/list":
 			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"data":[{"model":"fixture","displayName":"Fixture"}]}`)})
@@ -79,7 +85,7 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 		}
 	})
 	u, e := s.Apply(t.Context(), "/fixture", "login", "")
-	if e != nil || u == "" {
+	if e != nil || u != "" {
 		t.Fatal(e)
 	}
 	v, e := s.Inspect(t.Context(), "/fixture")
@@ -106,6 +112,7 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	}
 }
 func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
+	started := false
 	s := setupFixture(t, func(s *Setup, m wireMessage, c net.Conn) {
 		switch m.Method {
 		case "account/login/start":
@@ -113,12 +120,17 @@ func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
 				writeWire(t, c, wireMessage{ID: m.ID, Error: &NativeError{Code: -32000, Message: "PRIVATE_SYNTHETIC_KEY"}})
 				return
 			}
+			started = true
 			// Completion may arrive before the login/start response.
 			s.mu.Lock()
 			s.completed["early"] = true
 			s.mu.Unlock()
-			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"type":"chatgpt","loginId":"early","authUrl":"https://auth.openai.com/authorize"}`)})
+			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"type":"chatgptDeviceCode","loginId":"early","verificationUrl":"https://auth.openai.com/codex/device","userCode":"ABCD-1234"}`)})
 		case "account/read":
+			if !started {
+				writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"account":null,"requiresOpenaiAuth":true}`)})
+				return
+			}
 			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"account":{"type":"chatgpt"},"requiresOpenaiAuth":true}`)})
 		case "model/list":
 			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"data":[]}`)})

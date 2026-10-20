@@ -1,3 +1,4 @@
+import {CodexLogin} from './settings/runtime/CodexLogin';
 import {isWebSurface} from './transport';
 import {Recovery} from './SurfaceBoundary';
 import appIcon from '../../internal/desktop/assets/app-icon.png';
@@ -44,7 +45,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false), [locationOpen,setLocationOpen] = useState(false);
  const [providerSelection,setProviderSelection]=useState<{kind:ConnectionKind;id:string}|null>(null);
  const [draftModel,setDraftModel]=useState('');
- const [form, setForm] = useState<'model' | 'key' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
+ const [form, setForm] = useState<'model' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
  const [preparationAttempt,setPreparationAttempt] = useState(0), [preparationFailed,setPreparationFailed] = useState(false);
  useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setReconnectNeeded(true); }).catch(() => {}); }, []);
  const epoch = useRef(0), working = useRef(false), alive = useRef(true);
@@ -183,17 +184,11 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    {updateAvailable && <p className="settings-note">{t('runtime.newVersionAvailable', { version: state?.installation.latestVersion ?? '' })}</p>}
   </div>}
   {state?.installation.installed && state.state !== 'service' && state.state !== 'incompatible' && state.state !== 'unavailable' && <>
-   {id === 'codex' && !onboarding && <SettingGroup title={t('runtime.accountGroup')}><SettingRow label={state.loginPending ? t('runtime.waitingBrowserLogin') : state.state === 'ready' ? t('runtime.accountReady') : t('runtime.loginCodex')} description={state.state === 'ready' ? (state.accountType === 'chatgpt' ? t('runtime.chatgptAccount') : state.accountType === 'apiKey' ? t('runtime.useOpenAIApiKey') : t('runtime.codexConfigConnection')) : undefined}>
-    <div className="runtime-actions">{state.loginPending ? <><button disabled={blocked} onClick={() => void run('login')}>{t('runtime.openLoginPage')}</button><button disabled={blocked} onClick={() => void run('cancel-login')}>{t('common.cancel')}</button></> : <><button disabled={blocked} onClick={() => void run('login')}>{state.state === 'ready' ? t('runtime.relogin') : t('runtime.loginWithChatGPT')}</button>{!onboarding && state.state === 'ready' && <button disabled={blocked} onClick={() => setConfirm(request(profile, 'logout'))}>{t('runtime.logout')}</button>}</>}</div>
-   </SettingRow>{!state.loginPending && <SettingRow label={t('runtime.useOpenAIApiKey')}><button disabled={blocked} onClick={() => setForm('key')}>{t('runtime.useApiKey')}</button></SettingRow>}</SettingGroup>}
+   {id === 'codex' && !onboarding && state.state!=='ready' && <CodexLogin state={state} busy={blocked} error={!!error} onAction={run} host={host} open={call}/>}
    {oauthPage && <section className="onboarding-oauth" aria-labelledby="onboarding-oauth-title">
-    <img className="onboarding-oauth-app-icon" src={appIcon} alt="Caelis Bot"/>
-    <h1 id="onboarding-oauth-title">{t(state.loginPending?'runtime.waitingBrowserLogin':'runtime.loginWithChatGPT')}</h1>
-    <p className="setup-lead">{isWebSurface()?'登录运行 CaelisBot 的服务端 Codex。':t(state.loginPending?'runtime.oauthPendingHint':'runtime.oauthStartHint')}</p>
-    {isWebSurface()&&<p className="settings-note">在服务端主机运行 codex login --device-auth，完成后重新检测；也可使用 API Key。</p>}
-    <div className="onboarding-oauth-actions">{isWebSurface()?<><button className="primary" onClick={()=>setForm('key')}>使用 API Key</button><button onClick={()=>void run('detect')}>重新检测</button></>:<SetupButton className="primary" busy={busy==='login'} disabled={blocked} onClick={()=>void run('login')}>{t(state.loginPending?'runtime.openLoginPage':'runtime.oauthBrowserAction')}</SetupButton>}{state.loginPending&&<button className="text-action" disabled={blocked} onClick={()=>void run('cancel-login')}>{t('common.cancel')}</button>}</div>
-    {!isWebSurface()&&<p className="onboarding-oauth-footnote">{t('runtime.oauthContinueHint')}</p>}
-    {error&&<Recovery/>}
+    <img className="onboarding-oauth-app-icon" src={appIcon} alt="CaelisBot"/>
+    <h1 id="onboarding-oauth-title">{t('runtime.loginWithChatGPT')}</h1>
+    <CodexLogin state={state} busy={blocked} error={!!error} onAction={run} host={host} open={call}/>
    </section>}
 
    {id === 'caelis' && (onboarding || !state.models.length) && <div className="onboarding-models">
@@ -201,9 +196,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </div>}
 
   </>}
-  {(!onboarding||isWebSurface())&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
-  {locationOpen&&<SettingsDialog title={t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
-   {onboarding&&id==='codex'&&<button onClick={()=>{setLocationOpen(false);setForm('key')}}>{t('runtime.useOpenAIApiKey')}</button>}
+  {(!onboarding||!state?.installation.installed||['incompatible','unavailable'].includes(state.state)||state.login?.state==='unsupported')&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t('runtime.programAndDataDirectory')}</button>}
+  {locationOpen&&<SettingsDialog title={t('runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
    {isWebSurface()&&<p className="settings-note">检测与路径属于运行 CaelisBot 的服务端主机。Codex 需在该主机安装；Caelis 随发行包提供。</p>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
     {manual && <div className="setup-path-field"><input aria-label={t('runtime.programPath')} disabled={blocked} value={profile.cliPath} placeholder={t('runtime.programPathPlaceholder')} onChange={e => { setProfile(p => ({ ...p, cliPath: e.target.value })); setState(null); }}/>{!isWebSurface()&&<button disabled={blocked} onClick={() => void pick()}>{t('runtime.chooseFile')}</button>}</div>}
@@ -220,19 +214,6 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    {installError&&<div className="setup-end"><button onClick={()=>{setInstallOperation('');setInstallError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void run(installOperation)}>{t('settings.runtimeTryAgain')}</button></div>}
   </SettingsDialog>}
   {form === 'model' && <ConnectionWizard onboarding={onboarding} initialKind={providerSelection?.kind} initialChoice={providerSelection?.id} client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
-  {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}
   {confirm && <section className="runtime-confirm" role="alertdialog" aria-modal="false" aria-labelledby="setup-confirm-title"><h3 id="setup-confirm-title">{confirm.action === 'switch' ? t('runtime.confirmSwitchTitle', { name }) : confirm.action === 'logout' ? t('runtime.confirmLogoutTitle') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.confirmUpdateCaelisTitle') : t('runtime.confirmUpdateCodexTitle')) : confirm.action === 'apply-update' ? t('runtime.confirmApplyCaelisTitle') : t('runtime.confirmRemoveModelTitle')}</h3><p>{confirm.action === 'switch' ? t('runtime.confirmSwitchBody') : ['update', 'apply-update'].includes(confirm.action) && id === 'caelis' ? t('runtime.confirmUpdateCaelisBody') : confirm.action === 'update' ? t('runtime.confirmUpdateCodexBody') : t('runtime.confirmAffectsOtherAppsBody')}</p><div className="setup-end"><button autoFocus onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="primary" onClick={() => { const r = confirm; setConfirm(null); if (r.action === 'switch') void activate(); else void run(r.action, r); }}>{confirm.action === 'switch' ? t('runtime.switchAndRestart') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.applyAndReconnect') : t('runtime.update')) : confirm.action === 'apply-update' ? t('runtime.applyAndReconnect') : t('runtime.confirm')}</button></div></section>}
  </section>;
-}
-
-function APIKeyForm({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (key: string) => Promise<string | undefined> }) {
- const { t } = useI18n();
- const [key, setKey] = useState(''), [error, setError] = useState('');
- return <SettingsDialog title={t('runtime.useOpenAIApiKey')} description={t('runtime.apiKeySavedByCodex')} busy={busy} onClose={() => { setKey(''); onClose(); }}>
-  <form onSubmit={e => { e.preventDefault(); const secret = key; setKey(''); void onSubmit(secret).then(message => { if (message) setError(message); }); }}>
-   <label>API Key<input type="password" required disabled={busy} value={key} autoComplete="off" spellCheck={false} onChange={e => setKey(e.target.value)}/></label>
-   {error && <Recovery/>}
-   <div className="setup-end"><button type="button" disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={busy || !key.trim()}>{busy ? t('runtime.connecting') : t('runtime.connect')}</button></div>
-  </form>
- </SettingsDialog>;
 }

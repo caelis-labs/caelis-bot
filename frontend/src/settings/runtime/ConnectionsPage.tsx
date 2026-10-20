@@ -43,6 +43,7 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  const [editing,setEditing]=useState<'conversation'|'work'|null>(null),[providerList,setProviderList]=useState<Array<ConnectChoice&{kind:ConnectionKind}>>([]),[providerError,setProviderError]=useState('');
  const [removing,setRemoving]=useState<{id:string;name:string;action:string}|null>(null),[removeError,setRemoveError]=useState('');
  const [notice,setNotice]=useState(''),[operation,setOperation]=useState(''),[operationError,setOperationError]=useState('');
+ const [codexAuthError,setCodexAuthError]=useState(false);
  const generation=useRef(0),action=useRef(false),root=useRef<HTMLElement>(null),anchor=useRef<HTMLElement|null>(null);
  const id=route.page==='home'?'caelis':route.id,view=views[id];
  const client=useMemo(()=>createRuntimeSettingsClient(backend,view?.profile??{runtime:id,cliPath:'',caelisStore:''}),[view?.profile,id]);
@@ -88,16 +89,17 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  },[route.page,id,view]);
  useEffect(()=>{if(route.page!=='providers')return;let valid=true;setProviderList([]);setProviderError('');void Promise.allSettled([client.catalog('account'),client.catalog('api-key')]).then(results=>{if(!valid)return;const list:Array<ConnectChoice&{kind:ConnectionKind}>=[];const errors:string[]=[];results.forEach((r,i)=>{if(r.status==='fulfilled'){if(r.value.unavailable)errors.push(r.value.unavailable);r.value.choices.forEach(c=>list.push({...c,kind:i===0?'account':'api-key'}));}else errors.push(textError(r.reason));});setProviderList(list);setProviderError(errors.join(' '));});return()=>{valid=false}},[route.page,client]);
  const run=async(fn:()=>Promise<void>)=>{if(action.current)return;action.current=true;setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(textError(e))}finally{action.current=false;setBusy(false)}};
- const apply=async(act:string)=>run(async()=>{
+ const apply=async(act:string,fields:Partial<SetupRequest>={})=>run(async()=>{
   if(!view)return;
-  setOperation(act);setOperationError('');
+   setOperation(act);setOperationError('');setCodexAuthError(false);
   try{
-   const state=await backend<SetupState>('ApplySetup',{settings:view.profile,action:act,provider:'',model:'',baseUrl:'',apiKey:''} satisfies SetupRequest);
+   const state=await backend<SetupState>('ApplySetup',{settings:view.profile,action:act,provider:'',model:'',baseUrl:'',apiKey:'',...fields} satisfies SetupRequest);
    setViews(v=>({...v,[id]:{...view,state}}));
    if(act!=='check-update')await refresh();
    setOperation('');
   }catch(e){
-   if(['install','update'].includes(act)){setOperationError(textError(e));}else{setOperation('');throw e;}
+   if(['login','cancel-login','api-key'].includes(act)){setOperation('');setCodexAuthError(true);await refresh();}
+   else if(['install','update'].includes(act)){setOperationError(textError(e));}else{setOperation('');throw e;}
   }
  });
  useEffect(()=>{if(!active||route.page!=='runtime'||!view?.state.loginPending)return;const timer=setInterval(()=>{if(!action.current)void refresh()},2500);return()=>clearInterval(timer)},[active,route.page,view?.state.loginPending]);
@@ -117,7 +119,7 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   </>:route.page==='connect'?<ConnectionWizard inline onBusyChange={value=>{action.current=value;setBusy(value)}} hideHeader={!!toolbar} initialKind={route.kind} initialChoice={route.choice} client={client} active={active} onClose={()=>{action.current=false;setBusy(false);go({page:'providers',id})}} onConnected={async()=>{await refresh()}}/>:route.page==='team'&&config?<TeamSettings inline hideHeader={!!toolbar} onBack={back} team={config.team} models={config.team.models} client={{...client,changeTeam:async(change,revision)=>{const r=await backend<import('../../backend/contract').RuntimeMutationResult>('ChangeProfileConfiguration',id,{...change,expectedRevision:revision});if(r.outcome!=='committed')throw new ConfigurationError(r)}}} onRefresh={async()=>setConfig(await backend<RuntimeConfiguration>('ProfileConfiguration',id))}/>:<SettingsPage hideHeader={!!toolbar&&['runtime','team','providers','provider','connect'].includes(route.page)} title={route.page==='runtime'?name(id):t(route.page==='providers'?'runtime.modelConnections':route.page==='team'?'runtime.teamSettings':'settings.connectionModels')} busy={busy} onClose={back}>
    {topError}
    {route.page==='team'&&!config&&!error&&<p role="status" className="settings-note">{t('common.loading')}</p>}
-   {route.page==='runtime'&&id==='codex'&&view&&<CodexRuntimePanel state={view.state} busy={busy} checking={loading||operation==='check-update'} onAction={act=>void apply(act)} onDetect={()=>void refresh()}/> }
+   {route.page==='runtime'&&id==='codex'&&view&&<CodexRuntimePanel state={view.state} busy={busy} error={codexAuthError} checking={loading||operation==='check-update'} onAction={(act,fields)=>apply(act,fields)} onDetect={()=>void refresh()}/> }
    {route.page==='runtime'&&id==='codex'&&!view&&<p role="status" className="settings-note">{t('runtime.detecting')}</p>}
    {route.page==='runtime'&&id==='caelis'&&(view?<BuiltinRuntimePanel state={view.state} busy={busy} checking={loading} count={config?.models.length} onAction={act=>void apply(act)} onConnect={()=>go({page:'providers',id})} onTeam={()=>go({page:'team',id})} onDetect={()=>void refresh()}/>:<p role="status" className="settings-note">{t('runtime.detecting')}</p>)}
    {route.page==='providers'&&<><div className="connection-page-heading"><p>{t('settings.connectionProviderHint')}</p></div>{config&&config.connections.length>0&&<SettingGroup title={t('settings.connectionAdded')}>{config.connections.map(g=><button className="connection-navigation-row" key={g.id} onClick={()=>go({page:'provider',id,group:g.id})}><span><strong>{g.name}</strong><small>{t('runtime.modelCount',{count:g.models.length})}</small></span><SettingsChevron/></button>)}</SettingGroup>}<SettingGroup title={t('connections.addConnection')}>{providerList.map(p=><button className="connection-navigation-row" key={p.kind+p.id} onClick={()=>go({page:'connect',id,kind:p.kind,choice:p.id})}><span className="provider-brand"><ProviderLogo id={p.id}/><strong>{providerName(p.id,p.name)}</strong></span><SettingsChevron/></button>)}</SettingGroup>{providerError&&<Recovery/>}</>}
