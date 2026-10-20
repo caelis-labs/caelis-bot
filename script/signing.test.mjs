@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, mkdirSync, rmSync, writeFileSync, openSync, writeSync, closeSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, openSync, writeSync, closeSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -104,7 +104,8 @@ test('Desktop World is mandatory for all app bundles', {skip: process.platform !
   mkdirSync(join(contents,'Resources/Plugins/desktop-world'),{recursive:true});
   assert.notEqual(verify('--allow-legacy').status,0,'unmarked payload is invalid');
   rmSync(join(contents,'Resources'),{recursive:true});
-  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisDesktopWorldVersion string v0.1.0',plist]).status,0);
+  const pin=JSON.parse(readFileSync('resources/desktop-world/release.json','utf8'));
+  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c',`Add CaelisDesktopWorldVersion string ${pin.version}`,plist]).status,0);
   assert.notEqual(verify('--allow-legacy').status,0,'declared but missing payload is corrupt');
  } finally {rmSync(directory,{recursive:true,force:true});}
 });

@@ -29,7 +29,7 @@ func TestWindowsNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Skip("set private Core, DevBot, Desktop World package and plugin store paths")
 	}
 	p, err := plugins.Load(packageRoot)
-	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.0" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
+	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.2" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
 		t.Fatalf("invalid installed v0.1.0 package: %v; skills=%d servers=%d issues=%v", err, len(p.Skills), len(p.Servers), p.Issues)
 	}
 	var saved struct {

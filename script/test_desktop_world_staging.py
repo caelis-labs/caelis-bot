@@ -28,7 +28,7 @@ class StagingTests(unittest.TestCase):
                  'skills/desktop-world/SKILL.md', 'skills/desktop-world/api.d.ts', 'skills/desktop-world/RECIPES.md',
                  'LICENSING/MPL-SOURCES.tar.gz', 'LICENSING/THIRD-PARTY.md', 'LICENSING/DEPENDENCIES.json',
                  'LICENSING/rust-runtime-licenses/OFL-1.1.txt',
-                 'LICENSING/licenses/cursor-overlay-0.35.4/assets/Inter-OFL.txt', 'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE',
+                 f"LICENSING/licenses/cursor-overlay-{staging.PIN['cua_version']}/assets/Inter-OFL.txt", 'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE',
                  '.claude-plugin/plugin.json', '.dtw-bundle-sha256']
         for name in names:
             path = self.package / name
@@ -93,6 +93,12 @@ class StagingTests(unittest.TestCase):
         (self.package / 'skills/desktop-world/api.d.ts').unlink()
         self.checksums()
         with self.assertRaisesRegex(ValueError, 'missing'):
+            staging.verify_package(self.package, self.spec, 'windows-amd64')
+
+    def test_missing_pinned_font_license_even_with_valid_checksums_rejected(self):
+        (self.package / f"LICENSING/licenses/cursor-overlay-{staging.PIN['cua_version']}/assets/Inter-OFL.txt").unlink()
+        self.checksums()
+        with self.assertRaisesRegex(ValueError, 'Inter-OFL'):
             staging.verify_package(self.package, self.spec, 'windows-amd64')
 
     def test_checksum_path_cannot_escape_on_either_platform(self):

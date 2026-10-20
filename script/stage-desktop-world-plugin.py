@@ -155,7 +155,7 @@ def verify_package(dest, spec, target):
                  "LICENSING/MPL-SOURCES.tar.gz", "LICENSING/THIRD-PARTY.md",
                  "LICENSING/DEPENDENCIES.json",
                  "LICENSING/rust-runtime-licenses/OFL-1.1.txt",
-                 "LICENSING/licenses/cursor-overlay-0.35.4/assets/Inter-OFL.txt",
+                 f"LICENSING/licenses/cursor-overlay-{PIN['cua_version']}/assets/Inter-OFL.txt",
                  "CUA-MIT-LICENSE.txt", "LICENSE", "NOTICE"):
         if name not in files:
             raise ValueError(f"Desktop World missing {name}")
