@@ -23,7 +23,9 @@ back with code. A process-wide flock is inherited by the Bot (and marked
 close-on-exec before spawning helpers). If the supervisor dies while its Bot is
 alive, another launcher refuses ownership. After an explicit service stop or a
 host reboot, restart the same launcher/configuration; never start a second
-profile from that install root. A raw binary copied elsewhere is unmanaged.
+profile from that install root. Direct execution from a managed version directory without its launcher is rejected,
+including attempts to use a second profile. A separate bundle copied elsewhere is
+an independent unmanaged installation.
 
 Root-owned/read-only/system-package installations expose check/status but cannot
 install. Detected containers expose `mode:image` and require their image host;
@@ -49,7 +51,7 @@ The signature covers the exact manifest bytes, binding product/flavor/platform,
 stable channel, version, full source SHA, build kind, launcher protocol, compatible
 state schema, compressed size/SHA-256, expanded budget and every member's
 path/size/mode/SHA-256. Only the Bot executable, bundled Caelis executable, Runtime
-pin/license, Bot license and README are allowed. Both executables must be ELF64
+pin/license, code/character/third-party licenses and README are allowed. Both executables must be ELF64
 for the target architecture. The embedded Runtime pin must match its actual
 binary. Tar links, unexpected members, traversal, duplicate members and expansion
 beyond the manifest are rejected before the old Bot closes. Limits are 512 MiB
@@ -154,10 +156,10 @@ existing update detach behavior; this is not a new task/runtime owner.
 
 First-slice conservative limitations are explicit:
 
-- Connected Telegram/Weixin bridges currently have no durable update quiescence
+- Configured Telegram/Weixin bridges (including paused ones) currently have no durable update quiescence
   lease. The managed handoff waits instead of interrupting them or guessing that
   an empty conversation implies delivery safety. Qualifying channel leases is a
-  later extension; the UI must not claim an enabled-channel install completed.
+  later extension; the UI must not claim an configured-channel install completed.
 - Only updates with the **same bundled Caelis version/source/digest** and state
   schema 1 can install. A changed Runtime pin needs separate Core lifecycle and
   state compatibility qualification. External Codex installation/update remains
@@ -195,3 +197,11 @@ No Bot-core skill update is needed: this slice only adds settings/update-owner
 operations, with no new Bot tool, conversational update authority or recovery duty.
 The Web Worker consumes the independent contract and routes; root coordination
 owns UI integration, deployment, initial migration and any later publication.
+
+The Linux QA runner accepts separate `--a`, `--b`, `--bad`, `--public-key`,
+`--root`, `--port` and `--feed-port` paths/options. It refuses an existing root and
+port 19317. Run a second fresh root with `--pending-operation` to prove an
+unresolved original Web operation prevents installation and survives cancellation.
+A/B must be real QA Bot bundles; BAD is deliberately fault-injected QA content,
+not a source-authentic release or evidence of a public Linux asset. The runner
+records evidence in its private root and stops only its own created processes.

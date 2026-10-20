@@ -34,6 +34,9 @@ func testPackage(t *testing.T, key ed25519.PrivateKey, version string, edit func
 	runtime := append(bytes.Clone(elf), []byte("fixed-runtime")...)
 	marker, _ := json.Marshal(map[string]any{"version": "v0.72.2", "commit": strings.Repeat("b", 40), "targets": map[string]any{"linux-arm64": map[string]string{"binary_sha256": hash(runtime)}}})
 	files := map[string][]byte{"caelisbot": bot, "Helpers/caelis": runtime, "Resources/Caelis-Runtime.json": marker, "Resources/Caelis-Runtime-LICENSE": []byte("runtime license"), "LICENSE": []byte("license")}
+	for _, name := range []string{"ASSET-LICENSE.md", "Resources/Caelis-Protocol-LICENSE", "Resources/OpenClaw-Weixin-LICENSE", "Resources/Go-QRCode-LICENSE"} {
+		files[name] = []byte("license fixture")
+	}
 	if edit != nil {
 		edit(files)
 	}
@@ -381,5 +384,63 @@ func TestAlreadyRunningOfferCannotReinstall(t *testing.T) {
 	m.state.Status.State = "installed"
 	if _, e := m.Command(Command{ID: "stale_offer_123456789", Action: "download", OfferID: f.b.ID}); Code(e) != "offer_not_newer" {
 		t.Fatal(e)
+	}
+}
+
+func TestCorruptUnacknowledgedCandidateRecoversPrevious(t *testing.T) {
+	m, f := fixtureManager(t)
+	m.state.Transaction = &transaction{ID: "original-recovery", Offer: f.b.ID, Previous: f.a.ID, Phase: "switched"}
+	if e := selectRelease(f.root, f.b.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e := m.save(); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(f.root, "versions", f.b.ID, "caelisbot"), []byte("corrupt"), 0755); e != nil {
+		t.Fatal(e)
+	}
+	n, e := Open(t.Context(), f.root, "linux-arm64", f.trust)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer n.Close()
+	id, _ := selected(f.root)
+	if id != f.a.ID || n.Status().State != "rolling_back" || n.Status().Current != f.a.Manifest.Identity() {
+		t.Fatal(n.Status())
+	}
+}
+func TestUnavailableRollbackPersistsUnknown(t *testing.T) {
+	m, f := fixtureManager(t)
+	m.state.Transaction = &transaction{ID: "original-recovery", Offer: f.b.ID, Previous: f.a.ID, Phase: "switched"}
+	if e := selectRelease(f.root, f.b.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e := m.save(); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Remove(filepath.Join(f.root, "versions", f.a.ID, "caelisbot")); e != nil {
+		t.Fatal(e)
+	}
+	if n, e := Open(t.Context(), f.root, "linux-arm64", f.trust); Code(e) != "rollback_unavailable" {
+		if n != nil {
+			n.Close()
+		}
+		t.Fatal(e)
+	}
+	var disk journal
+	if e := readJSON(filepath.Join(f.root, "update.json"), &disk); e != nil {
+		t.Fatal(e)
+	}
+	if disk.Transaction.ID != "original-recovery" || disk.Transaction.Phase != "unknown" || disk.Status.State != "unknown" {
+		t.Fatal(disk.Status)
+	}
+}
+
+func TestManagedVersionCannotBecomeAnotherUnmanagedProfile(t *testing.T) {
+	if !RequiresLauncher("/private/install/versions/" + strings.Repeat("a", 64) + "/caelisbot") {
+		t.Fatal("managed namespace not protected")
+	}
+	if RequiresLauncher("/private/standalone/caelisbot") {
+		t.Fatal("independent installation rejected")
 	}
 }

@@ -42,14 +42,7 @@ func Open(ctx context.Context, root, platform string, t Trust) (*Manager, error)
 	if e := privateDirectory(root); e != nil {
 		return nil, e
 	}
-	id, e := selected(root)
-	if e != nil {
-		return nil, e
-	}
-	o, e := loadOffer(root, id, t, platform)
-	if e != nil {
-		return nil, e
-	}
+	var e error
 	ctx, cancel := context.WithCancel(ctx)
 	m := &Manager{root: root, platform: platform, trust: t, ctx: ctx, cancel: cancel}
 	path := filepath.Join(root, "update.json")
@@ -67,7 +60,6 @@ func Open(ctx context.Context, root, platform string, t Trust) (*Manager, error)
 	}
 	m.state.Status.Protocol = Protocol
 	m.state.Status.Mode = "managed"
-	m.state.Status.Current = o.Manifest.Identity()
 	m.state.Status.TestArtifact = t.QA
 	m.state.Status.BootID = ""
 	if m.state.Status.State == "" {
@@ -93,6 +85,19 @@ func Open(ctx context.Context, root, platform string, t Trust) (*Manager, error)
 		cancel()
 		return nil, e
 	}
+	// Recover the durable transaction before reading selected executable bytes:
+	// an unacknowledged candidate may itself be the corrupted/unhealthy package.
+	id, e := selected(root)
+	if e != nil {
+		cancel()
+		return nil, e
+	}
+	o, e := loadOffer(root, id, t, platform)
+	if e != nil {
+		cancel()
+		return nil, e
+	}
+	m.state.Status.Current = o.Manifest.Identity()
 	if e = m.prune(); e != nil {
 		cancel()
 		return nil, e
@@ -425,7 +430,11 @@ func (m *Manager) switchRelease() error {
 func (m *Manager) rollback() error {
 	tx := m.state.Transaction
 	if _, e := loadOffer(m.root, tx.Previous, m.trust, m.platform); e != nil {
-		return e
+		tx.Phase = "unknown"
+		m.state.Status.State = "unknown"
+		m.state.Status.Reason = "rollback_unavailable"
+		_ = m.save()
+		return problem("rollback_unavailable")
 	}
 	tx.Phase = "rolling_back"
 	if e := m.save(); e != nil {

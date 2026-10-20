@@ -25,6 +25,17 @@ type managedHost struct {
 func openManaged(version string) (*managedHost, error) {
 	root, boot := os.Getenv("CAELIS_BOT_MANAGED_ROOT"), os.Getenv("CAELIS_BOT_MANAGED_BOOT")
 	if root == "" && boot == "" {
+		exe, e := os.Executable()
+		if e != nil {
+			return nil, e
+		}
+		exe, e = filepath.EvalSymlinks(exe)
+		if e != nil {
+			return nil, e
+		}
+		if managedupdate.RequiresLauncher(exe) {
+			return nil, errors.New("managed installation requires its launcher")
+		}
 		return nil, nil
 	}
 	if root == "" || boot == "" {

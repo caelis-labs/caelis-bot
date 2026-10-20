@@ -1,6 +1,7 @@
 package websurface
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -43,7 +44,12 @@ func (s *Server) UpdateQuiescent() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, op := range s.operations {
-		if op.State != "complete" || strings.HasPrefix(op.Error, "operation_unconfirmed") {
+		var receipt struct {
+			Outcome string `json:"outcome"`
+			State   string `json:"state"`
+		}
+		_ = json.Unmarshal(op.Value, &receipt)
+		if op.State != "complete" || strings.HasPrefix(op.Error, "operation_unconfirmed") || receipt.Outcome == "unknown" || receipt.State == "unknown" {
 			return false
 		}
 	}

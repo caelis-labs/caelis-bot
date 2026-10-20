@@ -106,7 +106,7 @@ func (m Manifest) Validate(platform string, qa bool) error {
 			if f.Mode != 0755 {
 				return problem("invalid_member_mode")
 			}
-		case "Resources/Caelis-Runtime.json", "Resources/Caelis-Runtime-LICENSE", "LICENSE", "README.md":
+		case "Resources/Caelis-Runtime.json", "Resources/Caelis-Runtime-LICENSE", "LICENSE", "README.md", "ASSET-LICENSE.md", "Resources/Caelis-Protocol-LICENSE", "Resources/OpenClaw-Weixin-LICENSE", "Resources/Go-QRCode-LICENSE":
 			if f.Mode != 0644 {
 				return problem("invalid_member_mode")
 			}
@@ -116,7 +116,7 @@ func (m Manifest) Validate(platform string, qa bool) error {
 		seen[f.Path] = f
 		total += f.Length
 	}
-	for _, name := range []string{"caelisbot", "Helpers/caelis", "Resources/Caelis-Runtime.json", "Resources/Caelis-Runtime-LICENSE", "LICENSE"} {
+	for _, name := range []string{"caelisbot", "Helpers/caelis", "Resources/Caelis-Runtime.json", "Resources/Caelis-Runtime-LICENSE", "LICENSE", "ASSET-LICENSE.md", "Resources/Caelis-Protocol-LICENSE", "Resources/OpenClaw-Weixin-LICENSE", "Resources/Go-QRCode-LICENSE"} {
 		if _, ok := seen[name]; !ok {
 			return problem("missing_member")
 		}

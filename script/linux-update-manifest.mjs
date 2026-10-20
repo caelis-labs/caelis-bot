@@ -10,7 +10,7 @@ const publicKey=path=>{
  if(raw.length!==32)throw Error('Persistent Ed25519 public key is not configured');
  return createPublicKey({key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),raw]),format:'der',type:'spki'});
 };
-const allowed=new Set(['caelisbot','Helpers/caelis','Resources/Caelis-Runtime.json','Resources/Caelis-Runtime-LICENSE','LICENSE','README.md']);
+const allowed=new Set(['caelisbot','Helpers/caelis','Resources/Caelis-Runtime.json','Resources/Caelis-Runtime-LICENSE','LICENSE','README.md','ASSET-LICENSE.md','Resources/Caelis-Protocol-LICENSE','Resources/OpenClaw-Weixin-LICENSE','Resources/Go-QRCode-LICENSE']);
 export function collect(directory) {
  const files=[];
  function visit(relative=''){

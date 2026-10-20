@@ -1,6 +1,7 @@
 package websurface
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -71,6 +72,7 @@ func TestManagedUpdateRoutesKeepAuthenticationAndStrictContract(t *testing.T) {
 func TestManagedUpdatePreservesUnknownOperations(t *testing.T) {
 	s := testServer(t)
 	for _, op := range []operation{
+		{State: "complete", Value: json.RawMessage(`{"id":"original","outcome":"unknown"}`)},
 		{State: "pending", Digest: "original-digest", Owner: "original-session"},
 		{State: "complete", Error: "operation_unconfirmed", Digest: "original-digest", Owner: "original-session"},
 	} {

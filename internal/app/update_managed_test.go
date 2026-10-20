@@ -1,7 +1,12 @@
 package app
 
 import (
+	"bytes"
+	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/telegram"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -31,5 +36,28 @@ func TestManagedUpdateWaitsForOriginalWorkAndUnknown(t *testing.T) {
 	a.CancelUpdate()
 	if a.updatePrepared {
 		t.Fatal("cancel retained fence")
+	}
+}
+
+func TestManagedUpdateDoesNotTreatPausedChannelAsReconciled(t *testing.T) {
+	e := &updateEngine{testEngine: newTestEngine()}
+	a, _ := fixtureApp(t, e, Host{})
+	root := t.TempDir()
+	original := []byte(`{"version":1,"enabled":false,"chatId":1,"inputs":{},"messages":{"original-outbound":{"state":"unknown"}}}`)
+	path := filepath.Join(root, "telegram.json")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := telegram.Open(root, telegram.Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Telegram = bridge
+	if err = a.PrepareIdleUpdate(); !errors.Is(err, ErrManagedChannelHandoff) {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(stored, original) || a.updatePrepared {
+		t.Fatal("paused channel evidence changed", err)
 	}
 }

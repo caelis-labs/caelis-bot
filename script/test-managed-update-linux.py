@@ -161,9 +161,15 @@ def main():
         return process
 
     def child_pid(process):
-        pids = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children").read_text().split()
+        # Go may fork from any OS thread, not necessarily the leader thread.
+        pids = set()
+        for task in pathlib.Path(f"/proc/{process.pid}/task").iterdir():
+            try:
+                pids.update(int(pid) for pid in (task / "children").read_text().split())
+            except FileNotFoundError:
+                pass
         assert len(pids) == 1, pids
-        pid = int(pids[0])
+        pid = pids.pop()
         children.add(pid)
         return pid
 
@@ -218,6 +224,11 @@ def main():
             assert time.monotonic() < deadline, "bootstrap timeout"
             time.sleep(0.2)
         first = until(lambda s: s["current"]["version"] == a["version"])
+        selected = json.loads((install / "current.json").read_text())["release"]
+        direct = subprocess.run([str(install / "versions" / selected / "caelisbot"), "serve", "--data-dir", str(root / "forbidden-second-profile"), "--web=false"],
+                                env=env, capture_output=True, timeout=20)
+        assert direct.returncode != 0 and b"requires its launcher" in direct.stderr, direct.stderr
+        record("direct-second-profile-refused")
         assert first["testArtifact"]
         command("automatic", automatic=False)
         command("check")

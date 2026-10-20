@@ -14,6 +14,7 @@ test('Linux manifest binds complete bundle, test identity and exact signing key'
  for(const name of ['caelisbot','Helpers/caelis'])writeFileSync(join(root,name),binary,{mode:0o755});
  const marker={version:'v0.72.2',commit:'b'.repeat(40),targets:{'linux-arm64':{binary_sha256:sha(binary)}}};
  for(const [name,bytes]of Object.entries({'Resources/Caelis-Runtime.json':JSON.stringify(marker),'Resources/Caelis-Runtime-LICENSE':'runtime license',LICENSE:'license'}))writeFileSync(join(root,name),bytes,{mode:0o644});
+ for(const name of ['ASSET-LICENSE.md','Resources/Caelis-Protocol-LICENSE','Resources/OpenClaw-Weixin-LICENSE','Resources/Go-QRCode-LICENSE'])writeFileSync(join(root,name),'license fixture',{mode:0o644});
  const archive=join(tmpdir(),root.split('/').pop()+'.tar.gz');t.after(()=>rmSync(archive,{force:true}));writeFileSync(archive,'test archive bytes');
  const manifest=create(root,archive,'0.17.1-qa.1','a'.repeat(40),'linux-arm64','qa');
  assert.equal(manifest.runtime.sha256,sha(binary));assert.equal(manifest.sha256,sha(readFileSync(archive)));

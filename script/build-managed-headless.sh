@@ -30,8 +30,12 @@ BOT_UPDATE_LDFLAGS="-X github.com/caelis-labs/caelis-bot/internal/updates.Versio
 CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_UPDATE_ARCH" go build -tags "$BOT_UPDATE_TAGS" -trimpath -ldflags "$BOT_UPDATE_LDFLAGS" -o "$BOT_UPDATE_OUTPUT/package/caelisbot" .
 CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_UPDATE_ARCH" go build -tags "$BOT_UPDATE_TAGS" -trimpath -o "$BOT_UPDATE_OUTPUT/caelisbot-launcher" ./cmd/caelisbot-launcher
 cp LICENSE "$BOT_UPDATE_OUTPUT/package/LICENSE"
+cp ASSET-LICENSE.md "$BOT_UPDATE_OUTPUT/package/ASSET-LICENSE.md"
+cp protocol/caelis/LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/Caelis-Protocol-LICENSE"
+cp licenses/openclaw-weixin-LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/OpenClaw-Weixin-LICENSE"
+cp licenses/go-qrcode-LICENSE "$BOT_UPDATE_OUTPUT/package/Resources/Go-QRCode-LICENSE"
 cp docs/managed-updates.md "$BOT_UPDATE_OUTPUT/package/README.md"
-chmod 644 "$BOT_UPDATE_OUTPUT/package/LICENSE" "$BOT_UPDATE_OUTPUT/package/README.md" "$BOT_UPDATE_OUTPUT/package/Resources/"*
+chmod 644 "$BOT_UPDATE_OUTPUT/package/ASSET-LICENSE.md" "$BOT_UPDATE_OUTPUT/package/LICENSE" "$BOT_UPDATE_OUTPUT/package/README.md" "$BOT_UPDATE_OUTPUT/package/Resources/"*
 chmod 755 "$BOT_UPDATE_OUTPUT/package/caelisbot" "$BOT_UPDATE_OUTPUT/package/Helpers/caelis"
 BOT_UPDATE_ARCHIVE="$BOT_UPDATE_OUTPUT/caelisbot-$BOT_UPDATE_VERSION-linux-$BOT_UPDATE_ARCH.tar.gz"
 python3 - "$BOT_UPDATE_OUTPUT/package" "$BOT_UPDATE_ARCHIVE" <<'PY'

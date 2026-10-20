@@ -278,3 +278,12 @@ func Initialize(root, profile, archive string, o Offer, t Trust, platform string
 	}
 	return selectRelease(root, o.ID)
 }
+
+// A selected version must not silently become an unmanaged second profile when
+// invoked directly. Only the launcher supplies the inherited installation lease
+// and the exact-child health acknowledgement. Copying an independent bundle is a
+// separate, unmanaged installation outside this owner's filesystem namespace.
+func RequiresLauncher(executable string) bool {
+	version := filepath.Dir(executable)
+	return filepath.Base(executable) == "caelisbot" && hexID.MatchString(filepath.Base(version)) && filepath.Base(filepath.Dir(version)) == "versions"
+}
