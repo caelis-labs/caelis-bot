@@ -233,9 +233,11 @@ records evidence in its private root and stops only its own created processes.
 
 [User installation](install.linux.md) uses systemd user services only. The
 versioned bootstrap pins the release key, verifies each asset before execution,
-and refuses foreign installation paths. `launcher upgrade` acquires the same
-installation lease and only stages/schedules; old Bot admission/receipt checks
-still own the handoff. File modes are explicitly restored with f.Chmod in private
+and refuses foreign installation paths. `launcher upgrade` reports `scheduled`
+or `healthy`; old Bot admission/receipt checks still own the handoff. When stopped,
+the installer starts the original user unit and uses read-only `upgrade --wait`
+before replacing the launcher; scheduling alone never permits replacement.
+File modes are explicitly restored with f.Chmod in private
 staging, so UMask=0077 does not corrupt the signed inventory.
 
 Linux asset names are unique per architecture; common versioned installer files

@@ -86,7 +86,9 @@ Computer Use and Web terminals are unavailable; the interface hides those entrie
   It replaces the on-disk launcher for its next start only after candidate health
   is confirmed. Busy work leaves the update scheduled and the old service running;
   rerun `--upgrade` after Settings confirms installation to finish launcher repair.
-  A stopped installation stages the package for the same handoff on service start.
+  For a stopped installation, the installer starts the original owned user unit
+  and waits for the same handoff and candidate health before replacing the launcher.
+  Startup or health failure preserves the old launcher and reports no completion.
 - **External/manual:** stop the owner and replace its complete directory yourself;
   the Web surface does not claim it can install into arbitrary paths.
 - **Image/development Docker:** updates belong to the image operator. Docker sandbox

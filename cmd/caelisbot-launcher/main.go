@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -22,15 +23,19 @@ func run() error {
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	root := f.String("root", "", "absolute private managed installation")
 	profile := f.String("data-dir", "", "absolute private Bot profile (init only)")
-	archive := f.String("archive", "", "signed archive (init only)")
-	manifest := f.String("manifest", "", "signed manifest (init only)")
-	signature := f.String("signature", "", "detached signature (init only)")
+	archive := f.String("archive", "", "signed archive (init/upgrade)")
+	manifest := f.String("manifest", "", "signed manifest (init/upgrade)")
+	signature := f.String("signature", "", "detached signature (init/upgrade)")
 	qa := f.String("qa-trust", "", "isolated QA build trust file; rejected by production")
 	listen := f.String("listen", "127.0.0.1:9317", "Bot listener (init only)")
 	origin := f.String("origin", "", "exact browser origin (init only)")
 	pair := f.Bool("require-pairing", false, "require browser pairing (init only)")
+	wait := f.Bool("wait", false, "only wait for the scheduled offer's health (upgrade only)")
 	if e := f.Parse(os.Args[2:]); e != nil {
 		return e
+	}
+	if *wait && command != "upgrade" {
+		return fmt.Errorf("--wait is only valid with upgrade")
 	}
 	if f.NArg() != 0 || *root == "" || runtime.GOOS != "linux" {
 		return fmt.Errorf("Linux and a managed root are required")
@@ -64,7 +69,16 @@ func run() error {
 		if command == "upgrade" {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return managedupdate.ScheduleLocalUpgrade(ctx, *root, *archive, o, trust, platform)
+			state := managedupdate.UpgradeHealthy
+			if *wait {
+				e = managedupdate.AwaitLocalUpgrade(ctx, *root, o)
+			} else {
+				state, e = managedupdate.ScheduleLocalUpgrade(ctx, *root, *archive, o, trust, platform)
+			}
+			if e != nil {
+				return e
+			}
+			return json.NewEncoder(os.Stdout).Encode(map[string]managedupdate.LocalUpgradeResult{"state": state})
 		}
 		args := []string{"--listen", *listen}
 		if *origin != "" {

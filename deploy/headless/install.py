@@ -57,14 +57,30 @@ def install():
     common = ['--root',str(root),'--archive',str(bundle/f'caelisbot-{args.version}-{args.platform}.tar.gz'),
               '--manifest',str(bundle/f'{args.platform}-update.json'),'--signature',str(bundle/f'{args.platform}-update.json.sig')]
     source.chmod(0o755)
+    upgrade_completed=False
     if not root.exists() or args.upgrade:
         binary.parent.mkdir(parents=True,exist_ok=True)
         root.parent.mkdir(parents=True,exist_ok=True)
-        # A live owner stages/schedules and confirms the new Bot's health before
-        # this command returns. Busy/unknown work leaves the old service running.
+        # Scheduled is not healthy. Start a stopped installation with its
+        # original launcher, then only read the existing transaction's health.
         # Atomic replacement affects the launcher's next start, not its live PID.
         existing=root.exists()
-        run(str(source), 'upgrade' if existing else 'init', *common, *([] if existing else ['--data-dir',str(profile)]))
+        if existing:
+            def upgrade_state(wait=False):
+                result=run(str(source),'upgrade',*common,*(['--wait'] if wait else []),stdout=subprocess.PIPE,text=True)
+                state=json.loads(result.stdout).get('state')
+                if state not in ('scheduled','healthy'):
+                    sys.exit('Upgrade health was not confirmed; the original launcher was preserved.')
+                return state
+            state=upgrade_state()
+            if state=='scheduled':
+                run('systemctl','--user','start','caelisbot.service')
+                state=upgrade_state(wait=True)
+            if state!='healthy':
+                sys.exit('Upgrade is scheduled but health is not confirmed; the original launcher was preserved.')
+            upgrade_completed=True
+        else:
+            run(str(source),'init',*common,'--data-dir',str(profile))
         temporary=binary.with_name(binary.name+'.installing')
         with temporary.open('xb') as out,source.open('rb') as inp:
             shutil.copyfileobj(inp,out);os.fchmod(out.fileno(),0o755);out.flush();os.fsync(out.fileno())
@@ -81,7 +97,7 @@ def install():
     print('Stop: systemctl --user stop caelisbot.service')
     print('Start: systemctl --user start caelisbot.service')
     print('Logs: journalctl --user -u caelisbot.service')
-    if args.upgrade: print('Verified package scheduled through the existing idle handoff. Check Settings > Updates for the actual installed version; scheduling is not installation success.')
+    if upgrade_completed: print('Updated Bot health confirmed; the launcher is installed for its next start.')
     print('Profile preserved at '+str(profile)+'. In a VM/WSL, guest loopback is not host loopback: use an explicit loopback SSH forward if needed. No remote listener or linger was enabled.')
 
 

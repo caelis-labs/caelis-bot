@@ -95,8 +95,8 @@ func TestInstallerUpgradeSchedulesExistingHandoffWithoutChangingSelection(t *tes
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); err != nil {
-		t.Fatal(err)
+	if state, err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); err != nil || state != UpgradeScheduled {
+		t.Fatal(state, err)
 	}
 	selectedID, err := selected(f.root)
 	if err != nil || selectedID != f.a.ID {
@@ -115,7 +115,7 @@ func TestInstallerUpgradeSchedulesExistingHandoffWithoutChangingSelection(t *tes
 		t.Fatal(err)
 	}
 	defer lease.Close()
-	if err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); Code(err) != "launcher_unavailable" {
+	if _, err := ScheduleLocalUpgrade(t.Context(), f.root, path, offer, f.trust, "linux-arm64"); Code(err) != "launcher_unavailable" {
 		t.Fatal("live owner bypassed", err)
 	}
 }
