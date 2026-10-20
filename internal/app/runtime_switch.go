@@ -74,12 +74,12 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	defer a.lifecycleMu.Unlock()
 
 	a.mu.Lock()
-	resident, manager, closed, started := a.companion, a.tasks, a.closed, a.started
+	resident, manager, closed, started := a.companion, a.tasks, a.closed || a.updatePrepared, a.started
 	a.mu.Unlock()
 	if closed {
 		return errors.New(a.text("appStopped"))
 	}
-	guard := func() error { return a.guardConversationChange() }
+	guard := func() error { return a.guardRuntimeActivation(settings.Runtime) }
 	if manager != nil {
 		if err = manager.PauseForUpdate(guard); err != nil {
 			return err

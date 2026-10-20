@@ -15,6 +15,7 @@ type ModelSelectionState struct {
 // Setup is a user-only management surface. It is never exposed to model tools.
 // Secrets are write-only arguments and must not enter settings or operation journals.
 type SetupRequest struct {
+	LoginID  string          `json:"loginId,omitempty"` // Product attempt fence, never an OAuth secret.
 	Settings RuntimeSettings `json:"settings"`
 	Action   string          `json:"action"`
 	Provider string          `json:"provider"`
@@ -29,7 +30,19 @@ type SetupChoice struct {
 	NoAuth     bool         `json:"noAuth"`
 	Current    bool         `json:"current"`
 }
+
+// SetupLogin is an ephemeral user-only challenge. Never persist or broadcast it.
+// ExpiresAt is Bot's local display/cancellation deadline, not an issuer claim.
+type SetupLogin struct {
+	ID              string `json:"id"`
+	State           string `json:"state"`
+	UserCode        string `json:"userCode,omitempty"`
+	VerificationURL string `json:"verificationUrl,omitempty"`
+	ExpiresAt       string `json:"expiresAt,omitempty"`
+}
 type SetupState struct {
+	Login *SetupLogin `json:"login,omitempty"`
+
 	ServiceUpdateAvailable bool            `json:"serviceUpdateAvailable"` // Installed CLI is newer than the running Host.
 	ServiceVersion         string          `json:"serviceVersion"`
 	ServiceState           string          `json:"serviceState"` // running, unknown (Caelis only)
@@ -60,6 +73,14 @@ type SetupController interface {
 
 // SetupInstallProgress reports measured download bytes, never an estimated completion.
 type SetupInstallProgress struct {
+	Runtime        string `json:"runtime,omitempty"`
+	ID             string `json:"id,omitempty"`
+	Action         string `json:"action,omitempty"`
+	State          string `json:"state,omitempty"`
+	Error          string `json:"error,omitempty"`
+	Code           string `json:"code,omitempty"`
+	ExitCode       int    `json:"exitCode,omitempty"`
+	HTTPStatus     int    `json:"httpStatus,omitempty"`
 	Phase          string `json:"phase"`
 	Downloaded     int64  `json:"downloaded"`
 	Total          int64  `json:"total"`

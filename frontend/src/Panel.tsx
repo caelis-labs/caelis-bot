@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import {QuestionPrompt} from './QuestionPrompt';
 import {questionIdentity,visibleQuestionMessages} from './question-presentation';
 import {Recovery} from './SurfaceBoundary';
@@ -498,7 +499,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
-  {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
+  {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
   {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
   {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
@@ -515,7 +516,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
 },(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&a.quoteRequest===b.quoteRequest&&a.feedbackTarget===b.feedbackTarget&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
 
-export function History() {
+export function History({composerGeneration=0}:{composerGeneration?:number}={}) {
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
@@ -558,7 +559,7 @@ export function History() {
   const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
-  const key=(e:KeyboardEvent)=>{if(activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
+  const key=(e:KeyboardEvent)=>{if(!isWebSurface()&&activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
   surfaceMounted('chat');
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
@@ -647,7 +648,7 @@ export function History() {
     <p>{connectionText}</p>
     {connectionError&&<Recovery message={connectionError}/>}
     <div className="connection-actions">
-     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
+     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void desktop('OpenRuntimeSettings').catch(()=>setConnectionError(t('chat.actionFailed')))}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
      {!snapshot.loginPending&&!chooseRuntime&&snapshot.connection!=='connecting'&&<button disabled={busy} onClick={()=>void action('Reconnect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
      {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
@@ -670,7 +671,7 @@ export function History() {
    </div>
   </aside>}
   <footer>
-   {composerMounted.current&&<Composer snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
+   {composerMounted.current&&<Composer key={composerGeneration} snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
   </footer>
   {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}
   {quotePreview&&createPortal(<div className="quote-preview-backdrop" onClick={()=>setQuotePreview(null)}><section className="quote-preview" role="dialog" aria-modal="true" aria-label={t('chat.quoteMessage')} onClick={e=>e.stopPropagation()}><button className="quote-preview-close" aria-label={t('common.close')} onClick={()=>setQuotePreview(null)}><Icon name="xmark"/></button><pre>{quotePreview.text}</pre></section></div>,document.body)}

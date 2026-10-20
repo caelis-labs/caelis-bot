@@ -76,6 +76,19 @@ func (a *Application) guardConversationChange() error {
 	return nil
 }
 
+// An explicitly selected first Runtime must not depend on reinstalling a
+// different provider that only opened an empty setup thread. The adapter proves
+// absence of dispatched work; the old ledger is retained untouched.
+func (a *Application) guardRuntimeActivation(target string) error {
+	engine := a.currentEngine()
+	if target != engine.(api.Provider).ProviderInfo().ID && a.initialization.Initialization().Required {
+		if unused, ok := engine.(interface{ CanLeaveUnsubmittedSetup() bool }); ok && unused.CanLeaveUnsubmittedSetup() {
+			return nil
+		}
+	}
+	return a.guardConversationChange()
+}
+
 func (a *Application) guardReminderChange() error {
 	a.mu.Lock()
 	resident := a.companion

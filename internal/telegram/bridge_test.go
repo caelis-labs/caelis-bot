@@ -1527,6 +1527,11 @@ func TestExistingWebhookRequiresExplicitTakeoverAndCloseCancelsPolling(t *testin
 	f.webhook = true
 	if _, e := b.Connect(t.Context(), "fixture-token", false); e == nil || f.takeovers != 0 {
 		t.Fatal("silent webhook takeover")
+	} else {
+		var rejected *api.ActionRejectedError
+		if !errors.As(e, &rejected) {
+			t.Fatal("pre-effect refusal was not classified", e)
+		}
 	}
 	if _, e := b.Connect(t.Context(), "fixture-token", true); e != nil || f.takeovers != 1 {
 		t.Fatal("explicit takeover failed", e)

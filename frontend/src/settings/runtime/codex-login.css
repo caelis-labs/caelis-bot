@@ -1,0 +1,9 @@
+.settings-window .codex-login { display:flex; flex-direction:column; align-items:stretch; gap:14px; max-width:360px; margin:24px auto 0; text-align:center; }
+.settings-window .codex-login .settings-note { margin:0; }
+.settings-window .codex-user-code { display:flex; justify-content:center; align-items:center; gap:12px; }
+.settings-window .codex-user-code code { font-size:28px; letter-spacing:3px; user-select:all; }
+.settings-window .codex-user-code button { display:flex; align-items:center; padding:8px; }
+.settings-window .codex-verification-url { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.settings-window .codex-key-form { display:flex; flex-direction:column; gap:14px; text-align:left; }
+.settings-window .codex-key-form label { display:flex; flex-direction:column; gap:8px; }
+.settings-window .codex-key-form input { width:100%; box-sizing:border-box; }

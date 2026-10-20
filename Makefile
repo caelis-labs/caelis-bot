@@ -40,3 +40,7 @@ smoke-caelis:
 # Opt-in, billable model calls through an already configured isolated Host.
 smoke-caelis-live:
 	bash -c 'set -e; source script/env.sh; : "$${CAELIS_BOT_LIVE_STORE:?Set an isolated configured Caelis store}" "$${CAELIS_BOT_LIVE_MODEL:?Set the model name}"; go test -race -v -count=1 -timeout 25m -run "^TestConfiguredModelIntegration$$" ./internal/backend/caelis'
+
+.PHONY: build-headless
+build-headless:
+	./script/build-headless.sh

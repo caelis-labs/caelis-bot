@@ -7,6 +7,10 @@ import "errors"
 // explicit install request must not wait for an approval or Worker to finish.
 // The caller must Close or CancelUpdate on success.
 func (a *Application) PrepareUpdate() error {
+	return a.prepareUpdate(false)
+}
+
+func (a *Application) prepareUpdate(idleOnly bool) error {
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
 	a.mu.Lock()
@@ -18,12 +22,38 @@ func (a *Application) PrepareUpdate() error {
 	if prepared {
 		return errors.New("正在重新启动")
 	}
+	committed := false
+	if idleOnly {
+		defer func() {
+			if !committed {
+				a.resumeUpdateChannels()
+			}
+		}()
+		if err := a.guardManagedUpdate(); err != nil {
+			return err
+		}
+		if a.Telegram != nil {
+			if err := a.Telegram.PrepareUpdate(); err != nil {
+				return ErrManagedChannelHandoff
+			}
+		}
+		if a.Weixin != nil {
+			if err := a.Weixin.PrepareUpdate(); err != nil {
+				return ErrManagedChannelHandoff
+			}
+		}
+	}
 	guard := func() error {
 		a.mu.Lock()
 		closed := a.closed
 		a.mu.Unlock()
 		if closed {
 			return errors.New(a.text("host.appStopped"))
+		}
+		if idleOnly {
+			if err := a.guardManagedUpdate(); err != nil {
+				return err
+			}
 		}
 		if err := a.Backend.CanDetachForUpdate(); err != nil {
 			return err
@@ -35,6 +65,9 @@ func (a *Application) PrepareUpdate() error {
 	}
 	pauseTasks := func() error {
 		if tasks != nil {
+			if idleOnly {
+				return tasks.PauseIfIdle(guard)
+			}
 			// The update-specific task fence persists original owner and
 			// receipts before allowing an active task to outlive this app.
 			if p, ok := any(tasks).(interface{ PauseForUpdate(func() error) error }); ok {
@@ -70,6 +103,7 @@ func (a *Application) PrepareUpdate() error {
 	a.mu.Lock()
 	a.updatePrepared = true
 	a.mu.Unlock()
+	committed = true
 	return nil
 }
 
@@ -87,4 +121,14 @@ func (a *Application) CancelUpdate() {
 		resident.ResumeAfterUpdate()
 	}
 	a.Backend.CancelRestart()
+	a.resumeUpdateChannels()
+}
+
+func (a *Application) resumeUpdateChannels() {
+	if a.Telegram != nil {
+		a.Telegram.ResumeAfterUpdate()
+	}
+	if a.Weixin != nil {
+		a.Weixin.ResumeAfterUpdate()
+	}
 }

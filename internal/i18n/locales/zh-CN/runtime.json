@@ -282,5 +282,22 @@
   "oauthPendingHint": "请在浏览器中完成授权，完成后将自动继续。",
   "oauthBrowserAction": "在浏览器中继续登录",
   "oauthContinueHint": "完成授权后，此窗口将自动进入下一步。",
-  "bundledUpdateHint": "随 Caelis Bot 内置，与 App 一起更新。"
+  "bundledUpdateHint": "随 Caelis Bot 内置，与 App 一起更新。",
+  "deviceEnterCode": "在官方验证页面输入此验证码",
+  "deviceCopyCode": "复制验证码",
+  "deviceOpenVerification": "打开验证页面",
+  "deviceWaiting": "等待你完成授权，完成后会自动继续。",
+  "deviceStart": "使用 ChatGPT 账号授权 Codex，无需填写 API Key。",
+  "deviceStartWeb": "使用 ChatGPT 账号授权服务端 Codex，无需填写 API Key。",
+  "deviceUnsupported": "此 Codex 不支持设备码登录，请更新 Codex 后重试。",
+  "deviceUnavailable": "暂时无法获取验证码。请检查网络及 ChatGPT 的设备码登录权限后重试。",
+  "deviceFailed": "本次登录未完成，可以重新获取验证码。",
+  "deviceExpired": "验证码已过期，请重新登录。",
+  "deviceCancelled": "已取消登录。",
+  "deviceInterrupted": "登录连接已结束，请重新登录。",
+  "deviceUnknown": "尚未确认登录是否启动。请先取消本次登录，再重试。",
+  "deviceOtherSession": "请在发起登录的浏览器中继续，或等待该登录结束。",
+  "deviceActionFailed": "暂时无法确认操作结果，请稍后重试。",
+  "deviceCopyFailed": "未能复制，请选中验证码手动复制。",
+  "deviceOpenFailed": "未能打开页面，请使用下方官方链接。"
 }

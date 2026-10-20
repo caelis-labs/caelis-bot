@@ -5,6 +5,15 @@ import { activeReplyID, canSubmit, chatActivity, composerAction, incompleteAssis
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
 
+test('accepted input keeps waiting until the same request reaches the observed transcript',()=>{
+ const input={id:'outgoing:original',requestId:'original',kind:'user',status:'accepted'};
+ const before={...running,phase:'idle',currentTurn:'',canInterrupt:false};
+ assert.equal(chatActivity(before,[input]),'thinking');
+ assert.equal(chatActivity({...running,items:[{...input,id:'native'}]},[input]),'thinking');
+ assert.equal(chatActivity({...running,phase:'completed',currentTurn:'',items:[input,{id:'reply',kind:'assistant',text:'done',status:'completed'}]},[input]),null);
+ assert.equal(chatActivity(before,[{...input,status:'rejected'}]),null);
+});
+
 test('a prior partial is marked incomplete after its turn, while later completed text stays final',()=>{
  const partial={id:'partial',kind:'assistant',turnKey:'old',text:'已收到的片段',status:'inProgress'};
  const following={...partial,id:'following',text:'完整回复',status:'completed'};
@@ -115,7 +124,8 @@ test('the local outbox starts thinking before Runtime polling and yields to auth
  assert.equal(chatActivity({...idle,phase:'interrupting'},[pending]),'stopping');
  const reply={id:'reply',turnKey:'current',kind:'assistant',text:'hello back',status:'inProgress'};
  assert.equal(chatActivity({...running,items:[reply]},[pending]),null,'streaming reply already communicates progress');
- for(const status of ['accepted','rejected','unknown'])assert.equal(chatActivity(idle,[{...pending,status}]),null,'receipt must end optimistic waiting: '+status);
+ for(const status of ['rejected','unknown'])assert.equal(chatActivity(idle,[{...pending,status}]),null,'receipt must end optimistic waiting: '+status);
+ assert.equal(chatActivity(idle,[{...pending,status:'accepted'}]),'thinking','accepted receipt precedes transcript observation');
  assert.equal(idle.canInterrupt,false,'presentation never grants stop authority');
 });
 

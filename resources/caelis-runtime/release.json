@@ -11,6 +11,16 @@
       "artifact": "caelis_0.72.2_windows_amd64.tar.gz",
       "sha256": "4188b5a36b78492b08830bc7c7a968b5b76b170c59af0991c0d566b63e112ad5",
       "binary_sha256": "d8c96eea1271e4a92e35b7431f640d115f04a70f2f44e90669678e55c2a0ae56"
+    },
+    "linux-amd64": {
+      "artifact": "caelis_0.72.2_linux_amd64.tar.gz",
+      "sha256": "a462b65a7ba0cc31b45e37bbccb3251dfd87b79e60905aebd9edea8cd948c4aa",
+      "binary_sha256": "d451f813bda41b7e87cf7ff3817af6a14ab719e0d7136acf166deae018967150"
+    },
+    "linux-arm64": {
+      "artifact": "caelis_0.72.2_linux_arm64.tar.gz",
+      "sha256": "abee4272fffa4951ad9bb473ec0310366147c443cae39538534c4ace1bfbf435",
+      "binary_sha256": "cb0560a774204ef8f8b15f1725211c15be306905e8ce8753cc5f107b76da2745"
     }
   }
 }

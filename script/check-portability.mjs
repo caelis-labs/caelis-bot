@@ -22,8 +22,8 @@ function go(args, target = {}, capture = false) {
 console.log('Running shared core tests once with CGO disabled.');
 go(['test', './internal/app', './internal/backend/codex', './internal/bot', './internal/contentpack', './internal/weixin', './internal/secretstore']);
 // Mac arm64 is compiled by the normal product build. Windows amd64 is the next
-// desktop target; Linux arm64 is the additional headless remote target.
-for (const [GOOS, GOARCH] of [['windows', 'amd64'], ['linux', 'arm64']]) {
+// desktop target; both Linux architectures compile the real headless entrypoint.
+for (const [GOOS, GOARCH] of [['windows', 'amd64'], ['linux', 'amd64'], ['linux', 'arm64']]) {
   const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`;
   const dependencies = go(['list', '-deps', './internal/backend/codex', './internal/bot', './internal/app', './internal/localipc', './internal/contentpack'], target, true).trim().split(/\r?\n/);
   if (dependencies.some(dependency => dependency.startsWith('github.com/wailsapp/') || dependency === 'runtime/cgo')) {
@@ -32,7 +32,8 @@ for (const [GOOS, GOARCH] of [['windows', 'amd64'], ['linux', 'arm64']]) {
   if (GOOS === 'windows') {
     go(['build', '-o', join(output, 'unsupported-windows-amd64.exe'), '.'], target);
   } else {
-    go(['build', '-o', join(output, 'remote-linux-arm64'), './cmd/caelis-remote'], target);
+    go(['build', '-o', join(output, `caelisbot-${name}`), '.'], target);
+    go(['build', '-o', join(output, `caelisbot-launcher-${name}`), './cmd/caelisbot-launcher'], target);
   }
   console.log(`${name}: shared boundary and platform entrypoint compiled; native GUI NOT qualified.`);
 }

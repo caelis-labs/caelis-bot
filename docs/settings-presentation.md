@@ -10,8 +10,9 @@ The shared renderer changes are in `Panel.tsx`, `ChatFeedback.tsx`,
 Standalone unsaved channel fields in `TelegramSettings` and `WeixinSettings`
 also participate in the return guard; task preference edits stay guarded until
 their serialized save is confirmed.
-Web implementations should reconcile these files after merging main; no Web
-transport, routing, deployment or Web worktree is changed here.
+The Web branch reconciles these files against merged main
+`e8827b27138af998bb399d701bc037cfee8e9443`, preserving the included #204 worker
+recovery and original-receipt contracts.
 
 - `Recovery` requires `message` and accepts an optional, explicitly safe
   `onRetry`. It renders a short operation-local error. It never reloads a surface,
@@ -29,7 +30,7 @@ transport, routing, deployment or Web worktree is changed here.
   visible dialogs and `data-settings-dirty="true"` forms. The default HTML control
   is a fixed top-right gear/close button without an extra toolbar row.
   Only the macOS host supplies `chrome=native` and a standard AppKit titlebar
-  accessory. Web hosts must not set that flag without supplying the control.
+  accessory. Web ignores that query flag and always supplies HTML controls.
   Onboarding never exposes either navigation control. Its native entry points
   also route chat/settings/recall back to setup until introduction is resolved.
 - `loadConnections` publishes saved selection fields independently, then inspects
@@ -73,3 +74,51 @@ gate updater, with native assertions for one command and hidden separator.
 
 Bot skill guidance is unchanged: this adjusts presentation, observation and
 navigation of existing capabilities, not Bot tools, permissions or workflows.
+
+## Web surface acceptance
+
+Web uses the same components and state, with fixed content-area gear/task icons
+and the shared close-settings control. It does not emulate AppKit attachment
+APIs. The Web navigation adapter honors dialogs/dirty forms before changing a
+route; every entry also checks durable setup/introduction state. A retained,
+invisible chat keeps its layout dimensions so returning does not collapse scroll
+to the bottom. Its draft, staged files and composer DOM survive the switch.
+
+Only `ChatFeedback` offers the human-readable feedback summary. Local settings
+and setup errors stay inline; fatal renderer recovery keeps bounded remount and
+explicit reopen, without a generic copy card. Copies include allowlisted issue,
+time, page and connection scope, never raw diagnostics or arbitrary private URLs.
+Dismissal does not change transcripts, approvals or uncertain operations.
+
+`script/web-settings-browser.cjs` drives the production WebApp/transport against
+the same synthetic data as the native AppKit fixture. It covers retained
+draft/files/scroll, modal URL guards, local plugin progress, saved values during
+slow/failed observations, read-only task results and unknown-submission readback.
+`script/web-feedback-browser.cjs` drives the isolated Rocky service: actual
+first-run guards and read-only Magpie model listing, injected HTTP failures,
+and seven settings pages at 390/900/1600 pixels using a browser-only completed
+setup projection. Neither fixture is evidence of completed account login.
+
+## Installation cancellation and chat continuity
+
+Cancelling a Codex installation dismisses the shared progress dialog immediately.
+The host operation and its original cancellation receipt remain authoritative;
+progress reads continue, and a running/unknown installation cannot start another
+write. A settled `cancelled` state is not a failed install or a retry dialog,
+including after remount. Actual failure still has an operation-local recovery.
+
+When the Runtime echoes an already-visible user input, the shared backend
+publishes that exact outbox row to the local IM before retiring it. The
+independent application observer may arrive later. This applies to both first
+introduction and ordinary input, preserves the original request ID, and does not
+promote or replay an execution receipt. Accepted local input keeps the waiting
+indicator until its matching transcript observation arrives.
+
+Web edit-lease recovery refreshes only the composer, retaining the mounted
+conversation and its optimistic rows. `web-message-stability-browser.cjs` checks
+DOM identity and every rendered frame across delayed observations, stale SSE,
+reconnection, edit-lease loss and reload. `codex-install-cancel-browser.cjs`
+checks immediate dismissal, remount, original operation count and real-failure
+presentation using a synthetic host. These checks do not establish live model
+or account acceptance. Bot skill guidance is unchanged: no Bot tool, permission,
+execution or recovery workflow changes.

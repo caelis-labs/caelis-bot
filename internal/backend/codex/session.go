@@ -1552,7 +1552,9 @@ func (s *Session) cleanTerminals(ctx context.Context, c *Client, targets ...stri
 		seenThreads[id] = true
 		processes, err := listBackgroundTerminals(ctx, c, id)
 		if err != nil {
-			if targets == nil && id != current && nativeThreadError(err, "thread not loaded: ", id) {
+			if targets == nil && id != current && len(processes) == 0 &&
+				(nativeThreadError(err, "thread not loaded: ", id) || nativeThreadError(err, "thread not found: ", id)) &&
+				s.confirmUnloadedCleanupChild(ctx, c, id) {
 				continue
 			}
 			return s.cleanupError("list", err)
@@ -1594,7 +1596,7 @@ func listBackgroundTerminals(ctx context.Context, c *Client, thread string) ([]s
 			NextCursor string `json:"nextCursor"`
 		}
 		if err := callDecode(ctx, c, "thread/backgroundTerminals/list", map[string]any{"threadId": thread, "limit": 100, "cursor": cursorOrNil(cursor)}, &response); err != nil {
-			return nil, err
+			return processes, err
 		}
 		if response.Data == nil {
 			return nil, ErrProtocol

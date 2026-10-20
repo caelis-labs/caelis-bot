@@ -9,7 +9,7 @@ on:
       platform:
         description: Platform to reconcile
         type: choice
-        options: [macos, windows]
+        options: [macos, windows, linux]
         default: macos
   workflow_call:
     inputs:
@@ -35,7 +35,7 @@ jobs:
   sync:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    environment: ${{ inputs.platform == 'windows' && 'windows-release' || 'macos-release' }}
+    environment: ${{ inputs.platform == 'linux' && 'linux-release' || inputs.platform == 'windows' && 'windows-release' || 'macos-release' }}
     timeout-minutes: 20
     outputs:
       current: ${{ steps.r2.outputs.current }}
@@ -74,6 +74,7 @@ jobs:
         run: |
           publisher=script/publish-r2.mjs
           if [[ "$RELEASE_PLATFORM" == windows ]]; then publisher=script/windows-publish-r2.mjs; fi
+          if [[ "$RELEASE_PLATFORM" == linux ]]; then publisher=script/linux-publish-r2.mjs; fi
           result=$(node "$publisher" release)
           echo "$result"
           if [[ "$result" == Published* ]]; then echo 'current=true' >> "$GITHUB_OUTPUT"; fi

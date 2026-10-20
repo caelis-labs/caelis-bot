@@ -837,6 +837,9 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	if a.setup != nil && a.setup.codexInstallation != nil {
+		a.setup.codexInstallation.close()
+	}
 	if a.modelSelections != nil {
 		a.modelSelections.Close()
 	}
@@ -870,17 +873,25 @@ func (a *Application) Close() error {
 			a.plugins.CloseDesktopOwner()
 		}
 		if a.Telegram != nil {
-			a.Telegram.Close()
+			if updating {
+				a.closeErr = errors.Join(a.closeErr, a.Telegram.CloseForUpdate())
+			} else {
+				a.Telegram.Close()
+			}
 		}
 		if a.Weixin != nil {
-			a.Weixin.Close()
+			if updating {
+				a.closeErr = errors.Join(a.closeErr, a.Weixin.CloseForUpdate())
+			} else {
+				a.Weixin.Close()
+			}
 		}
 		if a.setup != nil {
 			a.setup.codex.Close()
 			a.setup.connections.Close()
 		}
 		if updating {
-			a.closeErr = a.Backend.ShutdownForUpdate()
+			a.closeErr = errors.Join(a.closeErr, a.Backend.ShutdownForUpdate())
 		} else {
 			a.closeErr = a.Backend.Shutdown()
 		}

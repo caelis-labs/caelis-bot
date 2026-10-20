@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
-import { desktop } from './desktop';
+import React from 'react';
+import {isWebSurface} from './transport';
 import { useI18n } from './i18n';
 import { presentationWarning } from './presentation-warning';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
-import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
-import { CheckIcon } from '@phosphor-icons/react/dist/csr/Check';
 
 // Contextual errors do not reload a surface or manufacture a retry operation.
 // Callers supply the actual failure and, only when safe, a scoped retry.
@@ -15,16 +13,13 @@ export function Recovery({message,onRetry}:{message:string;onRetry?:()=>void}) {
 
 function SurfaceRecovery() {
   const { t } = useI18n();
-  const [copied,setCopied]=useState(false);
-  const copy=async()=>{try{await desktop('CopyDiagnostics');setCopied(true);}catch{presentationWarning('background_read_failed');}};
   return <section className="surface-recovery is-fullscreen" role="alert">
     <span className="surface-recovery-icon" aria-hidden="true"><ArrowClockwiseIcon size={20}/></span>
     <div className="surface-recovery-content">
       <strong>{t('chat.surfaceRestartTitle')}</strong>
-      <p>{t('chat.surfaceRestartNeeded')}</p>
+      <p>{t(isWebSurface()?'chat.surfaceReloadNeeded':'chat.surfaceRestartNeeded')}</p>
       <div className="surface-recovery-actions">
-        <button type="button" className="surface-recovery-primary" onClick={()=>window.location.reload()}>{t('chat.restartSurface')}</button>
-        <button type="button" className="surface-recovery-feedback" onClick={()=>void copy()}>{copied?<CheckIcon size={14} aria-hidden="true"/>:<CopyIcon size={14} aria-hidden="true"/>}{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
+        <button type="button" className="surface-recovery-primary" onClick={()=>window.location.reload()}>{t(isWebSurface()?'chat.reloadSurface':'chat.restartSurface')}</button>
       </div>
     </div>
   </section>;

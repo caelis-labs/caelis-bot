@@ -19,6 +19,7 @@ import (
 )
 
 type runtimeSetup struct {
+	codexInstallation *codexInstallation
 	progressMu        sync.Mutex
 	progress          api.SetupInstallProgress
 	operationMu       sync.Mutex
@@ -38,15 +39,27 @@ type runtimeSetup struct {
 
 func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
 	s.progressMu.Lock()
-	defer s.progressMu.Unlock()
-	return s.progress
+	progress := s.progress
+	s.progressMu.Unlock()
+	if progress.State == "running" {
+		return progress
+	}
+	if s.codexInstallation != nil {
+		if p := s.codexInstallation.snapshot(); p.State != "" {
+			return p
+		}
+	}
+	return progress
 }
 func (s *runtimeSetup) setInstallProgress(p caelisruntime.InstallProgress) {
 	s.progressMu.Lock()
 	defer s.progressMu.Unlock()
-	s.progress = api.SetupInstallProgress{Phase: p.Phase, Downloaded: p.Downloaded, Total: p.Total, BytesPerSecond: p.BytesPerSecond}
+	s.progress.Phase, s.progress.Downloaded, s.progress.Total, s.progress.BytesPerSecond = p.Phase, p.Downloaded, p.Total, p.BytesPerSecond
 }
 func (s *runtimeSetup) CancelOperation() bool {
+	if s.codexInstallation != nil && s.codexInstallation.stop() {
+		return true
+	}
 	s.operationMu.Lock()
 	defer s.operationMu.Unlock()
 	if s.operationCancel == nil {
@@ -61,7 +74,8 @@ func (a *Application) configureSetup() {
 	if _, e := os.Stat(filepath.Join(a.root, "setup.json")); !os.IsNotExist(e) {
 		fresh = false
 	}
-	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}}
+	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}, codexInstallation: newCodexInstallation(a.root)}
+	a.setup.codexInstallation.log = a.host.Diagnostics
 	a.Backend.ConfigureSetup(a.setup)
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
@@ -114,6 +128,11 @@ func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
 	return nil
 }
 func (s *runtimeSetup) Inspect(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
+	if s.codexInstallation != nil {
+		if state, running := s.codexInstallation.runningState(v); running {
+			return state, nil
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.prepared, v.Runtime) // Explicit recheck always observes the Runtime.
@@ -206,9 +225,39 @@ func (s *runtimeSetup) Catalog(ctx context.Context, r api.SetupRequest) ([]api.S
 	return caelis.SetupCatalog(ctx, r)
 }
 func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
+	if r.Settings.Runtime == "codex" && s.codexInstallation != nil {
+		if r.Action == "install" || r.Action == "update" {
+			if err := validSetup(r.Settings, s.app.locale()); err != nil {
+				return api.SetupState{}, err
+			}
+			return s.codexInstallation.start(ctx, r, s.applySetup)
+		}
+		if r.Action == "prepare" {
+			if state, running := s.codexInstallation.runningState(r.Settings); running {
+				return state, nil
+			}
+		}
+	}
+	return s.applySetup(ctx, r)
+}
+
+func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.app.updateInProgress() {
+		return api.SetupState{}, errors.New("application update in progress")
+	}
 	if r.Action == "install" || r.Action == "update" {
+		if r.Settings.Runtime != "codex" {
+			s.progressMu.Lock()
+			s.progress = api.SetupInstallProgress{Runtime: r.Settings.Runtime, State: "running"}
+			s.progressMu.Unlock()
+			defer func() {
+				s.progressMu.Lock()
+				s.progress.State = "complete"
+				s.progressMu.Unlock()
+			}()
+		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 		s.operationMu.Lock()
@@ -227,9 +276,16 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
-	if r.Action != "use-model" && r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
+	// Restoring a missing Codex executable does not replace the active process,
+	// connect it, or reconcile/replay any of its work.
+	restoreMissing := false
+	if r.Action == "install" && r.Settings.Runtime == "codex" && r.Settings.CLIPath == "" {
+		status, err := codex.InspectRuntime(ctx, "")
+		restoreMissing = err == nil && !status.Installed
+	}
+	if !restoreMissing && r.Action != "use-model" && r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
-			return api.SetupState{}, e
+			return api.SetupState{}, &api.SetupBlockedError{Code: "runtime_recovery_required", Message: "原连接尚有工作需要核对，请先恢复连接；本次操作尚未开始"}
 		}
 	}
 	if r.Action == "use-model" {
@@ -269,7 +325,7 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 			return api.SetupState{}, errors.New(s.app.text("installCodexFirst", nil))
 		}
 		var u string
-		u, e = s.codex.Apply(ctx, path.Path, r.Action, r.APIKey)
+		u, e = s.codex.Apply(ctx, path.Path, r.Action, r.APIKey, r.LoginID)
 		if e == nil && u != "" {
 			if s.app.host.OpenURL == nil {
 				e = errors.New(s.app.text("cannotOpenBrowser", nil))
@@ -366,15 +422,15 @@ func (s *runtimeSetup) selectModel(ctx context.Context, r api.SetupRequest) (api
 func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.app.guardConversationChange(); e != nil {
-		return e
+	if e := s.app.guardRuntimeActivation(v.Runtime); e != nil {
+		return &api.SetupBlockedError{Code: "runtime_recovery_required", Message: "原连接还有工作需要核对，尚未切换连接。你的输入已保留"}
 	}
 	out, e := s.preparedState(ctx, v)
 	if e != nil {
 		return e
 	}
 	if out.State != "ready" {
-		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
+		return &api.SetupBlockedError{Code: "runtime_not_ready", Message: s.app.text("completeRuntimeConnectionFirst", nil)}
 	}
 
 	if !s.reconnectRequired && s.canReuseRuntime(v) {

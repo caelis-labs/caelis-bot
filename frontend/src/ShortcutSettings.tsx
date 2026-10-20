@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple';
 import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import { useEffectEvent, useEffect, useRef, useState } from 'react';
@@ -11,7 +12,8 @@ type State={shortcut:Shortcut;registered:boolean;message:string};
 const initial:Shortcut={enabled:true,key:'Space',control:true,alt:false,shift:true,meta:false};
 const mac=navigator.platform.toLowerCase().includes('mac');
 function label(v:Shortcut){return [v.control?(mac?'⌃':'Ctrl'):'',v.alt?(mac?'⌥':'Alt'):'',v.shift?(mac?'⇧':'Shift'):'',v.meta?(mac?'⌘':'Meta'):'',v.key.replace(/^Key|^Digit/,'').replace('Space',mac?'␣':'Space')].filter(Boolean).join(mac?'':' + ');}
-export function ShortcutSettings({tasks=false,capture=false,paste=false}:{tasks?:boolean;capture?:boolean;paste?:boolean}){
+export function ShortcutSettings(props:{tasks?:boolean;capture?:boolean;paste?:boolean}){return isWebSurface()?null:<NativeShortcutSettings {...props}/>;}
+function NativeShortcutSettings({tasks=false,capture=false,paste=false}:{tasks?:boolean;capture?:boolean;paste?:boolean}){
  const screen=capture||paste;
  const defaults:Shortcut=screen?{...initial,key:paste?'F3':'F1',control:false,shift:false}:tasks?{...initial,key:'KeyT'}:initial;
  const prefix=capture?'Capture':paste?'Paste':tasks?'Task':'';

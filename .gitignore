@@ -24,3 +24,7 @@ characters/
 resources/brand/
 *.blend
 *.bundle
+
+# Local browser acceptance artifacts may contain session state.
+.playwright-cli/
+output/playwright/

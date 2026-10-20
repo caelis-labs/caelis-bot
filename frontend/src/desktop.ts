@@ -1,5 +1,6 @@
 // Use the runtime shipped by the pinned Go dependency, avoiding a second runtime version.
 import {nativeCall} from './native-call';
+import {productTransport} from './transport';
 type Runtime = { Call: { ByName<T>(name: string, ...args: unknown[]): Promise<T> } };
 let runtime: Promise<Runtime> | undefined;
 export async function desktop<T = void>(method: string, ...args: unknown[]): Promise<T> {
@@ -11,6 +12,8 @@ export async function backend<T = void>(method: string, ...args: unknown[]): Pro
 	finally{if(navigator.platform.toLowerCase().startsWith('win')&&['SetupProfile','InspectSetup','SetupModels','SetupOverview','ExecutionSettings','LocalWorkerSelection'].includes(method))void desktop('WindowsUIPerformance',method,performance.now()-start).catch(()=>{});}
 }
 async function host<T>(service: string,method: string,...args: unknown[]): Promise<T> {
+  const selected=productTransport();
+  if(selected)return selected<T>(service,method,args);
   const url = '/wails/runtime.js';
   if(!runtime) {
     const loading=import(/* @vite-ignore */ url) as Promise<Runtime>;

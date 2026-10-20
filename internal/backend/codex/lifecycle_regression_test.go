@@ -300,6 +300,12 @@ func TestTerminalCleanupSkipsUnloadedHistoricalChild(t *testing.T) {
 	s.children["old"] = true
 	s.mu.Unlock()
 	f.mu.Lock()
+	if f.workers == nil {
+		f.workers = map[string]nativeThread{}
+	}
+	old := nativeThread{ID: "old"}
+	old.Status.Type = "notLoaded"
+	f.workers["old"] = old
 	f.handle = func(m wireMessage) (any, bool) {
 		if m.Method == "thread/backgroundTerminals/list" {
 			var p struct {

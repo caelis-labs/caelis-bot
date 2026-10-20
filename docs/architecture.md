@@ -98,8 +98,9 @@ Core owns compatible busy-Host reuse, deferred idle replacement, exclusive Store
 writes and older-client non-downgrade. Bot coalesces requests using its existing
 recovery coordinator and then negotiates the discovered endpoint normally.
 The CLI release pin and consumed OpenAPI pin are distinct; distribution version
-equality is never a connection requirement. Packaging currently targets the
-qualified macOS arm64 app; this does not claim Windows GUI distribution.
+equality is never a connection requirement. Packaging stages the pinned CLI for macOS arm64, Windows amd64 and Linux
+amd64/arm64. Linux uses the complete managed bundle and a systemd user launcher;
+this does not add Linux desktop or imply native Windows GUI acceptance.
 
 
 The General settings login switch reads macOS `SMAppService.mainApp` through a
@@ -119,6 +120,20 @@ running turn prevents that unload. Neither path archives history. Reconnection
 reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
+
+Whole-owner shutdown accepts an exact native missing-loaded-child error only
+after a fresh read of that original child confirms `notLoaded`, a terminal last
+turn matching its retained task, and no active work, prompts or uncertain receipts.
+Connection, child revision and task identity are fenced across that read. Explicit
+Stop targets, partial terminal listings and process/tool cleanup failures remain
+unconfirmed. This permits an ordinary restart after native idle unload without
+treating arbitrary `not found` errors as success.
+
+After explicit lost-owner recovery, the new connection may read original persisted
+Worker history by its retained thread ID. It cannot resume that archived execution
+owner, send input or settle its unknown receipts. Reads fence the connection and
+task identity, page native messages, and reject missing/partial archived history;
+they neither fabricate empty success nor recreate the task.
 
 Worker viability is not a persisted Bot state. Both adapters ignore legacy
 `retired` fields and normalize legacy `unavailable` caches to `unknown` on load,
@@ -1139,3 +1154,9 @@ ports behind the same event contract, then richer normalization. No workflow gra
 arbitrary event publication is introduced. The packaged Bot-core skill makes
 follow-through a core work mode with progressively loaded examples; automated
 contract coverage does not prove every model will choose to arrange follow-ups.
+
+## Headless and browser surface
+
+The optional `serve` entry point assembles the same `app.Application` without a native window driver. Bot identity, schedules, channels, Worker routing and recovery remain owned by the existing product services. Browser disconnect is not a shutdown or cancellation signal. The browser uses the same React surfaces through an explicit Web transport; native desktop calls remain the default transport.
+
+`internal/websurface` owns only authenticated ingress, operation correlation, bounded snapshot delivery and file transfer. It exposes an explicit operation allowlist rather than generic Wails/Core RPC. Direct loopback bootstrap preserves Origin/Host/CSRF checks; nonlocal clients pair. The optional host-loopback relay authenticates local container port forwarding without trusting NAT peers or forwarded headers, and has no execution authority. See [deployment and boundary contracts](headless-web.md) and [acceptance evidence and limits](headless-web-acceptance.md). Linux/WSL headless does not imply Linux desktop or Windows GUI support.

@@ -1,3 +1,4 @@
+import {useCodexInstallation} from './CodexInstallation';
 import {Recovery} from '../../SurfaceBoundary';
 import {ModelSelectionDelivery} from './model-selection';
 import {ProviderLogo} from './OnboardingProviders';
@@ -43,6 +44,7 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  const [editing,setEditing]=useState<'conversation'|'work'|null>(null),[providerList,setProviderList]=useState<Array<ConnectChoice&{kind:ConnectionKind}>>([]),[providerError,setProviderError]=useState('');
  const [removing,setRemoving]=useState<{id:string;name:string;action:string}|null>(null),[removeError,setRemoveError]=useState('');
  const [notice,setNotice]=useState(''),[operation,setOperation]=useState(''),[operationError,setOperationError]=useState('');
+ const [codexAuthError,setCodexAuthError]=useState(false);
  const appliedRead=useRef<Record<string,number>>({});
  const selectionOverride=(scope:string)=>selections.find(v=>v.scope===scope&&(v.state!=='applied'||(appliedRead.current[scope]??-1)<v.revision));
  const generation=useRef(0),action=useRef(false),root=useRef<HTMLElement>(null),anchor=useRef<HTMLElement|null>(null);
@@ -96,18 +98,22 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  },[route.page,id,view]);
  useEffect(()=>{if(route.page!=='providers')return;let valid=true;setProviderList([]);setProviderError('');void Promise.allSettled([client.catalog('account'),client.catalog('api-key')]).then(results=>{if(!valid)return;const list:Array<ConnectChoice&{kind:ConnectionKind}>=[];const errors:string[]=[];results.forEach((r,i)=>{if(r.status==='fulfilled'){if(r.value.unavailable)errors.push(r.value.unavailable);r.value.choices.forEach(c=>list.push({...c,kind:i===0?'account':'api-key'}));}else errors.push(textError(r.reason));});setProviderList(list);setProviderError(errors.join(' '));});return()=>{valid=false}},[route.page,client]);
  const run=async(fn:()=>Promise<void>)=>{if(action.current)return;action.current=true;generation.current++;refreshing.current=null;setLoading(false);setRefreshingIDs([]);setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(textError(e))}finally{action.current=false;setBusy(false)}};
- const apply=async(act:string)=>run(async()=>{
+ const codexInstall=useCodexInstallation(active&&route.page==='runtime'&&id==='codex',view?.profile??{runtime:'codex',cliPath:'',caelisStore:''},backend,()=>refresh(true,'codex'));
+ const apply=async(act:string,fields:Partial<SetupRequest>={})=>{
+  if(id==='codex'&&['install','update'].includes(act)){await codexInstall.start(act);return;}
+  return run(async()=>{
   if(!view)return;
-  setOperation(act);setOperationError('');
+   setOperation(act);setOperationError('');setCodexAuthError(false);
   try{
-   const state=await backend<SetupState>('ApplySetup',{settings:view.profile,action:act,provider:'',model:'',baseUrl:'',apiKey:''} satisfies SetupRequest);
+   const state=await backend<SetupState>('ApplySetup',{settings:view.profile,action:act,provider:'',model:'',baseUrl:'',apiKey:'',...fields} satisfies SetupRequest);
    setViews(v=>({...v,[id]:{...view,state}}));
    if(act!=='check-update')await refresh();
    setOperation('');
   }catch(e){
-   if(['install','update'].includes(act)){setOperationError(textError(e));}else{setOperation('');throw e;}
+   if(['login','cancel-login','api-key'].includes(act)){setOperation('');setCodexAuthError(true);await refresh();}
+   else if(['install','update'].includes(act)){setOperationError(textError(e));}else{setOperation('');throw e;}
   }
- });
+ });};
  useEffect(()=>{if(!active||route.page!=='runtime'||!view?.state.loginPending)return;const timer=setInterval(()=>{if(!action.current)void refresh()},2500);return()=>clearInterval(timer)},[active,route.page,view?.state.loginPending]);
  const models=Object.entries(views).flatMap(([runtime,v])=>(v?.models??[]).filter(m=>m.model.trim()).map(m=>({...m,name:m.name||m.model,model:encode(runtime,m.model),description:`${name(runtime)}${m.description?' · '+m.description:''}`})));
  const followModel=followConversationModel;
@@ -126,13 +132,14 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
    {topError}
    {failures[id]&&<p className="inline-error" role="alert">{failures[id]} <button disabled={refreshingIDs.includes(id)} onClick={()=>void refresh(true,id)}>{t('settings.runtimeTryAgain')}</button></p>}
    {route.page==='team'&&!config&&!error&&<p role="status" className="settings-note">{t('common.loading')}</p>}
-   {route.page==='runtime'&&id==='codex'&&view&&<CodexRuntimePanel state={view.state} busy={busy} checking={operation==='check-update'} onAction={act=>void apply(act)} onDetect={()=>void refresh(true,id)}/> }
+   {route.page==='runtime'&&id==='codex'&&view&&<CodexRuntimePanel state={view.state} busy={busy||codexInstall.running} error={codexAuthError} checking={operation==='check-update'} onAction={(act,fields)=>apply(act,fields)} onDetect={()=>void refresh(true,id)}/> }
    {route.page==='runtime'&&id==='codex'&&!view&&<p role="status" className="settings-note">{t('runtime.detecting')}</p>}
    {route.page==='runtime'&&id==='caelis'&&(view?<BuiltinRuntimePanel state={view.state} busy={busy} checking={operation==='check-update'} count={config?.models.length} onAction={act=>void apply(act)} onConnect={()=>go({page:'providers',id})} onTeam={()=>go({page:'team',id})} onDetect={()=>void refresh(true,id)}/>:<p role="status" className="settings-note">{t('runtime.detecting')}</p>)}
    {route.page==='providers'&&<><div className="connection-page-heading"><p>{t('settings.connectionProviderHint')}</p></div>{config&&config.connections.length>0&&<SettingGroup title={t('settings.connectionAdded')}>{config.connections.map(g=><button className="connection-navigation-row" key={g.id} onClick={()=>go({page:'provider',id,group:g.id})}><span><strong>{g.name}</strong><small>{t('runtime.modelCount',{count:g.models.length})}</small></span><SettingsChevron/></button>)}</SettingGroup>}<SettingGroup title={t('connections.addConnection')}>{providerList.map(p=><button className="connection-navigation-row" key={p.kind+p.id} onClick={()=>go({page:'connect',id,kind:p.kind,choice:p.id})}><span className="provider-brand"><ProviderLogo id={p.id}/><strong>{providerName(p.id,p.name)}</strong></span><SettingsChevron/></button>)}</SettingGroup>{providerError&&<Recovery message={providerError}/>}</>}
    {route.page==='provider'&&config&&<SettingGroup title={config.connections.find(g=>g.id===route.group)?.name}>{config.connections.find(g=>g.id===route.group)?.models.map(m=><SettingRow key={m.id} label={m.name} description={m.unavailable?t('runtime.reauthNeeded'):<span className="model-usage-tags">{m.uses.length>0&&<span>{t('settings.modelInUse')}</span>}{[...new Set(m.uses.map(modelUseLabel))].map(u=><span className="model-usage-tag" key={u}>{u}</span>)}</span>}><button disabled={!!m.uses.length||busy} onClick={()=>{const group=config.connections.find(g=>g.id===route.group)!;setRemoveError('');setRemoving({id:group.kind==='agent'?group.id:m.id,name:m.name,action:group.kind==='agent'?'disconnect-agent':'remove-model'})}}>{t('runtime.remove')}</button></SettingRow>)}</SettingGroup>}
    {busy&&!['install','update'].includes(operation)&&<p role="status" className="settings-note">{t('runtime.processing')}</p>}
   </SettingsPage>}
+  {codexInstall.dialog}
   {['install','update'].includes(operation)&&<SettingsDialog className="runtime-install-dialog" title={t(operationError?'settings.runtimeInstallFailed':operation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name:name(id)})} busy={busy} onClose={()=>{if(!busy){setOperation('');setOperationError('')}}}>
    {operationError?<Recovery message={operationError}/>:<><div className="runtime-install-progress" role="progressbar" aria-label={t(operation==='install'?'settings.codexInstalling':'settings.codexUpdating',{name:name(id)})}><span/></div><p className="settings-note" role="status">{t('settings.runtimeInstallWait')}</p></>}
    {operationError&&<div className="setup-end"><button onClick={()=>{setOperation('');setOperationError('')}}>{t('common.close')}</button><button className="primary" onClick={()=>void apply(operation)}>{t('settings.runtimeTryAgain')}</button></div>}

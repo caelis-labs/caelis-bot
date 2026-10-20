@@ -1,0 +1,47 @@
+#!/bin/sh
+# CaelisBot Linux/WSL bootstrap. No sudo, account login, or system-wide changes.
+set -eu
+for tool in python3 openssl; do
+ command -v "$tool" >/dev/null 2>&1 || { echo "Install $tool with your distribution package manager, then rerun." >&2; exit 1; }
+done
+# The pinned Ed25519 key verifies the index, then *every* downloaded byte,
+# including the installer and launcher, before any downloaded program executes.
+exec python3 - "$@" <<'PY'
+import base64, hashlib, json, os, pathlib, platform, subprocess, sys, tempfile, urllib.request
+KEY='@RELEASE_KEY@'
+BASE='https://releases.caelis.dev/caelis-bot/'
+if sys.platform!='linux': sys.exit('Linux or WSL with systemd user services is required.')
+arch={'x86_64':'amd64','aarch64':'arm64'}.get(platform.machine())
+if not arch: sys.exit('Supported Linux architectures: amd64 and arm64.')
+def fetch(url,limit):
+    with urllib.request.urlopen(url,timeout=60) as r:
+        if not r.url.startswith(BASE): raise ValueError('Unexpected download redirect')
+        data=r.read(limit+1)
+        if len(data)>limit: raise ValueError('Download exceeds signed size')
+        return data
+with tempfile.TemporaryDirectory(prefix='caelisbot-install-') as temp:
+    root=pathlib.Path(temp)
+    data=fetch(BASE+'downloads/linux-'+arch+'/latest.json',65536)
+    sig=base64.b64decode(fetch(BASE+'downloads/linux-'+arch+'/latest.json.sig',256).strip(),validate=True)
+    raw=base64.b64decode(KEY,validate=True)
+    if len(raw)!=32 or len(sig)!=64: raise ValueError('Release signing key is not configured')
+    (root/'key.der').write_bytes(bytes.fromhex('302a300506032b6570032100')+raw)
+    (root/'index.json').write_bytes(data); (root/'signature').write_bytes(sig)
+    subprocess.run(['openssl','pkeyutl','-verify','-pubin','-keyform','DER','-inkey',str(root/'key.der'),'-rawin','-in',str(root/'index.json'),'-sigfile',str(root/'signature')],check=True,stdout=subprocess.DEVNULL)
+    index=json.loads(data)
+    if index['schema']!=1 or index['platform']!='linux-'+arch or index['buildKind']!='release' or index['channel']!='stable': raise ValueError('Invalid installation identity')
+    version=index['version']
+    import re
+    if not re.fullmatch(r'\d+\.\d+\.\d+',version): raise ValueError('Invalid release version')
+    seen=set()
+    for asset in index['assets']:
+        name=asset['name']; length=asset['length']
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',name) or name in seen or not 0<length<=536870912: raise ValueError('Invalid signed inventory')
+        seen.add(name)
+        body=fetch(BASE+'releases/linux-'+arch+'/v'+version+'/'+name,length)
+        if len(body)!=length or hashlib.sha256(body).hexdigest()!=asset['sha256']: raise ValueError('Download integrity check failed: '+name)
+        (root/name).write_bytes(body)
+    installer='caelisbot-'+version+'-install.py'
+    if installer not in seen: raise ValueError('Installer is missing from signed inventory')
+    subprocess.run([sys.executable,str(root/installer),'--bundle',str(root),'--platform','linux-'+arch,'--version',version,*sys.argv[1:]],check=True)
+PY

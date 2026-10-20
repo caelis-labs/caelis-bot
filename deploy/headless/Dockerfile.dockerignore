@@ -1,0 +1,9 @@
+.git
+.cache
+node_modules
+frontend/dist
+dist
+.playwright-cli
+output
+.env*
+*.log

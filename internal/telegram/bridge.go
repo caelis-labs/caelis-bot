@@ -96,6 +96,7 @@ type Bridge struct {
 	secrets             secretstore.Store
 	retryUntil          time.Time
 	closed              bool
+	updating            bool
 	baselineReady       bool
 	noticeBaselineReady bool
 	secretIngress       map[int]string
@@ -186,7 +187,7 @@ func (b *Bridge) Start() {
 			b.state, b.loadErr, b.issue = restored.state, nil, ""
 		}
 	}
-	enabled := b.state.Enabled && !b.closed
+	enabled := b.state.Enabled && !b.closed && !b.updating
 	if enabled && b.done != nil {
 		select {
 		case <-b.done:
@@ -230,10 +231,10 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 	b.configMu.Lock()
 	defer b.configMu.Unlock()
 	b.mu.Lock()
-	closed := b.closed
+	closed := b.closed || b.updating
 	b.mu.Unlock()
 	if closed {
-		return b.Status(), errors.New("closed")
+		return b.Status(), &api.ActionRejectedError{Code: "closed"}
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -241,27 +242,27 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 		token, e = b.secrets.Load(b.account)
 		if e != nil {
 			b.setIssue("credential")
-			return b.Status(), errors.New("credential")
+			return b.Status(), &api.ActionRejectedError{Code: "credential"}
 		}
 	}
 	c, e := b.newClient(token)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	me, e := c.Me(ctx)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	webhook, e := c.Webhook(ctx)
 	if e != nil {
 		b.setIssue(issueOf(e))
-		return b.Status(), errors.New(issueOf(e))
+		return b.Status(), &api.ActionRejectedError{Code: issueOf(e)}
 	}
 	if webhook && !takeOver {
 		b.setIssue("webhook")
-		return b.Status(), errors.New("webhook")
+		return b.Status(), &api.ActionRejectedError{Code: "webhook"}
 	}
 	b.stop()
 	if webhook {
@@ -291,7 +292,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 }
 func (b *Bridge) launch(c client) {
 	b.mu.Lock()
-	if b.closed {
+	if b.closed || b.updating {
 		b.mu.Unlock()
 		return
 	}

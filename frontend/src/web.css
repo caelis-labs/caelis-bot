@@ -1,0 +1,71 @@
+html,body,#root{min-width:320px;width:100%;height:100%;margin:0}
+body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
+.web-app{height:100dvh;display:flex;flex-direction:column;background:var(--caelis-window,#f6f6f8);color:var(--caelis-text,#222)}
+.web-tools{position:absolute;top:6px;right:14px;z-index:4;display:flex;gap:4px}.web-tools button{position:static;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:var(--panel);color:var(--muted)}.web-tools button:hover{background:var(--wash);color:var(--ink)}
+.web-chat{position:relative}.web-chat .chat-scroll{padding-top:34px}
+.web-content{flex:1;min-height:0;position:relative;overflow:hidden}.web-content>[hidden]{display:none}
+/* Keep the retained chat viewport measurable while settings is visible, like
+   the native retained window. A zero-height layout would erase scroll intent. */
+.web-content>.web-workspace[hidden]{display:grid;visibility:hidden;pointer-events:none;position:absolute;inset:0}
+.web-chat,.web-settings{height:100%;min-height:0}.web-chat{width:100%}.web-chat .history-surface{height:100%;min-height:0}
+.web-settings .settings-window{height:100%;max-height:100%;width:100%;border-radius:0}
+.web-editing{padding:6px 20px;font-size:12px;text-align:center;background:#8881}.web-editing button{margin-left:8px}
+.web-pair{max-width:360px;margin:12vh auto 0;padding:28px;display:flex;flex-direction:column;gap:12px}.web-pair h1{font-size:27px;margin:0}.web-pair p{margin:0;line-height:1.6}.web-pair form{display:flex;flex-direction:column;gap:12px;margin:12px 0}.web-pair input{padding:12px;font-size:15px;border:1px solid #8885;border-radius:9px}.web-pair button{padding:12px}.web-pair small{color:#777}.web-pair [role=alert]{font-size:13px;color:#b04444}
+.web-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:13px}
+.web-native-note{font-size:13px;color:var(--caelis-text-secondary,#666);line-height:1.6;padding:10px 0}
+@media(max-width:680px){.web-settings .settings-window{display:flex;flex-direction:column}.web-settings .settings-window>aside{width:auto;min-width:0;max-width:none;flex:none;padding:8px;overflow-x:auto}.web-settings .settings-identity,.web-settings .settings-nav-group>p{display:none}.web-settings aside nav{display:flex;gap:4px;white-space:nowrap}.web-settings .settings-nav-group{display:flex}.web-settings .settings-main{min-height:0;flex:1}.web-settings .settings-content{padding:16px}.web-pair{margin-top:8vh}.web-chat{width:100%}}
+/* Keep App field widths; center the shared content grid in a wide browser. */
+.web-settings .settings-window .settings-page{margin-inline:auto}
+.web-settings .settings-toolbar{padding-inline:max(32px,calc((100% - 1040px)/2))}
+.web-settings .general-preferences .setting-section:only-of-type .setting-list{border-radius:12px}
+@media(max-width:680px){.web-settings .settings-toolbar{padding-inline:16px}.web-settings .settings-window .settings-content{padding:20px 16px}.web-settings .settings-window .setting-list .setting-row{grid-template-columns:minmax(0,1fr) minmax(110px,180px);gap:12px}}
+@media(max-width:440px){.web-settings .settings-window .setting-list .setting-row{grid-template-columns:1fr}.web-settings .settings-window .setting-control{justify-content:flex-start}.web-settings .settings-window .setting-control>.settings-select{max-width:240px}}
+
+.web-settings .settings-content{scrollbar-gutter:stable both-edges}
+@media(max-width:680px){.web-settings .settings-content{scrollbar-gutter:auto}}
+@media(max-width:680px){
+ .web-settings .settings-window aside nav{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;min-height:40px}
+ .web-settings .settings-nav-group{display:contents}
+ .web-settings .settings-window aside nav button{width:auto;flex:none}
+}
+
+.web-workspace{display:grid;grid-template-columns:minmax(0,880px);justify-content:center;width:100%;height:100%;max-width:1440px;margin-inline:auto;position:relative}
+.web-workspace.has-tasks{grid-template-columns:minmax(0,1fr) minmax(340px,36%);gap:20px}
+.web-workspace:not(.has-tasks)>.web-task-pane{display:none}
+.web-task-pane{min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--caelis-chat);color:var(--ink)}
+.web-task-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px 10px;flex:none}
+.web-task-heading h2{font-size:13px;font-weight:600;margin:0;color:var(--muted)}
+.web-task-close{display:none;border:0;background:transparent;color:var(--muted);width:32px;height:32px;place-items:center;border-radius:8px}
+.web-task-selection{padding:4px 22px 16px;border-bottom:1px solid var(--line)}
+.web-task-selection h3{font-size:16px;line-height:1.5;margin:0 0 8px;font-weight:600}
+.web-task-selection .settings-select{width:100%;max-width:none}
+.web-task-selection .settings-select-trigger{width:100%;font:inherit;font-size:15px;min-height:40px;text-align:left;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--caelis-raised);color:var(--ink);cursor:pointer}
+.web-task-selection .settings-select-trigger:hover{background:var(--caelis-hover)}
+.web-task-pane button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.web-task-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:10px;font-size:11px;color:var(--muted)}
+.web-task-status{display:inline-flex;align-items:center;gap:5px}
+.web-task-status i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.web-task-status.running,.web-task-status.working{color:var(--accent)}
+.web-task-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:8px 22px 28px}
+.web-task-message{font-size:14px;line-height:1.65;overflow-wrap:anywhere;margin:20px 0}
+.web-task-author{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:12px}
+.web-task-author .bot-avatar{width:28px;height:28px;flex-basis:28px}
+.web-task-request{color:var(--muted);font-size:13px}
+.web-task-request summary{cursor:pointer;font-size:12px;user-select:none;padding-block:4px}
+.web-task-request[open] summary{margin-bottom:8px}
+.web-task-notice{font-size:13px;line-height:1.6;color:var(--muted);margin-block:24px}
+.web-task-message .markdown-body>h3{font-size:15px}
+@media(min-width:1000px){.has-tasks .web-task-toggle{display:none}}
+@media(max-width:999px){
+ .web-workspace,.web-workspace.has-tasks{display:block}
+ .web-content>.web-workspace[hidden]{display:block}
+ .web-task-pane{display:none;border:0}
+ .web-workspace.task-focused>.web-chat{visibility:hidden;pointer-events:none;position:absolute;inset:0}
+ .web-workspace.task-focused>.web-task-pane{display:flex}
+ .web-task-close{display:grid}
+}
+@media(max-width:440px){
+ .web-task-heading{padding:12px 16px 8px}
+ .web-task-selection{padding:4px 16px 12px}
+ .web-task-scroll{padding:4px 16px 24px}
+}

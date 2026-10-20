@@ -21,7 +21,7 @@ test('contextual errors preserve the actual failure and have only an explicitly 
  assert.doesNotMatch(retry,/Copy feedback|Reopen window|message-row/);
 });
 
-test('renderer recovery retries once, then offers feedback and reopen without exception prose',async(t)=>{
+test('renderer recovery retries once, then offers reopen without a generic feedback card',async(t)=>{
  const {SurfaceBoundary}=await server.ssrLoadModule('/src/SurfaceBoundary.tsx');
  t.mock.timers.enable({apis:['setTimeout']});
  const boundary=new SurfaceBoundary({children:'original surface'});
@@ -34,7 +34,7 @@ test('renderer recovery retries once, then offers feedback and reopen without ex
  Object.assign(boundary.state,SurfaceBoundary.getDerivedStateFromError());
  boundary.componentDidCatch(new Error('PRIVATE_SENTINEL'));
  const recovery=renderToStaticMarkup(boundary.render());
- assert.match(recovery,/Copy feedback/);
+ assert.doesNotMatch(recovery,/Copy feedback/);
  assert.match(recovery,/Reopen window/);
  assert.doesNotMatch(recovery,/PRIVATE_SENTINEL|Reconnect|stack/i);
  t.mock.timers.tick(30000);
@@ -49,6 +49,12 @@ test('model summaries start in an explicit loading state before any runtime fact
 });
 const render=(state)=>renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state,busy:false,checking:false,onAction:()=>{},onDetect:()=>{}}));
 const base={state:'login',installation:{installed:true,version:'1.0',updateState:''},loginPending:false};
+test('Codex authentication action failures remain local without a feedback card',()=>{
+ const html=renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state:base,busy:false,checking:false,error:true,onAction:()=>{},onDetect:()=>{}}));
+ assert.match(html,/role="status"/);
+ assert.doesNotMatch(html,/Copy feedback|SurfaceBoundary|recovery-actions/);
+ assert.match(html,/Log in with ChatGPT/);
+});
 test('Codex offers installation only when absent, login only after handshake, and updates independently',()=>{
  const absent=render({...base,installation:{installed:false}});
  assert.match(absent,/Install Codex/);assert.doesNotMatch(absent,/Log in with ChatGPT|Check for updates/);
@@ -159,4 +165,31 @@ test('onboarding progress retains the action label and disables repeated submiss
  const page=renderToStaticMarkup(React.createElement(SetupLoading));
  assert.match(page,/role="status"/);assert.match(page,/aria-busy="true"/);
  assert.doesNotMatch(page,/Ready|Continue|Connecting/);
+});
+
+const {CodexLogin}=await server.ssrLoadModule('/src/settings/runtime/CodexLogin.tsx');
+test('shared device ceremony has one account primary and one secondary key entry',()=>{
+ const html=renderToStaticMarkup(React.createElement(CodexLogin,{state:base,onAction:()=>{}}));
+ assert.equal((html.match(/>Log in with ChatGPT</g)||[]).length,1);
+ assert.equal((html.match(/>Use OpenAI API Key</g)||[]).length,1);
+ assert.doesNotMatch(html,/device-auth|Advanced options|Program and paths|Recheck|Reopen window/);
+});
+test('owned pending challenge exposes only official user instructions, never another start or API key',()=>{
+ const state={...base,loginPending:true,login:{id:'attempt',state:'pending',userCode:'TEST-1234',verificationUrl:'https://auth.openai.com/codex/device',expiresAt:'2026-10-20T12:00:00Z'}};
+ const html=renderToStaticMarkup(React.createElement(CodexLogin,{state,onAction:()=>{}}));
+ assert.match(html,/TEST-1234/);assert.match(html,/Copy verification code/);assert.match(html,/Open verification page/);assert.match(html,/Waiting for your authorization/);
+ assert.doesNotMatch(html,/>Log in with ChatGPT<|API Key|Use OpenAI|attempt/);
+ const other=renderToStaticMarkup(React.createElement(CodexLogin,{state:{...state,login:{state:'other-session'}},onAction:()=>{}}));
+ assert.doesNotMatch(other,/TEST-1234|verification page|Cancel/);
+ assert.match(other,/browser that started/);
+});
+
+test('Web shares the App Codex installer rather than replacing it with a guide',async()=>{
+ const {installTransport}=await server.ssrLoadModule('/src/transport.ts');
+ installTransport(async()=>{});
+ try{
+  const html=render({...base,installation:{installed:false}});
+  assert.match(html,/Install Codex/);
+  assert.doesNotMatch(html,/Install Codex on the CaelisBot server|Installation guide|Program and paths/);
+ }finally{installTransport(undefined);}
 });

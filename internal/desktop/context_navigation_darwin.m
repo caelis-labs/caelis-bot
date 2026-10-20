@@ -49,4 +49,3 @@ void bot_context_navigation(void *pointer, int settings, int enabled, const char
     control.button.hidden = !enabled;
     control.button.enabled = enabled;
 }
-

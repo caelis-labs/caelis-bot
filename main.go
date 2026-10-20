@@ -3,8 +3,11 @@ package main
 import (
 	"embed"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/headless"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
+	"io/fs"
 	"log"
 	"os"
 
@@ -15,6 +18,16 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "pair") {
+		webAssets, err := fs.Sub(assets, "frontend/dist")
+		if err == nil {
+			err = headless.Run(webAssets, os.Args[1:], updates.Version)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if handled, err := desktop.HandleNativeArguments(os.Args[1:]); handled {
 		if err != nil {
 			log.Fatal(err)

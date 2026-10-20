@@ -8,6 +8,7 @@ Start with the [English README](../README.md) or [中文 README](../README.zh-CN
 | --- | --- |
 | [macOS installation](install.md) · [中文](install.zh-CN.md) | Download, verify, connect a model and update |
 | [Windows installation](install.windows.md) | Setup/ZIP, channels, first launch and updates |
+| [Linux / WSL installation](install.linux.md) | Signed complete bundles, systemd user service, Web authentication and updates (first publication pending) |
 | [Features and limits](status.md) | Current source, published packages and platform boundaries |
 | [Content packs](content-packs.md) | Create and import characters, outfits and avatars |
 | [Remote machines](remote-machines-v1-plan.md) | SSH setup, machine-specific models and task ownership |

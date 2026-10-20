@@ -18,6 +18,7 @@ Caelis Bot is a personal desktop assistant with a movable 3D character. Chat wit
 | --- | --- | --- |
 | macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · signed and notarized | [Install](docs/install.md) |
 | Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · unsigned | [Install](docs/install.windows.md) |
+| Linux / WSL · amd64, arm64 | Signed managed tar.gz + user service · first publication pending | [Install](docs/install.linux.md) |
 
 Verify the download using its `.sha256` file. Platforms publish independently; follow the guide for the matching package and channel.
 

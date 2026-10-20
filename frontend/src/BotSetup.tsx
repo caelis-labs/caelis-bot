@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import {Recovery} from './SurfaceBoundary';
 import {recoverRead} from './read-recovery';
 import {SetupButton,SetupLoading} from './SetupLoading';
@@ -7,6 +8,7 @@ import { backend, desktop } from './desktop';
 import { SetupExtras } from './SetupExtras';
 import {setupStage} from './setup-stage';
 import {SetupActivation} from './setup-activation';
+import {selectedSetupReady,readIntroductionDraft,saveIntroductionDraft,introductionStorage,activationNeedsRecovery} from './setup-connection';
 import {presentationWarning} from './presentation-warning';
 import { RuntimeSettings } from './RuntimeSettings';
 import type { BotInitialization, BotIntroduction, Snapshot, SetupOverview } from './backend/contract';
@@ -16,31 +18,39 @@ import { useI18n } from './i18n';
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone,active=true }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
  const {t}=useI18n();
- const [pending,setPending]=useState<{features:boolean;runtime:boolean}|null>(null);
+ const [pending,setPending]=useState<{features:boolean;runtime:boolean;runtimeID:string}|null>(null);
  const [failed,setFailed]=useState(false),[readAttempt,setReadAttempt]=useState(0);
- useEffect(()=>{if(!active)return;let live=true;void recoverRead(()=>Promise.all([desktop<boolean>('FeatureGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')])).then(([features,overview,snapshot])=>{if(live)setPending({features,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active,readAttempt]);
+ useEffect(()=>{if(!active)return;let live=true;void recoverRead(()=>Promise.all([desktop<boolean>('FeatureGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')])).then(([features,overview,snapshot])=>{if(live)setPending({features,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'&&snapshot.phase!=='unknown',runtimeID:overview.active})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active,readAttempt]);
  if(pending===null)return failed?<Recovery message={t('chat.setupLoadFailed')} onRetry={()=>{setFailed(false);setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
- return <BotIntroductionSetup runtimeInitiallyReady={pending.runtime} active={active} featuresPending={pending.features} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onDone={onDone}/>;
+ return <BotIntroductionSetup initialRuntime={pending.runtimeID} runtimeInitiallyReady={pending.runtime} active={active} featuresPending={pending.features} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPending,onFeaturesDone,onFeaturesBack }: { runtimeInitiallyReady:boolean;onDone: () => void;active:boolean;featuresPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void }) {
+function BotIntroductionSetup({ initialRuntime,runtimeInitiallyReady,onDone,active,featuresPending,onFeaturesDone,onFeaturesBack }: { initialRuntime:string;runtimeInitiallyReady:boolean;onDone: () => void;active:boolean;featuresPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void }) {
   const {t} = useI18n();
   const [runtimeReady,setRuntimeReady]=useState(runtimeInitiallyReady);
   const [runtimeSelected,setRuntimeSelected]=useState(runtimeInitiallyReady);
   const [needsConnection,setNeedsConnection]=useState(false);
   const activation=useRef(new SetupActivation(runtimeInitiallyReady));
+  const activationEpoch=useRef(0),selectedRuntime=useRef(initialRuntime);
   const mounted=useRef(true);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
-  const selectRuntime=()=>{activation.current.reset();setRuntimeReady(false);setRuntimeSelected(false);setNeedsConnection(false)};
-  const activateInBackground=(work:()=>Promise<void>)=>{
+  const selectRuntime=()=>{activationEpoch.current++;activation.current.reset();setRuntimeReady(false);setRuntimeSelected(false);setNeedsConnection(false)};
+  const activateInBackground=(work:()=>Promise<void>,runtime:string)=>{
+    const epoch=++activationEpoch.current;selectedRuntime.current=runtime;
     setRuntimeReady(false);setRuntimeSelected(true);setNeedsConnection(false);
-    void activation.current.start(work).then(ready=>{
-      if(ready&&mounted.current)setRuntimeReady(true);
+    setError('');
+    let failure=t('settings.setupActivationFailed');
+    void activation.current.start(async()=>{try{await work()}catch(error){if(activationNeedsRecovery(error))failure=t('settings.setupActivationRecovery');throw error}}).then(ready=>{
+      if(!mounted.current||epoch!==activationEpoch.current)return;
+      if(ready)setRuntimeReady(true);
+      else {setNeedsConnection(true);setError(failure);}
     });
   };
   const submitting=useRef(false);
   const [state, setState] = useState<BotInitialization | null>(null);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+  const [draft]=useState(()=>readIntroductionDraft(introductionStorage()));
+  const [name, setName] = useState(draft.name);
+  const [description, setDescription] = useState(draft.description);
+  useEffect(()=>saveIntroductionDraft(introductionStorage(),{name,description}),[name,description]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [readAttempt,setReadAttempt]=useState(0);
@@ -66,8 +76,8 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
   useEffect(() => {
     if (!active || !runtimeReady || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || opening.current) return;
     let live = true;
-    void backend<Snapshot>('Snapshot').then(async snapshot => {
-      if (!live || snapshot.connection !== 'ready' || opening.current) return;
+    void selectedSetupReady(backend,selectedRuntime.current).then(async ready => {
+      if (!live || !ready || opening.current) return;
       opening.current = true;
       try { await desktop('OpenHistory'); if (live) latestDone.current(); }
       catch (e) { opening.current = false; if (live) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
@@ -77,13 +87,21 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
 
   const openConversation = async () => {
     if (opening.current) return;
+    if(!await selectedSetupReady(backend,selectedRuntime.current)){setNeedsConnection(true);setError(t('settings.setupActivationFailed'));return;}
     opening.current = true;
     try { await desktop('OpenHistory'); latestDone.current(); }
     catch (e) { opening.current = false; setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
   };
   const continueWhenReady = async () => {
-    const snapshot = await backend<Snapshot>('Snapshot');
-    if (!featuresPending && snapshot.connection === 'ready') await openConversation();
+    if (!featuresPending && await selectedSetupReady(backend,selectedRuntime.current)) await openConversation();
+  };
+  const checkConnection=async()=>{
+    setBusy(true);
+    try{
+      if(await selectedSetupReady(backend,selectedRuntime.current)){setNeedsConnection(false);setRuntimeReady(true);setError('');}
+      else {setNeedsConnection(true);setError(t('settings.setupActivationFailed'));}
+    }catch{setError(t('settings.setupActivationFailed'));}
+    finally{setBusy(false);}
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -94,8 +112,9 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
     try {
       // Selection unlocks editing, never work. Keep the introduction on failure
       // and preserve the backend's journal/receipt rules for InitializeBot.
-      if(!await activation.current.ready()||(await backend<Snapshot>('Snapshot')).connection!=='ready'){
-        setNeedsConnection(true);return;
+      await activation.current.ready();
+      if(!await selectedSetupReady(backend,selectedRuntime.current)){
+        setNeedsConnection(true);setError(t('settings.setupActivationFailed'));return;
       }
       setRuntimeReady(true);
       const input: BotIntroduction = { name: name.trim(), description: description.trim() };
@@ -120,7 +139,7 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
 
   if (!state) return error?<Recovery message={error} onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
   const stage=setupStage(runtimeSelected,featuresPending);
-  if(stage==='runtime')return <div className="setup-flow"><RuntimeSettings onboarding active={active} onActivating={work=>activateInBackground(async()=>{try{await work()}catch(e){presentationWarning('setup_activation_failed');throw e}})}/></div>;
+  if(stage==='runtime')return <div className="setup-flow"><RuntimeSettings onboarding active={active} onActivating={(work,runtime)=>activateInBackground(async()=>{try{await work()}catch(e){presentationWarning('setup_activation_failed');throw e}},runtime)}/></div>;
   if (state.status === 'rejected' || state.status === 'unknown') return <section className="bot-introduction">
     <h1>{t('chat.setupIncompleteTitle')}</h1>
     <Recovery message={error||t(state.status==='unknown'?'chat.sendPending':'chat.setupSaveFailed')} onRetry={state.status==='rejected'?()=>{if(!busy)void retry()}:()=>{setError('');setReadAttempt(v=>v+1)}}/>
@@ -129,7 +148,7 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
   if (!state.required) return <section className="runtime-welcome" role="status">{t('chat.setupPreparing')}<button onClick={()=>void openConversation()}>{t('chat.setupOpenChat')}</button></section>;
 
   return <div className="setup-flow"><section className="bot-introduction">
-    <SetupBack disabled={busy} onClick={onFeaturesBack}/>
+    <SetupBack disabled={busy} onClick={needsConnection||isWebSurface()?selectRuntime:onFeaturesBack}/>
     <header className="onboarding-route-heading onboarding-introduction-heading">
       <img className="setup-avatar" src="/icons/caelis-avatar.png" alt="" />
       <div><h1>{t('chat.setupIntroTitle')}</h1></div>
@@ -145,9 +164,10 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
       </div>
-      {error && <Recovery message={error} onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>}
+      {error && <Recovery message={error}/>}
       <div className="setup-end">
-        {needsConnection?<button type="button" className="primary" onClick={selectRuntime}>{t('settings.setupReturnToConnection')}</button>:<SetupButton className="primary" type="submit" busy={busy} disabled={!name.trim()}>{t('settings.setupStartChat')}</SetupButton>}
+        {needsConnection&&<button type="button" disabled={busy} onClick={()=>void checkConnection()}>{t('settings.setupCheckConnection')}</button>}
+        <SetupButton className="primary" type="submit" busy={busy} disabled={!name.trim()||needsConnection}>{t('settings.setupStartChat')}</SetupButton>
       </div>
     </form>
   </section></div>;

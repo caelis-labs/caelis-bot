@@ -28,6 +28,19 @@ export const Call={ByName:async(name,...args)=>{
  case 'LanguagePreferences':return {preference:'zh-CN',locale:'zh-CN',revision:1};
  case 'Appearance':return {revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'};
  case 'Display':case 'DisplayState':return {scale:1};
+ // Read-only presentation fixtures for the remaining common settings pages.
+ // Unsupported mutations still fail below; these never touch host preferences.
+ case 'DisplayPreferences':return {mode:'light',theme:'default',revision:1};
+ case 'ContentState':return {appearance:{revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'},characters:[{id:'builtin:caelis',name:'Caelis',pack:'',group:''}],avatars:[],packs:[],notice:''};
+ case 'Placement':return {scale:1};
+ case 'LoginAtLoginStatus':return {supported:true,enabled:false,state:'off',registered:false};
+ case 'TaskPreferences':return {revision:1,maxRunning:6,terminal:'system',customCommand:''};
+ case 'TerminalChoices':return [{id:'system',name:'System',available:true}];
+ case 'ShortcutSettings':case 'TaskShortcutSettings':return {shortcut:{enabled:true,key:method==='TaskShortcutSettings'?'KeyT':'Space',control:true,shift:true,alt:false,meta:false},registered:true,message:''};
+ case 'TelegramStatus':return {enabled:false,bot:'',owner:'',paired:false,candidate:'',pairURL:'',issue:''};
+ case 'WeixinStatus':return {phase:'unconfigured'};
+ case 'Machines':return [];
+ case 'UpdatePreferences':return {available:true,automatic:false,waiting:false};
  case 'ChatSnapshot':return {changed:true,snapshot};
  case 'Snapshot':case 'ComposerSnapshot':case 'SnapshotSummary':return snapshot;
  case 'Draft':return draft;

@@ -18,6 +18,9 @@ type Setup struct {
 	client                    *Client
 	binary                    string
 	loginID, loginURL, notice string
+	device                    *api.SetupLogin
+	deviceOwner               string
+	deviceTimer               *time.Timer
 	completed                 map[string]bool
 	closed                    bool
 	epoch                     uint64
@@ -38,6 +41,12 @@ func (s *Setup) clientFor(ctx context.Context, path string) (*Client, error) {
 		}
 	}
 	if s.client != nil && s.binary != path {
+		s.mu.Lock()
+		active := s.device != nil && (s.device.State == "pending" || s.device.State == "unknown")
+		s.mu.Unlock()
+		if active {
+			return nil, errors.New("请先结束当前登录")
+		}
 		s.client.Close()
 		s.client = nil
 	}
@@ -53,6 +62,9 @@ func (s *Setup) clientFor(ctx context.Context, path string) (*Client, error) {
 		s.client = c
 		s.binary = path
 		s.mu.Lock()
+		if s.device != nil && (s.device.State == "pending" || s.device.State == "unknown") {
+			s.finishDeviceLocked("interrupted")
+		}
 		s.loginID = ""
 		s.loginURL = ""
 		s.notice = ""
@@ -77,6 +89,16 @@ func (s *Setup) clientFor(ctx context.Context, path string) (*Client, error) {
 				s.mu.Lock()
 				if s.epoch == epoch && len(s.completed) < 32 {
 					s.completed[v.LoginID] = v.Success
+					if s.loginID == v.LoginID {
+						if v.Success {
+							s.finishDeviceLocked("complete")
+						} else {
+							s.finishDeviceLocked("failed")
+						}
+						s.loginID = ""
+						s.loginURL = ""
+						delete(s.completed, v.LoginID)
+					}
 				}
 				s.mu.Unlock()
 			}
@@ -104,11 +126,17 @@ func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error
 		delete(s.completed, s.loginID)
 		s.loginID = ""
 		s.loginURL = ""
+		if success {
+			s.finishDeviceLocked("complete")
+		} else {
+			s.finishDeviceLocked("failed")
+		}
 		if !success {
 			s.notice = "登录未完成，请重试"
 		}
 	}
-	v.LoginPending = s.loginID != ""
+	v.Login = s.deviceViewLocked(ctx)
+	v.LoginPending = s.loginID != "" || s.device != nil && s.device.State == "unknown"
 	v.Message = s.notice
 	s.mu.Unlock()
 	auth, e := c.ReadAuthStatus(ctx)
@@ -134,8 +162,8 @@ func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error
 	return v, nil
 }
 
-// Apply returns an official authorization URL for the native host to open.
-func (s *Setup) Apply(ctx context.Context, path, action, key string) (string, error) {
+// Apply owns the existing standard management client. Device auth never opens a host browser.
+func (s *Setup) Apply(ctx context.Context, path, action, key string, attempt ...string) (string, error) {
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -145,51 +173,37 @@ func (s *Setup) Apply(ctx context.Context, path, action, key string) (string, er
 		return "", errors.New("请先检测 Codex 连接")
 	}
 	s.mu.Lock()
-	id, authURL := s.loginID, s.loginURL
+	id := s.loginID
 	s.mu.Unlock()
 	switch action {
 	case "login":
-		if id != "" {
-			return authURL, nil
-		}
-		var out struct {
-			Type    string `json:"type"`
-			LoginID string `json:"loginId"`
-			AuthURL string `json:"authUrl"`
-		}
-		if e = callDecode(ctx, c, "account/login/start", map[string]string{"type": "chatgpt"}, &out); e != nil || out.Type != "chatgpt" || out.LoginID == "" || !safeWebURL(out.AuthURL) {
-			return "", errors.New("无法发起登录，请重新检测后重试")
-		}
-		s.mu.Lock()
-		s.loginID = out.LoginID
-		s.loginURL = out.AuthURL
-		s.notice = ""
-		s.mu.Unlock()
-		return out.AuthURL, nil
+		return "", s.startDevice(ctx, c)
 	case "cancel-login":
-		if id != "" {
-			if e = callDecode(ctx, c, "account/login/cancel", map[string]string{"loginId": id}, nil); e != nil {
-				return "", errors.New("取消结果未确认，请重新检测")
-			}
+		expected := ""
+		if len(attempt) > 0 {
+			expected = attempt[0]
 		}
-		s.mu.Lock()
-		s.loginID = ""
-		s.loginURL = ""
-		s.notice = "登录已取消"
-		s.mu.Unlock()
+		return "", s.cancelDevice(ctx, c, expected, "cancelled")
 	case "api-key":
+		auth, err := c.ReadAuthStatus(ctx)
+		if err != nil {
+			return "", errors.New("暂时无法确认已有登录")
+		}
+		if auth.AccountPresent {
+			return "", errors.New("已有登录，未替换账号")
+		}
 		if key == "" || len(key) > 16384 {
 			return "", errors.New("请输入有效的 API Key")
 		}
-		if id != "" {
-			return "", errors.New("请先取消浏览器登录")
+		if id != "" || s.deviceActive() {
+			return "", errors.New("请先取消当前登录")
 		}
 		if e = callDecode(ctx, c, "account/login/start", map[string]string{"type": "apiKey", "apiKey": key}, nil); e != nil {
 			return "", errors.New("登录结果未确认，请重新检测；密钥未保存在 Bot 中")
 		}
 	case "logout":
-		if id != "" {
-			return "", errors.New("请先取消浏览器登录")
+		if id != "" || s.deviceActive() {
+			return "", errors.New("请先取消当前登录")
 		}
 		if e = callDecode(ctx, c, "account/logout", nil, nil); e != nil {
 			return "", errors.New("退出登录结果未确认，请重新检测")
@@ -228,6 +242,9 @@ func (s *Setup) Close() {
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.closed = true
+	s.mu.Lock()
+	s.finishDeviceLocked("interrupted")
+	s.mu.Unlock()
 	if s.client != nil {
 		s.mu.Lock()
 		id := s.loginID

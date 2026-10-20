@@ -816,7 +816,13 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 
 /* Questions use normal chat flow; native permission forms remain separate. */
 .history-surface .question-message .message { width:min(440px,100%); min-width:0; }
+
+/* Catalog failures stay with their form; retry never remounts or submits it. */
+.gateway-read-notice { margin-top:16px; color:var(--muted); font-size:12px; line-height:1.6; }
+.gateway-read-notice p { margin:0 0 10px; }
+.gateway-read-notice>div { display:flex; align-items:center; gap:12px; }
 .context-navigation{position:absolute;right:14px;top:6px;z-index:4;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;color:var(--muted);background:var(--panel)}
 .context-navigation:hover{background:var(--wash);color:var(--ink)}
 .context-window[data-native-chrome="false"] .chat-scroll{padding-top:34px}
 .settings-toolbar{position:relative}.settings-navigation{top:50%;transform:translateY(-50%)}
+.settings-window .settings-navigation{padding:0;border:0;min-height:28px;background:var(--panel)}

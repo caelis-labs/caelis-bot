@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop } from './desktop';
@@ -35,9 +36,9 @@ export function ArtifactLink({ file, report }: { file: Artifact; report: (messag
   {position&&createPortal(<div ref={menu} className="artifact-context-menu" role="menu" style={{left:position.x,top:position.y}}>
    <button role="menuitem" onClick={()=>action('OpenArtifact')}>{t('chat.openArtifact')}</button>
    <button role="menuitem" onClick={()=>action('SaveArtifactAs',name)}>{t('chat.saveArtifactAs')}</button>
-   <button role="menuitem" onClick={()=>action('CopyArtifactPath')}>{t('chat.copyArtifactPath')}</button>
+   {!isWebSurface()&&<button role="menuitem" onClick={()=>action('CopyArtifactPath')}>{t('chat.copyArtifactPath')}</button>}
    {isText&&<button role="menuitem" onClick={()=>action('CopyArtifactContent')}>{t('chat.copyArtifactContent')}</button>}
-   <button role="menuitem" onClick={()=>{setPosition(null);void backend('RevealArtifact',file.id).catch(failure);}}>{t('chat.revealInFinder')}</button>
+   {!isWebSurface()&&<button role="menuitem" onClick={()=>{setPosition(null);void backend('RevealArtifact',file.id).catch(failure);}}>{t('chat.revealInFinder')}</button>}
   </div>,document.body)}
  </>;
 }

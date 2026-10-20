@@ -380,6 +380,9 @@ func (m *Manager) ListTasks() []api.Task {
 		if m.owns(r) {
 			v := r.View
 			v.Result = ""
+			if r.CreatedAt != 0 {
+				v.CreatedAt = time.UnixMilli(r.CreatedAt).UTC().Format(time.RFC3339Nano)
+			}
 			out = append(out, v)
 		}
 	}

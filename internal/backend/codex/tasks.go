@@ -189,7 +189,7 @@ func taskRequestValid(id, text string) bool {
 func (s *Session) taskView(t *taskRecord) api.Task {
 	v := t.View
 	if s.binding.LostOwnerTasks[v.ID] {
-		if !terminal(v.Status) || t.StopPendingRequest != "" && t.StopPendingStatus == "" {
+		if !terminal(v.Status) || t.Pending != "" || taskHasUnknownReceipt(t) || t.StopPendingRequest != "" && t.StopPendingStatus == "" {
 			v.Status = "unknown"
 			v.Result = "原任务运行环境尚未确认；请求与工具效果仍待核对，原回执已保留"
 		}
@@ -747,18 +747,28 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能读取 Bot 创建的任务")
 	}
-	if s.binding.LostOwnerTasks[id] || t.Thread == "" || c == nil || s.state.Connection != "ready" {
+	if t.Thread == "" || c == nil || s.state.Connection != "ready" {
 		v := s.taskView(t)
 		s.mu.Unlock()
 		return v, errors.New("原任务运行环境尚未确认；保留原记录，请重新连接后重试")
 	}
 	threadID, epoch, revision, pending, run := t.Thread, s.epoch, s.childRevision[t.Thread], t.Pending, t.Run
+	archived := s.binding.LostOwnerTasks[id]
 	s.mu.Unlock()
 	thread, err := readThreadState(ctx, c, threadID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.client != c || s.epoch != epoch || s.closed || s.state.Connection != "ready" || s.binding.Tasks[id] != t || t.Thread != threadID {
+	if s.client != c || s.epoch != epoch || s.closed || s.state.Connection != "ready" || s.binding.Tasks[id] != t || t.Thread != threadID || s.binding.LostOwnerTasks[id] != archived {
 		return s.taskView(t), errors.New("原任务在读取期间已变化，请重试读取")
+	}
+	if archived {
+		// The replacement connection may read the same persisted native thread.
+		// It cannot resume its old owner or reconcile old effect receipts. Keep
+		// the archived view/unknown state and return native read failure honestly.
+		if t.Pending != pending || t.Run != run {
+			return s.taskView(t), errors.New("原请求已变化，请重试读取")
+		}
+		return s.taskView(t), err
 	}
 	if s.childRevision[threadID] != revision {
 		return s.taskView(t), nil

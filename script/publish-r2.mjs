@@ -14,7 +14,7 @@ export function cleanupKeys(keys, tag) {
   validateTag(tag);
   const owned = /^caelis-bot\/releases\/(v\d+\.\d+\.\d+)\/(Caelis-Bot-\d+\.\d+\.\d+-macos-arm64\.dmg(?:\.sha256)?|latest\.json(?:\.sig)?)$/;
   // Preflight the entire listing before deleting anything. Ignore unrelated data.
-  const releases = keys.filter(key => key.startsWith(`${prefix}releases/`) && !/\/windows-amd64\//.test(key));
+  const releases = keys.filter(key => key.startsWith(`${prefix}releases/`) && !/\/(windows-amd64|linux-amd64|linux-arm64)\//.test(key));
   for (const key of releases) {
     const match = key.match(owned);
     if (!match || (match[2].startsWith('Caelis-Bot-') && !match[2].startsWith(`Caelis-Bot-${match[1].slice(1)}-`))) {
