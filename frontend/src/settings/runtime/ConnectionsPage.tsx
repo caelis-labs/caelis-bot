@@ -95,7 +95,7 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
   return()=>{valid=false};
  },[route.page,id,view]);
  useEffect(()=>{if(route.page!=='providers')return;let valid=true;setProviderList([]);setProviderError('');void Promise.allSettled([client.catalog('account'),client.catalog('api-key')]).then(results=>{if(!valid)return;const list:Array<ConnectChoice&{kind:ConnectionKind}>=[];const errors:string[]=[];results.forEach((r,i)=>{if(r.status==='fulfilled'){if(r.value.unavailable)errors.push(r.value.unavailable);r.value.choices.forEach(c=>list.push({...c,kind:i===0?'account':'api-key'}));}else errors.push(textError(r.reason));});setProviderList(list);setProviderError(errors.join(' '));});return()=>{valid=false}},[route.page,client]);
- const run=async(fn:()=>Promise<void>)=>{if(action.current)return;action.current=true;generation.current++;refreshing.current=null;setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(textError(e))}finally{action.current=false;setBusy(false)}};
+ const run=async(fn:()=>Promise<void>)=>{if(action.current)return;action.current=true;generation.current++;refreshing.current=null;setLoading(false);setRefreshingIDs([]);setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(textError(e))}finally{action.current=false;setBusy(false)}};
  const apply=async(act:string)=>run(async()=>{
   if(!view)return;
   setOperation(act);setOperationError('');
