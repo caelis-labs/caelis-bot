@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import subprocess
 import tarfile
@@ -178,7 +179,10 @@ class HeadlessReleaseGuards(unittest.TestCase):
             write(binary)
             runtime.stage_headless(self.bundle, 'linux-arm64')
             self.assertEqual((self.bundle / 'Helpers/caelis').read_bytes(), binary)
-            self.assertTrue((self.bundle / 'Helpers/caelis').stat().st_mode & 0o111)
+            # Windows stat does not expose POSIX execute bits. Keep the archive,
+            # checksum and architecture guards below active on every host.
+            if os.name == 'posix':
+                self.assertEqual((self.bundle / 'Helpers/caelis').stat().st_mode & 0o777, 0o755)
             archive.write_bytes(b'corrupt')
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                 runtime.stage_headless(self.bundle, 'linux-arm64')
