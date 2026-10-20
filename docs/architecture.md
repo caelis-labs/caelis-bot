@@ -120,6 +120,48 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
+Worker viability is not a persisted Bot state. Both adapters ignore legacy
+`retired` fields and normalize legacy `unavailable` caches to `unknown` on load,
+retaining task/session/thread bindings, original request receipts and report IDs.
+The next normal atomic save omits the obsolete flag. No migration dispatches
+input, starts a session, resumes a thread or rewrites a native owner.
+An explicit read addresses the original Runtime with a deadline and fences the
+result against the connection generation, binding and newer projection. A native
+permission/missing/archive/closed error is an operation result, never a permanent
+Bot prohibition. `notLoaded`, completed and interrupted turns do not end a Worker.
+
+Activity and effect receipts are separate. Fresh native idle can release an
+unknown execution's possible capacity; an unknown submit still blocks new Bot
+input. Accepted input awaiting its own turn keeps a reservation; an older turn
+cannot settle it. Activity is transient, cleared on an actual connection replacement
+or a new dispatch; ensuring the same ready connection preserves existing evidence.
+Caelis reads its original operation journal without re-POSTing; Codex reconciles
+its original run/client message identity. Explicit stop intent and unknown stop
+receipts survive. A settled stop for an older turn does not prevent observation
+of a later explicitly started turn; a current or unknown stop still fences it. Historical callback schemas/digests remain unchanged; a legacy
+retire call without an existing receipt now returns unsupported with no effect.
+
+The existing connection observers bound unresolved reads and stream retries.
+Caelis maintenance allows three attempts with backoff per Worker, original
+operation receipt, or resident/configuration observation; one exhausted object
+cannot starve another. Native approval dirtiness requires an authoritative read
+even with a healthy stream or terminal task turn. Remote observation has the same
+bound per machine/runtime. Healthy active streams/remote work continue to update.
+Native progress and explicit user recovery/read renew only the relevant budget;
+a successful explicit machine inspection does so even when an older poll is in
+flight. Failed reads clear activity evidence in both foreground and background. Codex failed child observations
+wait for an explicit recovery/read or new connection; unsubscribe failure waits
+for fresh evidence. The quiet connection supervisor also has a finite budget.
+The existing host recovery flight renews observers only for explicit recovery;
+routine Connect/Ensure calls do not refill exhausted reads or clear idle proof.
+Budgets are transient observation counters, not session owners or lifetime flags.
+Historical cards do not trigger background resume. Opening a terminal is an
+explicit user action: Manager first reads the original binding, then delegates
+to the existing terminal owner. Unknown input receipts do not imply a dead
+terminal. Original instance, process identity, pending-launch cancellation and
+unknown-launch fences remain in `internal/taskterminal`.
+
+
 The Bot IM transcript is a private local SQLite message log for visible user,
 assistant, control-receipt and completed Artifact-bearing tool messages with
 stable request/item identities.
@@ -671,7 +713,7 @@ keys. `bot_tasks` exposes environments, all retained task summaries, native
 completed User/Assistant message reads, stop and pin. Creation time is stored
 for new tasks; migrated undated tasks retain stable ledger order. Read does not
 consume completion notices or start work; unreadable native history is an error.
-The desktop watchlist and safe native retirement remain Host internals.
+The desktop watchlist and activity-based admission remain Host internals.
 
 The new catalog never advertises legacy aliases. `bot_memory` is also removed from
 the legacy catalog and both invocation paths reject it, including calls through

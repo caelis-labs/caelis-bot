@@ -179,7 +179,7 @@ int main(void) {
   NSRect hit=dock.buttons[0].frame; [dock.buttons[0] mouseEntered:[NSEvent new]];
   assert(dock.buttons[0].hovered && NSEqualRects(hit,dock.buttons[0].frame));
   [dock.buttons[0] mouseExited:[NSEvent new]]; assert(!dock.buttons[0].hovered);
-  dock.buttons[1].animateLoading=NO;[dock.buttons[1] updateProgress];
+  dock.buttons[1].reducedMotion=YES;[dock.buttons[1] updateProgress];
   assert(dock.buttons[1].loading && ![dock.buttons[1].dots[0] animationForKey:@"pulse"]);
   NSUInteger windowsBeforeNotice=NSApp.windows.count;
   [dock showFailure:[dock promptAt:0]];
@@ -247,7 +247,12 @@ int main(void) {
   assert(dock.buttons.count==3 && [dock.tasks[0][@"id"] isEqual:@"one"] && [dock.tasks[2][@"id"] isEqual:@"three"]);
   [dock.snapshots setObject:@{@"image":[NSImage new],@"time":@"Snapshot"} forKey:@"one"];
   [dock setTasks:@[task(@"two",@"completed"),task(@"three",@"working")]];
-  assert(![dock.snapshots objectForKey:@"one"] && !dock.buttons[0].enabled);
+  assert(![dock.snapshots objectForKey:@"one"] && dock.buttons[0].enabled);
+  assert([dock.tasks[0][@"status"] isEqual:@"unknown"]);
+  // Legacy availability never disables the original card or its controls.
+  [dock collapse];[dock setTasks:@[task(@"original",@"unavailable")]];[dock expand];
+  assert(dock.buttons[0].enabled);
+  for(NSView *view in dock.buttons[0].subviews)if([view isKindOfClass:NSButton.class])assert([(NSButton *)view isEnabled]);
   [dock collapse];
   // No scroll container or hidden tail. Every dense card remains reachable in
   // both directions through its actual exposed edge, with stable hit frames.

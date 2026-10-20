@@ -308,6 +308,9 @@ func (s *Session) resetProjection() {
 		s.children[id] = true
 	}
 	for id, task := range s.binding.Tasks {
+		if task != nil {
+			task.Activity = ""
+		}
 		if task != nil && task.Thread != "" && !s.binding.LostOwnerTasks[id] {
 			s.children[task.Thread] = true
 		}
@@ -549,6 +552,8 @@ func (s *Session) connect(ctx context.Context) error {
 		recoveredPrivate, recoveredEndpoint, reconnectPrivate = *s.binding.OwnerProcess, s.binding.OwnerEndpoint, true
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
+		// Ensuring an existing connection is not a new observation generation.
+		// Preserve other workers' current evidence and exhausted read attempts.
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
 		cleanup := append([]string(nil), s.binding.CleanupTargets...)
 		s.recoverUnresolvedChildren(c, s.epoch)
@@ -1795,7 +1800,10 @@ cleanup:
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
 	for id, task := range s.binding.Tasks {
-		if task != nil && !s.binding.LostOwnerTasks[id] && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
+		if task != nil {
+			task.Activity = ""
+		}
+		if task != nil && !s.binding.LostOwnerTasks[id] && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
 			unknownTaskReceipt = true
 			break
 		}

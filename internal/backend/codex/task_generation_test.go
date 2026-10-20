@@ -279,7 +279,7 @@ func TestIdleReadWithoutCurrentTerminalKeepsContinuationUnknown(t *testing.T) {
 	f.workers[thread] = worker
 	f.mu.Unlock()
 	view, err := m.ReadTask(t.Context(), task.ID)
-	if err != nil || view.Status != "unavailable" || view.Result != "" {
+	if err != nil || view.Status != "unknown" || view.Result != "" {
 		t.Fatal("idle B was not fenced with its original unknown receipt", view, err)
 	}
 	if err := m.DeliverTaskReport(t.Context()); err != nil || f.starts != 1 {

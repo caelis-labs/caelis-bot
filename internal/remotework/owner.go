@@ -20,7 +20,6 @@ type owner interface {
 	api.WorkRuntime
 	api.WorkConversationReader
 	api.RecordedWorkMessage
-	api.WorkRetirer
 	api.WorkTerminalProvider
 	Connect(context.Context) error
 	SetModel(context.Context, api.WorkExecutionSettings, func() error) error
@@ -277,7 +276,7 @@ func (o *Owner) Handle(ctx context.Context, r Request) Response {
 	case "recorded":
 		out.Recorded = w.WorkMessageRecorded(r.Message)
 	case "retire":
-		out.Task, err = w.RetireWork(ctx, r.ID)
+		err = errors.New("task retirement is no longer supported; original binding retained")
 	case "send":
 		out.Task, err = w.SendWork(ctx, r.Message)
 	case "stop":

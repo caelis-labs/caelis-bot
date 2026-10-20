@@ -48,7 +48,7 @@ func (s *Session) ReceiveQuestionClosure(ctx context.Context, in api.QuestionClo
 			return errors.New("original question unavailable")
 		}
 		thread, run = task.Thread, s.childRuns[task.Thread]
-		if task.Retired || terminal(task.View.Status) || task.SuppressReport {
+		if terminal(task.View.Status) || task.SuppressReport {
 			run = ""
 		}
 	} else if in.Owner != opaque("codex", thread) {

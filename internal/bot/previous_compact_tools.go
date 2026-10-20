@@ -147,16 +147,7 @@ func (r *Runtime) callPreviousCompactTask(ctx context.Context, name string, q ma
 	case "stop":
 		return compact(r.callLegacyTool(ctx, "bot_task_stop", encoded(map[string]any{"id": q["task"]})), nil)
 	case "retire":
-		r.mu.Lock()
-		p, ok := r.tasks.(api.TaskRetirer)
-		r.mu.Unlock()
-		if !ok {
-			return compactError("unavailable", errors.New("task retirement unavailable"))
-		}
-		bounded, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
-		task, e := p.RetireTask(bounded, str(q, "task"))
-		return compact(result(task, e), nil)
+		return compactError("unsupported", errors.New("task retirement is no longer supported; no effect, original binding retained"))
 	case "list":
 		q["operation"] = "list"
 	case "watchlist":

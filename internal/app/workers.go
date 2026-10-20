@@ -187,7 +187,7 @@ func detachRuntimeObserver(ctx context.Context, owner interface{ Close(context.C
 	if worker, ok := owner.(api.WorkRuntime); ok {
 		for _, state := range worker.WorkStates() {
 			switch state.Task.Status {
-			case "completed", "failed", "cancelled", "interrupted", "unavailable":
+			case "completed", "failed", "cancelled", "interrupted":
 			default:
 				return errors.New("runtime observer cannot detach active work")
 			}
@@ -372,17 +372,6 @@ func (w *localWorkers) ReadWorkConversation(ctx context.Context, id string) ([]a
 	}
 	return reader.ReadWorkConversation(ctx, id)
 }
-func (w *localWorkers) RetireWork(ctx context.Context, id string) (api.Task, error) {
-	owner, err := w.target(ctx, id)
-	if err != nil {
-		return api.Task{}, err
-	}
-	p, ok := owner.(api.WorkRetirer)
-	if !ok {
-		return api.Task{}, errors.New("original owner cannot retire tasks")
-	}
-	return p.RetireWork(ctx, id)
-}
 func (w *localWorkers) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if err := w.WorkAdmission(ctx); err != nil {
 		return api.Task{}, err
@@ -512,7 +501,7 @@ func (w *localWorkers) CanDetachForUpdate() error {
 		}
 		for _, state := range owner.WorkStates() {
 			switch state.Task.Status {
-			case "completed", "failed", "cancelled", "interrupted", "unavailable":
+			case "completed", "failed", "cancelled", "interrupted":
 			default:
 				return errors.New("原任务 Runtime 无法保存活跃工作以完成更新")
 			}
@@ -533,7 +522,7 @@ func (w *localWorkers) CloseForUpdate() error {
 			busy := false
 			for _, state := range owner.WorkStates() {
 				switch state.Task.Status {
-				case "completed", "failed", "cancelled", "interrupted", "unavailable":
+				case "completed", "failed", "cancelled", "interrupted":
 				default:
 					busy = true
 				}

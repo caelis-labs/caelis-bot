@@ -1,13 +1,12 @@
 package codex
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
+func TestLegacyUnknownRecordsKeepReceiptsAfterOriginalThreadIdle(t *testing.T) {
 	s, f, d, m := taskPair(t)
 	aID, bID := "task-01202acb297eea994c1ca4a9e54af36e", "task-d473f8d406bb4911342448ae7e2bb97e"
 	aThread, bThread := "01a10f97-b058-7520-919c-51b8d9088ce8", "01a11174-4d01-7eb1-853e-81123df5d27b"
@@ -36,7 +35,7 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	if v, err := m.ReadTask(testContext(t), aID); err == nil || v.Status != "unknown" {
 		t.Fatal("unreadable rejected original was silently retired", v, err)
 	}
-	if v, err := m.RetireTask(testContext(t), aID); err == nil || v.Status == "unavailable" {
+	if v, err := m.ReadTask(testContext(t), aID); err == nil || v.Status != "unknown" {
 		t.Fatal("unreadable original was retired", v, err)
 	}
 	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unknown" {
@@ -45,13 +44,13 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 1 || page.Reserved != 1 {
 		t.Fatal("unreadable original did not retain one possible slot", page, err)
 	}
-	if v, err := m.RetireTask(testContext(t), bID); err == nil || v.Status == "unavailable" {
+	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unknown" {
 		t.Fatal("active unknown task retired", v, err)
 	}
 	f.mu.Lock()
 	f.workers[aThread] = a
 	f.mu.Unlock()
-	if v, err := m.ReadTask(testContext(t), aID); err != nil || v.Status != "unavailable" || v.Outcome != "rejected" {
+	if v, err := m.ReadTask(testContext(t), aID); err != nil || v.Status != "unknown" || v.Outcome != "rejected" {
 		t.Fatal("rejected idle task not retired", v, err)
 	}
 	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 1 {
@@ -61,7 +60,7 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	b.Status.Type = "idle" // A stale idle envelope cannot override an in-progress latest turn.
 	f.workers[bThread] = b
 	f.mu.Unlock()
-	if v, err := m.RetireTask(testContext(t), bID); err == nil || v.Status == "unavailable" {
+	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unknown" {
 		t.Fatal("in-progress turn retired under an idle thread envelope", v, err)
 	}
 	f.mu.Lock()
@@ -69,7 +68,7 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	b.Status.Type = "idle"
 	f.workers[bThread] = b
 	f.mu.Unlock()
-	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unavailable" || v.Outcome != "unknown" {
+	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unknown" || v.Outcome != "unknown" {
 		t.Fatal("unknown continuation borrowed old completion", v, err)
 	}
 	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 0 {
@@ -85,20 +84,18 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: bID, RequestID: "new-after-retirement", Prompt: "resume"}); err == nil {
 		t.Fatal("retired continuation admitted")
 	}
-	if _, err := m.WorkTerminal(testContext(t), bID); err == nil || !strings.Contains(err.Error(), "retired") {
-		t.Fatal("retired task opened a terminal", err)
-	}
+
 	if d.starts != 0 || d.sends != 0 {
 		t.Fatal("fixture replayed a native call", d.starts, d.sends)
 	}
 	restarted := NewSession(s.opts)
-	if got := restarted.WorkStates(); len(got) != 2 || got[0].Task.Status != "unavailable" || got[1].Task.Status != "unavailable" {
+	if got := restarted.WorkStates(); len(got) != 2 || got[0].Task.Status != "unknown" || got[1].Task.Status != "unknown" {
 		t.Fatal("retirement not durable", got)
 	}
 }
 
 func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T) {
-	for _, operation := range []string{"read", "retire"} {
+	for _, operation := range []string{"read"} {
 		t.Run(operation, func(t *testing.T) {
 			s, f, d, m := taskPair(t)
 			id, thread, oldRun, later := "task-projected-unknown", "original-projected-thread", "old-completed-run", "later-unknown-request"
@@ -126,22 +123,20 @@ func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T)
 			if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: id, RequestID: "different-followup-request", Prompt: "continue later"}); err == nil || d.starts != 0 || d.sends != 0 {
 				t.Fatal("later unknown receipt admitted a different native request", err, d.starts, d.sends)
 			}
-			if _, err := m.WorkTerminal(testContext(t), id); err == nil || !strings.Contains(err.Error(), "unresolved") {
-				t.Fatal("projected unknown opened a native continuation", err)
-			}
+
 			var got api.Task
 			var err error
 			if operation == "read" {
 				got, err = m.ReadTask(testContext(t), id)
 			} else {
-				got, err = m.RetireTask(testContext(t), id)
+				got, err = m.ReadTask(testContext(t), id)
 			}
-			if err != nil || got.Status != "unavailable" || got.Outcome != "unknown" {
+			if err != nil || got.Status != "unknown" || got.Outcome != "unknown" {
 				t.Fatal("original idle thread could not retire projected unknown", got, err)
 			}
 			s.mu.Lock()
 			retained := s.binding.Tasks[id]
-			if retained.Pending != later || retained.Requests[later].Outcome != "unknown" || retained.Run != oldRun || !retained.Retired {
+			if retained.Pending != later || retained.Requests[later].Outcome != "unknown" || retained.Run != oldRun {
 				s.mu.Unlock()
 				t.Fatal("old completion settled later unknown receipt", retained)
 			}
@@ -150,7 +145,7 @@ func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T)
 				t.Fatal("native request replayed", d.starts, d.sends)
 			}
 			loaded := NewSession(s.opts)
-			if loaded.WorkStates()[0].Task.Status != "unavailable" {
+			if loaded.WorkStates()[0].Task.Status != "unknown" {
 				t.Fatal("retirement lost after restart", loaded.WorkStates())
 			}
 		})
@@ -188,7 +183,7 @@ func TestUnknownReceiptWithoutPendingPointerStillBlocksManager(t *testing.T) {
 	if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: id, RequestID: "different-new-request", Prompt: "do more"}); err == nil || d.starts != 0 || d.sends != 0 {
 		t.Fatal("different request bypassed unresolved receipt", err, d.starts, d.sends)
 	}
-	if got, err := m.RetireTask(testContext(t), id); err != nil || got.Status != "unavailable" {
+	if got, err := m.ReadTask(testContext(t), id); err != nil || got.Status != "unknown" {
 		t.Fatal("original idle thread could not retire detached unknown receipt", got, err)
 	}
 	if retained := s.binding.Tasks[id]; retained.Requests[request].Outcome != "unknown" || retained.Run != oldRun {

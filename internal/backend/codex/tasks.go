@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -36,7 +38,6 @@ type taskRecord struct {
 	ReportState    string                 `json:"reportState,omitempty"`
 	SuppressReport bool                   `json:"suppressReport,omitempty"`
 	Instructions   string                 `json:"instructions,omitempty"`
-	Retired        bool                   `json:"retired,omitempty"`
 	Activity       string                 `json:"-"`
 
 	StopPendingRequest string `json:"stopPendingRequest,omitempty"` // original request to stop after an uncertain retry dispatch
@@ -134,7 +135,7 @@ func (s *Session) hasBlockingChildren() bool {
 }
 func (s *Session) hasUnresolvedTasks() bool {
 	for id, task := range s.binding.Tasks {
-		if task != nil && !s.binding.LostOwnerTasks[id] && !task.Retired && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
+		if task != nil && !s.binding.LostOwnerTasks[id] && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
 			return true
 		}
 	}
@@ -160,14 +161,14 @@ func (s *Session) WorkStates() []api.WorkState {
 		} else if s.state.Connection != "ready" {
 			activity = ""
 		}
-		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
+		originalStopCurrent := taskStopCurrent(t)
 		resolution := ""
 		if originalStopCurrent {
 			if !s.stopTerminalSavePending["task:"+t.View.ID] {
 				resolution = t.StopPendingStatus
 			}
 		}
-		state := api.WorkState{TaskEnded: t.Retired, TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
@@ -179,6 +180,9 @@ func (s *Session) WorkStates() []api.WorkState {
 	sort.Slice(out, func(i, j int) bool { return out[i].Task.ID < out[j].Task.ID })
 	return out
 }
+func taskStopCurrent(t *taskRecord) bool {
+	return t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
+}
 func taskRequestValid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
 }
@@ -187,12 +191,8 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 	if s.binding.LostOwnerTasks[v.ID] {
 		if !terminal(v.Status) || t.StopPendingRequest != "" && t.StopPendingStatus == "" {
 			v.Status = "unknown"
-			v.Result = "原本机 Codex 已随退出关闭；此任务的请求与工具效果无法再核对，原回执已保留"
+			v.Result = "原任务运行环境尚未确认；请求与工具效果仍待核对，原回执已保留"
 		}
-		return v
-	}
-	if t.Retired {
-		v.Status = "unavailable"
 		return v
 	}
 	for _, p := range s.prompts {
@@ -451,11 +451,6 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return v, errors.New("原 owner 已关闭，不能向新连接重发或续接旧任务")
 	}
-	if t.Retired {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, errors.New("task retired; original receipt is read-only")
-	}
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
 		return api.Task{}, err
@@ -481,6 +476,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	previousSuperseded := append([]string(nil), t.SupersededRuns...)
 	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
 	t.Pending = in.RequestID
+	t.Activity = "" // New dispatch invalidates preceding idle capacity evidence.
 	t.SuppressReport = false
 	if !wasActive {
 		if t.Run != "" && !slices.Contains(t.SupersededRuns, t.Run) {
@@ -617,7 +613,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	// Reconcile an uncertain receipt once; normal progress is subscription-driven.
 	if t.Thread != "" && err != nil && !s.childWatching[t.Thread] {
 		s.childWatching[t.Thread] = true
-		go s.watchChild(s.client, s.epoch, t.Thread)
+		go s.recoverChild(s.client, s.epoch, t.Thread)
 	}
 	if saveErr := s.save(); saveErr != nil {
 		err = saveErr
@@ -626,9 +622,6 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	return t.View, err
 }
 func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool) {
-	if t.Retired {
-		return false
-	}
 	view, pending, run, report, reportState := t.View, t.Pending, t.Run, t.ReportID, t.ReportState
 	defer func() {
 		changed = changed || view != t.View || pending != t.Pending || run != t.Run || report != t.ReportID || reportState != t.ReportState
@@ -656,7 +649,6 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		}
 	}
 	if terminal(turn.Status) {
-		t.Activity = "idle"
 		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
 		if t.StopPendingRequest != "" && t.StopPendingTurn == turn.ID && t.StopPendingStatus != turn.Status {
 			t.StopPendingStatus = turn.Status
@@ -664,15 +656,15 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 			changed = true
 		}
 	}
-	if turn.Status == "inProgress" {
-		t.Activity = "active"
-	}
 	if slices.Contains(t.SupersededRuns, turn.ID) {
 		return
 	}
 	// A terminal fact for an earlier run cannot settle a later submission whose
 	// original client identity has not appeared in this native thread snapshot.
 	if t.Pending != "" || taskHasUnknownReceipt(t) {
+		if turn.Status == "inProgress" {
+			t.Activity = "active"
+		}
 		if t.Run == "" {
 			t.Run = turn.ID
 		}
@@ -689,9 +681,11 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		t.View.Result = ""
 	}
 	if turn.Status == "inProgress" && !s.childTerminals[opaque(t.Thread, turn.ID)] {
+		t.Activity = "active"
 		t.View.Status = "working"
 	}
 	if terminal(turn.Status) {
+		t.Activity = "idle"
 		t.Run = turn.ID
 		t.View.Status = turn.Status
 		reportID := "task-report-" + opaque(t.Thread, turn.ID)
@@ -741,146 +735,70 @@ func boundedText(text string, limit int) string {
 }
 
 func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
-	s.op.Lock()
-	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return api.Task{}, err
+	}
+	defer s.op.Unlock()
 	s.mu.Lock()
-	t := s.binding.Tasks[id]
-	c := s.client
+	t, c := s.binding.Tasks[id], s.client
 	if t == nil {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能读取 Bot 创建的任务")
 	}
-	if s.binding.LostOwnerTasks[id] {
+	if s.binding.LostOwnerTasks[id] || t.Thread == "" || c == nil || s.state.Connection != "ready" {
 		v := s.taskView(t)
 		s.mu.Unlock()
-		return v, nil
+		return v, errors.New("原任务运行环境尚未确认；保留原记录，请重新连接后重试")
 	}
-	if t.Retired {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, nil
-	}
-	if t.Thread == "" || c == nil || s.state.Connection != "ready" {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, errors.New("任务创建或连接结果尚未确认，不会自动重建")
-	}
-	revision := s.childRevision[t.Thread]
-	s.mu.Unlock()
-	thread, err := readThreadState(ctx, c, t.Thread)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err != nil {
-		return s.taskView(t), err
-	}
-	if thread.ID != t.Thread {
-		return s.taskView(t), ErrProtocol
-	}
-	newlyRetired := false
-	retiredPreviousStatus, retiredPreviousActivity := "", ""
-	if revision == s.childRevision[t.Thread] {
-		for _, turn := range thread.Turns {
-			s.observeTaskTurn(t, turn)
-		}
-		// An idle native thread with no terminal fact for the current run
-		// cannot confirm the continuation's result, even if older turns are
-		// complete. A newer live event supersedes this read entirely.
-		if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && t.View.Status == "working" {
-			t.View.Status = "unknown"
-		}
-		if nativeTaskActive(thread) {
-			t.Activity = "active"
-		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
-			previousActivity := t.Activity
-			t.Activity = "idle"
-			if s.taskView(t).Status == "unknown" {
-				retiredPreviousStatus, retiredPreviousActivity = t.View.Status, previousActivity
-				t.Retired = true
-				t.View.Status = "unavailable"
-				newlyRetired = true
-			}
-		} else {
-			t.Activity = ""
-		}
-	}
-	if nativeTaskActive(thread) {
-		if !s.childWatching[t.Thread] {
-			s.childWatching[t.Thread] = true
-			go s.watchChild(c, s.epoch, t.Thread)
-		}
-	} else if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && terminal(t.View.Status) && !newlyRetired {
-		delete(s.childRuns, t.Thread)
-		s.scheduleChildRetirement(t.Thread)
-	}
-	if err = s.save(); err != nil {
-		if newlyRetired {
-			t.Retired = false
-			t.View.Status, t.Activity = retiredPreviousStatus, retiredPreviousActivity
-		}
-		return s.taskView(t), err
-	}
-	if newlyRetired {
-		delete(s.childRuns, t.Thread)
-		s.scheduleChildRetirement(t.Thread)
-	}
-	return s.taskView(t), nil
-}
-
-// RetireWork reads the original native thread. It never interrupts, resumes,
-// replays, or substitutes a turn. Unknown receipt IDs remain in the binding.
-func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
-	s.op.Lock()
-	defer s.op.Unlock()
-	ctx, cancel := s.operation(ctx, 8*time.Second)
-	defer cancel()
-	s.mu.Lock()
-	t := s.binding.Tasks[id]
-	if t == nil {
-		s.mu.Unlock()
-		return api.Task{}, errors.New("task is not owned by this Bot")
-	}
-	if s.binding.LostOwnerTasks[id] {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, errors.New("原 owner 已关闭，不能在新连接核对或退休旧任务")
-	}
-	if t.Retired {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, nil
-	}
-	if s.taskView(t).Status != "unknown" || t.Thread == "" || s.client == nil || s.state.Connection != "ready" {
-		v := s.taskView(t)
-		s.mu.Unlock()
-		return v, errors.New("original thread is unavailable for safe retirement")
-	}
-	threadID, c, revision, pending, run := t.Thread, s.client, s.childRevision[t.Thread], t.Pending, t.Run
+	threadID, epoch, revision, pending, run := t.Thread, s.epoch, s.childRevision[t.Thread], t.Pending, t.Run
 	s.mu.Unlock()
 	thread, err := readThreadState(ctx, c, threadID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.client != c || s.epoch != epoch || s.closed || s.state.Connection != "ready" || s.binding.Tasks[id] != t || t.Thread != threadID {
+		return s.taskView(t), errors.New("原任务在读取期间已变化，请重试读取")
+	}
+	if s.childRevision[threadID] != revision {
+		return s.taskView(t), nil
+	} // The newer live projection wins.
+	if t.Pending != pending || t.Run != run {
+		return s.taskView(t), errors.New("原请求已变化，请重试读取")
+	}
 	if err != nil {
+		t.Activity = ""
 		return s.taskView(t), err
 	}
-	if nativeTaskActive(thread) && s.client == c && s.childRevision[threadID] == revision {
+	if thread.ID != threadID {
+		t.Activity = ""
+		return s.taskView(t), ErrProtocol
+	}
+	for _, turn := range thread.Turns {
+		s.observeTaskTurn(t, turn)
+	}
+	// Activity releases capacity independently of unknown submission receipts.
+	// Reading never resumes a thread, even if it is active or user-cancelled.
+	if nativeTaskActive(thread) {
 		t.Activity = "active"
+	} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
+		t.Activity = "idle"
+		if t.View.Status == "working" {
+			t.View.Status = "unknown"
+		}
+		delete(s.childRuns, threadID)
+		s.scheduleChildRetirement(threadID)
+	} else {
+		t.Activity = ""
 	}
-	if s.client != c || s.binding.Tasks[id] != t || t.Thread != threadID || t.Pending != pending || t.Run != run || s.childRevision[threadID] != revision || s.taskView(t).Status != "unknown" || thread.ID != threadID || nativeTaskActive(thread) || thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
-		return s.taskView(t), errors.New("original thread is active or changed; retirement refused")
-	}
-	previousActivity, previousStatus := t.Activity, t.View.Status
-	t.Activity, t.Retired, t.View.Status = "idle", true, "unavailable"
+	delete(s.childObservationFailed, threadID)
 	if err := s.save(); err != nil {
-		t.Activity, t.Retired, t.View.Status = previousActivity, false, previousStatus
 		return s.taskView(t), err
 	}
-	delete(s.childRuns, threadID)
-	s.scheduleChildRetirement(threadID)
 	s.update()
 	return s.taskView(t), nil
 }
+
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	s.mu.Lock()
 	cancelledCapacity := false
@@ -960,3 +878,18 @@ func (s *Session) SubmitReport(ctx context.Context, in api.Submission) (api.Rece
 
 var _ api.WorkRuntime = (*Session)(nil)
 var _ api.ReportSubmitter = (*Session)(nil)
+
+// Legacy retired flags are ignored. Preserve identity and effect receipts; an
+// unavailable cache is not a native execution result or a permission decision.
+func (v *taskRecord) UnmarshalJSON(raw []byte) error {
+	type plain taskRecord
+	var decoded plain
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	if decoded.View.Status == "unavailable" {
+		decoded.View.Status = "unknown"
+	}
+	*v = taskRecord(decoded)
+	return nil
+}

@@ -548,11 +548,16 @@ func (s *Session) ensureStreamLocked(sid string) {
 			}
 			s.mu.Unlock()
 		}()
-		for attempt := 0; ctx.Err() == nil; attempt++ {
+		for attempt := 0; ctx.Err() == nil && attempt < 3; attempt++ {
 			err := s.watch(ctx, c, sid, instance)
 			if ctx.Err() != nil {
 				return
 			}
+			s.mu.Lock()
+			if s.generation == generation && s.client == c {
+				s.observeWorkerActivityLocked(sid, wire.SessionState{})
+			}
+			s.mu.Unlock()
 			s.componentError("session_observation", sid, err)
 			// A retry against a dead endpoint cannot discover its replacement.
 			// Read discovery only after stream failure; healthy idle observers do
@@ -563,7 +568,7 @@ func (s *Session) ensureStreamLocked(sid string) {
 				if s.generation == generation && !s.closed {
 					s.connected = false
 					s.bumpLocked()
-					s.requestRefreshLocked()
+					s.requestRefreshLocked("connection")
 				}
 				s.mu.Unlock()
 				return
@@ -620,6 +625,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 			retireRunHead(v, value(st.Run.TurnId))
 			v.State = st
+			s.observeWorkerActivityLocked(sid, st)
 			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
 			v.CommandCaughtUp = false
 			s.observeApprovalHeadLocked(st)
@@ -747,6 +753,8 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 		}
 		v.Observed++
+		delete(s.observationBudgets, s.sessionObservationKeyLocked(sid))
+		s.observeWorkerActivityLocked(sid, v.State)
 		if d.NextCursor != nil {
 			v.Cursor = *d.NextCursor
 		}
@@ -806,17 +814,17 @@ func (s *Session) pollLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		s.mu.Lock()
-		needed := s.needsRefreshLocked()
-		s.mu.Unlock()
 		var e error
 		work, cancel := context.WithTimeout(ctx, 15*time.Second)
 		if e = lockwait.Lock(work, &s.step); e != nil {
 			cancel()
 			continue
 		}
-		if needed {
-			e = s.refresh(work)
+		s.mu.Lock()
+		selected := s.takeObservationsLocked(time.Now())
+		s.mu.Unlock()
+		if len(selected) > 0 {
+			e = s.refreshSelected(work, selected)
 		}
 		s.step.Unlock()
 		cancel()
@@ -837,6 +845,10 @@ func (s *Session) pollLoop(ctx context.Context) {
 	}
 }
 func (s *Session) refresh(ctx context.Context) error {
+	return s.refreshSelected(ctx, nil)
+}
+
+func (s *Session) refreshSelected(ctx context.Context, selected observationPlan) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -857,6 +869,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		sid = s.state.Session.SessionId
 		s.connected = true
 		s.issue = ""
+		selected = s.takeObservationsLocked(time.Now())
 		s.mu.Unlock()
 	}
 	info, e := initialize(ctx, c)
@@ -869,15 +882,26 @@ func (s *Session) refresh(ctx context.Context) error {
 	if !same {
 		return errors.New("Caelis Host 已变化，正在核对绑定")
 	}
-	if s.retainedWorkers {
-		if err := s.refreshWorkers(ctx, c); err != nil {
-			s.componentError("worker_state", "", err)
+	if !s.retainedWorkers && selected.includes("main") {
+		if err := s.refreshMain(ctx, c, sid); err != nil {
+			s.componentError("session_state", sid, err)
 		}
-		if err := s.recoverOperations(ctx); err != nil {
-			s.componentError("operation_receipts", "", err)
-		}
-		return nil
 	}
+	if err := s.refreshSelectedWorkers(ctx, c, selected); err != nil {
+		s.componentError("worker_state", "", err)
+	}
+	if !s.retainedWorkers && selected.includes("configuration") {
+		if err := s.maintainConfigurations(ctx); err != nil {
+			s.componentError("configuration", "", err)
+		}
+	}
+	if err := s.recoverSelectedOperations(ctx, selected); err != nil {
+		s.componentError("operation_receipts", "", err)
+	}
+	return nil
+}
+
+func (s *Session) refreshMain(ctx context.Context, c *client, sid string) error {
 	s.mu.Lock()
 	before := s.state.Views[sid]
 	var observed, approvalVersion uint64
@@ -887,7 +911,7 @@ func (s *Session) refresh(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	var state wire.SessionState
-	if e = c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); e != nil {
+	if e := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); e != nil {
 		return e
 	}
 	if state.SessionId != sid {
@@ -917,7 +941,7 @@ func (s *Session) refresh(ctx context.Context) error {
 	if finished {
 		s.state.FinishedTurn = turn
 	}
-	e = s.saveLocked()
+	e := s.saveLocked()
 	s.bumpLocked()
 	s.mu.Unlock()
 	if e != nil {
@@ -926,31 +950,25 @@ func (s *Session) refresh(ctx context.Context) error {
 	if finished && s.tools != nil && s.tools.FinishTurn != nil {
 		s.tools.FinishTurn()
 	}
-	if err := s.refreshWorkers(ctx, c); err != nil {
-		s.componentError("worker_state", "", err)
-	}
-	if err := s.maintainConfigurations(ctx); err != nil {
-		s.componentError("configuration", "", err)
-	}
-	if err := s.recoverOperations(ctx); err != nil {
-		s.componentError("operation_receipts", "", err)
-	}
 	return nil
 }
 
 func (s *Session) recoverOperations(ctx context.Context) error {
+	return s.recoverSelectedOperations(ctx, nil)
+}
+
+func (s *Session) recoverSelectedOperations(ctx context.Context, selected observationPlan) error {
 	s.mu.Lock()
 	ops := clone(s.state.Operations)
 	s.mu.Unlock()
+	var failures error
 	for id, j := range ops {
-		if j.Outcome != "unknown" {
+		if j.Outcome != "unknown" || !selected.includes("operation:"+id) {
 			continue
 		}
-		if err := s.recoverOperation(ctx, id); err != nil {
-			return err
-		}
+		failures = errors.Join(failures, s.recoverOperation(ctx, id))
 	}
-	return nil
+	return failures
 }
 
 // Read only the original operation. A missing operation is still unknown: a
@@ -1031,39 +1049,5 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 // Session progress is push-driven. Maintenance only restores a failed stream,
 // observes Host identity, or reconciles an unresolved operation/one terminal hook.
 func (s *Session) needsRefreshLocked() bool {
-	if !s.connected || s.client == nil {
-		return true
-	}
-	if s.configurationRecoveryPendingLocked() && !time.Now().Before(s.configurationRetryAt) {
-		return true
-	}
-	for _, j := range s.state.Operations {
-		if j.Outcome == "unknown" {
-			return true
-		}
-	}
-	for sid, v := range s.state.Views {
-		if s.retainedWorkers && sid == s.state.Session.SessionId {
-			continue
-		}
-		if slices.Contains(s.state.PastSessions, sid) {
-			continue
-		}
-		if !s.streams[sid] || v.ApprovalDirty {
-			return true
-		}
-	}
-	for _, w := range s.state.Workers {
-		if w.Start != nil || !s.streams[w.Binding.SessionId] {
-			return true
-		}
-	}
-	if s.retainedWorkers {
-		return false
-	}
-	v := s.state.Views[s.state.Session.SessionId]
-	if v == nil {
-		return true
-	}
-	return !value(v.State.Run.Active) && observedTurn(v) != "" && s.state.FinishedTurn != observedTurn(v) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status))
+	return len(s.pendingObservationsLocked()) != 0
 }

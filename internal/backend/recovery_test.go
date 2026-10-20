@@ -12,12 +12,13 @@ import (
 
 type recoveryEngineFixture struct {
 	api.Engine
-	mu      sync.Mutex
-	state   api.RecoveryState
-	calls   int
-	started chan struct{}
-	release chan struct{}
-	fail    error
+	mu           sync.Mutex
+	state        api.RecoveryState
+	calls        int
+	observations int
+	started      chan struct{}
+	release      chan struct{}
+	fail         error
 }
 
 func (e *recoveryEngineFixture) RecoveryState() api.RecoveryState {
@@ -42,6 +43,12 @@ func (e *recoveryEngineFixture) Connect(ctx context.Context) error {
 		e.state.Manual = false
 	}
 	return e.fail
+}
+
+func (e *recoveryEngineFixture) RetryObservations() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.observations++
 }
 
 func (*recoveryEngineFixture) Close(context.Context) error { return nil }
@@ -131,5 +138,64 @@ func TestRecoveryShutdownCancelsOriginalConnectionAttempt(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("shutdown did not cancel the original connection attempt")
+	}
+}
+
+func TestOnlyExplicitSuccessfulRecoveryRenewsObservation(t *testing.T) {
+	e := &recoveryEngineFixture{state: api.RecoveryState{Fence: "original-owner:1"}, started: make(chan struct{}, 3), release: make(chan struct{})}
+	close(e.release)
+	s := NewService(e, nil, nil, nil, nil)
+	if err := s.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if e.observations != 0 {
+		t.Fatal("ordinary Connect reset exhausted readers")
+	}
+	if err := s.Reconnect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if e.observations != 1 {
+		t.Fatal("explicit recovery did not renew original readers")
+	}
+	e.fail = errors.New("offline")
+	if err := s.Reconnect(t.Context()); err == nil {
+		t.Fatal("failed recovery reported success")
+	}
+	if e.observations != 1 {
+		t.Fatal("failed connection renewed observation")
+	}
+}
+
+func TestExplicitObservationRecoveryJoinsExistingConnectionFlight(t *testing.T) {
+	e := &recoveryEngineFixture{state: api.RecoveryState{Fence: "original-owner:1"}, started: make(chan struct{}, 2), release: make(chan struct{})}
+	s := NewService(e, nil, nil, nil, nil)
+	first, second := make(chan error, 1), make(chan error, 1)
+	go func() { first <- s.Connect(t.Context()) }()
+	select {
+	case <-e.started:
+	case <-time.After(time.Second):
+		t.Fatal("Connect did not start")
+	}
+	go func() { second <- s.Reconnect(t.Context()) }()
+	joined := false
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.recoveryMu.Lock()
+		joined = s.recoveryFlight != nil && s.recoveryFlight.retryObservations
+		s.recoveryMu.Unlock()
+		if joined {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(e.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	if !joined || e.calls != 1 || e.observations != 1 {
+		t.Fatal("joined explicit recovery lost or repeated", joined, e.calls, e.observations)
 	}
 }

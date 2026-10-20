@@ -64,6 +64,9 @@ func (s *Session) typedMutation(ctx context.Context, op, path string, body any, 
 		s.mu.Lock()
 		s.state.Typed[op] = old
 		e = s.saveLocked()
+		if e == nil && strings.HasSuffix(path, "/configuration") {
+			s.requestRefreshLocked("configuration")
+		}
 		s.mu.Unlock()
 		if e != nil {
 			return e

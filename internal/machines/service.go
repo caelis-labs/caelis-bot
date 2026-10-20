@@ -300,7 +300,22 @@ func first(a, b string) string {
 func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.Machine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inspectLocked(ctx, id, runtime)
+	// With several runtimes and no selection, inspectLocked only returns the
+	// cached profile; that is not fresh evidence for any observation budget.
+	if runtime == "" {
+		if p, ok := s.state.Profiles[id]; ok && len(p.View.Available) == 1 {
+			runtime = p.View.Available[0]
+		}
+	}
+	v, err := s.inspectLocked(ctx, id, runtime)
+	if err == nil && runtime != "" && v.State == "ready" {
+		// Explicit successful recovery renews observation of this original
+		// machine/runtime only. It grants no permission to replay any effect.
+		s.cacheMu.Lock()
+		s.cacheRevision[id+"\x00"+v.Runtime]++
+		s.cacheMu.Unlock()
+	}
+	return v, err
 }
 func (s *Service) inspectLocked(ctx context.Context, id, runtime string) (api.Machine, error) {
 	p, ok := s.state.Profiles[id]

@@ -288,3 +288,39 @@ func TestRemovalSaveFailureRetainsPreparedProfileAndRoute(t *testing.T) {
 		t.Fatal("failed removal discarded profile or pre-dispatch route")
 	}
 }
+
+func TestOfflineObservationExhaustsBudgetWithoutReplacingOriginalTask(t *testing.T) {
+	s := reviewService(t)
+	s.state.Routes["original-task"], s.state.Runtimes["original-task"] = "machine-remote", "codex"
+	var calls atomic.Int32
+	s.request = func(_ context.Context, _ profile, r remotework.Request) (remotework.Response, error) {
+		if r.Action != "states" {
+			t.Errorf("unexpected automatic action %s", r.Action)
+		}
+		calls.Add(1)
+		return remotework.Response{}, errors.New("fixture original machine offline")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { s.Observe(ctx); close(done) }()
+	// Real observer integration: attempts at 0/2/6s, then no more background I/O.
+	deadline := time.After(12 * time.Second)
+	for calls.Load() < 3 {
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatal("observation budget did not run")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	time.Sleep(4500 * time.Millisecond)
+	cancel()
+	<-done
+	if calls.Load() != 3 {
+		t.Fatal("offline owner polled forever", calls.Load())
+	}
+	if s.state.Routes["original-task"] != "machine-remote" || s.state.Runtimes["original-task"] != "codex" {
+		t.Fatal("original route replaced")
+	}
+}
