@@ -233,12 +233,19 @@ func (p *protocol) uploadFile(ctx context.Context, owner string, plain []byte) (
 }
 
 func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string, artifact api.Artifact, critical bool) {
+	if ctx.Err() != nil {
+		return
+	}
 	if artifact.ID == "" || !fileName(artifact.Name) {
 		b.setFileIssue("file_unsupported")
 		return
 	}
 	key := artifactKey(turn, artifact.ID)
 	b.mu.Lock()
+	if b.closed || b.updating || ctx.Err() != nil {
+		b.mu.Unlock()
+		return
+	}
 	if b.fileWork == nil {
 		b.fileWork = map[string]bool{}
 	}
@@ -302,8 +309,10 @@ func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string,
 		}
 	}
 	b.fileWork[key] = true
+	b.fileWait.Add(1)
 	b.mu.Unlock()
 	go func() {
+		defer b.fileWait.Done()
 		defer func() {
 			b.mu.Lock()
 			delete(b.fileWork, key)

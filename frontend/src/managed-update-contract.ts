@@ -16,6 +16,7 @@ export interface ManagedUpdateStatus {
  automatic:boolean;
  scheduled:boolean;
  testArtifact:boolean;
+ runtime?:{state:string;reason?:string;bundledVersion?:string;hostVersion?:string;hostBuild?:string;hostInstance?:string};
 }
 export interface ManagedUpdateCommand {
  id:string; // retain original ID across timeout/reload

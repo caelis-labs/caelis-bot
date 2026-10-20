@@ -3,7 +3,7 @@ export type UpdateIntent=Omit<Command,'id'>;
 export type UpdateView={status:Status;pending:boolean;confirmed:boolean};
 type Journal={command?:Command;install?:{boot:string;version:string;kind:string;command:Command;transaction?:string}};
 const key='caelisbot.managed-update.v1';
-const definitive=new Set(['runtime_compatibility_required','offer_unavailable','offer_not_newer','transaction_conflict','commit_already_started','update_busy','invalid_schedule','unknown_action','external_installation','image_managed','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required']);
+const definitive=new Set(['offer_unavailable','offer_not_newer','transaction_conflict','commit_already_started','update_busy','invalid_schedule','unknown_action','external_installation','image_managed','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required']);
 export function createManagedUpdateClient(io:{get:(path:string)=>Promise<unknown>;post:(path:string,body:unknown)=>Promise<unknown>;storage:Pick<Storage,'getItem'|'setItem'>;identity:()=>string}){
  let journal:Journal={},busy=false;
  try{const saved=JSON.parse(io.storage.getItem(key)||'{}');if(saved&&typeof saved==='object')journal=saved;}catch{/* No prior command. */}
@@ -51,6 +51,6 @@ export function createManagedUpdateClient(io:{get:(path:string)=>Promise<unknown
 }
 export function updateProgress(status:Status){return status.state==='downloading'&&status.totalBytes>0?Math.min(100,Math.max(0,status.receivedBytes/status.totalBytes*100)):undefined;}
 export function updateReason(reason:string|undefined){
- const known=['channel_handoff_required','runtime_compatibility_required','external_installation','image_managed','release_trust_unconfigured','work_pending','operation_unconfirmed','download_interrupted','new_version_unhealthy','rollback_unavailable','shutdown_unconfirmed','persistence_unconfirmed','update_unconfirmed','receipt_unconfirmed','transaction_conflict','commit_already_started','offer_unavailable','update_busy'];
+ const known=['channel_handoff_required','runtime_start_failed','runtime_readback_failed','external_installation','image_managed','release_trust_unconfigured','work_pending','operation_unconfirmed','download_interrupted','new_version_unhealthy','rollback_unavailable','shutdown_unconfirmed','persistence_unconfirmed','update_unconfirmed','receipt_unconfirmed','transaction_conflict','commit_already_started','offer_unavailable','update_busy'];
  return known.includes(reason||'')?reason!:'generic';
 }

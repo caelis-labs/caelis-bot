@@ -28,10 +28,10 @@ async(page)=>{
  await page.getByRole('button',{name:'安装并重启',exact:true}).waitFor();
  for(const width of [1440,760,390]){await page.setViewportSize({width,height:820});await page.screenshot({path:`${out}/ready-${width}.png`});if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw Error('horizontal overflow '+width)}
  await page.getByRole('button',{name:'空闲时安装',exact:true}).click();
- await page.getByText('已配置的消息渠道暂不支持安全交接，暂停渠道也不能解除限制。请取消本次安装安排。',{exact:true}).waitFor();
- await page.screenshot({path:out+'/channel-blocked-390.png'});
+ await page.getByText('消息渠道还有待完成的交互，完成后会继续安装。',{exact:true}).waitFor();
+ await page.screenshot({path:out+'/channel-pending-390.png'});
  await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'安装并重启',exact:true}).waitFor();
- drop=true;await page.getByRole('button',{name:'安装并重启',exact:true}).click();await page.getByText('已配置的消息渠道暂不支持安全交接，暂停渠道也不能解除限制。请取消本次安装安排。',{exact:true}).waitFor();await page.reload();await page.getByText('已安排安装，尚未重启。',{exact:false}).waitFor();
+ drop=true;await page.getByRole('button',{name:'安装并重启',exact:true}).click();await page.getByText('消息渠道还有待完成的交互，完成后会继续安装。',{exact:true}).waitFor();await page.reload();await page.getByText('已安排安装，尚未重启。',{exact:false}).waitFor();
  if(commands.filter(c=>c.action==='install').length!==2)throw Error('lost reply/reload repeated install');
  status={...status,state:'downloading',reason:'',receivedBytes:1048576,totalBytes:4194304};await page.getByRole('progressbar').waitFor();await page.waitForFunction(()=>document.querySelector('progress')?.value===25);await page.screenshot({path:out+'/download-390.png'});
  status={...status,totalBytes:0};await page.waitForFunction(()=>!document.querySelector('progress')?.hasAttribute('value'));

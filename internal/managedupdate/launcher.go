@@ -184,8 +184,22 @@ func Launch(ctx context.Context, opt LaunchOptions) error {
 func (m *Manager) Ready(b Boot) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if b != m.boot || b.PID <= 0 || b.ID == "" {
+	if b.ID != m.boot.ID || b.PID != m.boot.PID || b.Identity != m.boot.Identity || b.PID <= 0 || b.ID == "" {
 		return problem("boot_mismatch")
+	}
+	if m.ready && m.state.Status.Runtime == b.Runtime {
+		return nil
+	}
+	m.state.Status.Runtime = b.Runtime
+	if b.Runtime.State == "failed" && !m.ready {
+		m.state.Status.Reason = "runtime_readback_failed"
+		if b.Runtime.Reason == "runtime_start_failed" {
+			m.state.Status.Reason = b.Runtime.Reason
+		}
+		if err := m.save(); err != nil {
+			return err
+		}
+		return problem(m.state.Status.Reason)
 	}
 	tx := m.state.Transaction
 	if tx != nil {

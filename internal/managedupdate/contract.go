@@ -33,6 +33,18 @@ type Status struct {
 	Automatic     bool     `json:"automatic"`
 	Scheduled     bool     `json:"scheduled"`
 	TestArtifact  bool     `json:"testArtifact"`
+	Runtime       Runtime  `json:"runtime"`
+}
+
+// Only observed, non-secret identity is exposed. Pin and running Host may differ
+// while Core waits for idle or preserves a newer Host; Bot never downgrades it.
+type Runtime struct {
+	State          string `json:"state"`
+	Reason         string `json:"reason,omitempty"`
+	BundledVersion string `json:"bundledVersion,omitempty"`
+	HostVersion    string `json:"hostVersion,omitempty"`
+	HostBuild      string `json:"hostBuild,omitempty"`
+	HostInstance   string `json:"hostInstance,omitempty"`
 }
 
 // ID is the original ingress ID, retained across timeout/reload. Revision is a
@@ -75,6 +87,7 @@ type Boot struct {
 	ID       string   `json:"id"`
 	PID      int      `json:"pid"`
 	Identity Identity `json:"identity"`
+	Runtime  Runtime  `json:"runtime,omitempty"`
 }
 
 type Handoff struct {

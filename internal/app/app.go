@@ -873,17 +873,25 @@ func (a *Application) Close() error {
 			a.plugins.CloseDesktopOwner()
 		}
 		if a.Telegram != nil {
-			a.Telegram.Close()
+			if updating {
+				a.closeErr = errors.Join(a.closeErr, a.Telegram.CloseForUpdate())
+			} else {
+				a.Telegram.Close()
+			}
 		}
 		if a.Weixin != nil {
-			a.Weixin.Close()
+			if updating {
+				a.closeErr = errors.Join(a.closeErr, a.Weixin.CloseForUpdate())
+			} else {
+				a.Weixin.Close()
+			}
 		}
 		if a.setup != nil {
 			a.setup.codex.Close()
 			a.setup.connections.Close()
 		}
 		if updating {
-			a.closeErr = a.Backend.ShutdownForUpdate()
+			a.closeErr = errors.Join(a.closeErr, a.Backend.ShutdownForUpdate())
 		} else {
 			a.closeErr = a.Backend.Shutdown()
 		}

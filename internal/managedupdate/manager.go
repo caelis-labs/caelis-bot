@@ -201,11 +201,8 @@ func (m *Manager) Command(c Command) (Receipt, error) {
 		if n, e := updates.CompareVersions(m.state.Offer.Manifest.Version, previous.Manifest.Version); e != nil || n <= 0 {
 			return Receipt{}, problem("offer_not_newer")
 		}
-		// First slice proves Bot replacement/rollback without changing the shared
-		// Core Host/data compatibility boundary. A changed pin is a release gate.
-		if previous.Manifest.Runtime != m.state.Offer.Manifest.Runtime {
-			return Receipt{}, problem("runtime_compatibility_required")
-		}
+		// The signed whole package selects its own verified Runtime pin. The
+		// candidate Bot offers that CLI to Core's existing service owner.
 		if _, e = loadOffer(m.root, c.OfferID, m.trust, m.platform); e != nil {
 			return Receipt{}, e
 		}
@@ -444,6 +441,8 @@ func (m *Manager) rollback() error {
 		return e
 	}
 	m.state.Status.State = "rolling_back"
-	m.state.Status.Reason = "new_version_unhealthy"
+	if m.state.Status.Reason != "runtime_start_failed" && m.state.Status.Reason != "runtime_readback_failed" {
+		m.state.Status.Reason = "new_version_unhealthy"
+	}
 	return m.save()
 }

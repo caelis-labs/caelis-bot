@@ -138,6 +138,8 @@ type Bridge struct {
 	cancel                        context.CancelFunc
 	done                          chan struct{}
 	closed                        bool
+	updating                      bool
+	fileWait                      sync.WaitGroup
 	loadErr                       bool
 	secretInbox                   map[string]string
 	fileWork                      map[string]bool
@@ -472,7 +474,7 @@ func (b *Bridge) Confirm() (Status, error) {
 func (b *Bridge) Start() { b.configMu.Lock(); defer b.configMu.Unlock(); b.startLocked() }
 func (b *Bridge) startLocked() {
 	b.mu.Lock()
-	if b.closed || !b.state.Enabled || b.state.BotID == "" || b.cancel != nil || b.issue == "storage" {
+	if b.closed || b.updating || !b.state.Enabled || b.state.BotID == "" || b.cancel != nil || b.issue == "storage" {
 		b.mu.Unlock()
 		return
 	}
@@ -533,12 +535,15 @@ func (b *Bridge) stopLocked() {
 	if cancel != nil {
 		cancel()
 		<-done
+		b.fileWait.Wait()
 		work, stop := context.WithTimeout(context.Background(), 4*time.Second)
 		_ = client.notify(work, false)
 		stop()
 	}
 	b.mu.Lock()
-	b.secretInbox = map[string]string{} // a later resume asks the owner to re-enter secret answers
+	if !b.updating {
+		b.secretInbox = map[string]string{} // a later resume asks the owner to re-enter secret answers
+	}
 	b.mu.Unlock()
 }
 func (b *Bridge) Pause() (Status, error) {

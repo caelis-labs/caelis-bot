@@ -22,6 +22,27 @@ func (a *Application) prepareUpdate(idleOnly bool) error {
 	if prepared {
 		return errors.New("正在重新启动")
 	}
+	committed := false
+	if idleOnly {
+		defer func() {
+			if !committed {
+				a.resumeUpdateChannels()
+			}
+		}()
+		if err := a.guardManagedUpdate(); err != nil {
+			return err
+		}
+		if a.Telegram != nil {
+			if err := a.Telegram.PrepareUpdate(); err != nil {
+				return ErrManagedChannelHandoff
+			}
+		}
+		if a.Weixin != nil {
+			if err := a.Weixin.PrepareUpdate(); err != nil {
+				return ErrManagedChannelHandoff
+			}
+		}
+	}
 	guard := func() error {
 		a.mu.Lock()
 		closed := a.closed
@@ -82,6 +103,7 @@ func (a *Application) prepareUpdate(idleOnly bool) error {
 	a.mu.Lock()
 	a.updatePrepared = true
 	a.mu.Unlock()
+	committed = true
 	return nil
 }
 
@@ -99,4 +121,14 @@ func (a *Application) CancelUpdate() {
 		resident.ResumeAfterUpdate()
 	}
 	a.Backend.CancelRestart()
+	a.resumeUpdateChannels()
+}
+
+func (a *Application) resumeUpdateChannels() {
+	if a.Telegram != nil {
+		a.Telegram.ResumeAfterUpdate()
+	}
+	if a.Weixin != nil {
+		a.Weixin.ResumeAfterUpdate()
+	}
 }

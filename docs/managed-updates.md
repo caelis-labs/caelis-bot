@@ -154,25 +154,28 @@ work and decision admission open. No work is replayed, no approval is answered,
 and no Session is replaced to facilitate an update. Core Close retains the
 existing update detach behavior; this is not a new task/runtime owner.
 
-First-slice conservative limitations are explicit:
+Channel handoff stops and joins the existing receive/delivery loops, including
+file delivery, and confirms the final durable checkpoint. Enabled/paused settings,
+queued inputs, original receipts and historical unknown deliveries are preserved.
+Pairing and in-memory secret answers wait for completion; configured, paused or
+offline channels alone do not block installation. Unknown operations are never
+resent to make an update succeed.
 
-- Configured Telegram/Weixin bridges (including paused ones) currently have no durable update quiescence
-  lease. The managed handoff waits instead of interrupting them or guessing that
-  an empty conversation implies delivery safety. Qualifying channel leases is a
-  later extension; the UI must not claim an configured-channel install completed.
-- Only updates with the **same bundled Caelis version/source/digest** and state
-  schema 1 can install. A changed Runtime pin needs separate Core lifecycle and
-  state compatibility qualification. External Codex installation/update remains
-  the existing explicit setup flow; this owner never updates external Codex,
-  App Server, user PATH or a shared Core service.
-- Health means the signed exact child identity, profile lock, Web listener and
-  local personal-state load are ready, with launcher acknowledgement persisted
-  before work admission. It does not prove account/model availability or a live
-  restored external Runtime session. Real-session recovery remains its original
-  adapter's responsibility and requires separate qualified evidence.
-- No irreversible data migration is allowed in a rollback-compatible release.
-  A state schema claim is a release promise to validate, not a generic migration
-  reversal mechanism. Notebook, credentials and operation ledgers never roll back.
+The signed whole package may carry a new Caelis pin. On an already used, selected
+Caelis connection, the candidate offers its bundled CLI through Core's existing
+`service start` owner before health acknowledgement. Core decides idle replacement
+or deferral; idle Sessions do not promise detached/background task survival. Bot
+never kills or downgrades a shared Host. The actual authenticated Host version,
+build and instance are read back separately from the bundled version and refreshed
+while running. A deferred Host is shown as pending, not as the new version running.
+A startup/readback failure prevents candidate health and retains its real failure
+category. Fresh profiles and externally selected Codex do not start a dormant Core.
+
+Health confirms the signed Bot identity, profile lock, listener, local state and
+applicable Core handshake. It does not prove model authentication or task success.
+Candidate failure may restore the previous Bot code, but never rolls back user
+data or requests a Core downgrade. No general migration/reversal contract is added.
+External Codex remains under its existing explicit installation flow.
 
 Durable phases are waiting/requested → committed → switching → switched → healthy,
 or rolling_back → rolled_back/unknown. Only confirmed old-owner Close can commit;

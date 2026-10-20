@@ -715,8 +715,7 @@
   "managedPhase_failed": "更新未完成。",
   "managedPhase_unknown": "更新结果尚未确认，请保留当前安装。",
   "managedPhase_check_failed": "暂时无法检查更新，请重试。",
-  "managedReason_channel_handoff_required": "已配置的消息渠道暂不支持安全交接，暂停渠道也不能解除限制。请取消本次安装安排。",
-  "managedReason_runtime_compatibility_required": "此更新携带不同的 Caelis 版本，兼容性尚未验证，暂不能安装。",
+  "managedReason_channel_handoff_required": "消息渠道还有待完成的交互，完成后会继续安装。",
   "managedReason_external_installation": "此安装由服务主机管理，请在主机更新。",
   "managedReason_image_managed": "此服务由容器镜像管理，请通过镜像更新。",
   "managedReason_release_trust_unconfigured": "Linux 发行签名尚未配置，暂不能验证更新。",
@@ -736,5 +735,12 @@
   "managedReason_connection": "连接暂时中断，正在重新读取更新状态。",
   "managedReason_generic": "此操作未完成，请重新检查状态。",
   "managedReload": "重新载入",
-  "managedReloadHint": "服务已更新，重新载入页面以使用新版界面。"
+  "managedReloadHint": "服务已更新，重新载入页面以使用新版界面。",
+  "managedRuntime": "内置服务",
+  "managedRuntime_ready": "随包 {bundled} · 正在运行 {actual}",
+  "managedRuntime_pending": "随包 {bundled} · 当前 {actual}，空闲后切换。",
+  "managedRuntime_external": "正在运行 {actual}（自选程序）",
+  "managedRuntime_failed": "暂时无法确认服务状态，请在连接设置中重新检查。",
+  "managedReason_runtime_start_failed": "内置服务未能启动，更新未完成。请在连接设置中检查服务。",
+  "managedReason_runtime_readback_failed": "未能确认实际运行的服务，更新未完成。请在连接设置中重新检查。"
 }

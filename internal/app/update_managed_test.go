@@ -1,12 +1,11 @@
 package app
 
 import (
-	"bytes"
-	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,7 +38,7 @@ func TestManagedUpdateWaitsForOriginalWorkAndUnknown(t *testing.T) {
 	}
 }
 
-func TestManagedUpdateDoesNotTreatPausedChannelAsReconciled(t *testing.T) {
+func TestManagedUpdateHandsOffPausedChannelWithoutSettlingUnknown(t *testing.T) {
 	e := &updateEngine{testEngine: newTestEngine()}
 	a, _ := fixtureApp(t, e, Host{})
 	root := t.TempDir()
@@ -53,11 +52,19 @@ func TestManagedUpdateDoesNotTreatPausedChannelAsReconciled(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Telegram = bridge
-	if err = a.PrepareIdleUpdate(); !errors.Is(err, ErrManagedChannelHandoff) {
+	if err = a.PrepareIdleUpdate(); err != nil {
 		t.Fatal(err)
 	}
+	reopened, err := telegram.Open(root, telegram.Host{})
+	if err != nil || reopened.Status().Enabled || !reopened.Status().Paired || !a.updatePrepared {
+		t.Fatal("paused channel not handed off", err)
+	}
 	stored, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(stored, original) || a.updatePrepared {
-		t.Fatal("paused channel evidence changed", err)
+	if err != nil || !strings.Contains(string(stored), `"original-outbound"`) {
+		t.Fatal("original receipt removed", err)
+	}
+	a.CancelUpdate()
+	if bridge.Status().Enabled {
+		t.Fatal("update enabled a paused channel")
 	}
 }

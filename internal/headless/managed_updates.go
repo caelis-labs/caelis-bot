@@ -92,6 +92,14 @@ func (h *managedHost) markReady(core *app.Application) error {
 	if e := core.PreparePersonal(); e != nil {
 		return e
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	var err error
+	h.boot.Runtime, err = core.ManagedRuntime(ctx, true)
+	if err != nil || h.boot.Runtime.State == "failed" {
+		_ = h.client.Ready(h.boot) // Persist a sanitized, real failure before exit.
+		return errors.New(h.boot.Runtime.Reason)
+	}
 	for attempt := 0; attempt < 20; attempt++ {
 		if e := h.client.Ready(h.boot); e == nil {
 			h.gate.Lock()
@@ -109,11 +117,19 @@ func (h *managedHost) watch(ctx context.Context, core *app.Application, server *
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	observed := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		if time.Since(observed) >= 15*time.Second {
+			probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+			h.boot.Runtime, _ = core.ManagedRuntime(probe, false)
+			cancel()
+			_ = h.client.Ready(h.boot)
+			observed = time.Now()
 		}
 		request, e := h.client.Handoff(h.boot.ID)
 		if e != nil || request.State != "requested" {

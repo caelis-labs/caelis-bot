@@ -41,6 +41,14 @@ func testPackage(t *testing.T, key ed25519.PrivateKey, version string, edit func
 		edit(files)
 	}
 	m := Manifest{Schema: 1, Product: "caelisbot", Flavor: "bundled", Platform: "linux-arm64", Channel: "qa", Version: version, Source: strings.Repeat("a", 40), BuildKind: "qa", Launcher: 1, StateSchema: 1, Runtime: RuntimePin{"v0.72.2", strings.Repeat("b", 40), hash(runtime)}}
+	var pin struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+	}
+	if err := json.Unmarshal(files["Resources/Caelis-Runtime.json"], &pin); err != nil {
+		t.Fatal(err)
+	}
+	m.Runtime = RuntimePin{pin.Version, pin.Commit, hash(files["Helpers/caelis"])}
 	var archive bytes.Buffer
 	gz := gzip.NewWriter(&archive)
 	tarw := tar.NewWriter(gz)

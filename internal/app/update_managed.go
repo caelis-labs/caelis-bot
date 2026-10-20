@@ -2,7 +2,7 @@ package app
 
 import "errors"
 
-var ErrManagedChannelHandoff = errors.New("channel handoff not qualified")
+var ErrManagedChannelHandoff = errors.New("channel handoff pending")
 
 // PrepareIdleUpdate is intentionally stricter than the native explicit-update
 // detach path. The first managed Linux release never authorizes active work to
@@ -46,21 +46,6 @@ func (a *Application) guardManagedUpdate() error {
 			default:
 				return errors.New("question pending")
 			}
-		}
-	}
-	// Channels have their own asynchronous delivery owners. Until they expose
-	// a durable quiescence lease, do not guess from a cached status/empty chat.
-	// This gate never disconnects a user's channel to force an update.
-	if a.Telegram != nil {
-		st := a.Telegram.Status()
-		if st.Enabled || st.Paired || st.PairURL != "" || st.Issue != "" {
-			return ErrManagedChannelHandoff
-		}
-	}
-	if a.Weixin != nil {
-		st := a.Weixin.Status()
-		if st.Enabled || st.Paired || st.Issue != "" || (st.Phase != "" && st.Phase != "unconfigured") {
-			return ErrManagedChannelHandoff
 		}
 	}
 	return nil
