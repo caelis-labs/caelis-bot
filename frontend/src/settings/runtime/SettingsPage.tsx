@@ -1,3 +1,4 @@
+import {settingsHasModal} from '../../context-navigation';
 import {SetupBack} from '../../SetupBack';
 import {useEffect,useRef,type ReactNode} from 'react';
 import {useI18n} from '../../i18n';
@@ -5,7 +6,7 @@ export function SettingsPage({title,description,busy=false,onClose,children,clas
  const {t}=useI18n(), element=useRef<HTMLElement>(null);
  useEffect(()=>{
   const key=(event:KeyboardEvent)=>{
-   if(event.key!=='Escape'||event.defaultPrevented||!element.current?.getClientRects().length||document.querySelector('[role="dialog"],[data-select-open="true"]'))return;
+   if(event.key!=='Escape'||event.defaultPrevented||!element.current?.getClientRects().length||settingsHasModal())return;
    event.preventDefault();event.stopPropagation();if(!busy)onClose();
   };
   window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);

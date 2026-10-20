@@ -541,3 +541,27 @@ func TestCaptureDisabledBeforeAdmissionReturnsEditableDraft(t *testing.T) {
 		t.Fatal("restored capture unusable", d.receipts)
 	}
 }
+
+func TestCaptureMenuObservesCommittedGateBeforeSaveReturns(t *testing.T) {
+	s, d, _ := captureFixture(t)
+	var observed []bool
+	s.captureMenuChanged = func() { observed = append(observed, s.CapturePreferences().Enabled) }
+	for _, enabled := range []bool{false, true} {
+		if _, err := s.SetCaptureEnabled(enabled); err != nil {
+			t.Fatal(err)
+		}
+		if observed[len(observed)-1] != enabled || d.enabled != enabled {
+			t.Fatal("menu did not receive committed feature gate", observed)
+		}
+	}
+	d.failKind = 1
+	if _, err := s.SetCaptureEnabled(false); err == nil {
+		t.Fatal("fixture should fail shortcut registration")
+	}
+	if !observed[len(observed)-1] {
+		t.Fatal("failed save hid enabled capture menu")
+	}
+	if d.keys[0].Key != "F1" || d.keys[1].Key != "F3" {
+		t.Fatal("menu changed shortcut preferences")
+	}
+}

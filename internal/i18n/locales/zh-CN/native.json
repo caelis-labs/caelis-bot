@@ -114,7 +114,7 @@
   "taskTerminalControl": "窗口操作未完成，已保留原窗口。请稍后重试。",
   "taskTerminalActivation": "终端未能切到前台，已保留原窗口。请稍后重试。",
   "taskTerminalUnsettled": "暂未确认窗口切换完成，已保留原窗口。再次点击将检查当前状态。",
-  "capture.start": "截图…",
+  "capture.start": "截图",
   "capture.paste": "剪贴板贴图",
   "capture.togglePins": "显示／隐藏贴图",
   "capture.copy": "复制图片（⌘C）",
@@ -176,5 +176,6 @@
   "windowsUpdateCheckFailed": "无法验证 Windows 更新，请稍后重试。",
   "windowsUpdateDownloading": "正在下载并验证更新…",
   "windowsUpdateReady": "更新已下载。请在“设置 → 关于与帮助”中，准备好后选择“重启并安装”。",
-  "windowsUpdateRecovery": "上次更新需要核对。必要时从发布页重新安装，已有数据会保留。"
+  "windowsUpdateRecovery": "上次更新需要核对。必要时从发布页重新安装，已有数据会保留。",
+  "closeSettings": "关闭设置"
 }

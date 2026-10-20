@@ -33,6 +33,7 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	captureMenuChanged     func()
 	pluginSnapshot         func(context.Context) (plugins.Snapshot, error)
 	pluginAction           func(context.Context, string, string) (plugins.Snapshot, error)
 	pluginConnection       func(context.Context, string, string, string, bool) (plugins.Snapshot, error)
@@ -382,6 +383,10 @@ func (s *Service) shutdown() {
 
 // Chat is an optional interactive surface. Its visibility never owns a task.
 func (s *Service) RecallWindows() {
+	if s.needsIntroduction != nil && s.needsIntroduction() {
+		s.showSettings("setup")
+		return
+	}
 	s.mu.Lock()
 	f := s.recallWindows
 	ready := s.started && !s.stopped
@@ -392,6 +397,10 @@ func (s *Service) RecallWindows() {
 }
 
 func (s *Service) OpenHistory() {
+	if s.needsIntroduction != nil && s.needsIntroduction() {
+		s.showSettings("setup")
+		return
+	}
 	s.mu.Lock()
 	f := s.openHistory
 	ready := s.started && !s.stopped

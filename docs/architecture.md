@@ -894,10 +894,13 @@ acceptance. The pin, package and permissions evidence are in
 [plugin-packages](plugin-packages.md).
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
-Device pixels/DPI do not belong in saved character scale. Chat and settings are retained views in one contextual AppKit window. Native visibility
-queries distinguish the active view; switching preserves the draft and chat reading
-position while restoring each view’s size. Native sheets remain attached to that
-same window. Closing it hides presentation without deciding requests or stopping work.
+Device pixels/DPI do not belong in saved character scale. Chat and settings use
+separate retained native windows and WebViews; only the requested contextual
+surface is presented. Native titlebar accessories dispatch navigation into their
+owning renderer, which checks onboarding, dialogs and unsaved forms. Returning
+preserves the mounted composer, draft, attachments and chat reading position.
+Native sheets remain attached to their originating window. Closing a window hides
+presentation without deciding requests or stopping work.
 
 The native attachment chooser owns its pending call until selection or cancellation;
 the renderer's RPC deadline does not expire a human-operated sheet. A committed

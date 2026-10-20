@@ -26,3 +26,29 @@ func TestSettingsPresentationDoesNotReadServiceStateOnUIThread(t *testing.T) {
 		})
 	}
 }
+
+func TestOnboardingGuardsAllContextualEntryPoints(t *testing.T) {
+	s, _, _ := setup()
+	s.started = true
+	required := true
+	s.needsIntroduction = func() bool { return required }
+	chats, settings := 0, 0
+	s.openHistory = func() { chats++ }
+	s.recallWindows = func() { chats++ }
+	s.openSettings = func() { settings++ }
+	for _, open := range []func(){s.OpenHistory, s.OpenSettings, s.OpenRuntimeSettings, s.RecallWindows} {
+		open()
+		if s.SettingsSection() != "setup" || chats != 0 {
+			t.Fatal("setup bypassed", s.SettingsSection(), chats)
+		}
+	}
+	if settings != 4 {
+		t.Fatal("onboarding not recalled", settings)
+	}
+	required = false
+	s.OpenHistory()
+	s.OpenSettings()
+	if chats != 1 || s.SettingsSection() != "general" {
+		t.Fatal("completed introduction still blocked")
+	}
+}

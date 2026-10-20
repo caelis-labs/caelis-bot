@@ -51,7 +51,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
    {onConnect&&<button className="text-action runtime-model-connect" onClick={onConnect}>{t('runtime.connectOtherModels')}</button>}
 
    {draft.model && !model && catalogPending ? <p role="status" className="settings-note">{t('common.loading')}</p> : draft.model && (!model || !validSelection(draft,models,inherited)) && <p role="alert" className="inline-error">{t('runtime.modelUnavailable')}</p>}
-   {error&&<Recovery onRetry={onReload?()=>{void onReload().then(()=>{setError('');setBlocked(false)}).catch(()=>{});}:undefined}/>}
+   {error&&<Recovery message={error} onRetry={onReload?()=>{void onReload().then(()=>{setError('');setBlocked(false)}).catch(()=>{});}:undefined}/>}
 
    <div className="setup-end runtime-model-actions">{model && <button disabled={busy || blocked} className="text-action runtime-reset-parameters" onClick={() => { setDraft(draft.model ? chooseModel(model) : inheritedSelection); setError(''); }}><ArrowClockwiseIcon aria-hidden="true" size={13}/>{t('runtime.resetParameters')}</button>}{!model && <span/>}<button disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={busy || blocked || !dirty || !validSelection(draft,models,inherited) || requireEffort && !draft.effort} onClick={() => void save()}>{busy ? t('runtime.saving') : t('common.save')}</button></div>
    {onReset && <button disabled={busy || blocked} className="text-action runtime-reset-binding" onClick={() => void save(true)}>{t('runtime.resetRoleDefaultBinding')}</button>}

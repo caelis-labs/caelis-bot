@@ -19,7 +19,7 @@ export function WeixinSettings({onBack,active=true}:{onBack?:()=>void;active?:bo
  useEffect(()=>{if(!active||!status||status.paired||autoSuppressed.current||!['unconfigured','expired'].includes(status.phase)||autoQRCount.current>=3)return;const key=`${status.phase}:${status.expiresAt}`;if(lastAuto.current===key)return;lastAuto.current=key;autoQRCount.current++;void act('StartWeixinPairing')},[active,status?.phase,status?.paired,status?.expiresAt]);
  const phase=status?.phase??'unconfigured';
  const issue=error||status?.issue||'';
- return <section className="telegram-page" aria-labelledby="weixin-title">
+ return <section className="telegram-page" aria-labelledby="weixin-title" data-settings-dirty={!!code||busy||forget}>
   {onBack&&<button className="text-action telegram-back" type="button" onClick={onBack}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="weixin-title">{t('settings.weixinTitle')}</h1><p>{t('settings.weixinDescription')}</p></div><span className={`telegram-state telegram-state-${phase==='connected'?'connected':phase==='paused'?'paused':phase==='unconfigured'?'unconfigured':'pairing'}`} role="status">{t(stateKey(phase))}</span></div>
   {phase==='unconfigured'&&<div className="telegram-step"><p>{t('settings.weixinStartHelp')}</p><button className="primary" disabled={busy} onClick={()=>void act('StartWeixinPairing')}>{t('settings.weixinStart')}</button></div>}

@@ -10,13 +10,14 @@
 .surface-recovery-actions>.surface-recovery-feedback { padding:5px 0; border-color:transparent; background:transparent; color:var(--muted); }
 .surface-recovery-actions>.surface-recovery-feedback:hover { color:var(--ink); }
 .surface-recovery.is-fullscreen { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:min(calc(100% - 32px),480px); margin:0; }
+.operation-error { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; margin:8px 0; color:var(--muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.operation-error>span { min-width:0; }
+.chat-feedback-actions { display:flex; align-items:center; gap:12px; margin-top:5px; }
+.chat-feedback-actions>button:last-child { margin-left:auto; display:inline-flex; align-items:center; justify-content:center; min-width:24px; min-height:24px; }
 /* Shared presentation: one quiet contextual surface, native chrome and materials. */
 body[data-surface=context] { background:var(--caelis-chat); }
 .context-window,.context-view { width:100%; height:100dvh; min-width:0; }
 .context-view[hidden] { display:none; }
-.context-chat-toolbar { height:32px; display:flex; align-items:center; justify-content:flex-end; padding:0 16px; }
-.context-chat-toolbar button { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:7px; color:var(--muted); background:transparent; }
-.context-chat-toolbar button:hover { background:var(--wash); color:var(--ink); }
 .context-window .history-surface { height:calc(100dvh - 32px); }
 .context-view { animation:surface-arrive .16s ease-out; }
 @keyframes surface-arrive { from { opacity:.65; transform:translateY(3px); } to { opacity:1; transform:none; } }
@@ -32,7 +33,6 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .settings-window aside nav button { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; margin:2px 0; padding:8px 12px; color:var(--muted); border-radius:8px; text-align:left; }
 .settings-window aside nav button svg { flex:none; }
 .settings-window aside nav button[aria-current] { background:var(--caelis-selected); color:var(--ink); font-weight:600; }
-.settings-window aside .settings-return { display:flex; gap:10px; align-items:center; width:100%; margin-top:16px; padding:11px 12px; color:var(--muted); border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; text-align:left; font-size:12px; }
 .settings-window .settings-content { padding:38px 44px 48px; background:var(--caelis-content); }
 .settings-window .settings-page { width:100%; max-width:760px!important; margin:0 auto; }
 .settings-window h1 { font-size:26px; line-height:1.3; letter-spacing:-.035em; margin:0 0 28px; font-weight:650; }
@@ -816,3 +816,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 
 /* Questions use normal chat flow; native permission forms remain separate. */
 .history-surface .question-message .message { width:min(440px,100%); min-width:0; }
+.context-navigation{position:absolute;right:14px;top:6px;z-index:4;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;color:var(--muted);background:var(--panel)}
+.context-navigation:hover{background:var(--wash);color:var(--ink)}
+.context-window[data-native-chrome="false"] .chat-scroll{padding-top:34px}
+.settings-toolbar{position:relative}.settings-navigation{top:50%;transform:translateY(-50%)}

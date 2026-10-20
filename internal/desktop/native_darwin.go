@@ -555,3 +555,16 @@ func (d *macDriver) taskTransitions(data string) {
 func resizeMacContextWindow(window *application.WebviewWindow, width, height int) {
 	application.InvokeSync(func() { C.bot_resize_context_window(window.NativeWindow(), C.int(width), C.int(height)) })
 }
+
+func macContextNavigation(window *application.WebviewWindow, settings, enabled bool, label string) {
+	text := C.CString(label)
+	defer C.free(unsafe.Pointer(text))
+	var mode, visible C.int
+	if settings {
+		mode = 1
+	}
+	if enabled {
+		visible = 1
+	}
+	application.InvokeSync(func() { C.bot_context_navigation(window.NativeWindow(), mode, visible, text) })
+}

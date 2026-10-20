@@ -64,9 +64,9 @@ export function ArtifactPreviewWindow() {
     if(selection)window.dispatchEvent(new CustomEvent('artifact-preview-toolbar-action',{detail:{action,...selection}}));
    }}>{t(({open:'chat.openArtifact',save:'chat.saveArtifactAs',path:'chat.copyArtifactPath',content:'chat.copyArtifactContent',reveal:'chat.revealFile'} as const)[action])}</button>)}
   </nav>}
-  {actionError&&!error&&<Recovery/>}
+  {actionError&&!error&&<Recovery message={actionError}/>}
   <section className="artifact-preview-scroll" aria-label={selection?.name??t('chat.previewArtifact')}>
-   {error?<Recovery onRetry={load}/>:preview?
+   {error?<Recovery message={error} onRetry={load}/>:preview?
     <article className={isMarkdown?'artifact-preview-markdown markdown-body':'artifact-preview-plain'}>
      {isMarkdown?<Markdown skipHtml remarkPlugins={[remarkGfm]} components={{
       a:({children})=><span>{children}</span>,

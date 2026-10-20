@@ -15,10 +15,11 @@ import { useI18n } from './i18n';
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone,active=true }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
+ const {t}=useI18n();
  const [pending,setPending]=useState<{features:boolean;runtime:boolean}|null>(null);
  const [failed,setFailed]=useState(false),[readAttempt,setReadAttempt]=useState(0);
  useEffect(()=>{if(!active)return;let live=true;void recoverRead(()=>Promise.all([desktop<boolean>('FeatureGuidePending'),backend<SetupOverview>('SetupOverview'),backend<Snapshot>('Snapshot')])).then(([features,overview,snapshot])=>{if(live)setPending({features,runtime:overview.hasRuntimeChoice&&snapshot.connection==='ready'})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active,readAttempt]);
- if(pending===null)return failed?<Recovery onRetry={()=>{setFailed(false);setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
+ if(pending===null)return failed?<Recovery message={t('chat.setupLoadFailed')} onRetry={()=>{setFailed(false);setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
  return <BotIntroductionSetup runtimeInitiallyReady={pending.runtime} active={active} featuresPending={pending.features} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onDone={onDone}/>;
 }
 function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPending,onFeaturesDone,onFeaturesBack }: { runtimeInitiallyReady:boolean;onDone: () => void;active:boolean;featuresPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void }) {
@@ -117,15 +118,12 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
     } finally { setBusy(false); }
   };
 
-  if (!state) return error?<Recovery onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
+  if (!state) return error?<Recovery message={error} onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>:<SetupLoading/>;
   const stage=setupStage(runtimeSelected,featuresPending);
   if(stage==='runtime')return <div className="setup-flow"><RuntimeSettings onboarding active={active} onActivating={work=>activateInBackground(async()=>{try{await work()}catch(e){presentationWarning('setup_activation_failed');throw e}})}/></div>;
   if (state.status === 'rejected' || state.status === 'unknown') return <section className="bot-introduction">
     <h1>{t('chat.setupIncompleteTitle')}</h1>
-    <Recovery onRetry={state.status==='rejected'?()=>{if(!busy)void retry()}:()=>{setError('');setReadAttempt(v=>v+1)}}/>
-    <div className="setup-actions">
-      <button onClick={() => void openConversation()}>{t('chat.setupOpenChat')}</button>
-    </div>
+    <Recovery message={error||t(state.status==='unknown'?'chat.sendPending':'chat.setupSaveFailed')} onRetry={state.status==='rejected'?()=>{if(!busy)void retry()}:()=>{setError('');setReadAttempt(v=>v+1)}}/>
   </section>;
   if (stage==='features') return <div className="setup-flow"><SetupExtras onBack={selectRuntime} onDone={onFeaturesDone}/></div>;
   if (!state.required) return <section className="runtime-welcome" role="status">{t('chat.setupPreparing')}<button onClick={()=>void openConversation()}>{t('chat.setupOpenChat')}</button></section>;
@@ -147,7 +145,7 @@ function BotIntroductionSetup({ runtimeInitiallyReady,onDone,active,featuresPend
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
       </div>
-      {error && <Recovery onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>}
+      {error && <Recovery message={error} onRetry={()=>{setError('');setReadAttempt(v=>v+1)}}/>}
       <div className="setup-end">
         {needsConnection?<button type="button" className="primary" onClick={selectRuntime}>{t('settings.setupReturnToConnection')}</button>:<SetupButton className="primary" type="submit" busy={busy} disabled={!name.trim()}>{t('settings.setupStartChat')}</SetupButton>}
       </div>

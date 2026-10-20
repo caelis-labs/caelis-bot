@@ -17,6 +17,9 @@ fi
 if [[ "$BOT_MODE" == --bubble-preview ]]; then
   exec bash "$BOT_ROOT/script/bubble-preview.sh"
 fi
+if [[ "$BOT_MODE" == --settings-preview ]]; then
+  exec bash "$BOT_ROOT/script/desktop-settings-preview.sh"
+fi
 if [[ "$BOT_MODE" == --chat-preview ]]; then
   exec bash "$BOT_ROOT/script/chat-preview.sh"
 fi
@@ -25,7 +28,7 @@ if [[ "$BOT_MODE" == --task-dock-preview ]]; then
   BOT_TASK_DOCK_LIVE=1 exec bash "$BOT_ROOT/script/task-dock-native-test.sh"
 fi
 case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke|--remote-terminal-smoke) ;; *)
-  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--desktop-control-preview TITLE EVIDENCE PNG ONCE|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--settings-preview|--desktop-control-preview TITLE EVIDENCE PNG ONCE|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
 esac
 if [[ "$BOT_MODE" == --verify-signed ]]; then
   # Keep the distribution signature intact during native release acceptance.

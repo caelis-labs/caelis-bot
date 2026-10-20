@@ -108,7 +108,13 @@ func (s *Service) SaveCapturePreferences(v CapturePreferences) (CapturePreferenc
 // ordinary chat attachments or Desktop World task capture.
 func (s *Service) SetCaptureEnabled(enabled bool) (CapturePreferences, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		changed := s.captureMenuChanged
+		s.mu.Unlock()
+		if changed != nil {
+			changed()
+		}
+	}()
 	old := s.capture.preferences
 	if old.Enabled == enabled {
 		if err := localstate.Write(s.capture.preferenceFile, old); err != nil {
