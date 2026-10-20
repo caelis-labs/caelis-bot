@@ -151,6 +151,7 @@ func TestBuiltinDefaultsAndDisabledUpgrade(t *testing.T) {
 	if err != nil || len(m.Selection().SkillRoots) != 1 || len(m.Selection().Servers) != 2 || m.Snapshot().Items[0].TitleZh != "示例" {
 		t.Fatal("built-in was not enabled on first install", err)
 	}
+	oldRoot := m.Selection().Servers[0].Root
 	if _, err := m.Mutate(context.Background(), "fixture", "disable", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +161,13 @@ func TestBuiltinDefaultsAndDisabledUpgrade(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(`{"$schema":"`+manifestSchema+`","name":"fixture","version":"0.2.0"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	newBinary := []byte("#!/bin/sh\n# updated executable\nexit 0\n")
+	newSkill := []byte("---\nname: useful\ndescription: Updated fixture\n---\n\nUse the updated tool contract.\n")
+	for path, body := range map[string][]byte{"bin/check": newBinary, "skills/useful/SKILL.md": newSkill} {
+		if err := os.WriteFile(filepath.Join(source, path), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	e = entry("0.2.0")
 	m, err = openCatalog(root, []Entry{e}, map[string]fs.FS{"fixture": os.DirFS(source)})
 	if err != nil || m.Snapshot().Items[0].Enabled || m.Snapshot().Items[0].Version != "0.2.0" || len(m.Selection().Servers) != 0 {
@@ -167,6 +175,20 @@ func TestBuiltinDefaultsAndDisabledUpgrade(t *testing.T) {
 	}
 	if _, err := m.Mutate(context.Background(), "fixture", "enable", nil); err != nil || len(m.Selection().SkillRoots) != 1 || len(m.Selection().Servers) != 2 {
 		t.Fatal("enable did not restore Skill and MCP selection", err)
+	}
+	newRoot := m.Selection().Servers[0].Root
+	if newRoot == oldRoot {
+		t.Fatal("upgrade reused the old immutable package")
+	}
+	for path, want := range map[string][]byte{"bin/check": newBinary, "skills/useful/SKILL.md": newSkill} {
+		got, err := os.ReadFile(filepath.Join(newRoot, path))
+		if err != nil || string(got) != string(want) {
+			t.Fatal("upgrade did not replace binary and Skill together", path, err)
+		}
+		old, err := os.ReadFile(filepath.Join(oldRoot, path))
+		if err != nil || string(old) == string(want) {
+			t.Fatal("upgrade changed the previous generation", path, err)
+		}
 	}
 }
 
