@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 // TaskPreviews reads the product ledger; it never polls a Worker or reads a
@@ -76,7 +77,9 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 }
 
 func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
-	m.op.Lock()
+	if err := lockwait.Lock(ctx, &m.op); err != nil {
+		return api.TerminalTarget{}, err
+	}
 	defer m.op.Unlock()
 	if m.paused {
 		return api.TerminalTarget{}, errors.New(m.text("host.updatingOpenTaskLater"))
@@ -84,11 +87,9 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if err := m.owned(id); err != nil {
 		return api.TerminalTarget{}, err
 	}
-	m.mu.Lock()
-	status := m.state.Records[id].View.Status
-	m.mu.Unlock()
-	if status == "unavailable" || status == "unknown" {
-		return api.TerminalTarget{}, errors.New("retired or unresolved task cannot be continued in a terminal")
+	v, err := m.work.ReadWork(ctx, id)
+	if _, err = m.capture(id, v, err); err != nil {
+		return api.TerminalTarget{}, err
 	}
 	p, ok := m.work.(api.WorkTerminalProvider)
 	if !ok {

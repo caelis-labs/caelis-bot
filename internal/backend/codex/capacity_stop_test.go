@@ -383,7 +383,7 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	if len(archive) != 1 || archive[0].Endpoint != endpoint || archive[0].Thread != "thread-native" || archive[0].StopRequest != request || archive[0].StopTurn != "old-turn" || archive[0].LastReceipt == nil || archive[0].LastReceipt.ID != request || !loaded.binding.LostOwnerTasks[taskID] {
 		t.Fatal("original owner identities and receipts were not archived", archive, loaded.binding.LostOwnerTasks)
 	}
-	if old, err := loaded.ReadWork(testContext(t), taskID); err != nil || old.Status != "unknown" || !strings.Contains(old.Result, "无法再核对") {
+	if old, err := loaded.ReadWork(testContext(t), taskID); err == nil || old.Status != "unknown" || !strings.Contains(old.Result, "运行环境尚未确认") {
 		t.Fatal("old worker result was lost or attributed to new owner", old, err)
 	}
 	if old, err := loaded.StopWork(testContext(t), taskID); err == nil || old.Status != "unknown" {

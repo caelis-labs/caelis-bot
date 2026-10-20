@@ -34,8 +34,8 @@ func TestCurrentUnknownProjectionBlocksContinuationBeforeOwnerDispatch(t *testin
 	if len(m.state.Records[v.ID].Requests) != 1 {
 		t.Fatal("unknown followup acquired a product receipt")
 	}
-	// WorkTerminal uses the same product projection even with a permissive
-	// terminal provider. Reopen against that provider to keep the fixture local.
+	// Explicit terminal opening is independent of the unknown input fence.
+	// Reopen against the original provider to keep the fixture local.
 	root := t.TempDir()
 	tm, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", f, f, f.Snapshot)
 	if err != nil {
@@ -48,8 +48,8 @@ func TestCurrentUnknownProjectionBlocksContinuationBeforeOwnerDispatch(t *testin
 	if err := tm.RefreshWatchlist(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tm.WorkTerminal(t.Context(), tv.ID); err == nil || f.opened != "" {
-		t.Fatal("unknown projected work acquired a terminal", err)
+	if _, err := tm.WorkTerminal(t.Context(), tv.ID); err != nil || f.opened != tv.ID {
+		t.Fatal("original task could not open independently of unknown input receipt", err)
 	}
 }
 
@@ -100,5 +100,22 @@ func TestTaskPreviewPersistsOriginalPromptAndFencesOwnership(t *testing.T) {
 	}
 	if len(other.TaskPreviews()) != 0 {
 		t.Fatal("unsupported runtime exposed bubbles")
+	}
+}
+
+func TestTerminalOpenCancellationDoesNotWaitForAnotherSubmission(t *testing.T) {
+	f := &terminalFixture{fixtureRuntime: newRuntime()}
+	root := t.TempDir()
+	m, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", f, f, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := start(t, m, "cancelled-terminal-open")
+	m.op.Lock()
+	defer m.op.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := m.WorkTerminal(ctx, task.ID); err == nil || f.opened != "" {
+		t.Fatal("cancelled open reached owner", err)
 	}
 }

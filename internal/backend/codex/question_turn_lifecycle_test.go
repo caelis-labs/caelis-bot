@@ -60,12 +60,12 @@ func TestWorkerAnswerContinuationDoesNotEndUnansweredQuestions(t *testing.T) {
 			t.Fatalf("%s ended sibling: %+v", phase, got)
 		}
 	}
-	task.Retired = true
+	task.SuppressReport = true
 	if err := store.ReconcileAsync(api.Snapshot{}, project()); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := store.ProjectQuestions([]api.Item{card})
 	if got[0].QuestionCards[1].State != "expired" {
-		t.Fatal("explicit retirement did not close question", got)
+		t.Fatal("explicit cancellation did not close question", got)
 	}
 }

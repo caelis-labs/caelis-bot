@@ -162,7 +162,7 @@ func Run(assets fs.FS) error {
 	})
 	history := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "history", Title: appName, Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
-		Hidden: true, URL: "/?surface=context", EnableFileDrop: true, BackgroundType: application.BackgroundTypeTransparent,
+		Hidden: true, URL: "/?surface=context&chrome=native", EnableFileDrop: true, BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
 	preview := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -198,7 +198,7 @@ func Run(assets fs.FS) error {
 	// Each contextual surface owns its dimensions and retained WebView.
 	settings := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "settings", Title: appName, Width: 1040, Height: 740, MinWidth: 520, MinHeight: 560,
-		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeSolid,
+		Hidden: true, URL: "/?surface=settings&chrome=native", BackgroundType: application.BackgroundTypeSolid,
 	})
 	var settingsMode, setupMode atomic.Bool
 	var presentation uint64
@@ -232,6 +232,7 @@ func Run(assets fs.FS) error {
 		}
 		s.presentSettings(application.InvokeSync, func(welcome bool, title string) {
 			settingsMode.Store(true)
+			macContextNavigation(settings, true, !welcome, "")
 			if setupMode.Swap(welcome) != welcome {
 				settings.Hide()
 				if welcome {
@@ -282,6 +283,7 @@ func Run(assets fs.FS) error {
 	}
 	showHistory := func() {
 		settingsMode.Store(false)
+		macContextNavigation(history, false, true, "")
 		prepare(history, "chat")
 	}
 	s.openHistory = func() {
@@ -438,6 +440,8 @@ func Run(assets fs.FS) error {
 		}
 	}
 	s.languageChanged = func(state LanguageState) {
+		macContextNavigation(history, false, !setupMode.Load(), i18n.Text(state.Locale, "native.settings", nil))
+		macContextNavigation(settings, true, !setupMode.Load(), i18n.Text(state.Locale, "native.closeSettings", nil))
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
@@ -461,6 +465,8 @@ func Run(assets fs.FS) error {
 		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
 		installMacArtifactPreviewToolbar(preview, s.LanguagePreferences().Locale)
 		styleMacSettings(settings)
+		macContextNavigation(history, false, false, s.text("native.settings", nil))
+		macContextNavigation(settings, true, false, s.text("native.closeSettings", nil))
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)
 			err := core.Close()

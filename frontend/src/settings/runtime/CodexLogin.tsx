@@ -34,7 +34,7 @@ export function CodexLogin({state,busy=false,error=false,onAction,host=desktop,o
   {message[status]&&<p className="settings-note" role="status">{t(message[status])}</p>}
   {pending&&login?.id&&<button type="button" className="text-action" disabled={busy} onClick={()=>perform('cancel-login',{loginId:login.id})}>{t('common.cancel')}</button>}
   {!pending&&!keyForm&&<button type="button" className="text-action" disabled={busy} onClick={()=>setKeyForm(true)}>{t('runtime.useOpenAIApiKey')}</button>}
-  {!pending&&keyForm&&<form className="codex-key-form" onSubmit={event=>{event.preventDefault();const secret=key;setKey('');perform('api-key',{apiKey:secret})}}>
+  {!pending&&keyForm&&<form className="codex-key-form" data-settings-dirty={!!key||busy} onSubmit={event=>{event.preventDefault();const secret=key;setKey('');perform('api-key',{apiKey:secret})}}>
    <label>API Key<input type="password" required autoComplete="off" spellCheck={false} value={key} disabled={busy} onChange={event=>setKey(event.target.value)}/></label>
    <p className="settings-note">{t('runtime.apiKeySavedByCodex')}</p>
    <SetupButton className="primary" busy={busy} disabled={busy||!key.trim()}>{t('runtime.connect')}</SetupButton>

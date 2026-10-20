@@ -11,6 +11,7 @@ import {SetupLoading} from './SetupLoading';
 import {SettingsDialog} from './settings/runtime/SettingsDialog';
 import {MessageContent} from './MessageContent';
 import {desktop} from './desktop';
+import {settingsHasModal} from './context-navigation';
 import type {WebClient,WebNavigation} from './web-transport';
 
 type Task={id:string;title:string;status:string;machineName?:string;result?:string};
@@ -38,7 +39,7 @@ export function WebApp({client}:{client:WebClient}){
   if(!nav)return;
   document.body.dataset.surface=nav.view==='settings'?'settings':'history';
   window.dispatchEvent(new Event(nav.view==='settings'?'history-close':'settings-close'));
-  window.dispatchEvent(new Event(nav.view==='settings'?'settings-open':'history-open'));
+  window.dispatchEvent(nav.view==='settings'?new Event('settings-open'):new CustomEvent('history-open',{detail:{preservePosition:true}}));
  },[nav]);
  useEffect(()=>{
   // This only controls editing affordances. The server checks the lease and
@@ -47,14 +48,16 @@ export function WebApp({client}:{client:WebClient}){
   apply();const observer=new MutationObserver(apply);if(content.current)observer.observe(content.current,{childList:true,subtree:true});return()=>observer.disconnect();
  },[editing]);
  return <I18nProvider><SurfaceBoundary><div className="web-app">
-  {nav&&!onboarding&&nav.view!=='settings'&&<div className="web-tools"><button aria-label="后台任务" title="后台任务" onClick={()=>setTasksOpen(true)}><ListChecksIcon size={19}/></button><button aria-label="设置" title="设置" onClick={()=>void client.navigation({view:'settings',section:'general'}).catch(()=>setNavigationFailed(true))}><GearSixIcon size={19}/></button></div>}
   {client.fixture&&<div className="web-editing" role="status">测试后端 · 无真实模型或外部任务执行</div>}
   {editing===false&&nav?.view==='chat'&&<div className="web-editing" role="status">另一页面正在编辑。<button onClick={()=>void client.claim(true).then(updateEditor)}>在此继续编辑</button></div>}
   <div className="web-content" ref={content}>
-   {navigationFailed&&<Recovery onRetry={()=>void client.restoreNavigation()}/>}
+   {navigationFailed&&<Recovery message="暂时无法打开此页面，请重试。" onRetry={()=>void client.restoreNavigation()}/>}
    {!nav&&!navigationFailed&&<SetupLoading/>}
    {onboarding?<div className="web-settings"><main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true))}/></div></main></div>:nav&&<>
-    <div className="web-chat" hidden={nav.view==='settings'}><History key={editorGeneration}/></div>
+    <div className="web-chat" hidden={nav.view==='settings'}>
+     <div className="web-tools"><button aria-label="后台任务" title="后台任务" onClick={()=>{if(!settingsHasModal())setTasksOpen(true)}}><ListChecksIcon size={19}/></button><button className="context-navigation" aria-label="设置" title="设置" onClick={()=>void client.navigation({view:'settings',section:'general'}).catch(()=>setNavigationFailed(true))}><GearSixIcon size={18}/></button></div>
+     <History key={editorGeneration}/>
+    </div>
     <div className="web-settings" hidden={nav.view!=='settings'}><Settings onNavigate={section=>void client.navigation({view:'settings',section}).catch(()=>setNavigationFailed(true))}/></div>
    </>}
   </div>

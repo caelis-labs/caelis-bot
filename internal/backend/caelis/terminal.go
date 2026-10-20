@@ -17,12 +17,10 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	}
 	s.mu.Lock()
 	w, ok := s.state.Workers[id]
-	status := s.workerViewLocked(w).Status
-	unresolved := ok && (status == "unknown" || w.Submission != nil && status == "pending")
 	principal, instance := s.state.PrincipalID, s.state.InstanceID
 	ready := s.connected && !s.closed && s.client != nil
 	s.mu.Unlock()
-	if !ok || w.Retired || unresolved || !w.Native || w.Binding.SessionId == "" || w.Binding.PrincipalId != principal {
+	if !ok || !w.Native || w.Binding.SessionId == "" || w.Binding.PrincipalId != principal {
 		return api.TerminalTarget{}, errors.New("该任务尚无已确认的共享会话，不会自动重建")
 	}
 	if !ready {

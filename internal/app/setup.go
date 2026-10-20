@@ -23,6 +23,7 @@ type runtimeSetup struct {
 	progress          api.SetupInstallProgress
 	operationMu       sync.Mutex
 	operationCancel   context.CancelFunc
+	metadataMu        sync.Mutex // Short local reads never wait for Runtime inspection.
 	mu                sync.Mutex
 	app               *Application
 	codex             *codex.Setup
@@ -72,8 +73,8 @@ func (a *Application) ProviderDirectory() string {
 	return p
 }
 func (s *runtimeSetup) Overview() api.SetupOverview {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.metadataMu.Lock()
+	defer s.metadataMu.Unlock()
 	return api.SetupOverview{Active: s.app.currentEngine().(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
 }
 func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
@@ -377,7 +378,9 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	}
 
 	if !s.reconnectRequired && s.canReuseRuntime(v) {
+		s.metadataMu.Lock()
 		s.pending, s.fresh = "", false
+		s.metadataMu.Unlock()
 		return nil
 	}
 	if e = s.app.activateRuntime(ctx, v, !s.app.HasRuntimeChoice()); e != nil {
@@ -388,8 +391,10 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	s.rememberPreparation(ctx, out)
 	s.activePreparation = s.prepared[v.Runtime]
 	s.activeEngine = s.app.currentEngine()
+	s.metadataMu.Lock()
 	s.pending = ""
 	s.fresh = false
+	s.metadataMu.Unlock()
 	return nil
 }
 func (s *runtimeSetup) Dismiss() error {
@@ -400,7 +405,9 @@ func (s *runtimeSetup) Dismiss() error {
 	}{true}); e != nil {
 		return e
 	}
+	s.metadataMu.Lock()
 	s.fresh = false
+	s.metadataMu.Unlock()
 	return nil
 }
 

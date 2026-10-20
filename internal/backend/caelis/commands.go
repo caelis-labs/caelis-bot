@@ -93,6 +93,10 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 			s.dispatching = map[string]bool{}
 		}
 		s.dispatching[op] = true
+		mainPath := "/sessions/" + idPath(s.state.Session.SessionId)
+		if path == mainPath+"/prompt" || path == mainPath+"/steer" {
+			s.requestRefreshLocked("main")
+		}
 		defer func() {
 			s.mu.Lock()
 			delete(s.dispatching, op)
@@ -389,7 +393,7 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 		if v := s.state.Views[ref.sid]; v != nil {
 			v.ApprovalDirty = true
 			v.ApprovalVersion++
-			s.requestRefreshLocked()
+			s.requestRefreshLocked(s.sessionObservationKeyLocked(ref.sid))
 		}
 	}()
 	// Fetch the authoritative head immediately before resolving; never reuse a stale UI target.

@@ -2,6 +2,7 @@ import {isWebSurface} from './transport';
 import {QuestionPrompt} from './QuestionPrompt';
 import {questionIdentity,visibleQuestionMessages} from './question-presentation';
 import {Recovery} from './SurfaceBoundary';
+import {ChatFeedback} from './ChatFeedback';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import { useConnectionNotice } from './use-connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
@@ -125,7 +126,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
         {freeText&&<input id={`question-${q.id}`} type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={custom} onChange={e => { const selected=q.multiple?current.filter(answer=>options.some(option=>option.id===answer)):[]; setAnswers({ ...answers, [q.id]:e.target.value?[...selected,e.target.value]:selected }); }} />}
       </div>;
     })}
-    {error && <Recovery onRetry={()=>void refresh()}/>}
+    {error && <Recovery message={error} onRetry={()=>{setError('');void refresh();}}/>}
     {value.status === 'pending' ? <>
       <div className="approval-choices" onKeyDown={decisionKeys}>{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
         <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
@@ -207,9 +208,9 @@ function MessageMenu({item,x,y,onQuote,onClose,report}:{item:Item;x:number;y:num
 
 // The chat window owns the one draft editor. Writes serialize with the backend
 // revision fence, and UI-initiated close waits for pending writes.
-type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void;quoteRequest?:{item:Item}|null;onQuoteConsumed?:()=>void};
+type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void;quoteRequest?:{item:Item}|null;onQuoteConsumed?:()=>void;feedbackTarget:HTMLElement|null};
 let flushVisibleComposer=async()=>{};
-const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing,quoteRequest,onQuoteConsumed}:ComposerProps) {
+const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing,quoteRequest,onQuoteConsumed,feedbackTarget}:ComposerProps) {
  const {t,locale} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null);
@@ -458,13 +459,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    restoreSubmittedDraft(attempt);setSendBlocked(false);setError('');onOutgoing?.({...attempt.outgoing,status:'rejected'});
   }
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
- const [showRecovery,setShowRecovery]=useState(false);
- useEffect(()=>{
-  setShowRecovery(false);
-  if(!error)return;
-  const timer=setTimeout(()=>setShowRecovery(true),9000);
-  return()=>clearTimeout(timer);
- },[error]);
+ const showRecovery=!!error;
  useEffect(()=>{
   if(!active||!(sendBlocked||cleanupPending||syncReadFailed||loaded&&!filesLoaded))return;
   let cancelled=false,timer:ReturnType<typeof setTimeout>,attempts=0;
@@ -504,7 +499,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
-  {!!error&&showRecovery&&<Recovery onRetry={()=>void retryLocalCleanup()}/>}
+  {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
   {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
   {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
@@ -518,7 +513,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
    onSelect={plugin=>{setPluginLabels(previous=>({...previous,[plugin.id]:plugin.name}));save(draft.current,[...refs,plugin.id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
-},(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&a.quoteRequest===b.quoteRequest&&
+},(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&a.quoteRequest===b.quoteRequest&&a.feedbackTarget===b.feedbackTarget&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
 
 export function History() {
@@ -527,6 +522,8 @@ export function History() {
  const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
  const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
+ const [feedbackTarget,setFeedbackTarget]=useState<HTMLDivElement|null>(null);
+ const composerMounted=useRef(false);if(active)composerMounted.current=true;
  const [activation,setActivation]=useState(0),[presentation,setPresentation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
  useEffect(()=>{if(active&&snapshot)surfaceReady('chat');},[active,snapshot,presentation]);
@@ -649,8 +646,9 @@ export function History() {
    {connection&&snapshot&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>
+    {connectionError&&<Recovery message={connectionError}/>}
     <div className="connection-actions">
-     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
+     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void desktop('OpenRuntimeSettings').catch(()=>setConnectionError(t('chat.actionFailed')))}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
      {!snapshot.loginPending&&!chooseRuntime&&snapshot.connection!=='connecting'&&<button disabled={busy} onClick={()=>void action('Reconnect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
      {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
@@ -660,7 +658,8 @@ export function History() {
     </div>
    </article>}
    {/* Connection failures already have a scoped retry/settings card above. */}
-   {!!(error||connectionError&&!connection)&&<Recovery onRetry={connectionError?()=>void action('Reconnect'):undefined}/>}
+   {!!(error||connectionError&&!connection)&&<ChatFeedback key={error||connectionError} message={error||connectionError} onDismiss={()=>{setError('');setConnectionError('');}}/>}
+   <div ref={setFeedbackTarget}/>
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
@@ -672,7 +671,7 @@ export function History() {
    </div>
   </aside>}
   <footer>
-   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed}/>}
+   {composerMounted.current&&<Composer snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
   </footer>
   {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}
   {quotePreview&&createPortal(<div className="quote-preview-backdrop" onClick={()=>setQuotePreview(null)}><section className="quote-preview" role="dialog" aria-modal="true" aria-label={t('chat.quoteMessage')} onClick={e=>e.stopPropagation()}><button className="quote-preview-close" aria-label={t('common.close')} onClick={()=>setQuotePreview(null)}><Icon name="xmark"/></button><pre>{quotePreview.text}</pre></section></div>,document.body)}

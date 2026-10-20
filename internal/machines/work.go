@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
+	"github.com/caelis-labs/caelis-bot/internal/sharedruntime"
 	"reflect"
 	"sync"
 	"time"
@@ -115,7 +116,10 @@ func (s *Service) workPolls() []workPoll {
 		key := id + "\x00" + runtime
 		if p, ok := s.state.Profiles[id]; ok && !seen[key] {
 			seen[key] = true
-			out = append(out, workPoll{id, runtime, p, s.cacheRevision[key]})
+			s.cacheMu.RLock()
+			revision := s.cacheRevision[key]
+			s.cacheMu.RUnlock()
+			out = append(out, workPoll{id, runtime, p, revision})
 		}
 	}
 	return out
@@ -124,7 +128,7 @@ func (s *Service) workPolls() []workPoll {
 // Network observation must never own the global route/configuration lock.
 // Apply only to the unchanged profile and still-owned backend; a late response
 // cannot restore a deleted machine or overwrite a newly selected default.
-func (s *Service) pollWork(ctx context.Context, poll workPoll) {
+func (s *Service) pollWork(ctx context.Context, poll workPoll) uint64 {
 	r, err := s.call(ctx, poll.profile, remotework.Request{Action: "states", Runtime: poll.runtime})
 	var inspected remotework.Response
 	var inspectErr error
@@ -133,13 +137,16 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 		inspected, inspectErr = s.call(ctx, poll.profile, remotework.Request{Action: "inspect", Runtime: poll.runtime})
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
-		return
+		return poll.revision
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, exists := s.state.Profiles[poll.id]
-	if !exists || !reflect.DeepEqual(p, poll.profile) || s.cacheRevision[poll.id+"\x00"+poll.runtime] != poll.revision {
-		return
+	s.cacheMu.RLock()
+	revision := s.cacheRevision[poll.id+"\x00"+poll.runtime]
+	s.cacheMu.RUnlock()
+	if !exists || !reflect.DeepEqual(p, poll.profile) || revision != poll.revision {
+		return poll.revision
 	}
 	owned := false
 	for task, machine := range s.state.Routes {
@@ -149,7 +156,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 		}
 	}
 	if !owned {
-		return
+		return poll.revision
 	}
 	if err == nil {
 		s.cacheResponse(poll.id, p.View.Name, poll.runtime, r.States)
@@ -160,7 +167,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 				s.state.Profiles[poll.id] = p
 			}
 		}
-		return
+		return poll.revision + 1
 	}
 	if p.View.Runtime == poll.runtime && (p.View.State != "offline" || p.View.Issue != err.Error()) {
 		next := p
@@ -170,14 +177,22 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 			s.state.Profiles[poll.id] = p
 		}
 	}
+	s.invalidateActivity(poll.id, poll.runtime)
+	return poll.revision + 1
+}
+
+// Every failed original-owner observation invalidates activity evidence,
+// regardless of whether it came from foreground readback or background polling.
+func (s *Service) invalidateActivity(id, runtime string) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.cacheRevision[poll.id+"\x00"+poll.runtime]++
-	for i := range s.cache[poll.id+"\x00"+poll.runtime] {
-		state := &s.cache[poll.id+"\x00"+poll.runtime][i]
+	key := id + "\x00" + runtime
+	s.cacheRevision[key]++
+	for i := range s.cache[key] {
+		state := &s.cache[key][i]
+		state.Activity = ""
 		if status := state.Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
 			state.Task.Status = "unknown"
-			state.Activity = ""
 		}
 	}
 }
@@ -226,16 +241,6 @@ func (s *Service) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 		return nil, err
 	}
 	return response.Messages, nil
-}
-func (s *Service) RetireWork(ctx context.Context, id string) (api.Task, error) {
-	if s.route(id) == "" {
-		p, ok := s.local.(api.WorkRetirer)
-		if !ok {
-			return api.Task{}, errors.New("original owner cannot retire tasks")
-		}
-		return p.RetireWork(ctx, id)
-	}
-	return s.remote(ctx, id, "retire", api.TaskMessage{})
 }
 func (s *Service) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if s.route(in.ID) == "" {
@@ -305,20 +310,20 @@ func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, 
 			s.state.Profiles[id] = p
 			_ = s.save()
 		}
-		s.cacheMu.Lock()
-		s.cacheRevision[id+"\x00"+runtime]++
-		for i := range s.cache[id+"\x00"+runtime] {
-			if status := s.cache[id+"\x00"+runtime][i].Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
-				s.cache[id+"\x00"+runtime][i].Task.Status = "unknown"
-			}
-		}
-		s.cacheMu.Unlock()
+		s.invalidateActivity(id, runtime)
 	}
 }
 
 // Poll native facts, never a model. Observation cancellation leaves target owners
 // alive; reconnecting reads the same durable bindings and never resends a turn.
 func (s *Service) Observe(ctx context.Context) {
+	type observation struct {
+		budget   sharedruntime.ObservationBudget
+		revision uint64
+	}
+	episodes := map[string]*observation{}
+	var episodeMu sync.Mutex
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -333,6 +338,22 @@ func (s *Service) Observe(ctx context.Context) {
 		s.mu.Unlock()
 		limit := make(chan struct{}, 4)
 		for _, poll := range s.workPolls() {
+			key := poll.id + "\x00" + poll.runtime
+			episodeMu.Lock()
+			episode := episodes[key]
+			if episode == nil {
+				episode = &observation{}
+				episodes[key] = episode
+			}
+			if episode.revision != poll.revision {
+				episode.budget.Reset()
+			}
+			allowed := episode.budget.Take(time.Now())
+			episodeMu.Unlock()
+			if !allowed {
+				continue
+			}
+
 			select {
 			case limit <- struct{}{}:
 			case <-ctx.Done():
@@ -343,7 +364,24 @@ func (s *Service) Observe(ctx context.Context) {
 				defer func() { <-limit }()
 				c, cancel := context.WithTimeout(ctx, 15*time.Second)
 				defer cancel()
-				s.pollWork(c, poll)
+				observed := s.pollWork(c, poll)
+				s.cacheMu.RLock()
+				revision := s.cacheRevision[key]
+				active := false
+				for _, state := range s.cache[key] {
+					if state.Activity == "active" || state.Task.Status == "working" || state.Task.Status == "running" || state.Task.Status == "pending" || state.Task.Status == "waiting_approval" || state.Task.Status == "awaiting_approval" {
+						active = true
+					}
+				}
+				s.cacheMu.RUnlock()
+				episodeMu.Lock()
+				// Adopt only the revision this poll actually wrote. An explicit
+				// recovery/read racing the poll must still grant a fresh budget.
+				episode.revision = observed
+				if revision == observed && active {
+					episode.budget.Reset()
+				}
+				episodeMu.Unlock()
 			})
 		}
 		observations.Wait()

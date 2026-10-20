@@ -141,8 +141,10 @@ func (s *runtimeSetup) applySelectedModel(ctx context.Context, scope, id string,
 		}
 		return errors.Join(e, restore)
 	}
+	s.metadataMu.Lock()
 	s.pending = ""
 	s.fresh = false
+	s.metadataMu.Unlock()
 	return nil
 }
 func (s *runtimeSetup) ProfileConfiguration(ctx context.Context, id string) (api.RuntimeConfiguration, error) {

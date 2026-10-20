@@ -78,7 +78,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	started := a.started
 	a.mu.Unlock()
 	a.pluginSyncMu.Lock()
-	unsynced := started && snapshot.Revision != a.pluginSyncRevision
+	unsynced := started && a.pluginChanges[id] > a.pluginSyncRevision
 	failed := a.pluginSyncError && !a.pluginSyncRunning
 	a.pluginSyncMu.Unlock()
 	if unsynced {
@@ -202,9 +202,13 @@ func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, err
 			owners[plugins.RuntimeName(server.PackageID, server.Name)] = server.PackageID
 		}
 		for _, issue := range runtime.BotPluginHealth(ctx) {
+			if issue.Component == "runtime" {
+				snapshot.SyncState = "failed"
+				continue // A shared Runtime failure is not a package installation failure.
+			}
 			for i := range snapshot.Items {
 				item := &snapshot.Items[i]
-				matches := issue.Name == item.ID || owners[issue.Name] == item.ID || issue.Component == "skill" && strings.Contains(issue.Name, "/"+item.ID+"/") || issue.Component == "runtime" && item.Enabled
+				matches := issue.Name == item.ID || owners[issue.Name] == item.ID || issue.Component == "skill" && strings.Contains(issue.Name, "/"+item.ID+"/")
 				if matches {
 					item.Issues = append(item.Issues, issue)
 					if item.Enabled && item.Status != "update_available" {
@@ -224,6 +228,10 @@ func (a *Application) pluginDesiredView(snapshot plugins.Snapshot) plugins.Snaps
 	a.pluginSyncMu.Lock()
 	unsynced := started && snapshot.Revision != a.pluginSyncRevision
 	running, failed := a.pluginSyncRunning, a.pluginSyncError
+	changes := make(map[string]bool, len(a.pluginChanges))
+	for id, revision := range a.pluginChanges {
+		changes[id] = revision > a.pluginSyncRevision
+	}
 	a.pluginSyncMu.Unlock()
 	if unsynced {
 		if failed && !running {
@@ -233,7 +241,7 @@ func (a *Application) pluginDesiredView(snapshot plugins.Snapshot) plugins.Snaps
 		}
 		for i := range snapshot.Items {
 			item := &snapshot.Items[i]
-			if !item.Installed || !item.Enabled || item.Status == "update_available" || item.Status == "needs_connection" || item.Status == "unavailable" {
+			if !changes[item.ID] || !item.Installed || !item.Enabled || item.Status == "update_available" || item.Status == "needs_connection" || item.Status == "unavailable" {
 				continue
 			}
 			if failed && !running {
@@ -259,6 +267,19 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 	// Package management commits independently of the model, Worker, and
 	// Runtime. Reconciliation is automatic and cannot turn a confirmed install
 	// into an unknown install receipt.
+	if action == "retry" {
+		found := false
+		for _, item := range a.plugins.Snapshot().Items {
+			if item.ID == id && item.Installed {
+				found = true
+			}
+		}
+		if !found {
+			return plugins.Snapshot{}, errors.New("plugin is not installed")
+		}
+		a.queuePluginReconcile() // Reconcile original adapter receipts; never reinstall or replay OAuth.
+		return a.pluginDesiredView(a.plugins.Snapshot()), nil
+	}
 	snapshot, err := a.plugins.Mutate(ctx, id, action, nil)
 	if err != nil {
 		return snapshot, err
@@ -269,6 +290,7 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 	if action == "uninstall" || action == "disable" {
 		a.queuePluginIndex()
 	}
+	a.markPluginChange(id, snapshot.Revision)
 	a.queuePluginReconcile()
 	return a.pluginDesiredView(a.plugins.Snapshot()), nil
 }
@@ -295,6 +317,7 @@ func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM st
 	if clear {
 		a.queuePluginIndex()
 	}
+	a.markPluginChange(id, snapshot.Revision)
 	a.queuePluginReconcile()
 	return a.pluginDesiredView(a.plugins.Snapshot()), nil
 }
@@ -316,11 +339,12 @@ func (a *Application) PluginOAuthStart(ctx context.Context, id string) (plugins.
 		if closed {
 			return errors.New("Bot has stopped")
 		}
-		_, err := a.plugins.ConfigureOAuthGrant(flowCtx, pluginID, state, grant, nil)
+		snapshot, err := a.plugins.ConfigureOAuthGrant(flowCtx, pluginID, state, grant, nil)
 		if err == nil {
 			a.pluginDetailMu.Lock()
 			a.pluginDetailCache = nil
 			a.pluginDetailMu.Unlock()
+			a.markPluginChange(pluginID, snapshot.Revision)
 			a.queuePluginReconcile()
 		}
 		return err
@@ -364,4 +388,16 @@ func (a *Application) syncPluginIndex(ctx context.Context) error {
 		return plugins.WriteIndex(path, nil)
 	}
 	return plugins.WriteIndex(path, connected)
+}
+
+// Track only the package changed by an acknowledged local management action.
+func (a *Application) markPluginChange(id string, revision uint64) {
+	a.pluginSyncMu.Lock()
+	defer a.pluginSyncMu.Unlock()
+	if a.pluginChanges == nil {
+		a.pluginChanges = make(map[string]uint64)
+	}
+	if revision > a.pluginChanges[id] {
+		a.pluginChanges[id] = revision
+	}
 }

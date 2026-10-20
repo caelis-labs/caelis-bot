@@ -27,8 +27,8 @@ test('selection renders before runtime inspection; each runtime completes indepe
  const pending=loadConnections(call,()=>events.push('selection'),(id,result)=>events.push([id,result]));
  await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(calls.slice(0,3),['SetupOverview','ExecutionSettings','LocalWorkerSelection']);
- assert.equal(events[0],'selection');assert.equal(events[1][0],'caelis');assert.equal(events.length,2);
- release(ready);await pending;assert.equal(events[2][0],'codex');assert.ok(!calls.includes('SetupModels'));
+ assert.equal(events[0],'selection');assert.equal(events.filter(e=>Array.isArray(e))[0][0],'caelis');
+ release(ready);await pending;assert.equal(events.filter(e=>Array.isArray(e))[1][0],'codex');assert.ok(!calls.includes('SetupModels'));
 });
 test('selection failures remain explicit and an older adapter gets a catalog fallback',async()=>{
  let values;const runtime=[];let fallbacks=0;
@@ -69,6 +69,21 @@ test('settings reads back a repaired Worker default after catalog inspection',as
   if(method==='SetupProfile')return {runtime:id};
   if(method==='InspectSetup'){inspected=true;return ready;}
   return {};
- },values=>choices.push(values[2].value.runtime),()=>{});
+ },values=>values[2]&&choices.push(values[2].value.runtime),()=>{});
  assert.deepEqual(choices,['codex','conversation']);
+});
+
+test('one slow preference cannot hide the other saved selections',async()=>{
+ let release;const gate=new Promise(resolve=>{release=resolve});const seen=[];
+ const work=loadConnections(async method=>method==='LocalWorkerSelection'?gate:method==='ExecutionSettings'?{model:'saved'}:{active:'codex',hasRuntimeChoice:true},v=>seen.push(v),()=>{},false);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(seen.at(-1)[1].value.model,'saved');assert.equal(seen.at(-1)[2],undefined);
+ release({runtime:'conversation',work:{model:''}});await work;
+ assert.equal(seen.at(-1)[2].value.runtime,'conversation');
+});
+test('retry inspects only the failing runtime and never activates or reconnects',async()=>{
+ const calls=[],updates=[];
+ await loadConnections(async(method,id)=>{calls.push([method,id]);if(method==='SetupProfile')return {runtime:id};if(method==='InspectSetup')return ready;return {};},()=>{},id=>updates.push(id),'codex');
+ assert.deepEqual(updates,['codex']);assert.deepEqual(calls.filter(([m])=>m==='SetupProfile'),[['SetupProfile','codex']]);
+ assert.ok(calls.every(([m])=>!['Reconnect','ActivateRuntime','ApplySetup'].includes(m)));
 });

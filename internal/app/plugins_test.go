@@ -559,6 +559,7 @@ func TestPluginSyncStatusPreservesUnselectedPackageUpdate(t *testing.T) {
 	a.pluginSyncMu.Lock()
 	a.pluginSyncError = true
 	a.pluginSyncRevision = 1
+	a.pluginChanges = map[string]uint64{"active": 2}
 	a.pluginSyncMu.Unlock()
 	view := a.pluginDesiredView(plugins.Snapshot{Revision: 2, Items: []plugins.Item{{ID: "old", Installed: true, Status: "update_available"}, {ID: "active", Installed: true, Enabled: true, Status: "enabled"}}})
 	if view.SyncState != "failed" || view.Items[0].Status != "update_available" || view.Items[1].Status != "failed" {
@@ -952,5 +953,55 @@ func TestPluginInstallDoesNotWaitForCurrentTurn(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Runtime did not project the final package state")
+	}
+}
+
+func TestPluginProjectionProgressIsPackageLocal(t *testing.T) {
+	a, _ := fixtureApp(t, newTestEngine(), Host{})
+	a.started = true
+	a.pluginSyncRevision = 7
+	a.markPluginChange("target", 8)
+	snapshot := func() plugins.Snapshot {
+		return plugins.Snapshot{Revision: 8, Items: []plugins.Item{
+			{ID: "stable", Installed: true, Enabled: true, Status: "enabled"},
+			{ID: "target", Installed: true, Enabled: true, Status: "enabled"},
+			{ID: "needs-key", Installed: true, Enabled: true, Status: "needs_connection"},
+		}}
+	}
+	for _, failed := range []bool{false, true} {
+		a.pluginSyncError = failed
+		view := a.pluginDesiredView(snapshot())
+		want := "pending"
+		if failed {
+			want = "failed"
+		}
+		if view.Items[0].Status != "enabled" || view.Items[1].Status != want || view.Items[2].Status != "needs_connection" || view.SyncState != want {
+			t.Fatalf("global progress leaked into packages: %+v", view)
+		}
+	}
+	// A later action must survive completion of an older reconciliation.
+	a.markPluginChange("target", 9)
+	a.markPluginChange("target", 8)
+	a.pluginSyncRevision = 8
+	next := snapshot()
+	next.Revision = 9
+	if a.pluginDesiredView(next).Items[1].Status != "failed" {
+		t.Fatal("older acknowledgement erased newer target")
+	}
+	a.pluginSyncRevision = 9
+	next = snapshot()
+	next.Revision = 9
+	if got := a.pluginDesiredView(next); got.SyncState != "" || got.Items[1].Status != "enabled" {
+		t.Fatal("confirmed projection remained pending", got)
+	}
+}
+
+func TestRuntimeRecoveryDoesNotPretendToInstallEveryPlugin(t *testing.T) {
+	a, _ := fixtureApp(t, newTestEngine(), Host{})
+	a.started = true
+	a.pluginSyncError = true
+	view := a.pluginDesiredView(plugins.Snapshot{Revision: 4, Items: []plugins.Item{{ID: "existing", Installed: true, Enabled: true, Status: "enabled"}}})
+	if view.SyncState != "failed" || view.Items[0].Status != "enabled" {
+		t.Fatal("shared recovery changed confirmed package state", view)
 	}
 }

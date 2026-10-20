@@ -95,17 +95,14 @@ completion to model selection. Run its isolated server with
 Shared files: `RuntimeSettings.tsx` (only the Codex ceremony and now-unreachable
 old key dialog), `CodexRuntimePanel.tsx`, `ConnectionsPage.tsx` (action fields),
 generated `backend/contract.ts`, and bilingual `runtime.json`. The new CSS is
-scoped to the shared Codex ceremony. Web navigation, `SurfaceBoundary`, chat
-feedback mounting and `chat.json` remain untouched in this change. Their overall
-alignment still awaits the separate shared UI worker.
+scoped to the shared Codex ceremony. The subsequent Web alignment merges PR205
+(`e8827b27138af998bb399d701bc037cfee8e9443`, including #204) and preserves its
+local errors, transient chat feedback, navigation guards and observation fences.
 
-Handoff for that worker: `Panel.tsx` still has the existing connection-recovery
-`Login` / `CancelLogin` actions, backed by `codex.Session` browser-callback login.
-They are outside the setup ceremony and were not rewritten in this patch.
-The Web allowlist does not expose those old native actions. When aligning the
-chat recovery bubble, direct the user to Runtime connection management and the
-shared device ceremony rather than adding another login owner or broadly
-allowlisting `Login`. Preserve any already-pending legacy native cancellation.
+`Panel.tsx` now directs an unstarted connection-recovery Login action to Runtime
+connection management and this shared device ceremony. It does not start the old
+browser-callback flow. An already-pending legacy native cancellation still targets
+its original owner; the Web allowlist does not expose the old native actions.
 
 Actual visual acceptance used the isolated native Onboarding App and the Rocky
 Web service at matching 640-pixel width, with a 390-pixel Web check. Both issued

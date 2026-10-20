@@ -17,14 +17,14 @@ Decision record, 2026-10-18. Base: bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42.
   cards lose their decision controls and retain their closure reason. Answered
   cards disappear from chat; their durable terminal records remain unchanged.
   Expiry is checked without a Runtime event, including while disconnected.
-- Explicit Worker task termination, failure, cancellation, retirement
+- Explicit Worker task termination, failure, cancellation
   or an explicit stop invalidates unanswered questions. A completed native turn
   which emitted the question is a yield for input, even if it also contains
   commentary; its prose is not proof the user's task ended. It keeps the bounded
   window. Later completed turns also keep unanswered fields: neither commentary
   nor final-answer prose is a task termination contract.
   A changed original item/schema supersedes its old generation. Changing the resident native owner supersedes its old questions.
-  Replacing a task requires explicitly stopping/retiring the old task before
+  Replacing a task requires explicitly stopping the old task before
   delegating its replacement; the original stop/terminal fact closes its questions.
   An ordinary follow-up, a new task or missing bounded history is not proof of
   replacement. Answering one field does not expire its unanswered sibling fields.
@@ -96,7 +96,7 @@ native evidence is separate from real-model and published-app acceptance.
   not evidence of semantic equivalence. New questions must be concise at source.
 - A completed Codex turn (including a `final_answer`) is not a task-end signal.
   `Task.Result` is presentation prose and must never close unanswered siblings.
-  Only explicit task end/stop/retirement/failure or the fixed deadline invalidates
+  Only explicit task end/stop/failure or the fixed deadline invalidates
   unanswered fields. Adapters without an explicit task-completion contract retain
   the bounded question rather than guess that the task ended.
 - Persist retired display fingerprints separately from answer outcomes. Retiring
@@ -111,3 +111,11 @@ native evidence is separate from real-model and published-app acceptance.
 - Smoke evidence must distinguish the schema baseline from the actual initialized
   runtime version. The independent reviewer used Codex 0.162.1; 0.153.4 was only
   the pinned schema baseline, not that runtime's tested version.
+
+## Runtime recovery boundary (2026-10-20)
+
+A turn interrupted by a connection/Runtime event does not by itself cancel the
+user's task. `interrupted` and legacy `unavailable` do not expire its questions.
+Explicit stop/cancel, native task-end facts and the existing deadline still do.
+Legacy question tombstones are retained: removing Worker retirement never
+reopens an already dismissed/expired/answered question or grants missing approval.

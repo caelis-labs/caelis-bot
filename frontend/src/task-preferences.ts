@@ -18,6 +18,7 @@ export class TaskPreferencesSaver {
  change(p:Partial<Values>){this.pending={...this.pending,...p};this.blocked=false;}
  discardTerminal(){delete this.pending.terminal;delete this.pending.customCommand;}
  discardLimit(){delete this.pending.maxRunning;}
+ hasPending(){return this.running||Object.keys(this.pending).length>0;}
  async flush(){
   if(this.running||this.blocked||Object.keys(this.pending).length===0)return;
   this.running=true;this.state('saving');

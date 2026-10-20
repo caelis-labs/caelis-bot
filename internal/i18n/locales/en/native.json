@@ -91,7 +91,7 @@
   "taskFinished": "Completed",
   "taskApproval": "Needs approval",
   "taskUnknown": "Status unconfirmed · check this task",
-  "taskUnavailable": "Cannot continue · history retained",
+  "taskUnavailable": "Awaiting confirmation · retry available",
   "taskFailed": "Failed",
   "taskInterrupted": "Interrupted",
   "taskIdle": "Retained task",
@@ -114,7 +114,7 @@
   "taskTerminalControl": "The window operation did not complete. Your existing window is retained. Try again shortly.",
   "taskTerminalActivation": "The terminal could not come to the foreground. Your existing window is retained. Try again shortly.",
   "taskTerminalUnsettled": "The window transition is not yet confirmed. The existing window has been kept; click again to check its current state.",
-  "capture.start": "Capture Screen…",
+  "capture.start": "Screenshot",
   "capture.paste": "Paste Image to Screen",
   "capture.togglePins": "Show / Hide Image Pins",
   "capture.copy": "Copy image (⌘C)",
@@ -176,5 +176,6 @@
   "windowsUpdateCheckFailed": "Could not verify Windows updates. Try again later.",
   "windowsUpdateDownloading": "Downloading and verifying the update…",
   "windowsUpdateReady": "Update downloaded. Open Settings > About & Help and choose Restart and install when ready.",
-  "windowsUpdateRecovery": "The previous update needs review. Reinstall from the release page if necessary; your data is preserved."
+  "windowsUpdateRecovery": "The previous update needs review. Reinstall from the release page if necessary; your data is preserved.",
+  "closeSettings": "Close settings"
 }

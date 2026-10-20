@@ -26,13 +26,12 @@ export function inspectedModels(state:SetupState):ModelOption[]|null {
  return available.every(m=>m.parameters)?available.map(m=>m.parameters!):null;
 }
 
-export async function loadConnections(call:Call, selections:(values:Awaited<ReturnType<typeof readSelections>>)=>void, runtime:(id:RuntimeID,result:RuntimeView|Error)=>void, inspect=true) {
- // SetupOverview shares the native inspection lock. Read selections BEFORE
- // starting inspection, so unrelated CLI probes cannot queue ahead of them.
- const current=await readSelections(call);
- selections(current);
+export async function loadConnections(call:Call, selections:(values:Awaited<ReturnType<typeof readSelections>>)=>void, runtime:(id:RuntimeID,result:RuntimeView|Error)=>void, inspect:boolean|RuntimeID=true) {
+ // Publish each saved local selection before inspecting external Runtimes.
+ // A slow preference or probe cannot hide another already-confirmed field.
+ const current=await readSelections(call,selections);
  if(!inspect)return;
- await Promise.all((['caelis','codex'] as const).map(async id=>{
+ await Promise.all((typeof inspect==='string'?[inspect]:['caelis','codex'] as const).map(async id=>{
   try {
    const profile=await call<RuntimeSettings>('SetupProfile',id);
    const state=await call<SetupState>('InspectSetup',profile);
@@ -44,6 +43,14 @@ export async function loadConnections(call:Call, selections:(values:Awaited<Retu
  // Read that small local preference again without repeating native discovery.
  try {current[2]={status:'fulfilled',value:await call<LocalWorkerSettings>('LocalWorkerSelection')};selections(current);}catch {/* Preserve the last successful local read. */}
 }
-function readSelections(call:Call){return Promise.allSettled([
- call<SetupOverview>('SetupOverview'),call<ExecutionSettings>('ExecutionSettings'),call<LocalWorkerSettings>('LocalWorkerSelection'),
-]);}
+type SelectionReads=[PromiseSettledResult<SetupOverview>?,PromiseSettledResult<ExecutionSettings>?,PromiseSettledResult<LocalWorkerSettings>?];
+async function readSelections(call:Call,notify:(values:SelectionReads)=>void) {
+ const current:SelectionReads=[];
+ const requests=[call<SetupOverview>('SetupOverview'),call<ExecutionSettings>('ExecutionSettings'),call<LocalWorkerSettings>('LocalWorkerSelection')] as const;
+ await Promise.all(requests.map(async(request,index)=>{
+  const result=await Promise.allSettled([request]);
+  Object.assign(current,{[index]:result[0]});
+  notify([...current]);
+ }));
+ return current;
+}

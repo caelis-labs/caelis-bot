@@ -2,7 +2,8 @@ import {isWebSurface} from './transport';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import {SettingsToolbarContext} from './settings/SettingsToolbar';
 import { SettingsNavIcon } from './SettingsNavIcon';
-import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
+import { XIcon } from './SettingsIcons';
+import {nativeContextChrome,requestChatReturn,settingsHasModal} from './context-navigation';
 import { useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
@@ -52,11 +53,17 @@ export function Settings({onNavigate}:{onNavigate?:(section:Section)=>void}={}) 
   const onOpen=()=>{visibilitySeq.current++;load(true);};
   const onClose=()=>{visibilitySeq.current++;visibleRef.current=false;setVisible(false);};
   const onFocus=()=>{if(visibleRef.current)setFocusVersion(n=>n+1);};
-  const key=(event:KeyboardEvent)=>{if(!visibleRef.current||event.defaultPrevented||event.isComposing||document.querySelector('[data-select-open="true"]'))return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))navigate('chatConnections');return;}if(event.key==='Escape'||(!isWebSurface()&&event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
+  const returnChat=()=>requestChatReturn(sectionRef.current==='setup',visibleRef.current,()=>void desktop('OpenHistory'));
+  const key=(event:KeyboardEvent)=>{
+   if(!visibleRef.current||event.defaultPrevented||event.isComposing||settingsHasModal())return;
+   if(event.key==='Escape'){event.preventDefault();returnChat();}
+   else if(!isWebSurface()&&event.metaKey&&event.key==='w'){event.preventDefault();void desktop('CloseSettings');}
+  };
+  window.addEventListener('context-navigation',returnChat);
   surfaceMounted('settings');
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',onOpen);window.addEventListener('settings-close',onClose);window.addEventListener('settings-focus',onFocus);window.addEventListener('keydown',key);
-  return()=>{window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
+  return()=>{window.removeEventListener('context-navigation',returnChat);window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true);
   if(isWebSurface())content.current?.closest('.settings-window')?.querySelector<HTMLElement>('aside nav [aria-current=page]')?.scrollIntoView({block:'nearest',inline:'nearest'});
@@ -64,8 +71,8 @@ export function Settings({onNavigate}:{onNavigate?:(section:Section)=>void}={}) 
  useEffect(()=>{if(visible&&opened)surfaceReady('settings');},[visible,opened,section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
-  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>{isWebSurface()?'CaelisBot':'Caelis Bot'}</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{groups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))navigate(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
-  <div className="settings-main"><header className="settings-toolbar"><span>{t('settings.windowTitle')}</span><span aria-hidden="true">/</span><h1>{t(`settings.${section==='telegram'||section==='weixin'?'chatConnections':section}`)}</h1><div className="settings-subpage-slot" ref={setToolbar}/></header><div className="settings-content" ref={content}>
+  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>{isWebSurface()?'CaelisBot':'Caelis Bot'}</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{groups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))navigate(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav></aside>
+  <div className="settings-main"><header className="settings-toolbar"><span>{t('settings.windowTitle')}</span><span aria-hidden="true">/</span><h1>{t(`settings.${section==='telegram'||section==='weixin'?'chatConnections':section}`)}</h1><div className="settings-subpage-slot" ref={setToolbar}/>{!nativeContextChrome()&&<button className="context-navigation settings-navigation" aria-label={t('native.closeSettings')} onClick={()=>requestChatReturn(false,visible,()=>void desktop('OpenHistory'))}><XIcon size={18}/></button>}</header><div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{section==='permissions'&&<><h1>{t('settings.permissions')}</h1><PermissionSettings embedded active={visible} focusVersion={focusVersion}/></>}</div>
    <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<SettingsToolbarContext.Provider value={section==='connections'?toolbar:null}><RuntimeSettings active={visible&&section==='connections'} refreshKey={opened}/></SettingsToolbarContext.Provider>}</div>
    <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings active={visible} focusVersion={focusVersion} openTelegram={()=>navigate('telegram')} openWeixin={()=>navigate('weixin')}/>}</div>

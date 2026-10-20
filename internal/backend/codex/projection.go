@@ -76,7 +76,7 @@ type nativeItem struct {
 }
 
 func terminal(status string) bool {
-	return status == "completed" || status == "failed" || status == "interrupted" || status == "unavailable"
+	return status == "completed" || status == "failed" || status == "interrupted"
 }
 func (s *Session) applyTurn(thread string, turn nativeTurn, history bool) {
 	if turn.ID == "" {

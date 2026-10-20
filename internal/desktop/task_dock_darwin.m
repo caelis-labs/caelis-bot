@@ -325,7 +325,7 @@ static NSPanel *taskPanel(NSString *title) {
         for(NSDictionary *old in self.tasks) {
             NSDictionary *latest=nil;
             for(NSDictionary *entry in valid) if([entry[@"id"] isEqual:old[@"id"]]) { latest=entry; break; }
-            [stable addObject:latest ?: @{@"id":old[@"id"],@"prompt":old[@"prompt"],@"status":@"unavailable"}];
+            [stable addObject:latest ?: @{@"id":old[@"id"],@"prompt":old[@"prompt"],@"status":@"unknown"}];
         }
         BOOL appended=NO;
         for(NSDictionary *entry in valid) {
@@ -428,7 +428,7 @@ static NSPanel *taskPanel(NSString *title) {
     BOOL reduced=NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     for(BotTaskButton *button in self.buttons) {
         NSString *status=button.tag>=0 && (NSUInteger)button.tag<self.tasks.count ? self.tasks[button.tag][@"status"] : @"";
-        button.enabled=![status isEqual:@"unavailable"];
+        button.enabled=YES;
         if(!button.enabled)button.pressed=NO;
         NSString *phase=button.tag>=0 ? self.transitions[self.tasks[button.tag][@"id"]] : nil;
         BOOL opening=button.tag<0 ? (self.transitions.count>0 || self.opening.length>0) : (phase.length>0 || [self.tasks[button.tag][@"id"] isEqual:self.opening]);
@@ -442,7 +442,7 @@ static NSPanel *taskPanel(NSString *title) {
 
             for(NSView *view in button.subviews)if([view isKindOfClass:NSButton.class]) {
                 NSButton *control=(NSButton *)view;
-                control.enabled=![status isEqual:@"unavailable"];
+                control.enabled=YES;
                 if(control.action==@selector(changeLock:)) {
                     NSString *label=[self text:locked?@"unlockTask":@"lockTask"];
                     control.image=[NSImage imageWithSystemSymbolName:locked?@"lock.fill":@"lock.open" accessibilityDescription:label];
@@ -484,7 +484,7 @@ static NSPanel *taskPanel(NSString *title) {
 }
 - (void)captureTask:(NSString *)identifier source:(NSDictionary *)source {
     if(self.transitions[identifier])return; // A late preview must not start during a newer window action.
-    BOOL present=NO;for(NSDictionary *task in self.tasks)if([task[@"id"] isEqual:identifier] && ![task[@"status"] isEqual:@"unavailable"]){present=YES;break;}
+    BOOL present=NO;for(NSDictionary *task in self.tasks)if([task[@"id"] isEqual:identifier]){present=YES;break;}
     if(!present)return;
     // This is a cached still, not a live feed. Repeated toggles reuse a recent
     // image instead of asking the capture service again during each animation.

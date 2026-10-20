@@ -251,11 +251,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (NSMenu *)applicationMenu {
     NSMenu *menu = [self petMenu];
     [menu addItem:NSMenuItem.separatorItem];
-    for(NSArray *entry in @[@[@"capture.start",NSStringFromSelector(@selector(startCapture:))],@[@"capture.paste",NSStringFromSelector(@selector(pasteCapture:))],@[@"capture.togglePins",NSStringFromSelector(@selector(toggleCapturePins:))]]) {
-        NSMenuItem *item=[menu addItemWithTitle:[self text:entry[0]] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
-        item.target=self;item.enabled=self.captureEnabled;
-    }
-    [menu addItem:NSMenuItem.separatorItem];
+    bot_capture_menu_add((__bridge void *)menu, (__bridge void *)self, self.captureEnabled, [self text:@"capture.start"].UTF8String);
     NSMenuItem *settings = [menu addItemWithTitle:[self text:@"settings"] action:@selector(openSettings:) keyEquivalent:@","];
     settings.target = self;
     NSMenuItem *updates = [menu addItemWithTitle:[self text:@"updates"] action:@selector(checkUpdates:) keyEquivalent:@""];
@@ -913,6 +909,8 @@ void bot_capture_enabled(void *pointer,int enabled) {
     BotHost *host=(__bridge BotHost *)pointer;
     host.captureEnabled=enabled!=0;
     host.capture.enabled=enabled!=0;
+    // Update the installed menu, including an already tracking menu, immediately.
+    bot_capture_menu_enabled((__bridge void *)host.statusItem.menu, host.captureEnabled);
 }
 char *bot_preferred_languages(void) {
     @autoreleasepool {

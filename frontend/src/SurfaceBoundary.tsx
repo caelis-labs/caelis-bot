@@ -1,25 +1,25 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {isWebSurface} from './transport';
-import {copyFeedback} from './feedback-client';
-import type {FeedbackContext} from './feedback';
 import { useI18n } from './i18n';
 import { presentationWarning } from './presentation-warning';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
-import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
-import { CheckIcon } from '@phosphor-icons/react/dist/csr/Check';
 
-export function Recovery({onRetry,fullscreen=false,feedback}:{onRetry?:()=>void;fullscreen?:boolean;feedback?:FeedbackContext}={}) {
-  const { t,locale } = useI18n();
-  const [copied,setCopied]=useState(false);
-  const copy=async()=>{try{await copyFeedback(feedback,locale);setCopied(true);}catch{presentationWarning('background_read_failed');}};
-  return <section className={`surface-recovery${fullscreen?' is-fullscreen':''}`} role="status">
+// Contextual errors do not reload a surface or manufacture a retry operation.
+// Callers supply the actual failure and, only when safe, a scoped retry.
+export function Recovery({message,onRetry}:{message:string;onRetry?:()=>void}) {
+  const {t}=useI18n();
+  return <p className="operation-error" role="status"><span>{message}</span>{onRetry&&<button type="button" className="text-action" onClick={onRetry}>{t('settings.runtimeTryAgain')}</button>}</p>;
+}
+
+function SurfaceRecovery() {
+  const { t } = useI18n();
+  return <section className="surface-recovery is-fullscreen" role="alert">
     <span className="surface-recovery-icon" aria-hidden="true"><ArrowClockwiseIcon size={20}/></span>
     <div className="surface-recovery-content">
-      <strong>{t(onRetry?'chat.surfaceRetryTitle':'chat.surfaceRestartTitle')}</strong>
-      <p>{t(onRetry?'chat.surfaceRetryNeeded':isWebSurface()?'chat.surfaceReloadNeeded':'chat.surfaceRestartNeeded')}</p>
+      <strong>{t('chat.surfaceRestartTitle')}</strong>
+      <p>{t(isWebSurface()?'chat.surfaceReloadNeeded':'chat.surfaceRestartNeeded')}</p>
       <div className="surface-recovery-actions">
-        <button type="button" className="surface-recovery-primary" onClick={()=>onRetry?onRetry():window.location.reload()}>{t(onRetry?'settings.runtimeTryAgain':isWebSurface()?'chat.reloadSurface':'chat.restartSurface')}</button>
-        <button type="button" className="surface-recovery-feedback" onClick={()=>void copy()}>{copied?<CheckIcon size={14} aria-hidden="true"/>:<CopyIcon size={14} aria-hidden="true"/>}{t(copied?'chat.feedbackCopied':'chat.copyFeedback')}</button>
+        <button type="button" className="surface-recovery-primary" onClick={()=>window.location.reload()}>{t(isWebSurface()?'chat.reloadSurface':'chat.restartSurface')}</button>
       </div>
     </div>
   </section>;
@@ -39,5 +39,5 @@ export class SurfaceBoundary extends React.Component<React.PropsWithChildren, { 
     this.timer=setTimeout(()=>this.setState({failed:false}),300);
   }
   componentWillUnmount() { clearTimeout(this.timer); }
-  render() { return this.state.failed ? this.state.fatal?<Recovery fullscreen feedback={{issue:'surface_render_failed'}}/>:null : this.props.children; }
+  render() { return this.state.failed ? this.state.fatal?<SurfaceRecovery/>:null : this.props.children; }
 }

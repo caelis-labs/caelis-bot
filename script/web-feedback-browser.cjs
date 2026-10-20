@@ -2,7 +2,7 @@
 // Run against the disposable, uninitialized Rocky demo at 127.0.0.1:19317.
 // Error/empty catalogs and completed setup below are browser-only fixtures.
 async(page)=>{
- const out='output/playwright/web-feedback-20261020';
+ const out='output/playwright/ui-alignment-20261020';
  await page.unrouteAll();const errors=[];page.on('pageerror',e=>errors.push(e.stack));
  const check=(v,s)=>{if(!v)throw Error(s)};
  const result={realSetupGuards:[],gateway:[],settingsFixture:[],pageErrors:errors};
@@ -39,12 +39,8 @@ async(page)=>{
  check(!await page.locator('.surface-recovery').count(),'model read became window recovery');
  check(await page.locator('input[type=url]').inputValue()==='http://127.0.0.1:3425/v1','form lost');
  check(readCount===3,'bounded reads');
- await page.evaluate(()=>{window.copiedFeedback='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.copiedFeedback=value}}})});
- await page.getByRole('button',{name:'复制反馈信息',exact:true}).click();
- await page.waitForFunction(()=>window.copiedFeedback?.includes('CaelisBot 反馈摘要'));
- const feedback=await page.evaluate(()=>window.copiedFeedback);
- check(!feedback.includes('{')&&!feedback.includes('schemaBaseline')&&!feedback.includes('http'),'raw diagnostic leaked');
- result.feedback=feedback;await page.screenshot({path:out+'/after/web-magpie-unavailable-600.png'});
+ check(!await page.getByRole('button',{name:'复制反馈信息',exact:true}).count(),'local gateway error exposes generic feedback card');
+ await page.screenshot({path:out+'/after/web-magpie-unavailable-600.png'});
  result.gateway.push({mode,readCount,formPreserved:true});
  mode='empty';readCount=0;await page.locator('.gateway-read-notice button').first().click();
  await page.getByText('网关没有返回可用模型，请在网关中连接模型后重试。',{exact:false}).waitFor();
@@ -71,23 +67,25 @@ async(page)=>{
     const content=document.querySelector('.settings-content').getBoundingClientRect();
     const p=[...document.querySelectorAll('.settings-page')].find(n=>!n.hidden).getBoundingClientRect();
     const nav=document.querySelector('aside nav').getBoundingClientRect(),active=document.querySelector('aside nav [aria-current=page]').getBoundingClientRect();
-    return {contentX:content.x,contentWidth:content.width,x:p.x,width:p.width,left:p.x-content.x,right:content.right-p.right,activeNavVisible:active.left>=nav.left-1&&active.right<=nav.right+1,overflow:document.documentElement.scrollWidth>innerWidth};
+    const close=document.querySelector('.settings-navigation').getBoundingClientRect(),icon=document.querySelector('.settings-navigation svg').getBoundingClientRect();
+    return {contentX:content.x,contentWidth:content.width,x:p.x,width:p.width,left:p.x-content.x,right:content.right-p.right,activeNavVisible:active.left>=nav.left-1&&active.right<=nav.right+1,closeIconContained:icon.left>=close.left&&icon.right<=close.right&&close.right<=innerWidth,overflow:document.documentElement.scrollWidth>innerWidth};
    });
    check(!metrics.overflow,'horizontal overflow '+section+' '+width);
    check(metrics.activeNavVisible,'active navigation outside viewport '+section+' '+width);
+   check(metrics.closeIconContained,'close icon clipped '+section+' '+width);
    if(width===1600)check(Math.abs(metrics.left-metrics.right)<3,'unbalanced wide grid '+section);
    await page.screenshot({path:out+'/after/web-settings-'+section+'-'+width+'-fixture.png'});
    result.settingsFixture.push({section,viewportWidth:width,...metrics});
   }
  }
  await page.setViewportSize({width:900,height:800});
- await page.getByRole('button',{name:'返回聊天',exact:true}).click();await page.waitForURL('**/#/chat');
+ await page.getByRole('button',{name:'关闭设置',exact:true}).click();await page.waitForURL('**/#/chat');
  await page.getByRole('button',{name:'设置',exact:true}).click();await page.waitForURL('**/#/settings/general');
  await page.goBack();await page.waitForURL('**/#/chat');await page.goForward();await page.waitForURL('**/#/settings/general');
  await page.reload();await page.locator('.settings-page[data-section=general]:not([hidden])').first().waitFor();
  result.completedNavigation=true;
  await page.unroute('**/api/v1/connections/setup-overview');await page.unroute('**/api/v1/connections/bot-initialization');
- await page.getByRole('button',{name:'返回聊天',exact:true}).click();await page.getByRole('heading',{name:'选择一种开始方式'}).waitFor();
+ await page.getByRole('button',{name:'关闭设置',exact:true}).click();await page.getByRole('heading',{name:'选择一种开始方式'}).waitFor();
  result.settingsReturnRechecksSetup=true;
  await page.goto('http://127.0.0.1:19317/#/settings/general');await page.getByRole('heading',{name:'选择一种开始方式'}).waitFor();
  for(const status of [503,429]){

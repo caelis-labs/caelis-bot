@@ -9,8 +9,19 @@ const {CodexRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/Code
 const {BuiltinRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/BuiltinRuntimePanel.tsx');
 const {TeamSettings}=await server.ssrLoadModule('/src/settings/runtime/TeamSettings.tsx');
 const {ConnectionsPage}=await server.ssrLoadModule('/src/settings/runtime/ConnectionsPage.tsx');
+const {Recovery}=await server.ssrLoadModule('/src/SurfaceBoundary.tsx');
 
-test('renderer recovery retries once, then offers feedback and reopen without exception prose',async(t)=>{
+test('contextual errors preserve the actual failure and have only an explicitly supplied retry',()=>{
+ const failed=renderToStaticMarkup(React.createElement(Recovery,{message:'Model was removed during selection'}));
+ assert.match(failed,/Model was removed during selection/);
+ assert.doesNotMatch(failed,/<button|surface-recovery|Copy feedback|Reopen window/);
+ const retry=renderToStaticMarkup(React.createElement(Recovery,{message:'Could not read models',onRetry:()=>{}}));
+ assert.equal((retry.match(/<button/g)||[]).length,1);
+ assert.match(retry,/Try again/);
+ assert.doesNotMatch(retry,/Copy feedback|Reopen window|message-row/);
+});
+
+test('renderer recovery retries once, then offers reopen without a generic feedback card',async(t)=>{
  const {SurfaceBoundary}=await server.ssrLoadModule('/src/SurfaceBoundary.tsx');
  t.mock.timers.enable({apis:['setTimeout']});
  const boundary=new SurfaceBoundary({children:'original surface'});
@@ -23,7 +34,7 @@ test('renderer recovery retries once, then offers feedback and reopen without ex
  Object.assign(boundary.state,SurfaceBoundary.getDerivedStateFromError());
  boundary.componentDidCatch(new Error('PRIVATE_SENTINEL'));
  const recovery=renderToStaticMarkup(boundary.render());
- assert.match(recovery,/Copy feedback/);
+ assert.doesNotMatch(recovery,/Copy feedback/);
  assert.match(recovery,/Reopen window/);
  assert.doesNotMatch(recovery,/PRIVATE_SENTINEL|Reconnect|stack/i);
  t.mock.timers.tick(30000);

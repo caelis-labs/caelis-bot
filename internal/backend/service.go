@@ -84,9 +84,10 @@ type Service struct {
 }
 
 type recoveryFlight struct {
-	done   chan struct{}
-	cancel context.CancelFunc
-	err    error
+	done              chan struct{}
+	cancel            context.CancelFunc
+	err               error
+	retryObservations bool
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string) error, openURL, reveal func(string) error) *Service {
@@ -490,7 +491,7 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	return errors.New("当前接入暂不支持读取更早消息")
 }
 func (s *Service) Connect(ctx context.Context) error {
-	return s.connect(ctx, "")
+	return s.connect(ctx, "", false)
 }
 
 // Reconnect is the explicit desktop recovery action. Automatic/setup Connect
@@ -501,7 +502,7 @@ func (s *Service) Reconnect(ctx context.Context) error {
 	if state.Manual {
 		return s.RecoverIfCurrent(ctx, state.Fence)
 	}
-	return s.Connect(ctx) // Shares an existing flight; never grants lost-owner recovery.
+	return s.connect(ctx, "", true) // Shares the flight; never grants lost-owner recovery.
 }
 
 // RecoveryState is a host-only view of the current Runtime owner. Its fence
@@ -541,10 +542,10 @@ func (s *Service) RecoverIfCurrent(ctx context.Context, fence string) error {
 	if fence == "" {
 		return errors.New("recovery_target_changed")
 	}
-	return s.connect(ctx, fence)
+	return s.connect(ctx, fence, true)
 }
 
-func (s *Service) connect(ctx context.Context, fence string) error {
+func (s *Service) connect(ctx context.Context, fence string, retryObservations bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -582,6 +583,7 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 		return errors.New("automatic_recovery_in_progress")
 	}
 	if flight := s.recoveryFlight; flight != nil {
+		flight.retryObservations = flight.retryObservations || retryObservations
 		s.recoveryMu.Unlock()
 		select {
 		case <-flight.done:
@@ -591,7 +593,7 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 		}
 	}
 	workCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
-	flight := &recoveryFlight{done: make(chan struct{}), cancel: cancel}
+	flight := &recoveryFlight{done: make(chan struct{}), cancel: cancel, retryObservations: retryObservations}
 	s.recoveryFlight = flight
 	s.recoveryGeneration++
 	s.recoveryMu.Unlock()
@@ -614,6 +616,13 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 	}
 	cancel()
 	s.recoveryMu.Lock()
+	if err == nil && flight.retryObservations {
+		// Renew existing observers only for an explicit recovery action, within
+		// the same admission/flight. Routine Ensure/Connect stays idempotent.
+		if observer, ok := engine.(interface{ RetryObservations() }); ok {
+			observer.RetryObservations()
+		}
+	}
 	flight.err = err
 	s.recoveryFlight = nil
 	close(flight.done)

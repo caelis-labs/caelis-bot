@@ -245,3 +245,11 @@ test('model choice stays editable across a lost acknowledgement and newer choice
  assert.deepEqual(calls.map(v=>v[3]),['first','latest']);
  assert.deepEqual(delivery.snapshot(),[]);
 });
+
+test('reads begun before a model choice or its acknowledgement cannot overwrite it',async()=>{
+ let complete;const delivery=new ModelSelectionDelivery(()=>new Promise(resolve=>{complete=resolve}));
+ const before=delivery.version();delivery.save('conversation','codex',{model:'new',effort:'',serviceTier:''});
+ assert.notEqual(delivery.version(),before);const saving=delivery.version();
+ assert.equal(delivery.snapshot()[0].selection.model,'new');complete();
+ await new Promise(resolve=>setImmediate(resolve));assert.notEqual(delivery.version(),saving);assert.deepEqual(delivery.snapshot(),[]);
+});

@@ -34,6 +34,6 @@ export function AppearanceSettings(){
   <SettingGroup title={t('settings.contentPacks')}><SettingRow label={t('settings.importContentPack')} description={t('settings.importContentPackDescription')}><button disabled={busy||!state} onClick={()=>void run('ImportContent')}>{busy?t('common.loading'):t('settings.importButton')}</button></SettingRow>
    {state?.packs.map(p=><SettingRow key={p.id} label={`${p.name} · ${p.version}`} description={t('settings.importedPackDetails',{author:p.author,license:p.license})}><button disabled={busy||p.active} title={p.active?t('settings.packInUseHint'):''} onClick={()=>void run('RemoveContent',p.id)}>{p.active?t('settings.packActive'):t('settings.packRemove')}</button></SettingRow>)}
   </SettingGroup>
-  {error&&<Recovery/>}
+  {error&&<Recovery message={error}/>}
  </section>;
 }

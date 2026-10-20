@@ -167,14 +167,67 @@ follow-up's evidence.
 App/Web login ceremony now uses the native `chatgptDeviceCode` App Server method,
 with a secondary API Key form and no normal-login advanced/path dialog. Real empty
 profiles on macOS 0.162.1 and Rocky 0.153.4 issued and cancelled codes without account
-authorization. Mounted completion/expiry/failure cases are fixtures. Shared feedback
-mounting and whole-Web alignment still await the separate UI worker; this follow-up
-does not modify those files or claim that pending work is complete.
+authorization. Mounted completion/expiry/failure cases are fixtures. The following
+shared-UI alignment completes the previously pending feedback/navigation handoff.
 
 The final follow-up passed `make check` (249 Node tests plus Go suites),
 `make smoke`, isolated native `make build`, `make build-headless`, and the affected
 Go packages with `-race`. Real Web refresh/multi-tab checks kept one native login
 attempt; 640/390-pixel layouts had no overflow. Native screenshots are from the
 actual isolated App, and that Dev process was stopped after acceptance. The
-remaining legacy chat `Login` action is a named integration seam in
-`codex-device-login.md`, not an exposed Web RPC.
+legacy chat recovery now opens connection management for a new login; existing
+pending native cancellation retains its original owner, without new Web RPCs.
+
+## Shared UI / PR205 alignment (2026-10-20)
+
+Merged remote main `e8827b27138af998bb399d701bc037cfee8e9443` (PR205, accepted head
+`1ca72859473373187133168dade3a8ecbfd59e7d`) into the existing isolated Web branch.
+Device authentication was first preserved as local commit
+`b5f52360e8843e65b9596c45d106e8c59795be3c`. Main and the original UI/recovery
+worktrees remain untouched. The included #204 task/worker lifecycle changes are
+retained exactly; this alignment adds no execution/recovery owner or receipt replay.
+
+Resolved shared seams: `SurfaceBoundary`, `ConnectionWizard`, `ConnectionsPage`,
+`Settings`, `RuntimeSettings`, `Panel`, `ChatFeedback`, `context-navigation`,
+`surface.css`, Web navigation/transport and bilingual presentation resources.
+Device-auth remains the primary Codex ceremony, while API Key remains secondary.
+Bundled Caelis discovery, loopback/remote authentication boundaries and the
+restricted Mac Magpie bridge are unchanged.
+
+- Settings use the existing saved-value/background-observation loader and its
+  generation/selection fences. Only the affected plugin shows package progress.
+- Web gear/task icons and settings close sit in a fixed content position; there
+  is no extra title/navigation row. Native AppKit accessories remain native.
+  The HTML close control explicitly resets shared form padding, preventing a
+  clipped icon. Existing field limits are retained in a centered responsive grid.
+- First-run guards cover direct URL, Back/Forward, reload and settings return.
+  Modal/dirty guards also apply to Web URL changes. Retained chat stays mounted
+  and measurable: native and Web evidence both preserve draft, attachment and
+  140px scroll position.
+- Generic Copy Feedback is only in transient chat bubbles. Settings/onboarding
+  errors stay local; fatal renderer recovery still offers bounded remount/reopen.
+  Readable copies use allowlisted fields and classify unknown sends separately.
+  Dismissal preserves transcript/receipts; unknown-send Retry observes the original
+  request. Both mounted native and Web fixtures recorded exactly one Submit.
+
+Evidence: `output/playwright/ui-alignment-20261020/`. The AppKit/WKWebView fixture
+is an actual native window using production shared components and synthetic
+transport; its data and plugin/worker outcomes are not real backend effects.
+The separate isolated Onboarding App and the Rocky experience service use actual
+runtime discovery; no production App or credential profile is used.
+Seven common Web settings pages are checked at 390/900/1600 pixels with a
+browser-only completed-setup projection. Actual first-run guards and Magpie model
+listing run against Rocky; HTTP error/empty-catalog responses are injected.
+Device-login completion/expiry/failure are fixtures; real issuance/cancellation
+from macOS 0.162.1 and Linux 0.153.4 are recorded separately.
+
+Verification: `make check` (255 Node tests plus Go suites), `make smoke`,
+`make build` (isolated ad-hoc Onboarding package), `make build-headless`, actual
+Linux arm64 build/run, mounted browser regressions and native evidence validator.
+There is no `make commit-check` target. A sandboxed smoke attempt could not launch
+Codex; the authorized isolated-profile handshake passed outside that restriction.
+Docker bubblewrap compatibility remains unresolved without weakening sandboxing;
+no real WSL/Tailscale or completed real-account sign-in is claimed.
+
+Bot skill guidance from #204 is retained. This UI/auth alignment adds no Bot tool,
+permission or autonomous workflow, so it needs no additional Bot-facing guidance.

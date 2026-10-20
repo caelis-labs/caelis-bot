@@ -78,21 +78,21 @@ func TestPersistedPendingProjectedUnknownRetiresOnlyWithOriginalIdle(t *testing.
 	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, PromptID: "original-prompt"}
 	s.state.Operations["original-prompt"] = journal{Outcome: "unknown", Path: "/sessions/work/prompt"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
-	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "unknown" || got[0].Activity != "idle" {
+	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "unknown" || got[0].Activity != "" {
 		t.Fatalf("wrong precondition: %+v", got)
 	}
-	got, err := s.RetireWork(t.Context(), "task")
-	if err != nil || got.Status != "unavailable" || gets.Load() != 1 {
+	got, err := s.ReadWork(t.Context(), "task")
+	if err != nil || got.Status != "unknown" || gets.Load() != 1 {
 		t.Fatalf("known idle original still reserved: task=%+v err=%v GET=%d", got, err, gets.Load())
 	}
-	if got.Outcome != "accepted" || s.state.Workers["task"].PromptID != "original-prompt" || s.state.Operations["original-prompt"].Outcome != "unknown" {
+	if got.Outcome != "unknown" || s.state.Workers["task"].PromptID != "original-prompt" || s.state.Operations["original-prompt"].Outcome != "unknown" {
 		t.Fatal("original receipt or outcome changed", got, s.state.Workers["task"])
 	}
 	restarted, err := loadBinding(s.path)
-	if err != nil || !restarted.Workers["task"].Retired || restarted.Workers["task"].Task.Status != "unavailable" || restarted.Operations["original-prompt"].Outcome != "unknown" {
+	if err != nil || restarted.Workers["task"].Task.Status != "pending" || restarted.Operations["original-prompt"].Outcome != "unknown" {
 		t.Fatal("retirement or receipt not durable", err, restarted.Workers["task"])
 	}
-	if v, err := s.ReadWork(t.Context(), "task"); err != nil || v.Status != "unavailable" || gets.Load() != 1 {
+	if v, err := s.ReadWork(t.Context(), "task"); err != nil || v.Status != "unknown" || gets.Load() != 2 {
 		t.Fatal("retired read recontacted native owner", v, err, gets.Load())
 	}
 }
@@ -126,15 +126,15 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 				})
 				s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: persisted, Outcome: "unknown"}, PromptID: "original-prompt"}
 				s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
-				got, err := s.RetireWork(t.Context(), "task")
+				got, err := s.ReadWork(t.Context(), "task")
 				if gets.Load() != 1 {
 					t.Fatal("did not read the exact original owner", gets.Load())
 				}
 				if fact == "idle" {
-					if err != nil || got.Status != "unavailable" || !s.state.Workers["task"].Retired {
+					if err != nil || got.Status != "unknown" {
 						t.Fatal("confirmed idle owner not retired", got, err)
 					}
-				} else if err == nil || s.state.Workers["task"].Retired || got.Status == "unavailable" {
+				} else if (fact == "unreadable" || fact == "missing-activity") != (err != nil) || got.Status == "unavailable" {
 					t.Fatal("unconfirmed or active original retired", got, err)
 				}
 				if fact == "active" && s.WorkStates()[0].Activity != "active" {
@@ -152,27 +152,12 @@ func authorizedWorkerCall(ctx context.Context, s *Session) context.Context {
 	return context.WithValue(ctx, invocationKey{}, wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: "fixture-user"}})
 }
 
-func TestCurrentWorkerProjectionGatesAllContinuationEntries(t *testing.T) {
-	for _, status := range []string{"unknown", "working", "completed"} {
-		t.Run(status, func(t *testing.T) {
-			var gets atomic.Int32
-			s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { gets.Add(1) })
-			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{PrincipalId: "owner", SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
-			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer(status), Active: pointer(status == "working")}}, Seen: map[string]bool{}}
-			if status == "unknown" {
-				if _, err := s.SendWork(authorizedWorkerCall(t.Context(), s), api.TaskMessage{ID: "task", RequestID: "new-continuation", Prompt: "resume"}); err == nil {
-					t.Fatal("projected unknown bypassed continuation fence")
-				}
-				if _, err := s.WorkTerminal(t.Context(), "task"); err == nil {
-					t.Fatal("projected unknown opened native terminal")
-				}
-			} else if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" || gets.Load() != 0 {
-				t.Fatal("nonunknown current projection was retired", v, err, gets.Load())
-			}
-			if gets.Load() != 0 {
-				t.Fatal("continuation or terminal sent a native request", gets.Load())
-			}
-		})
+func TestUnknownWorkerInputStillRequiresReceipt(t *testing.T) {
+	var requests atomic.Int32
+	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { requests.Add(1) })
+	s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{PrincipalId: "owner", SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}, PromptID: "original"}
+	if _, err := s.SendWork(authorizedWorkerCall(t.Context(), s), api.TaskMessage{ID: "task", RequestID: "new-request", Prompt: "continue"}); err == nil || requests.Load() != 0 {
+		t.Fatal("unknown input replayed", err)
 	}
 }
 
@@ -211,31 +196,10 @@ func TestOriginalWorkerReadRejectsChangedOwnerAndProjection(t *testing.T) {
 			})
 			s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
-			if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" || s.state.Workers["task"].Retired {
+			if v, err := s.ReadWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
 				t.Fatal("stale original-owner read retired a changed task", v, err)
 			}
 		})
-	}
-}
-
-func TestOriginalWorkerReadCannotUseOlderIdleTurn(t *testing.T) {
-	var nativeTurn atomic.Value
-	nativeTurn.Store("older-A")
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/work/state" {
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			return
-		}
-		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer(nativeTurn.Load().(string)), Status: pointer("unknown"), Active: pointer(false)}})
-	})
-	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "later-B-prompt"}
-	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("current-B"), Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
-	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" || s.state.Workers["task"].Retired {
-		t.Fatal("older idle turn retired unresolved current turn", v, err)
-	}
-	nativeTurn.Store("current-B")
-	if v, err := s.RetireWork(t.Context(), "task"); err != nil || v.Status != "unavailable" {
-		t.Fatal("current idle turn could not retire unresolved original", v, err)
 	}
 }
 
@@ -262,7 +226,7 @@ func TestSameOwnerReadAndRetireSerializesContinuation(t *testing.T) {
 		err  error
 	}
 	retired := make(chan outcome, 1)
-	go func() { v, err := s.RetireWork(t.Context(), "task"); retired <- outcome{v, err} }()
+	go func() { v, err := s.ReadWork(t.Context(), "task"); retired <- outcome{v, err} }()
 	select {
 	case <-entered:
 	case <-t.Context().Done():
@@ -274,10 +238,10 @@ func TestSameOwnerReadAndRetireSerializesContinuation(t *testing.T) {
 		sent <- outcome{v, err}
 	}()
 	close(release)
-	if got := <-retired; got.err != nil || got.task.Status != "unavailable" {
+	if got := <-retired; got.err != nil || got.task.Status != "unknown" {
 		t.Fatal("idle original was not retired", got)
 	}
-	if got := <-sent; got.err == nil || got.task.Status != "unavailable" || gets.Load() != 1 {
+	if got := <-sent; got.err == nil || got.task.Status != "unknown" || gets.Load() != 1 {
 		t.Fatal("continuation escaped retired original", got, gets.Load())
 	}
 }
@@ -305,30 +269,30 @@ func TestUnknownWorkerRetirementRequiresOriginalIdleState(t *testing.T) {
 		writeFixture(w, state)
 	})
 	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "original-operation"}
-	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
+	if v, err := s.ReadWork(t.Context(), "task"); err != nil || v.Status == "unavailable" {
 		t.Fatal("active owner was retired", v, err)
 	}
 	if got := s.WorkStates(); len(got) != 1 || got[0].Activity != "active" {
 		t.Fatal("active unknown not counted", got)
 	}
 	known.Store(false)
-	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
+	if v, err := s.ReadWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
 		t.Fatal("missing activity proof retired worker", v, err)
 	}
 	known.Store(true)
 	active.Store(false)
 	reportedWorking.Store(true)
-	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
+	if v, err := s.ReadWork(t.Context(), "task"); err != nil || v.Status != "working" {
 		t.Fatal("working run status retired under false activity flag", v, err)
 	}
 	reportedWorking.Store(false)
-	if v, err := s.RetireWork(t.Context(), "task"); err != nil || v.Status != "unavailable" {
+	if v, err := s.ReadWork(t.Context(), "task"); err != nil || v.Status != "unknown" {
 		t.Fatal("idle owner not retired", v, err)
 	}
-	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "unavailable" || got[0].Activity != "idle" {
+	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "unknown" || got[0].Activity != "idle" {
 		t.Fatal("retired state not retained", got)
 	}
-	if w := s.state.Workers["task"]; w.PromptID != "original-operation" || !w.Retired {
+	if w := s.state.Workers["task"]; w.PromptID != "original-operation" {
 		t.Fatal("original operation receipt lost", w)
 	}
 	if _, err := s.SendWork(t.Context(), api.TaskMessage{ID: "task", RequestID: "new-request", Prompt: "resume"}); err == nil {

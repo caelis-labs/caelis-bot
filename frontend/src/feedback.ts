@@ -7,6 +7,7 @@ const issues:Record<string,[string,string]>={
  gateway_catalog_unavailable:['暂未读取到网关模型','Gateway models could not be loaded'],
  gateway_catalog_empty:['网关没有返回可用模型','Gateway returned no available models'],
  connection_unconfirmed:['连接结果尚待确认','Connection result needs confirmation'],
+ submission_unconfirmed:['发送结果尚待确认，原草稿与请求已保留','Send result needs confirmation; the original draft and request are retained'],
 };
 const pages:Record<string,[string,string]>={
  setup:['首次设置','First-time setup'],settings:['设置','Settings'],history:['聊天','Chat'],

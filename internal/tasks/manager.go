@@ -127,6 +127,9 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 		}
 		m.quarantined = map[string]*record{}
 		for id, r := range m.state.Records {
+			if r != nil && r.View.Status == "unavailable" {
+				r.View.Status = "unknown"
+			}
 			if r == nil || r.View.ID != id || r.Provider == "" {
 				m.quarantined[id] = r
 				delete(m.state.Records, id)
@@ -166,7 +169,7 @@ func hash(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 func terminal(s string) bool {
-	return s == "completed" || s == "failed" || s == "cancelled" || s == "interrupted" || s == "unavailable"
+	return s == "completed" || s == "failed" || s == "cancelled" || s == "interrupted"
 }
 func valid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
@@ -201,6 +204,12 @@ func (m *Manager) refresh() error {
 	m.observe.Lock()
 	defer m.observe.Unlock()
 	states := m.work.WorkStates()
+	for i := range states {
+		if states[i].Task.Status == "unavailable" {
+			states[i].Task.Status = "unknown"
+			states[i].TaskEnded = false
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var conflict error
@@ -261,9 +270,6 @@ func (m *Manager) refresh() error {
 		r.View = v.Task
 		r.Activity = v.Activity
 		r.StopResolution = v.StopResolution
-		if v.Task.Status == "unavailable" && r.ReportState == "pending" {
-			r.ReportState = "observed" // An older run must not report the unknown continuation.
-		}
 		if r.OriginalPrompt == "" {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
@@ -731,10 +737,6 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		}
 		return v, err
 	}
-	if status == "unavailable" {
-		m.mu.Unlock()
-		return api.Task{}, errors.New("task retired; original receipts remain available for reading")
-	}
 	if status == "unknown" || status == "pending" {
 		m.mu.Unlock()
 		return api.Task{}, errors.New("original task turn or receipt unresolved; read the original task before continuing")
@@ -812,7 +814,7 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 			return 0, err
 		}
 		// A read error leaves that task unknown and reserved. Other owners may
-		// still be read and safely retired without retrying any execution.
+		// still provide idle capacity evidence without retrying any execution.
 		_, _ = m.work.ReadWork(ctx, id)
 	}
 	if err := m.refresh(); err != nil {
@@ -823,19 +825,6 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 	return m.activeLocked() + m.reservedLocked(), nil
 }
 
-func (m *Manager) RetireTask(ctx context.Context, id string) (api.Task, error) {
-	m.op.Lock()
-	defer m.op.Unlock()
-	if err := m.owned(id); err != nil {
-		return api.Task{}, err
-	}
-	retirer, ok := m.work.(api.WorkRetirer)
-	if !ok {
-		return api.Task{}, errors.New("task retirement unavailable for this owner")
-	}
-	v, err := retirer.RetireWork(ctx, id)
-	return m.capture(id, v, err)
-}
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 	if m.localCodexInflight(id) {
 		// StopWork cancels the adapter's capacity wait before acquiring its
@@ -896,7 +885,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	var selected *record
 	for _, id := range ids {
 		r := m.state.Records[id]
-		if m.owns(r) && terminal(r.View.Status) && r.View.Status != "unavailable" && r.ReportState == "pending" && r.ReportID != "" {
+		if m.owns(r) && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
 			selected = r
 			break
 		}

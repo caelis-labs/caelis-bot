@@ -2,6 +2,7 @@ import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
 import type {ChatUpdate,Snapshot} from './backend/contract';
 import {createNavigationGuard,parseWebRoute,webRouteHash,type WebNavigation} from './web-navigation';
+import {settingsHasModal} from './context-navigation';
 export type {WebNavigation} from './web-navigation';
 
 export type WebBootstrap={csrf:string;version:string;capabilities:{reason:string}};
@@ -15,7 +16,7 @@ if(!crypto.randomUUID)crypto.randomUUID=()=>{const h=identity();return `${h.slic
 export function createWebTransport(bootstrap:WebBootstrap){
  const tab=identity();let epoch='',view:WebNavigation={view:'settings',section:'setup'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
  const headers=()=>({'Content-Type':'application/json','X-Caelis-Request':'1','X-CSRF-Token':bootstrap.csrf,'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch});
- const navigation=createNavigationGuard(async()=>{
+ const gatedNavigation=createNavigationGuard(async()=>{
   const [overview,initialization]=await Promise.all([
    call<{onboarding:boolean}>('backend.SetupOverview',[]),
    call<{required:boolean;status:string}>('backend.BotInitialization',[]),
@@ -26,6 +27,16 @@ export function createWebTransport(bootstrap:WebBootstrap){
   if(location.hash!==hash)history[replace?'replaceState':'pushState'](null,'',hash);
   view=next;window.dispatchEvent(new CustomEvent('web-navigation',{detail:next}));
  });
+ const navigation=async(next:WebNavigation,replace=false)=>{
+  const leavingSettings=view.view==='settings'&&webRouteHash(view)!==webRouteHash(next);
+  const openingSettings=next.view==='settings'&&view.view!=='settings';
+  if(view.section!=='setup'&&((leavingSettings||openingSettings)&&settingsHasModal()||leavingSettings&&!window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))){
+   // Back/forward and direct hashes obey the same retained-form guard as clicks.
+   if(replace)history.replaceState(null,'',webRouteHash(view));
+   return;
+  }
+  await gatedNavigation(next,replace);
+ };
  const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
  window.addEventListener('popstate',restoreNavigation);
  window.addEventListener('hashchange',restoreNavigation);

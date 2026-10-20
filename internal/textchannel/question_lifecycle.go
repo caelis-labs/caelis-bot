@@ -65,9 +65,9 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 				changed = true
 			}
 			switch {
-			case w.StopRequested || w.Task.Status == "interrupted" || w.Task.Status == "cancelled" || w.Task.Status == "canceled":
+			case w.StopRequested || w.Task.Status == "cancelled" || w.Task.Status == "canceled":
 				state, reason = "expired", "task_cancelled"
-			case w.Task.Status == "failed" || w.Task.Status == "unavailable":
+			case w.Task.Status == "failed":
 				state, reason = "expired", "task_ended"
 			case w.TaskEnded:
 				state, reason = "expired", "task_completed"

@@ -33,11 +33,7 @@ func callTaskCatalog(ctx context.Context, provider api.TaskProvider, args json.R
 	case "unpin":
 		return catalog.PinTask(in.ID, false)
 	case "retire":
-		p, ok := provider.(api.TaskRetirer)
-		if !ok {
-			return nil, errors.New("task retirement unavailable")
-		}
-		return p.RetireTask(ctx, in.ID)
+		return nil, errors.New("task retirement is no longer supported; no effect, original binding retained")
 	case "lock", "unlock", "clear":
 		watchlist, ok := provider.(api.TaskWatchlist)
 		if !ok {

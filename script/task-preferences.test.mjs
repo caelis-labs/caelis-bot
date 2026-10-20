@@ -31,6 +31,9 @@ test('cancelled custom terminal failure cannot leak into a later task limit save
  const saved={...initial,customCommand:''};
  const saver=new TaskPreferencesSaver(saved,async()=>saved,async p=>{calls.push(p);if(fail)throw Error('invalid command');return p;},()=>{});
  saver.change({terminal:'custom',customCommand:'invalid'});await saver.flush();
- saver.discardTerminal();fail=false;saver.change({maxRunning:6});await saver.flush();
+ assert.equal(saver.hasPending(),true);
+ saver.discardTerminal();assert.equal(saver.hasPending(),false);
+ fail=false;saver.change({maxRunning:6});assert.equal(saver.hasPending(),true);await saver.flush();
+ assert.equal(saver.hasPending(),false);
  assert.equal(calls[1].terminal,'system');assert.equal(calls[1].customCommand,'');assert.equal(calls[1].maxRunning,6);
 });
