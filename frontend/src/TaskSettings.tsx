@@ -18,7 +18,7 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
  const [custom,setCustom]=useState(''),[terminalOpen,setTerminalOpen]=useState(false);
  const customSaved=useRef(''),savingCustom=useRef(false);
- const closeTerminal=()=>{saver.current?.discardTerminal();savingCustom.current=false;setTerminalOpen(false);setError('');};
+ const closeTerminal=()=>{saver.current?.discardTerminal();savingCustom.current=false;setTerminalOpen(false);setError('');setDirty(!!saver.current?.hasPending()||ready&&!validTaskLimit(limit));};
  const saver=useRef<TaskPreferencesSaver|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const flush=()=>{if(timer.current)clearTimeout(timer.current);timer.current=null;void saver.current?.flush();};
  useEffect(()=>{

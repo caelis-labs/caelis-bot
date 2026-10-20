@@ -42,6 +42,7 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [canceling, setCanceling] = useState(false), [now, setNow] = useState(Date.now()), [optionsRefresh, setOptionsRefresh] = useState(0);
  const [optionsFor,setOptionsFor]=useState('');
  const [catalogAttempt,setCatalogAttempt]=useState(0),[catalogFailed,setCatalogFailed]=useState(false);
+ useEffect(()=>{if(flow?.stage==='complete')setEdited(false)},[flow?.stage]);
  const optionsClient=useRef(client);
  const [accountModels,setAccountModels]=useState<ConnectionFlow['models']>([]);
  const reportBusy=useEffectEvent((value:boolean)=>onBusyChange?.(value));
