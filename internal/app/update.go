@@ -7,6 +7,10 @@ import "errors"
 // explicit install request must not wait for an approval or Worker to finish.
 // The caller must Close or CancelUpdate on success.
 func (a *Application) PrepareUpdate() error {
+	return a.prepareUpdate(false)
+}
+
+func (a *Application) prepareUpdate(idleOnly bool) error {
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
 	a.mu.Lock()
@@ -25,6 +29,11 @@ func (a *Application) PrepareUpdate() error {
 		if closed {
 			return errors.New(a.text("host.appStopped"))
 		}
+		if idleOnly {
+			if err := a.guardManagedUpdate(); err != nil {
+				return err
+			}
+		}
 		if err := a.Backend.CanDetachForUpdate(); err != nil {
 			return err
 		}
@@ -35,6 +44,9 @@ func (a *Application) PrepareUpdate() error {
 	}
 	pauseTasks := func() error {
 		if tasks != nil {
+			if idleOnly {
+				return tasks.PauseIfIdle(guard)
+			}
 			// The update-specific task fence persists original owner and
 			// receipts before allowing an active task to outlive this app.
 			if p, ok := any(tasks).(interface{ PauseForUpdate(func() error) error }); ok {

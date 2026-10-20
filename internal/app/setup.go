@@ -244,6 +244,9 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.app.updateInProgress() {
+		return api.SetupState{}, errors.New("application update in progress")
+	}
 	if r.Action == "install" || r.Action == "update" {
 		if r.Settings.Runtime != "codex" {
 			s.progressMu.Lock()

@@ -74,7 +74,7 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	defer a.lifecycleMu.Unlock()
 
 	a.mu.Lock()
-	resident, manager, closed, started := a.companion, a.tasks, a.closed, a.started
+	resident, manager, closed, started := a.companion, a.tasks, a.closed || a.updatePrepared, a.started
 	a.mu.Unlock()
 	if closed {
 		return errors.New(a.text("appStopped"))

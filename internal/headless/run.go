@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/desktop"
+	"github.com/caelis-labs/caelis-bot/internal/managedupdate"
 	"github.com/caelis-labs/caelis-bot/internal/websurface"
 )
 
@@ -96,10 +97,17 @@ func Run(assets fs.FS, args []string, version string) error {
 		return e
 	}
 	defer core.Close()
-	core.StartBackground()
+	managed, e := openManaged(version)
+	if e != nil {
+		return e
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if !*web {
+		if managed != nil {
+			return errors.New("managed updates require the web surface")
+		}
+		core.StartBackground()
 		fmt.Println("CaelisBot is running without a browser surface.")
 		<-ctx.Done()
 		return nil
@@ -130,13 +138,34 @@ func Run(assets fs.FS, args []string, version string) error {
 	if e != nil {
 		return e
 	}
-	httpServer := &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	if managed != nil {
+		server.RegisterManagedUpdates(managed.client)
+	} else {
+		external := managedupdate.NewExternal(managedupdate.Identity{Version: version, Source: managedupdate.Source, Kind: managedupdate.BuildKind})
+		defer external.Close()
+		server.RegisterManagedUpdates(external)
+	}
+	httpServer := &http.Server{Handler: managed.handler(server), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	done := make(chan error, 1)
 	go func() { done <- httpServer.Serve(listener) }()
+	if e = managed.markReady(core); e != nil {
+		server.Close()
+		_ = httpServer.Close()
+		return e
+	}
+	core.StartBackground()
+	updateDone := make(chan error, 1)
+	if managed != nil {
+		go managed.watch(ctx, core, server, updateDone)
+	}
 	fmt.Println("CaelisBot:", allowed[0])
 	fmt.Println("Pairing code is in the private file:", filepath.Join(webDir, "pairing-code"))
 	select {
 	case <-ctx.Done():
+	case e = <-updateDone:
+		server.Close()
+		_ = httpServer.Close()
+		return e
 	case e = <-done:
 		if !errors.Is(e, http.ErrServerClosed) {
 			server.Close()
