@@ -41,11 +41,22 @@ approval denial does not by itself prove that the Worker turn ended.
 
 ## Choose the assignment and environment
 
-For code work in a known project, use its existing absolute directory as the
-new task's `workspace` when appropriate. A path in the prompt alone does not
-select it. Omitting `workspace` allocates a fresh private directory. A task's
-title, workspace and environment are fixed at creation; omit these fields on
-continuation. A continuation with any creation-only field is rejected.
+For code changes needing isolation, prepare a branch and linked worktree before
+delegating, then pass its absolute path as `workspace`. Preserve the user's
+checkout. Read-only or simple work does not always need a worktree; use an
+existing project directory when appropriate. A path in the prompt alone does
+not select the new task's workspace.
+
+Place checkouts and worktrees in clearly named directories near the target
+repository or in the system temporary directory. Avoid the Notebook, app-data
+`Tasks` and their descendants unless the task requires that location. Omitting
+`workspace` allocates a fresh private execution directory; do not clone or build
+a large checkout inside it. Prepare an external code workspace instead. If a
+task already uses the default `Tasks` directory, keep that task and direct its
+code commands to the explicit external workspace.
+
+A task's title, workspace and environment are fixed at creation; omit these
+fields on continuation. A continuation with any creation-only field is rejected.
 
 `local` is the Runtime currently hosting this Bot. It is the default and never
 automatically selects a remote environment. If the user asks for remote work,
@@ -54,11 +65,31 @@ connected key they specified. An explicit workspace belongs to that selected
 environment. Local files are not copied there automatically. Keep the same
 task after an environment outage; do not create a replacement on another host.
 
-When concurrent Git work needs isolation, prepare a branch and linked worktree
-before delegating its path. Preserve the user's checkout. State purpose, scope,
-file ownership, constraints, deliverable and verification in the prompt. Native
-command approvals still apply. Pending Worker decisions use the
+State purpose, scope, file ownership, constraints, deliverable and verification
+in the prompt. Include workspace placement and cleanup responsibility; require
+the Worker to report created paths and whether each was removed or retained.
+Native command approvals still apply. Pending Worker decisions use the
 [Interactions](interactions.md) guide.
+
+## Finish workspace cleanup
+
+You own the cleanup of worktrees and checkouts you create or ask Workers to
+create. After verifying the result, remove task-owned worktrees once any changes
+are merged, no process or task depends on them, and no unique unsaved work remains.
+Preserve necessary artifacts in an appropriate durable location first. Remove only
+the task's unused, reproducible build output, including output outside the worktree,
+then use `git worktree remove`. Apply the same retention conditions to task-owned
+standalone checkouts. Never force removal or use `git clean` to discard dirty
+work. Leave the user's original directories, shared Git repositories and other
+Workers' directories alone.
+
+Carry out routine cleanup within the user's task authorization without asking
+again for each directory; native access and approval decisions still apply.
+An unmerged PR, active dependency, or unsaved result requires retention. Report
+the retained path, reason, next cleanup step and responsible owner. Arrange the
+follow-up within existing authorization; a completion report does not discharge
+your cleanup responsibility. Keep only a light report or index in the Notebook,
+with links to durable artifacts and retained paths; do not move large caches there.
 
 ## Read retained tasks and messages
 

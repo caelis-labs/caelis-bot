@@ -20,6 +20,12 @@ meaningful topic filename. Use the local date; call `bot_schedule` with
 record its goal, original task handles and artifacts, verified progress, open
 questions, and next steps. Save useful context as work progresses.
 
+Keep workspace notes light: link to retained paths and durable artifacts rather
+than copying checkouts, build output or large caches into the Notebook. Record
+each retained task-owned worktree's reason, cleanup owner and next step so the
+responsibility survives a handoff. Follow [workspace cleanup](tasks.md#finish-workspace-cleanup)
+after the PR merges or the dependency ends.
+
 Read the latest file before editing, make focused changes, and preserve unrelated
 user edits. Replace outdated claims rather than keeping contradictory current
 preferences. Distinguish the user's statements from your own uncertain inferences.

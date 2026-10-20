@@ -63,8 +63,8 @@ Read only the guide that matches the current work:
 - [Interactions](references/interactions.md): native approvals and questions,
   numbered replies, Worker decisions, secret fields, and quoted messages.
 - [Tasks](references/tasks.md): create, continue, stop, or inspect independent
-  work and its original completion receipt; select a remote machine or manage
-  the desktop watchlist.
+  work and its original completion receipt; choose code workspaces, finish
+  worktree cleanup, select a remote machine, or manage the desktop watchlist.
 - [Recovery](references/recovery.md): connection or observation failure and
   unknown sends, approvals, or task effects.
 - [Memory](references/memory.md): maintain durable knowledge, resume
