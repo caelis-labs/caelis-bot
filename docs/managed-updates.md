@@ -41,11 +41,11 @@ Production checks only the fixed `caelis-labs/caelis-bot` GitHub release feed.
 Compatible assets must include `linux-<arch>-update.json`, its `.sig`, and the exact
 archive named in the manifest. Missing Linux metadata/assets produces
 `no_compatible_update`, not success or a guessed download link. HTTP/network
-failures and invalid metadata remain failures. No valid production key is yet
-pinned in `internal/managedupdate/release-key.txt`: publication requires a reviewed
-persistent Ed25519 public identity and independent key custody first. If signed
-Linux metadata appears before that prerequisite, checks fail closed with
-`release_trust_unconfigured`.
+failures and invalid metadata remain failures. The persistent production Ed25519
+public identity is pinned in `internal/managedupdate/release-key.txt`. The matching
+private key is held only in the main-only GitHub `linux-release` environment.
+An invalid or absent pin still fails closed with `release_trust_unconfigured`.
+Configuring this identity does not publish Linux assets or the installer endpoint.
 
 The signature covers the exact manifest bytes, binding product/flavor/platform,
 stable channel, version, full source SHA, build kind, launcher protocol, compatible
@@ -67,11 +67,12 @@ covering the versioned launcher, archive, manifest/signature, checksum and both
 installer files. The same embedded Ed25519 key verifies both; no second trust
 system is introduced. `linux-release.yml` builds both real architecture packages
 from the exact main tag without credentials, then signs in `linux-release`.
-The sole manual release configuration is the persistent identity: commit its
-32-byte base64 public key in `release-key.txt` and configure the matching PEM
-`LINUX_RELEASE_ED25519_PRIVATE_KEY` environment secret with main-only protection.
-Do not generate that identity in CI or use a QA key. Existing R2 credentials are
-reused; no new publishing account or paid certificate is required.
+The 32-byte base64 public key in `release-key.txt` matches the PEM
+`LINUX_RELEASE_ED25519_PRIVATE_KEY` environment secret, configured once during
+release preparation. Do not replace an existing identity, generate one in CI,
+or use a QA key. Existing R2 credentials are reused; no new publishing account
+or paid certificate is required. The first release must still verify the actual
+signed assets and public installer after immutable GitHub/R2 publication.
 
 QA builds require `BOT_UPDATE_KIND=qa`, a `-qa.N` version, the `managed_update_qa`
 build tag and an explicit private `--qa-trust` file with an ephemeral public key

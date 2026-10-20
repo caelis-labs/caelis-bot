@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -56,15 +57,32 @@ func desktopWorldBundle() (Entry, fs.FS, bool, error) {
 	if err != nil {
 		return Entry{}, nil, false, err
 	}
-	var entry Entry
-	if json.Unmarshal(body, &entry) != nil || entry.ID != "desktop-world" || entry.Version != "0.1.0" || !entry.Builtin || len(entry.Files) == 0 {
-		return Entry{}, nil, false, errors.New("invalid built-in Desktop World inventory")
-	}
-	if err := Verify(packageRoot, entry.Files); err != nil {
-		return Entry{}, nil, false, err
-	}
-	if err := verifyExecutableModes(packageRoot, entry); err != nil {
+	entry, err := readDesktopWorldInventory(packageRoot, body)
+	if err != nil {
 		return Entry{}, nil, false, err
 	}
 	return entry, os.DirFS(packageRoot), true, nil
+}
+
+var desktopWorldReleaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+func readDesktopWorldInventory(packageRoot string, body []byte) (Entry, error) {
+	var entry Entry
+	if json.Unmarshal(body, &entry) != nil || entry.ID != "desktop-world" || !desktopWorldReleaseVersion.MatchString(entry.Version) || entry.Source != "bundled:desktop-world/v"+entry.Version || !entry.Builtin || len(entry.Files) == 0 {
+		return Entry{}, errors.New("invalid built-in Desktop World inventory")
+	}
+	if err := Verify(packageRoot, entry.Files); err != nil {
+		return Entry{}, err
+	}
+	if err := verifyExecutableModes(packageRoot, entry); err != nil {
+		return Entry{}, err
+	}
+	p, err := Load(packageRoot)
+	if err != nil {
+		return Entry{}, err
+	}
+	if p.Manifest.Name != entry.ID || p.Manifest.Version != entry.Version {
+		return Entry{}, errors.New("built-in Desktop World identity differs from inventory")
+	}
+	return entry, nil
 }
