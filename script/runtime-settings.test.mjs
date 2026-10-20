@@ -15,6 +15,15 @@ const {ModelSelectionDelivery}=await server.ssrLoadModule('/src/settings/runtime
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
 
+test('empty gateway wire catalogs remain an empty model list, not a renderer exception',async()=>{
+ const client=createRuntimeSettingsClient(async method=>{
+  if(method==='RuntimeSettings')return {runtime:'caelis'};
+  if(method==='SetupCatalog')return null;
+  throw Error('unexpected call');
+ });
+ assert.deepEqual(await client.apiKeyOptions('magpie','http://127.0.0.1:3425/v1'),{endpoints:[],models:[]});
+});
+
 test('setup and session facts stay distinct when model or observation services fail',async()=>{
  const setup={state:'ready',installation:{installed:true},models:[],selectedModel:''};
  const client=createRuntimeSettingsClient(async method=>{

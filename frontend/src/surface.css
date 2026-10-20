@@ -816,3 +816,8 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 
 /* Questions use normal chat flow; native permission forms remain separate. */
 .history-surface .question-message .message { width:min(440px,100%); min-width:0; }
+
+/* Catalog failures stay with their form; retry never remounts or submits it. */
+.gateway-read-notice { margin-top:16px; color:var(--muted); font-size:12px; line-height:1.6; }
+.gateway-read-notice p { margin:0 0 10px; }
+.gateway-read-notice>div { display:flex; align-items:center; gap:12px; }

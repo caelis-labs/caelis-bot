@@ -66,8 +66,8 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
   },
   async apiKeyOptions(provider, baseUrl) {
    const profile = await currentProfile();
-   const endpoints = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'endpoints', { provider }));
-   const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' }));
+   const endpoints = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'endpoints', { provider })) ?? [];
+   const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' })) ?? [];
    return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(m => ({ value:m.value,name:m.label || m.value,parameters:m.parameters })) };
   },
   async startConnection(input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('StartRuntimeConnection',{...input,settings:profile ?? null}),signal,progress);},

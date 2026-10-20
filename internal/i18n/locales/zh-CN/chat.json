@@ -243,5 +243,7 @@
   "questionPlaceholder": "补充回答…",
   "questionConversation": "当前对话",
   "questionUntil": "{time} 前",
-  "questionDismissLabel": "关闭此问题，不提交答案"
+  "questionDismissLabel": "关闭此问题，不提交答案",
+  "surfaceReloadNeeded": "刷新页面以继续，已保存的内容不会清除。",
+  "reloadSurface": "刷新页面"
 }

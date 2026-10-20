@@ -95,3 +95,68 @@
 - 未动 schedule / task / receipt / recovery owner，也未接入未交付的 async/MCP 实验联调。Notebook 数据格式不迁移。
 
 公共接缝仅：`desktop.ts` 选择 transport；现有共享组件按 surface 隐藏原生入口；`SettingsDialog` 可选 CSS scope（默认行为不变）；附件 owned staging 默认 false；`Application` 增加只读任务委托；根入口增加 serve/pair。新网络模块不拥有第二个 Core/Runtime 或 Worker。
+
+## Web feedback follow-up (2026-10-20)
+
+Based on local `6715109a`, without merging remote `main` or #204. Remote `main`
+was observed at `e121d9e9d279db31b10166ac40d743698c20ef5d`; its changes are outside
+this worktree. The production App and the task-recovery worktree were not changed.
+
+Root causes verified against the running Rocky service:
+
+- The later shared `.settings-page` rule in `surface.css` set `margin:0` with a
+  1040px maximum. A wide browser therefore left all surplus space on the right.
+  Web now centers the existing grid and aligns the breadcrumb with it; field
+  widths still use the App controls. Narrow navigation remains a surface adapter.
+- The initial Web setup redirect was only a one-time `SetupOverview` read. The
+  gear, settings return and subsequent navigation could bypass it. A Web navigation
+  guard now reads both setup and durable introduction state, canonicalizes URL
+  history, fails closed, and ignores late reads. Setup mounts only `BotSetup`;
+  chat/settings are not mounted until the guard allows them. Selecting a Runtime
+  alone does not complete introduction. Normal in-guide Back stays local.
+- `SetupCatalog(models)` returned three HTTP 503 responses because Rocky loopback
+  had no Magpie listener. The browser recorded no JavaScript exception stack.
+  `ConnectionWizard` mapped this ordinary read failure to `<Recovery>` without
+  `onRetry`, so it displayed a window-restart card inside the form. It was not
+  a proven React boundary crash. Failed/empty catalogs now stay in the form with
+  a bounded read retry and preserved draft; null wire lists are valid empty lists.
+- The copied diagnostics described the default, unselected **Codex conversation**:
+  `hasRuntimeChoice=false`, onboarding and introduction required, offline, bound
+  false, schema baseline 0.153.4 and zero logged events. Those were not diagnostics
+  of the independent Caelis/Magpie setup request. Worker retirement counters are
+  retained in the optional technical export, not copied into feedback prose.
+  Shared recovery copies an allowlisted summary of issue, time, page, connection
+  scope, classification and version. It never includes arbitrary errors, URLs,
+  credentials, prompts or backend fields. Web fatal recovery says reload page.
+
+Shared seams: `Settings` has an optional surface navigation callback; the existing
+connection wizard and runtime client handle local read failures/empty catalogs;
+`SurfaceBoundary` uses a shared feedback formatter. No changes to task, schedule,
+Worker recovery, receipts, backend ownership, Core or Codex policies. No Bot-core
+skill change: these are UI navigation, diagnostics and deployment fixes, with no
+new tool or Bot workflow.
+
+Evidence is in `output/playwright/web-feedback-20261020/` and a versioned copy in
+Notebook. Browser setup/navigation and the successful model list use the live
+Rocky service. Error/empty HTTP responses and completed-setup projection used for
+settings screenshots are explicitly browser fixtures, not server-state edits.
+The mounted shared-component recovery fixture separately checks finite reads,
+form identity, retry without connection writes, and no private error leakage.
+Native screenshots come from the real isolated Onboarding App with its own HOME
+and profile: startup, actual Magpie models, a genuinely unreachable port, copy
+confirmation and restored models. They are not browser golden images.
+
+The final health probe also found that bootstrap treated every non-2xx response
+as a pairing requirement. Only HTTP 401 now opens pairing; 429/503 and transport
+failure show a local reconnect action. Browser fault injection verifies retry
+without a pairing field. Authentication/session limits are unchanged. Disposable
+probe sessions must log out through their own authenticated session; do not clear
+`sessions.json` or evict another browser to make a test pass.
+
+Final gates: `make check` (246 Node tests plus Go suites), `make smoke`,
+`make build`, `make build-headless`; no `make commit-check` target exists.
+The Rocky model gateway proof used one real `deepseek-flash` request: 35 input
+and 2 output tokens, response `OK`. This is a gateway inference check, not a
+claim of full live Bot/Worker/channel acceptance. Default Docker nested-sandbox
+compatibility, real WSL and real Tailscale device acceptance remain outside this
+follow-up's evidence.

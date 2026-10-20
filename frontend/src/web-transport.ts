@@ -1,9 +1,10 @@
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
 import type {ChatUpdate,Snapshot} from './backend/contract';
+import {createNavigationGuard,parseWebRoute,webRouteHash,type WebNavigation} from './web-navigation';
+export type {WebNavigation} from './web-navigation';
 
 export type WebBootstrap={csrf:string;version:string;capabilities:{reason:string}};
-export type WebNavigation={view:'chat'|'settings'|'task';section?:string;task?:string};
 const notice='此操作暂未完成，请重新查看状态。';
 export const unavailable='网页不提供原生窗口或终端。Linux / WSL 的电脑操作暂不支持。';
 export function identity(){const b=new Uint8Array(16);crypto.getRandomValues(b);return [...b].map(x=>x.toString(16).padStart(2,'0')).join('');}
@@ -12,9 +13,22 @@ export function identity(){const b=new Uint8Array(16);crypto.getRandomValues(b);
 if(!crypto.randomUUID)crypto.randomUUID=()=>{const h=identity();return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20)}`;};
 
 export function createWebTransport(bootstrap:WebBootstrap){
- const tab=identity();let epoch='',view:WebNavigation={view:'chat'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
+ const tab=identity();let epoch='',view:WebNavigation={view:'settings',section:'setup'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
  const headers=()=>({'Content-Type':'application/json','X-Caelis-Request':'1','X-CSRF-Token':bootstrap.csrf,'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch});
- const navigation=(next:WebNavigation)=>{view=next;window.dispatchEvent(new CustomEvent('web-navigation',{detail:next}));};
+ const navigation=createNavigationGuard(async()=>{
+  const [overview,initialization]=await Promise.all([
+   call<{onboarding:boolean}>('backend.SetupOverview',[]),
+   call<{required:boolean;status:string}>('backend.BotInitialization',[]),
+  ]);
+  return {...overview,...initialization};
+ },(next,replace)=>{
+  const hash=webRouteHash(next);
+  if(location.hash!==hash)history[replace?'replaceState':'pushState'](null,'',hash);
+  view=next;window.dispatchEvent(new CustomEvent('web-navigation',{detail:next}));
+ });
+ const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
+ window.addEventListener('popstate',restoreNavigation);
+ window.addEventListener('hashchange',restoreNavigation);
  class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':notice)}}
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
@@ -73,10 +87,10 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'HistoryVisible':return (view.view==='chat') as T;
    case 'SettingsVisible':return (view.view==='settings') as T;
    case 'SettingsSection':return (view.section??'general') as T;
-   case 'OpenHistory':case 'CloseSettings':navigation({view:'chat'});return undefined as T;
-   case 'OpenRuntimeSettings':navigation({view:'settings',section:'connections'});return undefined as T;
-   case 'OpenSettings':navigation({view:'settings',section:'general'});return undefined as T;
-   case 'OpenTaskTerminal':navigation({view:'task',task:String(args[0])});return undefined as T;
+   case 'OpenHistory':case 'CloseSettings':await navigation({view:'chat'});return undefined as T;
+   case 'OpenRuntimeSettings':await navigation({view:'settings',section:'connections'});return undefined as T;
+   case 'OpenSettings':await navigation({view:'settings',section:'general'});return undefined as T;
+   case 'OpenTaskTerminal':await navigation({view:'task',task:String(args[0])});return undefined as T;
    case 'SurfaceReady':return undefined as T; // Browser has no native presentation handshake.
    case 'PickFiles':return await pick() as T;
    case 'PasteAttachments':{const files=pasted;pasted=[];return {handled:files.length>0,files:files.length?await upload(files):[]} as T;}
@@ -93,10 +107,10 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'CopyArtifactContent':{const v=await call<{text:string}>('desktop.PreviewArtifact',[args[0]]);await copy(v.text);return undefined as T;}
    case 'ImportContent':return await new Promise<unknown>((resolve,reject)=>{const input=document.createElement('input');input.type='file';input.accept='.caelispack,.zip';input.oncancel=()=>call('desktop.ContentState',[]).then(resolve,reject);input.onchange=()=>{const file=input.files?.[0];if(!file)return;const form=new FormData();form.append('file',file);const h=headers();void fetch('/api/v1/content/import',{method:'POST',headers:{'X-Caelis-Request':'1','X-CSRF-Token':h['X-CSRF-Token']},body:form}).then(async response=>{if(!response.ok)throw Error('请检查资源包并重试。');resolve((await response.json()).value)}).catch(reject)};input.click()}) as T;
    case 'ExportDiagnostics':{const value=await call<string>('backend.DiagnosticReport',[]);const url=URL.createObjectURL(new Blob([Uint8Array.from(atob(value),c=>c.charCodeAt(0))],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='caelisbot-diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);return '诊断报告已下载。' as T;}
-   case 'CopyDiagnostics':{const value=await call<string>('backend.DiagnosticReport',[]);await copy(atob(value));return undefined as T;}
+   case 'CopyDiagnostics':{const {copyFeedback}=await import('./feedback-client');await copyFeedback();return undefined as T;}
    case 'RestartSurface':location.reload();return undefined as T;
    case 'OpenReleasePage':openURL('https://github.com/caelis-labs/caelis-bot/releases');return undefined as T;
-   case 'OpenTelegramSetup':navigation({view:'settings',section:'telegram'});return undefined as T;
+   case 'OpenTelegramSetup':await navigation({view:'settings',section:'telegram'});return undefined as T;
   }
   const result=await call<T>(key,args);
   if(key==='desktop.Plugins'||key==='desktop.PluginAction'){
@@ -108,10 +122,10 @@ export function createWebTransport(bootstrap:WebBootstrap){
   if(key==='desktop.RemoveFile')filesChanged();
   return result;
  };
- return {transport,navigation,request,fixture:bootstrap.version.startsWith('FIXTURE'),
+ return {transport,navigation,restoreNavigation,request,fixture:bootstrap.version.startsWith('FIXTURE'),
   async claim(takeOver=false){const result=await request('/api/v1/composer/claim',{takeOver});epoch=result.epoch;return result.editing as boolean;},
   start(){stream=new EventSource('/api/v1/events');stream.addEventListener('reset',()=>{cached=undefined});stream.addEventListener('snapshot',event=>{cached=JSON.parse((event as MessageEvent).data)});stream.onerror=()=>{cached=undefined};},
-  close(){stream?.close();document.removeEventListener('paste',onPaste,true);},
+  close(){stream?.close();document.removeEventListener('paste',onPaste,true);window.removeEventListener('popstate',restoreNavigation);window.removeEventListener('hashchange',restoreNavigation);},
   async taskList(){return (await request('/api/v1/tasks/list',{args:[]})).value;},
   async taskConversation(id:string){return (await request('/api/v1/tasks/conversation',{args:[id]})).value;},
  };

@@ -50,6 +50,32 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
   check(!document.body.innerText.includes('PRIVATE_SENTINEL'),'private technical error leaked');
   evidence.push({mode,reads:state.reads,starts:state.starts,backs:state.backs});
  }
+ const gatewayEvidence=[];
+ for(const failure of ['reject','empty']){
+  phase='gateway '+failure;
+  let reads=0,available=false,started=0;
+  const client={
+   catalog:async()=>({choices:[{id:'magpie',name:'Magpie',custom:false}],unavailable:''}),
+   apiKeyOptions:async()=>{
+    reads++;
+    if(!available&&failure==='reject')throw Error('PRIVATE_SENTINEL http://user:secret@private/?token=secret');
+    return {endpoints:[],models:available?[{value:'demo/model',name:'Recovered model'}]:[]};
+   },
+   startConnection:async()=>{started++;throw Error('unexpected mutation');},
+  };
+  root.render(<I18nProvider bridge={bridge}><ConnectionWizard key={++serial} inline onboarding initialKind="api-key" initialChoice="magpie" client={client as any} onClose={()=>{}} onConnected={async()=>{}}/></I18nProvider>);
+  await wait(()=>!!document.querySelector('.gateway-read-notice'));
+  check(reads===(failure==='reject'?3:1),'gateway reads did not use bounded retry');
+  check(!document.querySelector('.surface-recovery'),'gateway failure showed window recovery');
+  const address=document.querySelector<HTMLInputElement>('input[type=url]')!;
+  check(address.value==='http://127.0.0.1:3425/v1'&&!address.disabled,'gateway form was lost');
+  check(!document.body.innerText.includes('PRIVATE_SENTINEL'),'gateway leaked error');
+  available=true;document.querySelector<HTMLButtonElement>('.gateway-read-notice button')!.click();
+  await wait(()=>document.body.innerText.includes('Recovered model'));
+  check(document.querySelector('input[type=url]')===address,'retry remounted form');
+  check(!document.querySelector('.gateway-read-notice')&&started===0,'read retry mutated connection');
+  gatewayEvidence.push({failure,reads,started,formPreserved:true});
+ }
  phase='setup';let setupReads=0;
  (window as any).acceptanceNative=async(name:string)=>{if(name.endsWith('.FeatureGuidePending'))setupReads++;phase='setup reads='+setupReads;throw Error('PRIVATE_SENTINEL first-run read');};
  root.render(<I18nProvider bridge={bridge}><BotSetup onDone={()=>{throw Error('failed setup completed')}}/></I18nProvider>);
@@ -74,7 +100,7 @@ const check=(ok:boolean,message:string)=>{if(!ok)throw Error(message)};
  check(retries===1&&submits===0,'recovery accidentally submitted enclosing form');
  check(document.querySelector('.surface-recovery')!.getBoundingClientRect().height<200,'local recovery took over the whole window');
  check(!document.body.innerText.includes('needs to reopen'),'local retry described window restart');
- return (window as any).recoveryResult={ok:true,evidence,setupReads,previewReads,recoveryForm:{retries,submits}};
+ return (window as any).recoveryResult={ok:true,evidence,gatewayEvidence,setupReads,previewReads,recoveryForm:{retries,submits}};
 };
 mount('reject');
 const runButton=document.createElement('button');runButton.textContent='Run recovery regression';

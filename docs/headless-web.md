@@ -132,3 +132,27 @@ Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate
 - Bot guidance 补充 surface 与工具执行主机的区别；不接入新的 async/MCP 实验 feature。
 
 验收证据见 [headless-web-acceptance.md](headless-web-acceptance.md)。无真实模型凭据时，fixture 成功不能当作真实模型、渠道送达、Worker Runtime 或 GUI 验收。
+
+### Gateway addresses in a VM
+
+Provider URLs are resolved by the **CaelisBot server**, not by the browser.
+`127.0.0.1` inside Rocky/WSL/container refers to that guest. An unavailable gateway
+or an empty model catalog stays in the connection form; retry it after correcting
+the address or starting the gateway. It does not require reloading the application.
+
+On this OrbStack demo, `host.orb.internal:3425` was verified read-only against
+Mac's existing loopback Magpie. This uses OrbStack's [documented Mac-server
+address](https://docs.orbstack.dev/machines/network#connecting-to-mac-servers);
+it is not a generic Docker/WSL guarantee. Magpie's Mac listener was not changed.
+The dedicated demo directory contains a loopback bridge so the existing default
+`http://127.0.0.1:3425/v1` works in Rocky. Its target is fixed, it permits only
+model listing and model inference paths, rejects Origin/forwarding headers and
+unexpected Host, and exposes no gateway administration. It is limited to trusted
+processes in this private VM; do not publish that bridge or use it as a LAN proxy.
+It copies no account credentials. The experience start/stop scripts also own its
+lifetime. General remote deployments must use their own explicit gateway address
+and gateway authentication; the product does not auto-trust VM hostnames.
+
+The default Docker bubblewrap compatibility issue remains unresolved. No
+`systempaths=unconfined`, outer sandbox relaxation or Core sandbox bypass was
+introduced by this follow-up. Real WSL and Tailscale hardware are still untested.

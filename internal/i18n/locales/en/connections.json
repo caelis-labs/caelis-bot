@@ -65,5 +65,8 @@
   "oauthTitle": "Sign in with {provider}",
   "oauthBrowserHint": "Complete authorization in your browser.",
   "oauthManual": "Complete authorization manually",
-  "oauthResponse": "Authorization code or callback URL"
+  "oauthResponse": "Authorization code or callback URL",
+  "gatewayUnavailable": "Models could not be loaded. Check the gateway address and retry.",
+  "gatewayNoModels": "The gateway returned no available models. Connect a model in the gateway, then retry.",
+  "gatewayServerAddress": "This address is accessed from the CaelisBot server."
 }

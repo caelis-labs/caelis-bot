@@ -243,5 +243,7 @@
   "questionPlaceholder": "Your answer…",
   "questionConversation": "Current conversation",
   "questionUntil": "Until {time}",
-  "questionDismissLabel": "Dismiss question without answering"
+  "questionDismissLabel": "Dismiss question without answering",
+  "surfaceReloadNeeded": "Reload the page to continue. Saved work will be kept.",
+  "reloadSurface": "Reload page"
 }
