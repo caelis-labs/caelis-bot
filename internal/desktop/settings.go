@@ -9,6 +9,9 @@ import (
 
 // Contextual connection actions and menu commands share one settings window.
 func (s *Service) showSettings(section string) {
+	if s.needsIntroduction != nil && s.needsIntroduction() {
+		section = "setup"
+	}
 	s.mu.Lock()
 	s.settingsSection = section
 	f := s.openSettings

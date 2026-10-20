@@ -38,7 +38,7 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
  const hasToken=token.trim().length>0;
  const tokenInvalid=issue==='invalid_token'&&!hasToken;
  const showToken=phase==='unconfigured'||issue==='invalid_token'||issue==='credential'||issue==='webhook';
- return <section className="telegram-page" aria-labelledby="telegram-title">
+ return <section className="telegram-page" aria-labelledby="telegram-title" data-settings-dirty={hasToken||busy||confirmForget}>
   {onBack&&<button type="button" className="text-action telegram-back" onClick={()=>{clearToken();onBack()}}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="telegram-title">{t('settings.telegramTitle')}</h1><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
   {phase==='loading'&&<p role="status">{t('common.loading')}</p>}

@@ -53,3 +53,7 @@ void bot_language(void *host, char *json);
 void bot_task_snapshot(void *host,const char *identifier,const char *source);
 
 void bot_task_transitions(void *pointer,char *data);
+
+void bot_context_navigation(void *window, int settings, int enabled, const char *label);
+void bot_capture_menu_add(void *menu, void *target, int enabled, const char *label);
+void bot_capture_menu_enabled(void *menu, int enabled);

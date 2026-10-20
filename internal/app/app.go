@@ -75,6 +75,7 @@ type Application struct {
 	pluginSyncPending   bool
 	pluginSyncRevision  uint64
 	pluginSyncError     bool
+	pluginChanges       map[string]uint64 // Package-local desired revisions awaiting projection.
 	updateMu            sync.Mutex
 	interactionNoticeMu sync.Mutex
 	started, closed     bool

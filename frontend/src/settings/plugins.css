@@ -103,3 +103,5 @@
 .plugin-icon:has(img){background:#fff}
 .plugin-icon img{display:block;width:30px;height:30px;object-fit:contain}
 .plugin-detail-head>.plugin-icon img{width:38px;height:38px}
+
+.plugin-row{flex-wrap:wrap}.plugin-action-error{flex-basis:100%;padding:0 20px 12px;color:var(--error);font-size:12px}

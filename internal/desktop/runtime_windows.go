@@ -179,16 +179,17 @@ func Run(assets fs.FS) error {
 		menu.Add(label(key)).OnClick(func(*application.Context) { go func() { logError(s.SetVisible(!visible)) }() })
 		menu.AddSeparator()
 		capture := s.FeatureCapabilities().Capture
-		menu.Add(label("capture.start")).SetEnabled(capture.Available && capture.Enabled).OnClick(func(*application.Context) { go s.CaptureScreen() })
-		menu.Add(label("capture.paste")).SetEnabled(capture.Available && capture.Enabled).OnClick(func(*application.Context) { go s.PasteImage() })
-		menu.Add(label("capture.togglePins")).SetEnabled(capture.Available && capture.Enabled).OnClick(func(*application.Context) { go s.ToggleImagePins() })
-		menu.AddSeparator()
+		if capture.Available && capture.Enabled {
+			menu.Add(label("capture.start")).OnClick(func(*application.Context) { go s.CaptureScreen() })
+			menu.AddSeparator()
+		}
 		menu.Add(label("settings")).OnClick(func(*application.Context) { go s.OpenSettings() })
 		menu.Add(label("updates")).OnClick(func(*application.Context) { go s.OpenUpdates() })
 		menu.AddSeparator()
 		menu.Add(label("quit")).OnClick(func(*application.Context) { quit() })
 		tray.SetMenu(menu)
 	}
+	s.captureMenuChanged = func() { populate(s.LanguagePreferences()) }
 	populate(s.LanguagePreferences())
 	openMenu := func() { go func() { populate(s.LanguagePreferences()); tray.OpenMenu() }() }
 	tray.OnClick(openMenu)

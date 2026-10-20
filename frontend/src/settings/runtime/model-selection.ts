@@ -6,8 +6,11 @@ type Invoke = <T>(method:string,...args:unknown[])=>Promise<T>;
 export class ModelSelectionDelivery {
  private pending = new Map<string,{runtime:string;selection:WorkExecutionSettings}>();
  private running = false;
+ private epoch = 0;
+ version() { return this.epoch; }
  constructor(private invoke:Invoke,private pause:(ms:number)=>Promise<void> = ms=>new Promise(resolve=>setTimeout(resolve,ms))) {}
  save(scope:string,runtime:string,selection:WorkExecutionSettings) {
+  this.epoch++;
   this.pending.set(scope,{runtime,selection});
   if(!this.running)void this.drain();
  }
@@ -23,7 +26,7 @@ export class ModelSelectionDelivery {
     for(const [scope,value] of [...this.pending]) {
      try {
       await this.invoke('SaveSelectedModel',scope,value.runtime,value.selection);
-      if(this.pending.get(scope)===value)this.pending.delete(scope);
+      if(this.pending.get(scope)===value){this.pending.delete(scope);this.epoch++;}
       delay=500;
      } catch { failed=true; }
     }
