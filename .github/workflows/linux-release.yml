@@ -159,6 +159,8 @@ jobs:
         run: node script/linux-publish.mjs release
   r2:
     needs: publish
+    permissions:
+      contents: write
     uses: ./.github/workflows/sync-r2.yml
     with:
       tag: ${{ inputs.tag }}
