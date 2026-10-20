@@ -81,6 +81,12 @@ unreadable native history is an error, not an empty result. The final Worker
 answer appears as an Assistant message and is not duplicated as a separate
 result field.
 
+After an explicit connection recovery, retained messages may still be readable
+even when their original execution owner is unavailable. Read the same task
+handle. Historical messages do not resolve an unknown submission or authorize
+continuing through a replacement owner. If the original history cannot be read,
+state that limit; do not create a replacement task to obtain its result.
+
 Use `request:{"type":"pin","task":"<handle>","pinned":true}` when the
 user wants an expired card restored. Set `pinned:false` to hide it. Pinning
 never resumes a Worker, opens a terminal, deletes history or submits input.

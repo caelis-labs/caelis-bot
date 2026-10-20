@@ -120,6 +120,20 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
+Whole-owner shutdown accepts an exact native missing-loaded-child error only
+after a fresh read of that original child confirms `notLoaded`, a terminal last
+turn matching its retained task, and no active work, prompts or uncertain receipts.
+Connection, child revision and task identity are fenced across that read. Explicit
+Stop targets, partial terminal listings and process/tool cleanup failures remain
+unconfirmed. This permits an ordinary restart after native idle unload without
+treating arbitrary `not found` errors as success.
+
+After explicit lost-owner recovery, the new connection may read original persisted
+Worker history by its retained thread ID. It cannot resume that archived execution
+owner, send input or settle its unknown receipts. Reads fence the connection and
+task identity, page native messages, and reject missing/partial archived history;
+they neither fabricate empty success nor recreate the task.
+
 Worker viability is not a persisted Bot state. Both adapters ignore legacy
 `retired` fields and normalize legacy `unavailable` caches to `unknown` on load,
 retaining task/session/thread bindings, original request receipts and report IDs.
