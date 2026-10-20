@@ -552,12 +552,8 @@ func (s *Session) connect(ctx context.Context) error {
 		recoveredPrivate, recoveredEndpoint, reconnectPrivate = *s.binding.OwnerProcess, s.binding.OwnerEndpoint, true
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
-		s.childObservationFailed = map[string]bool{}
-		for _, task := range s.binding.Tasks {
-			if task != nil && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
-				task.Activity = ""
-			}
-		}
+		// Ensuring an existing connection is not a new observation generation.
+		// Preserve other workers' current evidence and exhausted read attempts.
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
 		cleanup := append([]string(nil), s.binding.CleanupTargets...)
 		s.recoverUnresolvedChildren(c, s.epoch)

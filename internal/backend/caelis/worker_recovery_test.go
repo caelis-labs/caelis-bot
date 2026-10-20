@@ -111,7 +111,7 @@ func TestExhaustedWorkerObservationStopsUntilExplicitRead(t *testing.T) {
 	s.retainedWorkers = true
 	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown"}}
 	for i := range 3 {
-		s.observationBudget.Take(time.Now().Add(time.Duration(i) * time.Hour))
+		s.takeObservationsLocked(time.Now().Add(time.Duration(i) * time.Hour))
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	s.wg.Add(1)

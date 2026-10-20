@@ -445,6 +445,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return projected, err
 	}
 	s.bumpLocked()
+	s.requestRefreshLocked("worker:" + id)
 	return s.workerViewLocked(current), nil
 }
 
@@ -475,6 +476,7 @@ func (s *Session) beginWorkerSubmission(w worker, op string, steer bool) (worker
 		return previous, err
 	}
 	s.bumpLocked()
+	s.requestRefreshLocked("worker:" + w.Task.ID)
 	return w, nil
 }
 
@@ -600,17 +602,23 @@ func (s *Session) interruptSession(ctx context.Context, sid string) error {
 }
 
 func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
+	return s.refreshSelectedWorkers(ctx, c, nil)
+}
+
+func (s *Session) refreshSelectedWorkers(ctx context.Context, c *client, selected observationPlan) error {
 	s.mu.Lock()
 	workers := clone(s.state.Workers)
 	generation, instance := s.generation, s.state.InstanceID
 	s.mu.Unlock()
 	var failures error
 	for id, w := range workers {
+		if !selected.includes("worker:" + id) {
+			continue
+		}
 		s.mu.Lock()
-		status := s.workerViewLocked(w).Status
-		observing := s.streams[w.Binding.SessionId]
+		needed := s.workerNeedsObservationLocked(w)
 		s.mu.Unlock()
-		if w.Start == nil && (observing || (w.Activity == "idle" && status != "pending" || status == "completed" || status == "interrupted" || status == "failed")) {
+		if !needed {
 			continue
 		}
 

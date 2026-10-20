@@ -133,18 +133,27 @@ Bot prohibition. `notLoaded`, completed and interrupted turns do not end a Worke
 Activity and effect receipts are separate. Fresh native idle can release an
 unknown execution's possible capacity; an unknown submit still blocks new Bot
 input. Accepted input awaiting its own turn keeps a reservation; an older turn
-cannot settle it. Activity is transient, cleared on reconnect or a new dispatch.
+cannot settle it. Activity is transient, cleared on an actual connection replacement
+or a new dispatch; ensuring the same ready connection preserves existing evidence.
 Caelis reads its original operation journal without re-POSTing; Codex reconciles
 its original run/client message identity. Explicit stop intent and unknown stop
-receipts survive. Historical callback schemas/digests remain unchanged; a legacy
+receipts survive. A settled stop for an older turn does not prevent observation
+of a later explicitly started turn; a current or unknown stop still fences it. Historical callback schemas/digests remain unchanged; a legacy
 retire call without an existing receipt now returns unsupported with no effect.
 
 The existing connection observers bound unresolved reads and stream retries.
-Caelis maintenance and remote observation allow three attempts with backoff;
-healthy active streams/remote work continue to update. Native progress and explicit
-user recovery/read provide new opportunities. Codex failed child observations
+Caelis maintenance allows three attempts with backoff per Worker, original
+operation receipt, or resident/configuration observation; one exhausted object
+cannot starve another. Native approval dirtiness requires an authoritative read
+even with a healthy stream or terminal task turn. Remote observation has the same
+bound per machine/runtime. Healthy active streams/remote work continue to update.
+Native progress and explicit user recovery/read renew only the relevant budget;
+a successful explicit machine inspection does so even when an older poll is in
+flight. Failed reads clear activity evidence in both foreground and background. Codex failed child observations
 wait for an explicit recovery/read or new connection; unsubscribe failure waits
 for fresh evidence. The quiet connection supervisor also has a finite budget.
+The existing host recovery flight renews observers only for explicit recovery;
+routine Connect/Ensure calls do not refill exhausted reads or clear idle proof.
 Budgets are transient observation counters, not session owners or lifetime flags.
 Historical cards do not trigger background resume. Opening a terminal is an
 explicit user action: Manager first reads the original binding, then delegates

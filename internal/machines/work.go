@@ -128,7 +128,7 @@ func (s *Service) workPolls() []workPoll {
 // Network observation must never own the global route/configuration lock.
 // Apply only to the unchanged profile and still-owned backend; a late response
 // cannot restore a deleted machine or overwrite a newly selected default.
-func (s *Service) pollWork(ctx context.Context, poll workPoll) {
+func (s *Service) pollWork(ctx context.Context, poll workPoll) uint64 {
 	r, err := s.call(ctx, poll.profile, remotework.Request{Action: "states", Runtime: poll.runtime})
 	var inspected remotework.Response
 	var inspectErr error
@@ -137,7 +137,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 		inspected, inspectErr = s.call(ctx, poll.profile, remotework.Request{Action: "inspect", Runtime: poll.runtime})
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
-		return
+		return poll.revision
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -146,7 +146,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 	revision := s.cacheRevision[poll.id+"\x00"+poll.runtime]
 	s.cacheMu.RUnlock()
 	if !exists || !reflect.DeepEqual(p, poll.profile) || revision != poll.revision {
-		return
+		return poll.revision
 	}
 	owned := false
 	for task, machine := range s.state.Routes {
@@ -156,7 +156,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 		}
 	}
 	if !owned {
-		return
+		return poll.revision
 	}
 	if err == nil {
 		s.cacheResponse(poll.id, p.View.Name, poll.runtime, r.States)
@@ -167,7 +167,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 				s.state.Profiles[poll.id] = p
 			}
 		}
-		return
+		return poll.revision + 1
 	}
 	if p.View.Runtime == poll.runtime && (p.View.State != "offline" || p.View.Issue != err.Error()) {
 		next := p
@@ -177,15 +177,22 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 			s.state.Profiles[poll.id] = p
 		}
 	}
+	s.invalidateActivity(poll.id, poll.runtime)
+	return poll.revision + 1
+}
+
+// Every failed original-owner observation invalidates activity evidence,
+// regardless of whether it came from foreground readback or background polling.
+func (s *Service) invalidateActivity(id, runtime string) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.cacheRevision[poll.id+"\x00"+poll.runtime]++
-	for i := range s.cache[poll.id+"\x00"+poll.runtime] {
-		state := &s.cache[poll.id+"\x00"+poll.runtime][i]
+	key := id + "\x00" + runtime
+	s.cacheRevision[key]++
+	for i := range s.cache[key] {
+		state := &s.cache[key][i]
 		state.Activity = ""
 		if status := state.Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
 			state.Task.Status = "unknown"
-			state.Activity = ""
 		}
 	}
 }
@@ -303,14 +310,7 @@ func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, 
 			s.state.Profiles[id] = p
 			_ = s.save()
 		}
-		s.cacheMu.Lock()
-		s.cacheRevision[id+"\x00"+runtime]++
-		for i := range s.cache[id+"\x00"+runtime] {
-			if status := s.cache[id+"\x00"+runtime][i].Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
-				s.cache[id+"\x00"+runtime][i].Task.Status = "unknown"
-			}
-		}
-		s.cacheMu.Unlock()
+		s.invalidateActivity(id, runtime)
 	}
 }
 
@@ -364,7 +364,7 @@ func (s *Service) Observe(ctx context.Context) {
 				defer func() { <-limit }()
 				c, cancel := context.WithTimeout(ctx, 15*time.Second)
 				defer cancel()
-				s.pollWork(c, poll)
+				observed := s.pollWork(c, poll)
 				s.cacheMu.RLock()
 				revision := s.cacheRevision[key]
 				active := false
@@ -375,8 +375,10 @@ func (s *Service) Observe(ctx context.Context) {
 				}
 				s.cacheMu.RUnlock()
 				episodeMu.Lock()
-				episode.revision = revision
-				if active {
+				// Adopt only the revision this poll actually wrote. An explicit
+				// recovery/read racing the poll must still grant a fresh budget.
+				episode.revision = observed
+				if revision == observed && active {
 					episode.budget.Reset()
 				}
 				episodeMu.Unlock()

@@ -5,8 +5,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-func (s *Session) requestRefreshLocked() {
-	s.observationBudget.Reset()
+func (s *Session) requestRefreshLocked(keys ...string) {
+	for _, key := range keys {
+		delete(s.observationBudgets, key)
+	}
 	select {
 	case s.wake <- struct{}{}:
 	default:

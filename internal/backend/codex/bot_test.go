@@ -216,6 +216,7 @@ func TestWorkerObservationFailureCanReconnectWithoutReplaying(t *testing.T) {
 			if err := s.Connect(testContext(t)); err != nil {
 				t.Fatal(err)
 			}
+			s.RetryObservations() // Host explicit recovery, not the retained-owner Ensure loop.
 			awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == wantPhase && v.CanSend == wantSend && v.Message == "" })
 			f.mu.Lock()
 			defer f.mu.Unlock()

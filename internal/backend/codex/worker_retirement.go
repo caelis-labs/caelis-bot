@@ -14,6 +14,18 @@ import (
 const workerRetirementDelay = 30 * time.Second
 const workerSubscriptionLimit = 8
 
+// RetryObservations is called by the host's explicit recovery flight. It only
+// renews the existing readers; it neither replaces a connection nor replays input.
+func (s *Session) RetryObservations() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.closing || s.client == nil || s.client.Err() != nil || s.state.Connection != "ready" {
+		return
+	}
+	s.childObservationFailed = map[string]bool{}
+	s.recoverUnresolvedChildren(s.client, s.epoch)
+}
+
 // Called with s.mu held. Historical terminal tasks need no native resume: the
 // saved binding and read-only thread/read retain their original IDs and receipts.
 func (s *Session) recoverUnresolvedChildren(c *Client, epoch uint64) {
@@ -124,8 +136,12 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		if _, known := s.childRuns[id]; !known {
 			s.childRuns[id] = "" // Native active, turn identity not yet known.
 		}
-		if task := s.taskByThread(id); !s.childSubscribed[id] && (task == nil || !task.SuppressReport && task.StopPendingRequest == "") {
-			subscribe = true
+		if !s.childSubscribed[id] {
+			if task := s.taskByThread(id); task == nil || !task.SuppressReport && !taskStopCurrent(task) {
+				subscribe = true
+			} else {
+				delete(s.childWatching, id)
+			}
 		}
 	} else {
 		delete(s.childRuns, id)

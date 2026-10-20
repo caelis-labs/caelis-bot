@@ -161,7 +161,7 @@ func (s *Session) WorkStates() []api.WorkState {
 		} else if s.state.Connection != "ready" {
 			activity = ""
 		}
-		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
+		originalStopCurrent := taskStopCurrent(t)
 		resolution := ""
 		if originalStopCurrent {
 			if !s.stopTerminalSavePending["task:"+t.View.ID] {
@@ -179,6 +179,9 @@ func (s *Session) WorkStates() []api.WorkState {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Task.ID < out[j].Task.ID })
 	return out
+}
+func taskStopCurrent(t *taskRecord) bool {
+	return t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
 }
 func taskRequestValid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
