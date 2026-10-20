@@ -734,5 +734,7 @@
   "managedReason_offer_unavailable": "更新状态已变化，请重新检查。",
   "managedReason_update_busy": "更新操作正在进行，请稍候。",
   "managedReason_connection": "连接暂时中断，正在重新读取更新状态。",
-  "managedReason_generic": "此操作未完成，请重新检查状态。"
+  "managedReason_generic": "此操作未完成，请重新检查状态。",
+  "managedReload": "重新载入",
+  "managedReloadHint": "服务已更新，重新载入页面以使用新版界面。"
 }

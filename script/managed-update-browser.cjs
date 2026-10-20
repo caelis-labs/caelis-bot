@@ -36,6 +36,7 @@ async(page)=>{
  status={...status,state:'downloading',reason:'',receivedBytes:1048576,totalBytes:4194304};await page.getByRole('progressbar').waitFor();await page.waitForFunction(()=>document.querySelector('progress')?.value===25);await page.screenshot({path:out+'/download-390.png'});
  status={...status,totalBytes:0};await page.waitForFunction(()=>!document.querySelector('progress')?.hasAttribute('value'));
  status={...status,state:'rolled_back',reason:'new_version_unhealthy'};await page.getByText('已恢复到上方显示的原版本，用户数据保留。',{exact:true}).waitFor();await page.screenshot({path:out+'/rollback-390.png'});
+ status={...status,state:'installed',reason:'',bootId:'new',current:{...status.current,version:'0.17.1-qa.11'}};await page.getByRole('button',{name:'重新载入',exact:true}).waitFor();
  status={...status,mode:'external',state:'idle',reason:'external_installation'};await page.getByText('此安装由服务主机管理，请在主机更新。',{exact:true}).waitFor();
  if(await page.getByRole('button',{name:'安装并重启',exact:true}).count())throw Error('fake unmanaged install');await page.screenshot({path:out+'/external-390.png'});
  if(errors.length)throw Error(errors.join(';'));

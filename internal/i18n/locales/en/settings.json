@@ -735,5 +735,7 @@
   "managedReason_offer_unavailable": "Update state changed. Check again.",
   "managedReason_update_busy": "An update operation is in progress. Please wait.",
   "managedReason_connection": "Connection interrupted. Reconnecting to read update status.",
-  "managedReason_generic": "This operation did not complete. Refresh its status."
+  "managedReason_generic": "This operation did not complete. Refresh its status.",
+  "managedReload": "Reload page",
+  "managedReloadHint": "The service is updated. Reload this page to use the new interface."
 }

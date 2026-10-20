@@ -32,6 +32,7 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
    {managed&&status?.offerId&&['available','failed'].includes(state)&&<SettingRow label={t('settings.managedDownload')} description={t('settings.managedDownloadHint')}><button disabled={locked} onClick={()=>void act({action:'download',offerId:status.offerId})}>{t('settings.managedDownload')}</button></SettingRow>}
    {managed&&state==='ready'&&<SettingRow label={t('settings.managedInstall')} description={t('settings.managedInstallHint')}><button disabled={locked} onClick={()=>void act({action:'install',offerId:status?.offerId,when:'idle'})}>{t('settings.managedSchedule')}</button><button disabled={locked} onClick={()=>void act({action:'install',offerId:status?.offerId,when:'now'})}>{t('settings.managedInstall')}</button></SettingRow>}
    {managed&&state==='waiting_idle'&&status?.transactionId&&<SettingRow label={t('settings.managedScheduled')}><button disabled={locked} onClick={()=>void act({action:'cancel',transactionId:status.transactionId,revision:status.revision})}>{t('common.cancel')}</button></SettingRow>}
+   {view?.confirmed&&status?.current.version!==version&&<SettingRow label={t('settings.managedReload')} description={t('settings.managedReloadHint')}><button onClick={()=>void desktop('RestartSurface')}>{t('settings.managedReload')}</button></SettingRow>}
   </SettingGroup><Maintenance storage={false} embedded/>
  </section>;
 }
