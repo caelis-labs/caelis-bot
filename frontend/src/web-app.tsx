@@ -9,17 +9,18 @@ import {Recovery,SurfaceBoundary} from './SurfaceBoundary';
 import {BotSetup} from './BotSetup';
 import {SetupLoading} from './SetupLoading';
 import {SettingsDialog} from './settings/runtime/SettingsDialog';
-import {MessageContent} from './MessageContent';
+import {WebTasks,useWebTasks} from './WebTasks';
 import {desktop} from './desktop';
 import {settingsHasModal} from './context-navigation';
 import type {WebClient,WebNavigation} from './web-transport';
 
-type Task={id:string;title:string;status:string;machineName?:string;result?:string};
-type Conversation={status:string;messages:Array<{id:string;role:string;text:string}>};
 
 export function WebApp({client}:{client:WebClient}){
  const [nav,setNav]=useState<WebNavigation|null>(null),[navigationFailed,setNavigationFailed]=useState(false),[editing,setEditing]=useState<boolean|null>(null),[tasksOpen,setTasksOpen]=useState(false);
  const onboarding=nav?.section==='setup';
+ const taskState=useWebTasks(client,!!nav&&!onboarding);
+ const taskOpen=tasksOpen||nav?.view==='task';
+ const closeTasks=()=>{setTasksOpen(false);void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true));};
  const [preview,setPreview]=useState<{id:string;text:string;truncated:boolean}|null>(null),[notice,setNotice]=useState('');
  const content=useRef<HTMLDivElement>(null);
  const [editorGeneration,setEditorGeneration]=useState(0);const editorActive=useRef(false);
@@ -49,30 +50,22 @@ export function WebApp({client}:{client:WebClient}){
  },[editing]);
  return <I18nProvider><SurfaceBoundary><div className="web-app">
   {client.fixture&&<div className="web-editing" role="status">测试后端 · 无真实模型或外部任务执行</div>}
-  {editing===false&&nav?.view==='chat'&&<div className="web-editing" role="status">另一页面正在编辑。<button onClick={()=>void client.claim(true).then(updateEditor)}>在此继续编辑</button></div>}
+  {editing===false&&(nav?.view==='chat'||nav?.view==='task')&&<div className="web-editing" role="status">另一页面正在编辑。<button onClick={()=>void client.claim(true).then(updateEditor)}>在此继续编辑</button></div>}
   <div className="web-content" ref={content}>
    {navigationFailed&&<Recovery message="暂时无法打开此页面，请重试。" onRetry={()=>void client.restoreNavigation()}/>}
    {!nav&&!navigationFailed&&<SetupLoading/>}
    {onboarding?<div className="web-settings"><main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true))}/></div></main></div>:nav&&<>
-    <div className="web-chat" hidden={nav.view==='settings'}>
-     <div className="web-tools"><button aria-label="后台任务" title="后台任务" onClick={()=>{if(!settingsHasModal())setTasksOpen(true)}}><ListChecksIcon size={19}/></button><button className="context-navigation" aria-label="设置" title="设置" onClick={()=>void client.navigation({view:'settings',section:'general'}).catch(()=>setNavigationFailed(true))}><GearSixIcon size={18}/></button></div>
-     <History composerGeneration={editorGeneration}/>
+    <div className={`web-workspace${taskState.tasks.length||taskOpen?' has-tasks':''}${taskOpen?' task-focused':''}`} hidden={nav.view==='settings'}>
+     <div className="web-chat">
+      <div className="web-tools">{(taskState.tasks.length>0||taskState.error)&&<button className="web-task-toggle" aria-label="后台任务" title="后台任务" onClick={()=>{if(!settingsHasModal())setTasksOpen(true)}}><ListChecksIcon size={19}/></button>}<button className="context-navigation" aria-label="设置" title="设置" onClick={()=>void client.navigation({view:'settings',section:'general'}).catch(()=>setNavigationFailed(true))}><GearSixIcon size={18}/></button></div>
+      <History composerGeneration={editorGeneration}/>
+     </div>
+     <WebTasks client={client} tasks={taskState.tasks} selected={nav.task} onSelect={id=>void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true))} onClose={closeTasks} listError={taskState.error} onRetryList={taskState.retry}/>
     </div>
     <div className="web-settings" hidden={nav.view!=='settings'}><Settings onNavigate={section=>void client.navigation({view:'settings',section}).catch(()=>setNavigationFailed(true))}/></div>
    </>}
   </div>
-  {nav&&!onboarding&&(tasksOpen||nav.view==='task')&&<Tasks client={client} selected={nav.task} onClose={()=>{setTasksOpen(false);void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true))}}/>}
   {preview&&<SettingsDialog surfaceClassName="settings-window" portalTarget={document.body} title="文件预览" onClose={()=>setPreview(null)}><pre className="web-preview">{preview.text}</pre>{preview.truncated&&<p>仅显示开头部分，可下载完整文件。</p>}<button onClick={()=>void desktop('SaveArtifactAs',preview.id)}>下载文件</button></SettingsDialog>}
   {notice&&<SettingsDialog surfaceClassName="settings-window" portalTarget={document.body} title="文件" onClose={()=>setNotice('')}><p>{notice}</p></SettingsDialog>}
  </div></SurfaceBoundary></I18nProvider>;
-}
-
-function Tasks({client,selected,onClose}:{client:WebClient;selected?:string;onClose:()=>void}){
- const [tasks,setTasks]=useState<Task[]>([]),[id,setID]=useState(selected??''),[conversation,setConversation]=useState<Conversation|null>(null),[error,setError]=useState('');
- useEffect(()=>{let active=true;const read=()=>void client.taskList().then(value=>{if(active)setTasks(value)}).catch(()=>{if(active)setError('暂时无法读取任务，原工作仍保留。')});read();const timer=setInterval(read,2000);return()=>{active=false;clearInterval(timer)}},[client]);
- useEffect(()=>{let active=true;setConversation(null);setError('');const read=()=>{if(id)void client.taskConversation(id).then(value=>{if(active){setConversation(value);setError('')}}).catch(()=>{if(active)setError('暂时无法读取这项工作的记录。')})};read();const timer=setInterval(read,3000);return()=>{active=false;clearInterval(timer)}},[id,client]);
- return <SettingsDialog surfaceClassName="settings-window" portalTarget={document.body} title={tasks.find(task=>task.id===id)?.title??'后台任务'} onClose={onClose}><div className="web-tasks">
-  {id?<><button onClick={()=>setID('')}>返回任务</button>{conversation?.messages.map(message=><article key={message.id}><small>{message.role==='user'?'你':'助手'}</small><MessageContent text={message.text} report={setError}/></article>)}{!conversation?.messages.length&&tasks.find(task=>task.id===id)?.result&&<MessageContent text={tasks.find(task=>task.id===id)!.result!} report={setError}/>}<span role="status">{conversation?.status==='running'?'进行中':conversation?.status==='completed'?'已完成':''}</span>{!conversation&&!error&&<p>正在读取…</p>}</>:tasks.length?tasks.map(task=><button key={task.id} className="web-task-row" onClick={()=>setID(task.id)}><strong>{task.title}</strong><span>{({running:'进行中',completed:'已完成',failed:'未完成',unknown:'等待核对',pending:'等待中',stopped:'已停止'} as Record<string,string>)[task.status]??'已保留'}{task.machineName?' · '+task.machineName:''}</span></button>):<p>暂无后台任务。</p>}
-  {error&&<p role="status">{error}</p>}
- </div></SettingsDialog>;
 }

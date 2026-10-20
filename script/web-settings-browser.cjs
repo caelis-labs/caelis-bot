@@ -33,6 +33,7 @@ async(page)=>{
  await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
  await page.getByText('fixture-notes.txt',{exact:true}).waitFor();
  await page.evaluate(()=>{document.querySelector('.chat-scroll').scrollTop=140;window.fixtureComposer=document.querySelector('textarea')});
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  const retained=()=>page.evaluate(()=>({draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,sameComposer:window.fixtureComposer===document.querySelector('textarea')}));
  const before=await retained();
  await page.screenshot({path:out+'/chat-640-fixture.png'});
@@ -106,7 +107,7 @@ async(page)=>{
  await page.waitForFunction(()=>window.fixtureFeedback?.includes('submission_unconfirmed'));
  await page.screenshot({path:out+'/chat-unknown-640-fixture.png'});
  await page.getByRole('button',{name:'后台任务',exact:true}).click();
- await page.getByRole('button',{name:'保留的后台工作 已完成',exact:true}).click();
+ await page.getByRole('complementary',{name:'后台任务',exact:true}).waitFor();
  await page.getByText('合成结果：任务仍属于原执行者。',{exact:true}).waitFor();
  await page.screenshot({path:out+'/task-result-640-fixture.png'});
  check(errors.length===0,'renderer crashed: '+errors.join(','));

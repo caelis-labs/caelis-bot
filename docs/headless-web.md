@@ -187,3 +187,26 @@ Only explicit retry starts a new installation after a definite failure.
 This does not change Bot-facing capabilities or tools, so no additional bot-core
 skill update is needed for this repair. Session limits are unchanged: do not
 bulk-delete sessions with unknown ownership to make acceptance clients connect.
+
+## Responsive task reading
+
+After onboarding, Web keeps the shared App conversation mounted. At 1000 CSS
+pixels and wider, retained tasks appear beside the conversation; without tasks,
+the conversation stays centered. Narrow screens switch between chat and tasks
+without unmounting the composer, draft, attachments, or scroll container. Settings
+navigation also retains the selected task. The task picker and Markdown renderer
+reuse shared components and theme tokens.
+
+This pane calls only the existing typed task-list and task-conversation reads.
+It never creates a replacement task, acknowledges a report, opens a terminal, or
+adopts another execution owner. A delayed response for a previously selected
+task cannot replace the selected result; read failures keep existing content
+and offer a local read retry. Creation time is an optional, backward-compatible
+projection of the existing task record timestamp. Legacy records without a time
+omit it; there is no ledger migration or invented message timestamp.
+
+`script/web-task-layout-browser.cjs` verifies 1600/1200/900/390 layouts, task
+selection, delayed reads, local retry, retained chat state, and read-only API use
+with synthetic data. Real Worker results are a separate acceptance check.
+No Bot skill guidance changes are needed: this only changes human presentation,
+not agent capabilities, tool contracts, permissions, or task workflows.

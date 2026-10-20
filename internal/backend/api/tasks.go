@@ -53,6 +53,7 @@ type TaskPage struct {
 }
 
 type Task struct {
+	CreatedAt   string `json:"createdAt,omitempty"`
 	MachineName string `json:"machineName,omitempty"`
 	Machine     string `json:"machine,omitempty"`
 	ID          string `json:"id"`
