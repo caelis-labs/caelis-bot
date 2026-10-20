@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import {QuestionPrompt} from './QuestionPrompt';
 import {questionIdentity,visibleQuestionMessages} from './question-presentation';
 import {Recovery} from './SurfaceBoundary';
@@ -561,7 +562,7 @@ export function History() {
   const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
-  const key=(e:KeyboardEvent)=>{if(activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
+  const key=(e:KeyboardEvent)=>{if(!isWebSurface()&&activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
   surfaceMounted('chat');
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};

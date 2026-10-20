@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { useI18n } from '../../i18n';
 import { XIcon } from '../../SettingsIcons';
 
-export function SettingsDialog({ title, description, busy = false, blocked = false, onClose, children, className = '', anchor, alignTo, returnFocus, portalTarget }: {
- title: ReactNode; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null; portalTarget?: HTMLElement;
+export function SettingsDialog({ title, description, busy = false, blocked = false, onClose, children, className = '', anchor, alignTo, returnFocus, portalTarget, surfaceClassName = '' }: {
+ title: ReactNode; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null; portalTarget?: HTMLElement; surfaceClassName?: string;
 }) {
  const { t } = useI18n();
  const restoreFrame = useRef<number | undefined>(undefined);
@@ -58,7 +58,7 @@ export function SettingsDialog({ title, description, busy = false, blocked = fal
   window.addEventListener('resize', place); window.addEventListener('scroll', place, true);
   return () => { observer.disconnect(); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
  }, [anchor, alignTo]);
- return createPortal(<div ref={layer} className={`setup-scrim runtime-dialog-scrim${anchor ? ' runtime-popover-scrim' : ''}`} onPointerDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+ return createPortal(<div ref={layer} className={`${surfaceClassName} setup-scrim runtime-dialog-scrim${anchor ? ' runtime-popover-scrim' : ''}`} onPointerDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
   <section ref={ref} style={anchor ? position : undefined} tabIndex={-1} className={`setup-dialog runtime-dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleID} onKeyDown={event => {
    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); }
    if (event.key !== 'Tab') return;

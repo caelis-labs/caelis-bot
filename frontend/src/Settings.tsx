@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import {SettingsToolbarContext} from './settings/SettingsToolbar';
 import { SettingsNavIcon } from './SettingsNavIcon';
@@ -28,6 +29,7 @@ type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean
 
 export function Settings() {
  const {t}=useI18n();
+ const groups=settingsGroups.map(group=>({...group,sections:group.sections.filter(id=>!isWebSurface()||!['extras','permissions'].includes(id))})).filter(group=>group.sections.length);
  const content=useRef<HTMLDivElement>(null);
  const [toolbar,setToolbar]=useState<HTMLDivElement|null>(null);
  const [runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false),[weixinVisited,setWeixinVisited]=useState(false);
@@ -49,7 +51,7 @@ export function Settings() {
   const onOpen=()=>{visibilitySeq.current++;load(true);};
   const onClose=()=>{visibilitySeq.current++;visibleRef.current=false;setVisible(false);};
   const onFocus=()=>{if(visibleRef.current)setFocusVersion(n=>n+1);};
-  const key=(event:KeyboardEvent)=>{if(!visibleRef.current||event.defaultPrevented||event.isComposing||document.querySelector('[data-select-open="true"]'))return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
+  const key=(event:KeyboardEvent)=>{if(!visibleRef.current||event.defaultPrevented||event.isComposing||document.querySelector('[data-select-open="true"]'))return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(!isWebSurface()&&event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   surfaceMounted('settings');
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',onOpen);window.addEventListener('settings-close',onClose);window.addEventListener('settings-focus',onFocus);window.addEventListener('keydown',key);
@@ -59,7 +61,7 @@ export function Settings() {
  useEffect(()=>{if(visible&&opened)surfaceReady('settings');},[visible,opened,section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
-  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{settingsGroups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
+  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>{isWebSurface()?'CaelisBot':'Caelis Bot'}</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{groups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
   <div className="settings-main"><header className="settings-toolbar"><span>{t('settings.windowTitle')}</span><span aria-hidden="true">/</span><h1>{t(`settings.${section==='telegram'||section==='weixin'?'chatConnections':section}`)}</h1><div className="settings-subpage-slot" ref={setToolbar}/></header><div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{section==='permissions'&&<><h1>{t('settings.permissions')}</h1><PermissionSettings embedded active={visible} focusVersion={focusVersion}/></>}</div>
    <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<SettingsToolbarContext.Provider value={section==='connections'?toolbar:null}><RuntimeSettings active={visible&&section==='connections'} refreshKey={opened}/></SettingsToolbarContext.Provider>}</div>
@@ -80,13 +82,14 @@ function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
 
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><div className="general-preferences"><h2>{t('settings.preferences')}</h2><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
-  <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
+  <h1>{t('settings.general')}</h1><div className="general-preferences"><h2>{t('settings.preferences')}</h2><LanguageSetting/>{!isWebSurface()&&<LoginAtLoginSetting active={active} focusVersion={focusVersion}/>}</div><TaskSettings/>
+  {!isWebSurface()&&<SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>}
 
  </section>;
 }
 
-function Updates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}) {
+function Updates(props:{version:string;active:boolean;focusVersion:number}){return isWebSurface()?<section className="update-settings"><div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>CaelisBot</h2><p>{props.version}</p></div></div><SettingGroup><SettingRow label="发布与安装" description="在服务主机更新程序或容器。"><button onClick={()=>void desktop('OpenReleasePage')}>查看发行版本</button></SettingRow></SettingGroup><Maintenance storage={false} embedded/></section>:<NativeUpdates {...props}/>;}
+function NativeUpdates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [result,setResult]=useState<Update|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [preferences,setPreferences]=useState<UpdatePreferences|null>(null);

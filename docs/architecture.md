@@ -1094,3 +1094,9 @@ ports behind the same event contract, then richer normalization. No workflow gra
 arbitrary event publication is introduced. The packaged Bot-core skill makes
 follow-through a core work mode with progressively loaded examples; automated
 contract coverage does not prove every model will choose to arrange follow-ups.
+
+## Headless and browser surface
+
+The optional `serve` entry point assembles the same `app.Application` without a native window driver. Bot identity, schedules, channels, Worker routing and recovery remain owned by the existing product services. Browser disconnect is not a shutdown or cancellation signal. The browser uses the same React surfaces through an explicit Web transport; native desktop calls remain the default transport.
+
+`internal/websurface` owns only authenticated ingress, operation correlation, bounded snapshot delivery and file transfer. It exposes an explicit operation allowlist rather than generic Wails/Core RPC. Direct loopback bootstrap preserves Origin/Host/CSRF checks; nonlocal clients pair. The optional host-loopback relay authenticates local container port forwarding without trusting NAT peers or forwarded headers, and has no execution authority. See [deployment and boundary contracts](headless-web.md) and [acceptance evidence and limits](headless-web-acceptance.md). Linux/WSL headless does not imply Linux desktop or Windows GUI support.

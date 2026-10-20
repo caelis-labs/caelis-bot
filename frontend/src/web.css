@@ -1,0 +1,12 @@
+html,body,#root{min-width:320px;width:100%;height:100%;margin:0}
+body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
+.web-app{height:100dvh;display:flex;flex-direction:column;background:var(--caelis-window,#f6f6f8);color:var(--caelis-text,#222)}
+.web-tools{display:flex;justify-content:flex-end;gap:4px;padding:1px 12px;background:var(--caelis-chat);flex:none}.web-tools button{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:6px;background:transparent;color:var(--caelis-text-secondary)}.web-tools button:hover{background:var(--caelis-selected)}
+.web-content{flex:1;min-height:0;position:relative;overflow:hidden}.web-content>[hidden]{display:none}
+.web-chat,.web-settings{height:100%;min-height:0}.web-chat{width:100%}.web-chat .history-surface{height:100%;min-height:0}
+.web-settings .settings-window{height:100%;max-height:100%;width:100%;border-radius:0}
+.web-editing{padding:6px 20px;font-size:12px;text-align:center;background:#8881}.web-editing button{margin-left:8px}
+.web-pair{max-width:360px;margin:12vh auto 0;padding:28px;display:flex;flex-direction:column;gap:12px}.web-pair h1{font-size:27px;margin:0}.web-pair p{margin:0;line-height:1.6}.web-pair form{display:flex;flex-direction:column;gap:12px;margin:12px 0}.web-pair input{padding:12px;font-size:15px;border:1px solid #8885;border-radius:9px}.web-pair button{padding:12px}.web-pair small{color:#777}.web-pair [role=alert]{font-size:13px;color:#b04444}
+.web-tasks{min-width:280px;max-width:700px}.web-task-row{display:flex;flex-direction:column;gap:5px;text-align:left;width:100%;padding:12px;border:0;border-bottom:1px solid #8882;background:transparent}.web-task-row span{font-size:12px;color:#777}.web-tasks article{margin:18px 0}.web-tasks article>small{color:#777}.web-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:13px}
+.web-native-note{font-size:13px;color:var(--caelis-text-secondary,#666);line-height:1.6;padding:10px 0}
+@media(max-width:680px){.web-settings .settings-window{display:flex;flex-direction:column}.web-settings .settings-window>aside{width:auto;min-width:0;max-width:none;flex:none;padding:8px;overflow-x:auto}.web-settings .settings-identity,.web-settings .settings-nav-group>p{display:none}.web-settings aside nav{display:flex;gap:4px;white-space:nowrap}.web-settings .settings-nav-group{display:flex}.web-settings .settings-main{min-height:0;flex:1}.web-settings .settings-content{padding:16px}.web-pair{margin-top:8vh}.web-chat{width:100%}}

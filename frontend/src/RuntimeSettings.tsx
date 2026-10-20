@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import {Recovery} from './SurfaceBoundary';
 import appIcon from '../../internal/desktop/assets/app-icon.png';
 import { ExistingSetupModels } from './settings/runtime/ExistingSetupModels';
@@ -68,7 +69,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   void call<Profile>('SetupProfile', id).then(async p => {
    if (generation !== epoch.current) return;
    setProfile(p); setManual(!!p.cliPath);
-   const next = onboarding ? await call<SetupState>('ApplySetup', request(p, 'prepare')) : await call<SetupState>('InspectSetup', p);
+   const next = onboarding && !isWebSurface() ? await call<SetupState>('ApplySetup', request(p, 'prepare')) : await call<SetupState>('InspectSetup', p);
    if (generation !== epoch.current) return;
    setState(next);
   }).catch(e => { if (generation === epoch.current) { setError(errorText(e)); setPreparationFailed(true); } }).finally(() => { if (generation === epoch.current) { working.current = false; setBusy(''); } });
@@ -139,7 +140,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   {error && <Recovery/>}
   <div className="setup-end">{onBack&&<button type="button" onClick={onBack}>{t('settings.setupBack')}</button>}</div>
  </section>;
- if (onboarding && (!state||profile.runtime!==id)) return preparationFailed ? <section className="runtime-onboarding">
+ if (onboarding && !locationOpen && (!state||profile.runtime!==id)) return preparationFailed ? <section className="runtime-onboarding">
   <SetupBack onClick={() => setID('')}/>
   <button className="primary" onClick={() => setPreparationAttempt(v => v + 1)}>{t('settings.runtimeTryAgain')}</button>
  </section> : <SetupLoading/>;
@@ -175,7 +176,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </dl>}
    {serviceNeedsApply && !(onboarding && state?.state==='service') && <p className="runtime-update-hint">{state?.state === 'service' ? t('runtime.readyAfterServiceStart') : t('runtime.newVersionNotActivated')}</p>}
    <div className="runtime-program-actions">
-    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => void run('install')}>{onboarding ? t('runtime.onboardingInstallAction') : t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding && !state.installation.bundled ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
+    {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => isWebSurface() ? setLocationOpen(true) : void run('install')}>{isWebSurface() ? '安装指引与程序位置' : onboarding ? t('runtime.onboardingInstallAction') : t('runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => onboarding && state.state==='service' ? void run('start') : setConfirm(request(profile, 'apply-update'))}>{t(onboarding && state.state==='service'?'runtime.prepareConnection':'runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding && !state.installation.bundled ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
     <button className="text-action" disabled={blocked || !id} onClick={() => void run('detect')}>{t('runtime.recheck')}</button>
    </div>
    {state?.installation.bundled && <p className="settings-note">{t('runtime.bundledUpdateHint')}</p>}
@@ -189,7 +190,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
     <img className="onboarding-oauth-app-icon" src={appIcon} alt="Caelis Bot"/>
     <h1 id="onboarding-oauth-title">{t(state.loginPending?'runtime.waitingBrowserLogin':'runtime.loginWithChatGPT')}</h1>
     <p className="setup-lead">{t(state.loginPending?'runtime.oauthPendingHint':'runtime.oauthStartHint')}</p>
-    <div className="onboarding-oauth-actions"><SetupButton className="primary" busy={busy==='login'} disabled={blocked} onClick={()=>void run('login')}>{t(state.loginPending?'runtime.openLoginPage':'runtime.oauthBrowserAction')}</SetupButton>{state.loginPending&&<button className="text-action" disabled={blocked} onClick={()=>void run('cancel-login')}>{t('common.cancel')}</button>}</div>
+    {isWebSurface()&&<p className="settings-note">远程主机请先通过 SSH 登录 Codex，再重新检测；也可使用 API Key。登录回调需要回到运行主机。</p>}
+    <div className="onboarding-oauth-actions">{isWebSurface()?<><button className="primary" onClick={()=>setForm('key')}>使用 API Key</button><button onClick={()=>void run('detect')}>重新检测</button></>:<SetupButton className="primary" busy={busy==='login'} disabled={blocked} onClick={()=>void run('login')}>{t(state.loginPending?'runtime.openLoginPage':'runtime.oauthBrowserAction')}</SetupButton>}{state.loginPending&&<button className="text-action" disabled={blocked} onClick={()=>void run('cancel-login')}>{t('common.cancel')}</button>}</div>
     <p className="onboarding-oauth-footnote">{t('runtime.oauthContinueHint')}</p>
     {error&&<Recovery/>}
    </section>}
@@ -199,9 +201,10 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    </div>}
 
   </>}
-  {!onboarding&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
+  {(!onboarding||isWebSurface())&&<button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
   {locationOpen&&<SettingsDialog title={t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
    {onboarding&&id==='codex'&&<button onClick={()=>{setLocationOpen(false);setForm('key')}}>{t('runtime.useOpenAIApiKey')}</button>}
+   {isWebSurface()&&<p className="settings-note">先在运行 CaelisBot 的主机安装程序。这里填写主机路径，随后重新检测；无需在浏览器电脑安装。</p>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
     {manual && <div className="setup-path-field"><input aria-label={t('runtime.programPath')} disabled={blocked} value={profile.cliPath} placeholder={t('runtime.programPathPlaceholder')} onChange={e => { setProfile(p => ({ ...p, cliPath: e.target.value })); setState(null); }}/><button disabled={blocked} onClick={() => void pick()}>{t('runtime.chooseFile')}</button></div>}
     {id === 'caelis' && <SettingRow label={t('runtime.caelisDataDirectory')}><input aria-label={t('runtime.caelisDataDirectory')} disabled={blocked} value={profile.caelisStore ?? ''} placeholder={t('runtime.caelisDataDirectoryPlaceholder')} onChange={e => { setProfile(p => ({ ...p, caelisStore: e.target.value })); setState(null); }}/></SettingRow>}

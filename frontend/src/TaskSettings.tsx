@@ -1,3 +1,4 @@
+import {isWebSurface} from './transport';
 import {Recovery} from './SurfaceBoundary';
 import {recoverRead} from './read-recovery';
 import { SettingsSelect } from './SettingsSelect';
@@ -41,13 +42,13 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
     else {saver.current?.discardLimit();setError('settings.taskLimitInvalid');}
    }}/>
   </SettingRow>
-  <SettingRow label={t('settings.externalTerminal')} htmlFor="external-terminal" description={t('settings.externalTerminalHelp')}>
+  {!isWebSurface()&&<SettingRow label={t('settings.externalTerminal')} htmlFor="external-terminal" description={t('settings.externalTerminalHelp')}>
    <div className="terminal-choice"><SettingsSelect id="external-terminal" value={terminalAvailable?terminal:''} disabled={!ready||busy} onChange={e=>{if(e.target.value==='custom'){setCustom(customSaved.current);setError('');setTerminalOpen(true);return;}setTerminal(e.target.value);saver.current?.change({terminal:e.target.value});flush();}}>
     {!terminalAvailable&&<option value="" disabled hidden>{t('common.loading')}</option>}
     {availableChoices.map(c=><option key={c.id} value={c.id}>{c.id==='system'?t('settings.systemTerminal'):c.name}</option>)}
     <option value="custom">{t('settings.customTerminalOption')}</option>
    </SettingsSelect></div>
-  </SettingRow>
+  </SettingRow>}
   {terminalOpen&&<SettingsDialog title={t('settings.customTerminal')} busy={busy} onClose={closeTerminal}>
    <form onSubmit={event=>{event.preventDefault();if(busy||!custom.trim())return;savingCustom.current=true;saver.current?.change({terminal:'custom',customCommand:custom.trim()});flush();}}>
     <input className="custom-terminal-input" aria-label={t('settings.customTerminalCommand')} value={custom} disabled={busy} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onChange={event=>{setCustom(event.target.value);setError('');}}/>

@@ -633,3 +633,7 @@ the full preparation paths. These are source/fixture checks; they do not claim
 live mailbox/calendar acceptance, universal model adoption, or Windows script
 collector support. Current model-facing examples live in Bot-core's
 `references/events.md`.
+
+## Headless / Web development
+
+`make build-headless` builds shared browser assets and a CGO-free Linux binary. Run `dist/headless/caelisbot serve --data-dir /absolute/private/profile`; keep this profile separate from any running desktop App. The default is loopback with no local pairing step. Container/VM forwarding, private-network pairing, the optional loopback relay, and systemd examples are documented in [headless-web.md](headless-web.md). Test evidence distinguishes live Linux/browser behavior from synthetic model/Worker adapters in [headless-web-acceptance.md](headless-web-acceptance.md). `webfixture` is an explicit test-only build tag and is not part of a normal build.

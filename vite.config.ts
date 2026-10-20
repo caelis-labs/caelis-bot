@@ -24,5 +24,5 @@ export default defineConfig({
   base: './',
   server: { host: '127.0.0.1', port: 9246, strictPort: true },
   preview: { host: '127.0.0.1', port: 9246, strictPort: true },
-  build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
+  build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false, rollupOptions: {input: {desktop:resolve('frontend/index.html'),web:resolve('frontend/web.html')}} },
 });

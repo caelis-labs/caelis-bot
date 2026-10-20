@@ -126,6 +126,10 @@ func (s *Service) PasteAttachments() (PasteResult, error) {
 }
 
 func (s *Service) stageAttachments(paths []string, imageBytes []byte) ([]DraftFile, error) {
+	return s.stageOwnedAttachments(paths, imageBytes, false)
+}
+
+func (s *Service) stageOwnedAttachments(paths []string, imageBytes []byte, owned bool) ([]DraftFile, error) {
 	if s.selectionError != nil {
 		return nil, s.selectionError
 	}
@@ -155,7 +159,7 @@ func (s *Service) stageAttachments(paths []string, imageBytes []byte) ([]DraftFi
 		if err != nil {
 			return nil, errors.New(s.text("native.selectRegularFile", nil))
 		}
-		files = append(files, draftFile{DraftFile: DraftFile{ID: fmt.Sprintf("local-%d", next), Name: filepath.Base(path), Size: info.Size(), Type: kind, Image: strings.HasPrefix(kind, "image/")}, path: path})
+		files = append(files, draftFile{DraftFile: DraftFile{ID: fmt.Sprintf("local-%d", next), Name: filepath.Base(path), Size: info.Size(), Type: kind, Image: strings.HasPrefix(kind, "image/")}, path: path, owned: owned})
 	}
 	var created string
 	if len(imageBytes) > 0 {
