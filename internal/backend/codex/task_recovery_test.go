@@ -151,7 +151,13 @@ func (*recoveryTerminalConnection) terminalEndpoint() string {
 func TestSharedRestartReadsLegacyWorkerAndReopensOriginalTerminal(t *testing.T) {
 	s, f, d, m := taskPair(t)
 	id, thread, run := legacyWorker(t, s, f, "interrupted")
-	s.opts.Binary = "/usr/bin/true"
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Terminal target validation needs a portable executable path; the fixture
+	// supplies the connection below and never launches this binary.
+	s.opts.Binary = binary
 	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
 	var reads, resumes atomic.Int32
 	f.mu.Lock()
