@@ -24,12 +24,6 @@ type WorkConversationReader interface {
 	ReadWorkConversation(context.Context, string) ([]TaskConversationMessage, error)
 }
 
-// WorkRetirer fences an owned task after a read-only native check confirms it
-// has no active execution. It retains its original binding and receipts.
-type WorkRetirer interface {
-	RetireWork(context.Context, string) (Task, error)
-}
-
 // RecordedWorkMessage permits reconciliation of a previously submitted request
 // even when no new execution slots remain. Adapters still check its exact intent.
 type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }

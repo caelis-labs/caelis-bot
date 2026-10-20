@@ -98,13 +98,13 @@ func (m *Manager) activeLocked() int {
 		if !m.owns(r) {
 			continue
 		}
+		if r.Activity == "active" {
+			n++
+			continue
+		}
 		switch r.View.Status {
 		case "working", "running", "sending", "pending", "stopping", "interrupting", "awaiting_approval", "waiting_approval":
 			n++
-		case "unknown":
-			if r.Activity == "active" {
-				n++
-			}
 		}
 	}
 	return n
@@ -116,7 +116,7 @@ func (m *Manager) activeLocked() int {
 func (m *Manager) reservedLocked() int {
 	n := 0
 	for _, r := range m.state.Records {
-		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" && r.Activity != api.WorkActivityOwnerUnavailable {
+		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" && r.Activity != "idle" && r.Activity != api.WorkActivityOwnerUnavailable {
 			n++
 		}
 	}

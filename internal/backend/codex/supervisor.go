@@ -3,16 +3,17 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/sharedruntime"
 	"os"
 	"time"
 )
 
-// Fast retries are bounded; a quiet supervisor keeps recoverable features from
-// remaining unavailable forever. It observes/reconnects the original owner only.
+// Both fast recovery and quiet supervision are bounded. Exhaustion preserves
+// the original owner and explicit recovery entry; it never resends work.
 func (s *Session) supervise() {
 	timer := time.NewTicker(5 * time.Second)
 	defer timer.Stop()
-	var nextConnect time.Time
+	var reconnectBudget, recentBudget sharedruntime.ObservationBudget
 	for {
 		select {
 		case <-s.life.Done():
@@ -27,7 +28,7 @@ func (s *Session) supervise() {
 			return
 		}
 		c, epoch := s.client, s.epoch
-		reconnect := (epoch > 0 || s.loadErr != nil) && s.state.Connection == "offline" && !s.reconnectActive && time.Now().After(nextConnect)
+		reconnect := (epoch > 0 || s.loadErr != nil) && s.state.Connection == "offline" && !s.reconnectActive
 		ready := s.state.Connection == "ready" && c != nil && c.Err() == nil
 		syncRecent := ready && s.residentSyncNeeded && !s.workerOnly
 		thread, revision := s.binding.ThreadID, s.state.Revision
@@ -35,13 +36,18 @@ func (s *Session) supervise() {
 			s.recoverUnresolvedChildren(c, epoch)
 		}
 		s.mu.Unlock()
-		if reconnect {
-			nextConnect = time.Now().Add(30 * time.Second)
+		if ready {
+			reconnectBudget.Reset()
+		}
+		if !syncRecent {
+			recentBudget.Reset()
+		}
+		if reconnect && reconnectBudget.Take(time.Now()) {
 			ctx, cancel := context.WithTimeout(s.life, 30*time.Second)
 			_ = s.Connect(ctx)
 			cancel()
 		}
-		if syncRecent {
+		if syncRecent && recentBudget.Take(time.Now()) {
 			ctx, cancel := context.WithTimeout(s.life, 5*time.Second)
 			native, err := readThreadState(ctx, c, thread)
 			cancel()

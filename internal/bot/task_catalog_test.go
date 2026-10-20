@@ -73,3 +73,10 @@ func TestTaskCatalogBackgroundManagement(t *testing.T) {
 		t.Fatal(out, err, f.calls)
 	}
 }
+
+func TestHistoricalTaskRetirementHasNoEffect(t *testing.T) {
+	f := &catalogFixture{}
+	if _, err := callTaskCatalog(t.Context(), f, json.RawMessage(`{"operation":"retire","id":"original"}`)); err == nil || f.calls != 0 {
+		t.Fatal("legacy retirement mutated task", err, f.calls)
+	}
+}

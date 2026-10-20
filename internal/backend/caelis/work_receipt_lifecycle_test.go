@@ -47,10 +47,10 @@ func TestManagerUnknownContinuationCannotBorrowOldCompletedProjection(t *testing
 		t.Fatalf("original uncertain submission not shaped: task=%+v err=%v POST=%d", got, err, posts.Load())
 	}
 	if got := s.WorkStates()[0]; got.Task.Status != "unknown" {
-		t.Logf("old completed projection still visible: %+v", got)
+		t.Fatalf("old completed projection still visible: %+v", got)
 	}
 	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 0 || page.Reserved != 1 {
-		t.Logf("unknown continuation missing from capacity: page=%+v err=%v", page, err)
+		t.Fatalf("unknown continuation missing from capacity: page=%+v err=%v", page, err)
 	}
 	second := api.TaskMessage{ID: "task", RequestID: "second-new-continuation", Prompt: "different action"}
 	if got, err := m.SendTask(authorizedWorkerCall(t.Context(), s), second); err == nil || posts.Load() != 1 {
@@ -178,28 +178,31 @@ func TestUnknownContinuationRequiresReceiptAndCurrentOwnerIdle(t *testing.T) {
 	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: op, Submission: &workerSubmission{OperationID: op, BeforeTurn: "old-turn", BeforeTask: before}}
 	s.state.Operations[op] = journal{Path: "/sessions/work/prompt", Outcome: "unknown"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}}, Items: []api.Item{{Kind: "assistant", TurnKey: "old-turn", Text: "old answer"}}, Seen: map[string]bool{}}
-	if got, err := s.RetireWork(t.Context(), "task"); err == nil || got.Status != "unknown" || stateReads.Load() != 0 {
+	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "unknown" || stateReads.Load() != 1 {
 		t.Fatal("missing original receipt used old idle turn to retire", got, err, stateReads.Load())
 	}
 	settled.Store(true)
 	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "working" || s.WorkStates()[0].Activity != "active" {
 		t.Fatal("confirmed active original was not counted as work", got, err, s.WorkStates())
 	}
-	if got, err := s.RetireWork(t.Context(), "task"); err == nil || got.Status == "unavailable" {
+	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status == "unavailable" {
 		t.Fatal("active original retired", got, err)
 	}
 	active.Store(false)
 	s.mu.Lock()
 	s.state.Views["work"].State.Run = wire.RunState{TurnId: pointer("new-turn"), Status: pointer("unknown"), Active: pointer(false)}
 	s.mu.Unlock()
-	if got, err := s.RetireWork(t.Context(), "task"); err != nil || got.Status != "unavailable" || s.state.Operations[op].Outcome != "accepted" || s.state.Workers["task"].PromptID != op {
+	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "unknown" || s.state.Operations[op].Outcome != "accepted" || s.state.Workers["task"].PromptID != op {
 		t.Fatal("confirmed idle current generation did not retire with receipt retained", got, err)
 	}
 }
 
 func TestPreparedContinuationWithoutJournalRollsBackAfterRestart(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("prepared but unsent continuation made owner request %s %s", r.Method, r.URL.Path)
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/work/state" {
+			t.Errorf("unexpected mutation %s %s", r.Method, r.URL.Path)
+		}
+		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}})
 	})
 	before := api.Task{ID: "task", Status: "completed", Outcome: "accepted", Result: "old answer"}
 	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "work-send-prepared", Submission: &workerSubmission{OperationID: "work-send-prepared", BeforePromptID: "original-start", BeforeTurn: "old-turn", BeforeTask: before}}
@@ -316,11 +319,11 @@ func TestAcceptedSteeringCanRetireOnlyAfterOriginalOwnerIdle(t *testing.T) {
 	}
 	s.state.Operations[op] = journal{Path: "/sessions/work/steer", Outcome: "accepted", TurnID: "same-turn"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("same-turn"), Status: pointer("working"), Active: pointer(true)}}, Seen: map[string]bool{}}
-	if got, err := s.RetireWork(t.Context(), "task"); err == nil || got.Status == "unavailable" {
+	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status == "unavailable" {
 		t.Fatal("active steering owner retired", got, err)
 	}
 	active.Store(false)
-	if got, err := s.RetireWork(t.Context(), "task"); err != nil || got.Status != "unavailable" || s.state.Workers["task"].PromptID != op || s.state.Operations[op].Outcome != "accepted" {
+	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "pending" || s.state.Workers["task"].PromptID != op || s.state.Operations[op].Outcome != "accepted" {
 		t.Fatal("settled steering receipt with explicit idle owner did not safely retire", got, err)
 	}
 }

@@ -548,11 +548,16 @@ func (s *Session) ensureStreamLocked(sid string) {
 			}
 			s.mu.Unlock()
 		}()
-		for attempt := 0; ctx.Err() == nil; attempt++ {
+		for attempt := 0; ctx.Err() == nil && attempt < 3; attempt++ {
 			err := s.watch(ctx, c, sid, instance)
 			if ctx.Err() != nil {
 				return
 			}
+			s.mu.Lock()
+			if s.generation == generation && s.client == c {
+				s.observeWorkerActivityLocked(sid, wire.SessionState{})
+			}
+			s.mu.Unlock()
 			s.componentError("session_observation", sid, err)
 			// A retry against a dead endpoint cannot discover its replacement.
 			// Read discovery only after stream failure; healthy idle observers do
@@ -620,6 +625,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 			retireRunHead(v, value(st.Run.TurnId))
 			v.State = st
+			s.observeWorkerActivityLocked(sid, st)
 			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
 			v.CommandCaughtUp = false
 			s.observeApprovalHeadLocked(st)
@@ -747,6 +753,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 		}
 		v.Observed++
+		s.observeWorkerActivityLocked(sid, v.State)
 		if d.NextCursor != nil {
 			v.Cursor = *d.NextCursor
 		}
@@ -808,6 +815,11 @@ func (s *Session) pollLoop(ctx context.Context) {
 		}
 		s.mu.Lock()
 		needed := s.needsRefreshLocked()
+		if !needed {
+			s.observationBudget.Reset()
+		} else {
+			needed = s.observationBudget.Take(time.Now())
+		}
 		s.mu.Unlock()
 		var e error
 		work, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -1043,6 +1055,17 @@ func (s *Session) needsRefreshLocked() bool {
 		}
 	}
 	for sid, v := range s.state.Views {
+		historical := false
+		for _, w := range s.state.Workers {
+			if w.Binding.SessionId == sid {
+				status := s.workerViewLocked(w).Status
+				historical = w.Start == nil && (w.Activity == "idle" && status != "pending" || status == "completed" || status == "interrupted" || status == "failed")
+				break
+			}
+		}
+		if historical && !v.ApprovalDirty {
+			continue
+		}
 		if s.retainedWorkers && sid == s.state.Session.SessionId {
 			continue
 		}
@@ -1054,7 +1077,9 @@ func (s *Session) needsRefreshLocked() bool {
 		}
 	}
 	for _, w := range s.state.Workers {
-		if w.Start != nil || !s.streams[w.Binding.SessionId] {
+		status := s.workerViewLocked(w).Status
+		historical := w.Activity == "idle" && status != "pending" || status == "completed" || status == "interrupted" || status == "failed"
+		if w.Start != nil || !historical && !s.streams[w.Binding.SessionId] {
 			return true
 		}
 	}

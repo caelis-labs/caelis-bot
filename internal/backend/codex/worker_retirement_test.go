@@ -260,6 +260,18 @@ func TestWorkerRetirementRaceAndNativeFailure(t *testing.T) {
 	s.mu.Lock()
 	s.scheduleChildRetirement(task.Thread)
 	s.mu.Unlock()
+	deadline := time.Now().Add(time.Second)
+	for attempts.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if attempts.Load() != 1 {
+		t.Fatal("failed unsubscribe retried indefinitely", attempts.Load())
+	}
+	// A new explicit read creates the next bounded observation opportunity.
+	if _, err := s.ReadWork(testContext(t), task.View.ID); err != nil {
+		t.Fatal(err)
+	}
 	waitWorkerRetired(t, s, task.Thread)
 	if attempts.Load() != 2 || s.DiagnosticStatus()["workerRetirementFailures"] != uint64(1) {
 		t.Fatal("native failure was not retried safely", attempts.Load(), s.DiagnosticStatus())

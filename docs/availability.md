@@ -9,9 +9,9 @@ receipt. Self-recovery must never replay that action or replace its owner.
 | --- | --- | --- |
 | Large tool results or embedded attachment images | Stream and drain unused bytes; retain identities, approval choices and terminal facts; continue the next frame | 14 MiB transport and escaped-result fixtures |
 | Oversized retained display data | Omit this projection, return the correlated read error, keep controls and subsequent frames alive; retry optional recent sync | Oversized prose fixtures with ID before/after payload |
-| Invalid framing, partial frame, lost socket or event overflow | Replace the observer connection to the original owner; bounded fast retries followed by a quiet supervisor | Transport classification, reconnect and pending receipt fixtures |
+| Invalid framing, partial frame, lost socket or event overflow | Replace the observer connection to the original owner; bounded fast retries and a finite quiet-supervisor budget | Transport classification, reconnect and pending receipt fixtures |
 | Recent-message sync failure | Ready connection remains usable; fetch only latest turn summary asynchronously | Thin recovery fixtures; no full-history fallback |
-| Failed Worker subscription/read | Keep that task and receipt unknown; retry only its observation; resident reconnect does not await all Workers | Worker recovery and retired-subscription fixtures |
+| Failed Worker subscription/read | Preserve the original binding/receipt; bounded observation then explicit retry; no persisted retired/unavailable Worker state | Worker recovery and retired-subscription fixtures |
 | Unknown main native send/approval | Keep native action fenced and controls available; reconcile without replay | Original-ID and unknown-outcome fixtures |
 | Failed optional store/configuration | Preserve original bytes/identity, keep shell and controls alive; retry reopening repaired originals | Optional-store startup fixture and component retry paths |
 | IM cache disk failure/corruption | Retain live messages; retry writes; preserve damaged display-only database and rebuild | Disk obstruction, corrupt SQLite, offline reopen and local pagination fixtures |
@@ -20,7 +20,7 @@ receipt. Self-recovery must never replay that action or replace its owner.
 | Telegram approval/card update error | Preserve original native decision; retry idempotent edits on the original message; stale controls cannot grant authority | Native persist choices, card convergence and edit-recovery fixtures |
 | Renderer/resource failure | Recover the affected surface/asset; local history and native work survive remount | Surface boundary, native window inspection, existing window lifecycle fixtures |
 | Initial visibility/draft read or post-send draft sync failure | Retry only the read, cancel hidden-surface retries, retain accepted send receipt and restore the composer after successful observation | Read retry, cancellation and accepted-send synchronization fixtures |
-| Caelis stream/callback/Worker failure | Retry the original cursor/receipt independently; only failed Runtime-owner facts change owner connectivity | Component watcher and native protocol fixtures |
+| Caelis stream/callback/Worker failure | Bound retries of the original cursor/receipt independently; only failed Runtime-owner facts change owner connectivity | Component watcher and native protocol fixtures |
 
 Local IM storage contains only user/assistant display messages and attachment
 metadata. The initial visible window is 200 messages; explicit earlier-message

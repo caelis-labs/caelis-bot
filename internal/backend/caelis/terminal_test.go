@@ -29,6 +29,13 @@ func TestTerminalResolvesOnlyOwnedNativeWorkerWithoutDispatch(t *testing.T) {
 	if err != nil || target.Runtime != "caelis" || target.Session != "native-worker" || target.Store != settings.CaelisStore || target.TokenFile != filepath.Join(settings.CaelisStore, "runtime/service/auth.token") {
 		t.Fatal(target, err)
 	}
+	for _, status := range []string{"unknown", "pending", "completed", "interrupted"} {
+		w.Task.Status = status
+		s.state.Workers["owned"] = w
+		if target, err := s.WorkTerminal(t.Context(), "owned"); err != nil || target.Session != "native-worker" {
+			t.Fatal("execution status blocked original terminal", target, err)
+		}
+	}
 	for _, id := range []string{"missing", "native-worker"} {
 		if _, err = s.WorkTerminal(t.Context(), id); err == nil {
 			t.Fatal("unowned target accepted")

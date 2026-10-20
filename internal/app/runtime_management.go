@@ -49,7 +49,7 @@ func (a *Application) guardRuntimeChange() error {
 	if tasks != nil {
 		for _, t := range tasks.ListTasks() {
 			switch t.Status {
-			case "completed", "failed", "cancelled", "interrupted", "unavailable":
+			case "completed", "failed", "cancelled", "interrupted":
 			default:
 				return errors.New(a.text("activeWorkRemaining", nil))
 			}

@@ -91,7 +91,7 @@
   "taskFinished": "Completed",
   "taskApproval": "Needs approval",
   "taskUnknown": "Status unconfirmed · check this task",
-  "taskUnavailable": "Cannot continue · history retained",
+  "taskUnavailable": "Awaiting confirmation · retry available",
   "taskFailed": "Failed",
   "taskInterrupted": "Interrupted",
   "taskIdle": "Retained task",

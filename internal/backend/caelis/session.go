@@ -19,6 +19,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
+	"github.com/caelis-labs/caelis-bot/internal/sharedruntime"
 )
 
 type Options struct {
@@ -73,6 +74,7 @@ type Session struct {
 	generation            uint64
 	recoveryGeneration    uint64
 	recoveryInstance      string
+	observationBudget     sharedruntime.ObservationBudget
 	wake                  chan struct{}
 	streams               map[string]bool
 	projectionSavedAt     time.Time
@@ -110,11 +112,13 @@ func (s *Session) Connect(ctx context.Context) error {
 	defer s.step.Unlock()
 	s.mu.Lock()
 	s.recoveryGeneration++
+	s.observationBudget.Reset()
 	if s.closed {
 		s.mu.Unlock()
 		return errors.New("连接已停止")
 	}
 	if s.connected {
+		s.requestRefreshLocked() // Explicit reconnect also retries exhausted component observation.
 		s.mu.Unlock()
 		return nil
 	}
@@ -317,6 +321,10 @@ func (s *Session) connect(ctx context.Context) error {
 	s.state.PrincipalID = d.PrincipalID
 	s.state.Endpoint = d.Endpoint
 	s.generation++
+	for id, w := range s.state.Workers {
+		w.Activity = ""
+		s.state.Workers[id] = w
+	}
 	if s.streamCancel != nil {
 		s.streamCancel()
 	}

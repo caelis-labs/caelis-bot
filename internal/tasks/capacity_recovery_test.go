@@ -32,17 +32,7 @@ func (f *unreadableRuntime) ReadWork(_ context.Context, id string) (api.Task, er
 	if !ok {
 		return api.Task{}, errors.New("missing original owner")
 	}
-	if s.Task.Status == "unknown" && s.Activity == "idle" {
-		s.Task.Status = "unavailable"
-		f.states[id] = s
-	}
 	return s.Task, nil
-}
-func (f *unreadableRuntime) RetireWork(ctx context.Context, id string) (api.Task, error) {
-	if f.unreadable[id] {
-		return api.Task{}, errors.New("original owner unavailable")
-	}
-	return f.retiringRuntime.RetireWork(ctx, id)
 }
 func (f *unreadableRuntime) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	s := f.states[in.ID]
@@ -68,19 +58,6 @@ func (f *unreadableRuntime) WorkStates() []api.WorkState {
 		states[i].Runtime = f.owners[states[i].Task.ID]
 	}
 	return states
-}
-
-func (f *retiringRuntime) RetireWork(_ context.Context, id string) (api.Task, error) {
-	s, ok := f.states[id]
-	if !ok {
-		return api.Task{}, errors.New("missing original owner")
-	}
-	if s.Activity != "idle" {
-		return s.Task, errors.New("original owner is active or unconfirmed")
-	}
-	s.Task.Status = "unavailable"
-	f.states[id] = s
-	return s.Task, nil
 }
 
 func TestWorkCapacitySeparatesHistoryUnknownAndWatchlist(t *testing.T) {
@@ -126,18 +103,16 @@ func TestWorkCapacitySeparatesHistoryUnknownAndWatchlist(t *testing.T) {
 			if _, err := m.StartTask(t.Context(), input("capacity-fourth")); err == nil {
 				t.Fatal("unconfirmed activity escaped admission")
 			}
-			if _, err := m.RetireTask(t.Context(), second.ID); err == nil {
-				t.Fatal("retired without native idle proof")
-			}
+
 			s.Activity = "idle"
 			f.states[second.ID] = s
-			if v, err := m.RetireTask(t.Context(), second.ID); err != nil || v.Status != "unavailable" {
+			if v, err := m.ReadTask(t.Context(), second.ID); err != nil || v.Status != "unknown" {
 				t.Fatal(v, err)
 			}
 			if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: second.ID, RequestID: "new-after-retire", Prompt: "resume"}); err == nil {
 				t.Fatal("retired task resumed")
 			}
-			if v, err := m.ReadTask(t.Context(), second.ID); err != nil || v.Status != "unavailable" {
+			if v, err := m.ReadTask(t.Context(), second.ID); err != nil || v.Status != "unknown" {
 				t.Fatal("retired history lost", v, err)
 			}
 			if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 1 {
@@ -149,7 +124,7 @@ func TestWorkCapacitySeparatesHistoryUnknownAndWatchlist(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v, err := m.ReadTask(t.Context(), second.ID); err != nil || v.Status != "unavailable" {
+			if v, err := m.ReadTask(t.Context(), second.ID); err != nil || v.Status != "unknown" {
 				t.Fatal("retired task revived after restart", v, err)
 			}
 		})
@@ -250,7 +225,7 @@ func TestOneUnreadableUnknownReservesOnlyItsOwnSlot(t *testing.T) {
 	if _, err := m.StartTask(t.Context(), input("ninth-potential-worker")); err == nil || f.starts != 8 {
 		t.Fatal("unreadable unknown escaped its reserved slot", err, f.starts)
 	}
-	if _, err := m.RetireTask(t.Context(), old.ID); err == nil {
+	if _, err := m.ReadTask(t.Context(), old.ID); err == nil {
 		t.Fatal("unreadable original was retired")
 	}
 	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: old.ID, RequestID: "new-continuation", Prompt: "resume"}); err == nil {
@@ -268,7 +243,7 @@ func TestOneUnreadableUnknownReservesOnlyItsOwnSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task, err := m.ReadTask(t.Context(), old.ID); err != nil || task.Status != "unavailable" || task.Outcome != "rejected" {
+	if task, err := m.ReadTask(t.Context(), old.ID); err != nil || task.Status != "unknown" || task.Outcome != "rejected" {
 		t.Fatal("retired original was lost on restart", task, err)
 	}
 }

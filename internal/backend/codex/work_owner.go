@@ -74,9 +74,6 @@ func (w *WorkOwner) ReadWork(ctx context.Context, id string) (api.Task, error) {
 func (w *WorkOwner) ReadWorkConversation(ctx context.Context, id string) ([]api.TaskConversationMessage, error) {
 	return w.engine.ReadWorkConversation(ctx, id)
 }
-func (w *WorkOwner) RetireWork(ctx context.Context, id string) (api.Task, error) {
-	return w.engine.RetireWork(ctx, id)
-}
 func (w *WorkOwner) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	return w.engine.SendWork(ctx, in)
 }

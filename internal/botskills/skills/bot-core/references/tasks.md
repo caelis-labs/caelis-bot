@@ -84,9 +84,12 @@ result field.
 Use `request:{"type":"pin","task":"<handle>","pinned":true}` when the
 user wants an expired card restored. Set `pinned:false` to hide it. Pinning
 never resumes a Worker, opens a terminal, deletes history or submits input.
-The desktop can also manage card order and retention directly. Capacity and
-safe retirement of zombie tasks remain Host responsibilities, not task-tool
-operations. Do not remove an unknown task to free space.
+The desktop can also manage card order and retention directly. Capacity remains a Host responsibility, independent of task history. Do not
+retire or remove an unknown task to free space. A completed or interrupted turn
+does not mean the original Worker cannot continue. Use the original task read
+and the user-triggered retry entry; a connection or permission error is not a
+permanent task state. Unknown submissions still require their original receipt
+before any new Bot input.
 
 On macOS, the user can open task previews from the three-dot entry below you or hold the configurable task shortcut
 (default Ctrl+Shift+T). Previewing and pinning do not open a terminal. The first

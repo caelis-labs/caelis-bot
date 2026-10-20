@@ -71,7 +71,7 @@
   "copyArtifactPath": "Copy path",
   "copyArtifactContent": "Copy contents",
   "artifactPreviewTruncated": "Showing the first 256 KiB. Open the file for the complete text.",
-  "taskUnavailable": "This Worker terminal is unavailable",
+  "taskUnavailable": "Could not open the terminal. Retry this Worker.",
   "mediaOpen": "View {name}",
   "mediaUnavailable": "Image preview unavailable",
   "draftLoadFailed": "Could not load draft",

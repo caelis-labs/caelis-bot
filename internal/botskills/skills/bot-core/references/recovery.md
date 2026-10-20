@@ -55,8 +55,8 @@ confirmed or recovery fails, preserve the work. Explain its actual impact when
 the user asks, without exposing technical error text. Do not create a replacement
 Runtime or task.
 
-If the original private Codex process is confirmed gone, its old tasks remain
-read-only evidence. Use the explicit recovery action to establish a new
+If the original private Codex process is confirmed gone and its original data
+source cannot be verified, its old tasks remain read-only evidence. Use the explicit recovery action to establish a new
 connection only after preserving those records. Never resume, replay, or send
 an old stop request through the replacement connection. If process identity
 or exit cannot be verified, retain the unknown state rather than claiming
@@ -73,3 +73,13 @@ clear history, resolve internal receipts, or repeatedly save to make a model
 choice work. Keep helping through available capabilities while the host recovers.
 Existing tasks stay with their original owner and approvals. Inspect those tasks
 normally; do not recreate or move them because the conversation model changed.
+
+Worker availability is temporary connection information. Preserve the original
+task and native binding after a read failure, permission denial or disconnected
+Runtime. Do not call a Worker permanently unavailable from `interrupted` or
+`notLoaded`. Recovery observations are bounded; after they stop, explain the
+impact briefly and offer retry on the original task. Read-only inspection never
+resumes execution. Do not auto-continue cancelled work or replay input/tools.
+A user may explicitly reopen the original terminal independently of a task turn's
+status. Unknown terminal launch receipts still prohibit another launch; let the
+existing terminal controller reconcile or revoke that attempt.

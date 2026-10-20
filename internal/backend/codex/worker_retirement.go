@@ -22,20 +22,17 @@ func (s *Session) recoverUnresolvedChildren(c *Client, epoch uint64) {
 		if task == nil || task.Thread == "" || s.binding.LostOwnerTasks[id] {
 			continue
 		}
-		if task.Retired || terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task) {
-			if s.childSubscribed[task.Thread] {
-				s.scheduleChildRetirement(task.Thread)
-			}
+		if terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task) {
 			continue
 		}
-		if s.childWatching[task.Thread] {
+		if s.childWatching[task.Thread] || s.childObservationFailed[task.Thread] || task.Activity == "idle" {
 			continue
 		}
 		s.childWatching[task.Thread] = true
 		go s.recoverChild(c, epoch, task.Thread)
 	}
 	for id := range s.children {
-		if s.taskByThread(id) == nil && !s.childWatching[id] {
+		if s.taskByThread(id) == nil && !s.childWatching[id] && !s.childObservationFailed[id] {
 			s.childWatching[id] = true
 			go s.recoverChild(c, epoch, id)
 		}
@@ -61,6 +58,11 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		return false
 	}
 	revision := s.childRevision[id]
+	original := s.taskByThread(id)
+	pending, run := "", ""
+	if original != nil {
+		pending, run = original.Pending, original.Run
+	}
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(s.life, 10*time.Second)
 	defer cancel()
@@ -70,8 +72,8 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		s.mu.Unlock()
 		return false
 	}
-	if s.childRevision[id] != revision {
-		go s.recoverChild(c, epoch, id)
+	if s.childRevision[id] != revision || s.taskByThread(id) != original || original != nil && (original.Pending != pending || original.Run != run) {
+		delete(s.childWatching, id)
 		s.mu.Unlock()
 		return false
 	}
@@ -79,10 +81,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		delete(s.childWatching, id)
 		s.childObservationFailed[id] = true
 		if task := s.taskByThread(id); task != nil {
-			if !task.Retired {
-				task.View.Status = "unknown"
-				task.Activity = ""
-			}
+			task.Activity = ""
 			_ = s.save()
 		} else if _, knownActive := s.childRuns[id]; knownActive {
 			s.state.Message = workerUnconfirmed
@@ -111,15 +110,11 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		}
 	}
 	delete(s.childObservationFailed, id)
-	retireCandidate := ""
-	if task := s.taskByThread(id); task != nil && !task.Retired {
+	if task := s.taskByThread(id); task != nil {
 		if active {
 			task.Activity = "active"
 		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
 			task.Activity = "idle"
-			if s.taskView(task).Status == "unknown" {
-				retireCandidate = task.View.ID
-			}
 		} else {
 			task.Activity = ""
 		}
@@ -129,7 +124,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		if _, known := s.childRuns[id]; !known {
 			s.childRuns[id] = "" // Native active, turn identity not yet known.
 		}
-		if !s.childSubscribed[id] {
+		if task := s.taskByThread(id); !s.childSubscribed[id] && (task == nil || !task.SuppressReport && task.StopPendingRequest == "") {
 			subscribe = true
 		}
 	} else {
@@ -141,11 +136,14 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 			s.scheduleChildRetirement(id)
 		} else {
 			delete(s.childWatching, id)
+			if s.taskByThread(id) == nil {
+				s.childObservationFailed[id] = true
+			} // Original generic child is quiescent; wait for native progress.
 		}
 		// Idle and notLoaded are native execution facts; an unrecognized status
 		// must not turn an uncertain task into a confirmed completion.
 		if thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
-			if task := s.taskByThread(id); task != nil && !task.Retired {
+			if task := s.taskByThread(id); task != nil {
 				task.View.Status = "unknown"
 			}
 		}
@@ -176,13 +174,6 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 	_ = s.save()
 	s.update()
 	s.mu.Unlock()
-	if retireCandidate != "" {
-		go func() {
-			ctx, cancel := context.WithTimeout(s.life, 8*time.Second)
-			defer cancel()
-			_, _ = s.ReadWork(ctx, retireCandidate)
-		}()
-	}
 	if subscribe {
 		return s.watchChild(c, epoch, id)
 	}
@@ -196,7 +187,7 @@ func (s *Session) reconcileRecoveryWorkers(c *Client, epoch uint64) bool {
 	ids := make([]string, 0)
 	seen := map[string]bool{}
 	for id, task := range s.binding.Tasks {
-		if task == nil || task.Thread == "" || s.binding.LostOwnerTasks[id] || seen[task.Thread] || task.Retired || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
+		if task == nil || task.Thread == "" || s.binding.LostOwnerTasks[id] || seen[task.Thread] || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
 			continue
 		}
 		seen[task.Thread] = true
@@ -233,7 +224,7 @@ func (s *Session) childMayRetire(id string) bool {
 		}
 	}
 	if task := s.taskByThread(id); task != nil {
-		if task.Retired {
+		if task.Activity == "idle" {
 			return true
 		}
 		return task.Pending == "" && terminal(task.View.Status) && task.Run != "" && !taskHasUnknownReceipt(task)
@@ -252,9 +243,6 @@ func (s *Session) scheduleChildRetirement(id string) {
 	}
 	seq, c, epoch := s.childRetireSeq[id], s.client, s.epoch
 	delay := s.workerIdleDelay
-	if task := s.taskByThread(id); task != nil && task.Retired {
-		delay = 0
-	}
 	go func() {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
@@ -283,7 +271,7 @@ func (s *Session) retireChild(c *Client, epoch uint64, id string, seq uint64) {
 		s.retirementFailure(c, epoch, id, seq, "thread/read", err)
 		return
 	}
-	if thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
+	if nativeTaskActive(thread) || thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
 		return
 	}
 	var last nativeTurn
@@ -292,21 +280,12 @@ func (s *Session) retireChild(c *Client, epoch uint64, id string, seq uint64) {
 			last = turn
 		}
 	}
-	retired := false
-	s.mu.Lock()
-	if task := s.taskByThread(id); task != nil {
-		retired = task.Retired
-	}
-	s.mu.Unlock()
-	if !retired && !terminal(last.Status) {
-		return
-	}
 	s.mu.Lock()
 	if s.client != c || s.epoch != epoch || s.childRetireSeq[id] != seq || s.childRevision[id] != revision || !s.childMayRetire(id) {
 		s.mu.Unlock()
 		return
 	}
-	if task := s.taskByThread(id); task != nil && !task.Retired && (task.Run != last.ID || !terminal(last.Status)) {
+	if task := s.taskByThread(id); task != nil && task.Activity != "idle" && (task.Run != last.ID || !terminal(last.Status)) {
 		s.mu.Unlock()
 		return
 	}
@@ -359,9 +338,8 @@ func (s *Session) retirementFailure(c *Client, epoch uint64, id string, seq uint
 	var native *NativeError
 	if errors.As(err, &native) && native.Code == -32601 {
 		s.retireUnsupported = true
-	} else {
-		s.scheduleChildRetirement(id)
 	}
+	// Retry only after a fresh native event/read, never an endless timer loop.
 	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "worker_retirement_failed", Method: method, Thread: id, Reason: diagnosticlog.Reason(err.Error())})
 }
 

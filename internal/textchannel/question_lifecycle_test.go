@@ -110,7 +110,7 @@ func TestWorkerLifecycleYieldFinalCancelAndReplacement(t *testing.T) {
 		status, result string
 		stop           bool
 		want           string
-	}{{"completed", "", false, ""}, {"completed", "Result", false, ""}, {"interrupted", "", false, "expired"}, {"working", "", true, "expired"}, {"unknown", "", false, ""}} {
+	}{{"completed", "", false, ""}, {"completed", "Result", false, ""}, {"interrupted", "", false, ""}, {"unavailable", "", false, ""}, {"working", "", true, "expired"}, {"unknown", "", false, ""}} {
 		t.Run(test.status+test.result, func(t *testing.T) {
 			s, _ := Open(t.TempDir(), nil)
 			_, _ = s.AsyncWorkCard(lifecycleQuestion(), "codex", "work")

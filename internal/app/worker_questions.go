@@ -97,7 +97,7 @@ func (a *Application) AnswerWorkerQuestion(ctx context.Context, shortID, value, 
 
 func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.Inbound, workID, owner, itemID, modelInput string) (api.Receipt, error) {
 	for _, state := range a.localWork.WorkStates() {
-		if state.Task.ID != workID || state.Runtime != owner || state.Task.Status == "unavailable" {
+		if state.Task.ID != workID || state.Runtime != owner {
 			continue
 		}
 		for _, question := range state.AsyncQuestions {

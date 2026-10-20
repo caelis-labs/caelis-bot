@@ -6,6 +6,7 @@ import (
 )
 
 func (s *Session) requestRefreshLocked() {
+	s.observationBudget.Reset()
 	select {
 	case s.wake <- struct{}{}:
 	default:
