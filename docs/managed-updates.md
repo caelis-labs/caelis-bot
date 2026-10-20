@@ -195,8 +195,22 @@ must not be inferred from that loop.
 
 No Bot-core skill update is needed: this slice only adds settings/update-owner
 operations, with no new Bot tool, conversational update authority or recovery duty.
-The Web Worker consumes the independent contract and routes; root coordination
-owns UI integration, deployment, initial migration and any later publication.
+Web Settings now consumes the independent contract through the existing authenticated
+transport and shared settings components. It retains the original command in tab
+storage before dispatch, reads its receipt after ambiguous replies/reload, and
+does not resubmit an unknown command. Installation success requires the original
+transaction, expected version/kind, signed-owner source identity and a new boot.
+Download percentages use actual bytes; unknown totals are indeterminate. Channel
+handoff and Runtime-pin refusal remain explicit local reasons. External/image
+installs show checking and their actual management boundary, without install
+controls. No native updater UI or channel lifecycle is replaced.
+
+`script/managed-update-client.test.mjs` covers command retention and confirmation.
+`script/managed-update-browser.cjs` runs the shared production UI against explicitly
+synthetic owner responses for narrow/wide layouts, lost replies, cancellation,
+progress and rollback presentation. These fixtures do not qualify public releases,
+real accounts, connected channels or a cross-pin transition. Initial migration,
+production signing and publication remain separate operator decisions.
 
 The Linux QA runner accepts separate `--a`, `--b`, `--bad`, `--public-key`,
 `--root`, `--port` and `--feed-port` paths/options. It refuses an existing root and

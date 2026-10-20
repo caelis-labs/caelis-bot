@@ -1,3 +1,4 @@
+import {ManagedUpdates} from './ManagedUpdates';
 import {isWebSurface} from './transport';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import {SettingsToolbarContext} from './settings/SettingsToolbar';
@@ -98,7 +99,7 @@ function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  </section>;
 }
 
-function Updates(props:{version:string;active:boolean;focusVersion:number}){return isWebSurface()?<section className="update-settings"><div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>CaelisBot</h2><p>{props.version}</p></div></div><SettingGroup><SettingRow label="发布与安装" description="在服务主机更新程序或容器。"><button onClick={()=>void desktop('OpenReleasePage')}>查看发行版本</button></SettingRow></SettingGroup><Maintenance storage={false} embedded/></section>:<NativeUpdates {...props}/>;}
+function Updates(props:{version:string;active:boolean;focusVersion:number}){return isWebSurface()?<ManagedUpdates {...props}/>:<NativeUpdates {...props}/>;}
 function NativeUpdates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [result,setResult]=useState<Update|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');

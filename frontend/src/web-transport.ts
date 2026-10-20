@@ -1,3 +1,4 @@
+import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
 import type {ChatUpdate,Snapshot} from './backend/contract';
@@ -50,6 +51,10 @@ export function createWebTransport(bootstrap:WebBootstrap){
   return result;
   }finally{clearTimeout(timer)}
  };
+ const managedUpdates=createManagedUpdateClient({storage:sessionStorage,identity,post:request,get:async(path)=>{
+  const response=await fetch(path,{signal:AbortSignal.timeout(8000)});const result=await response.json();
+  if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}return result;
+ }});
  // Only opaque ingress IDs persist in this tab. Credentials and request bodies
  // never enter browser storage. A retry retains its ID even after a reload.
  const pendingKey='caelisbot.pending-operations';
@@ -94,6 +99,8 @@ export function createWebTransport(bootstrap:WebBootstrap){
    if(method==='OpenApprovalURL'){const state=await call<Snapshot>('backend.Snapshot',[]),approval=state.approvals.find(a=>a.id===args[0]&&a.status!=='resolved');if(!approval?.url)throw new Error('该链接已不可用');openURL(approval.url);return undefined as T;}
   }
   if(service==='desktop')switch(method){
+   case 'ManagedUpdateRead':return await managedUpdates.read() as T;
+   case 'ManagedUpdateCommand':return await managedUpdates.command(args[0] as UpdateIntent) as T;
    case 'AppVersion':return bootstrap.version as T;
    case 'HistoryVisible':return (view.view==='chat') as T;
    case 'SettingsVisible':return (view.view==='settings') as T;
