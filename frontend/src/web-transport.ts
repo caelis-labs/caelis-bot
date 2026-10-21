@@ -1,3 +1,4 @@
+import {createCSRFFetch} from './web-csrf';
 import {createWebOperations} from './web-operations';
 import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
@@ -16,8 +17,9 @@ export function identity(){const b=new Uint8Array(16);crypto.getRandomValues(b);
 if(!crypto.randomUUID)crypto.randomUUID=()=>{const h=identity();return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20)}`;};
 
 export function createWebTransport(bootstrap:WebBootstrap){
+ const sessionFetch=createCSRFFetch(bootstrap.csrf);
  const tab=identity();let settingsReturn:WebNavigation={view:'chat'};let epoch='',view:WebNavigation={view:'settings',section:'setup'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
- const headers=()=>({'Content-Type':'application/json','X-Caelis-Request':'1','X-CSRF-Token':bootstrap.csrf,'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch});
+ const headers=()=>({'Content-Type':'application/json','X-Caelis-Request':'1','X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch});
  const gatedNavigation=createNavigationGuard(async()=>{
   const [overview,initialization]=await Promise.all([
    call<{onboarding:boolean}>('backend.SetupOverview',[]),
@@ -47,7 +49,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
   try{
-  const response=await fetch(path,{signal:abort.signal,method:'POST',headers:headers(),body:JSON.stringify(body)});
+  const response=await sessionFetch(path,{signal:abort.signal,method:'POST',headers:headers(),body:JSON.stringify(body)});
   const result=await response.json();
   if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}
   return result;
@@ -71,7 +73,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const filesChanged=()=>window.dispatchEvent(new Event('files-changed'));
  const upload=async(files:File[])=>{
   let value:unknown=await call('desktop.DraftFiles',[]);
-  for(const file of files){const form=new FormData();form.append('file',file);const h=headers();const response=await fetch('/api/v1/attachments',{method:'POST',headers:{'X-Caelis-Request':h['X-Caelis-Request'],'X-CSRF-Token':h['X-CSRF-Token'],'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch},body:form});if(!response.ok)throw new Error('附件未保存，请查看已选文件后再试。');value=(await response.json()).value;}
+  for(const file of files){const form=new FormData();form.append('file',file);const h=headers();const response=await sessionFetch('/api/v1/attachments',{method:'POST',headers:{'X-Caelis-Request':h['X-Caelis-Request'],'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch},body:form});if(!response.ok)throw new Error('附件未保存，请查看已选文件后再试。');value=(await response.json()).value;}
   filesChanged();return value;
  };
  const pick=()=>new Promise<unknown>((resolve,reject)=>{const input=document.createElement('input');input.type='file';input.multiple=true;input.addEventListener('cancel',()=>{input.remove();call('desktop.DraftFiles',[]).then(resolve,reject)},{once:true});input.addEventListener('change',()=>{const files=[...(input.files??[])];input.remove();upload(files).then(resolve,reject)},{once:true});input.click();});
@@ -109,7 +111,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'ShowArtifactPreview':window.dispatchEvent(new CustomEvent('web-preview',{detail:{id:args[0]}}));return undefined as T;
    case 'SaveArtifactAs':case 'OpenArtifact':{const a=document.createElement('a');a.href='/api/v1/artifacts/'+encodeURIComponent(String(args[0]));a.download=String(args[1]??'');a.click();return undefined as T;}
    case 'CopyArtifactContent':{const v=await call<{text:string}>('desktop.PreviewArtifact',[args[0]]);await copy(v.text);return undefined as T;}
-   case 'ImportContent':return await new Promise<unknown>((resolve,reject)=>{const input=document.createElement('input');input.type='file';input.accept='.caelispack,.zip';input.oncancel=()=>call('desktop.ContentState',[]).then(resolve,reject);input.onchange=()=>{const file=input.files?.[0];if(!file)return;const form=new FormData();form.append('file',file);const h=headers();void fetch('/api/v1/content/import',{method:'POST',headers:{'X-Caelis-Request':'1','X-CSRF-Token':h['X-CSRF-Token']},body:form}).then(async response=>{if(!response.ok)throw Error('请检查资源包并重试。');resolve((await response.json()).value)}).catch(reject)};input.click()}) as T;
+   case 'ImportContent':return await new Promise<unknown>((resolve,reject)=>{const input=document.createElement('input');input.type='file';input.accept='.caelispack,.zip';input.oncancel=()=>call('desktop.ContentState',[]).then(resolve,reject);input.onchange=()=>{const file=input.files?.[0];if(!file)return;const form=new FormData();form.append('file',file);void sessionFetch('/api/v1/content/import',{method:'POST',headers:{'X-Caelis-Request':'1'},body:form}).then(async response=>{if(!response.ok)throw Error('请检查资源包并重试。');resolve((await response.json()).value)}).catch(reject)};input.click()}) as T;
    case 'ExportDiagnostics':{const value=await call<string>('backend.DiagnosticReport',[]);const url=URL.createObjectURL(new Blob([Uint8Array.from(atob(value),c=>c.charCodeAt(0))],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='caelisbot-diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);return '诊断报告已下载。' as T;}
    case 'CopyDiagnostics':{const {copyFeedback}=await import('./feedback-client');await copyFeedback();return undefined as T;}
    case 'RestartSurface':location.reload();return undefined as T;

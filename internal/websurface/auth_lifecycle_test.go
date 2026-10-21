@@ -319,3 +319,50 @@ func TestOpenEventStreamRenewsRemoteGrant(t *testing.T) {
 	}
 	cancel()
 }
+
+func TestExpiredLegacyLocalCSRFRefreshAdmitsOriginalWriteOnlyOnce(t *testing.T) {
+	clock := newAuthClock()
+	s := clockServer(t, clock)
+	legacy := pairClient(t, s)
+	s.config.DirectLoopback = true
+	var writes atomic.Int32
+	s.register(action{Path: "/api/v1/test/csrf-migration", Function: func() string { writes.Add(1); return "saved" }})
+	post := func(csrf string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", testOrigin+"/api/v1/test/csrf-migration", bytes.NewBufferString(`{"id":"original-before-csrf-refresh","args":[]}`))
+		r.RemoteAddr = "127.0.0.1:1234" // Browser has removed the expired cookie.
+		r.Header.Set("Origin", testOrigin)
+		r.Header.Set("X-Caelis-Request", "1")
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CSRF-Token", csrf)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+	clock.advance(8 * 24 * time.Hour)
+	s.flushAuth()
+	for range 2 {
+		w := post(legacy.csrf)
+		if w.Code != 403 || !bytes.Contains(w.Body.Bytes(), []byte("csrf_denied")) {
+			t.Fatal("stale CSRF bypassed", w.Code, w.Body.String())
+		}
+	}
+	if writes.Load() != 0 || len(s.operations) != 0 {
+		t.Fatal("CSRF denial admitted an effect")
+	}
+	csrf := localCSRF(t, s)
+	if csrf == legacy.csrf {
+		t.Fatal("test did not cross identity migration")
+	}
+	for range 2 {
+		w := post(csrf)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	if writes.Load() != 1 || len(s.operations) != 1 || len(s.auth.Sessions) != 0 {
+		t.Fatal("refresh replaced identity, replayed, or allocated grant", writes.Load(), len(s.operations))
+	}
+	if w := legacy.request("/api/v1/bootstrap", nil); w.Code != 401 {
+		t.Fatal("expired remote grant revived", w.Code)
+	}
+}
