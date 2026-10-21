@@ -919,7 +919,7 @@ acceptance. The pin, package and permissions evidence are in
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. Chat and settings use
-separate retained native windows and WebViews. The composer-adjacent settings
+separate retained native windows and WebViews. The top-right settings
 entry opens or focuses the existing settings window without hiding chat. Native
 close hides only its own window. Renderer navigation checks onboarding, dialogs
 and unsaved forms; opening and closing settings preserve the mounted composer,

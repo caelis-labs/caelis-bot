@@ -2,7 +2,7 @@
 // desktop-settings-preview.html server. Output directory must already exist.
 // Real shared UI/Web transport; synthetic, in-memory Submit/Interrupt only.
 async(page)=>{
- const base=new URL(page.url()).origin,out='output/playwright/ui-findings/composer-closure';
+ const base=new URL(page.url()).origin,out='output/playwright/ui-findings/layout-refinement';
  const source=await(await page.request.get(base+'/wails/runtime.js')).text();
  const routes=await page.evaluate(async()=>(await import('/src/web-routes.ts')).webRoutes);
  const names=Object.fromEntries(Object.entries(routes).map(([name,route])=>[route.path,name.split('.').at(-1)]));
@@ -62,20 +62,33 @@ async(page)=>{
  const measure=()=>page.evaluate(()=>{
   const scroller=document.querySelector('.composer-scroll'),actions=document.querySelector('.composer-actions');
   const card=document.querySelector('.compose-area'),button=actions.querySelector('.send'),add=actions.querySelector('.add');
-  const s=scroller.getBoundingClientRect(),a=actions.getBoundingClientRect(),c=card.getBoundingClientRect(),b=button.getBoundingClientRect();
+  const s=scroller.getBoundingClientRect(),a=add.getBoundingClientRect(),c=card.getBoundingClientRect(),b=button.getBoundingClientRect();
   const hit=element=>{const r=element.getBoundingClientRect();return [[.5,.5],[.12,.5],[.88,.5],[.5,.12],[.5,.88]].every(([x,y])=>element.contains(document.elementFromPoint(r.x+r.width*x,r.y+r.height*y)));};
-  const inside=r=>r.left>=c.left&&r.right<=c.right&&r.top>=a.top&&r.bottom<=c.bottom&&r.top>=0&&r.bottom<=innerHeight;
+  const inside=r=>r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom&&r.top>=0&&r.bottom<=innerHeight;
   return {label:button.getAttribute('aria-label'),enabled:!button.disabled,buttonHit:hit(button),addHit:hit(add),
-   inside:inside(b)&&inside(add.getBoundingClientRect()),separate:s.bottom<=a.top+1,
+   inside:inside(b)&&inside(add.getBoundingClientRect()),separate:a.right<=s.left&&s.right<=b.left,
    scrollInside:s.left>=c.left&&s.right<=c.right&&s.top>=c.top&&s.bottom<c.bottom,
    scrollTop:scroller.scrollTop,scrollMax:scroller.scrollHeight-scroller.clientHeight,
    scrollbarWidth:scroller.offsetWidth-scroller.clientWidth,
    overflow:document.documentElement.scrollWidth>innerWidth,
-   button:b.toJSON(),scroller:s.toJSON(),actions:a.toJSON(),card:c.toJSON()};
+   button:b.toJSON(),scroller:s.toJSON(),add:a.toJSON(),card:c.toJSON()};
  });
  const assertGeometry=(value,context)=>check(value.enabled&&value.buttonHit&&value.addHit&&value.inside&&value.separate&&value.scrollInside&&!value.overflow,context+' '+JSON.stringify(value));
  for(const width of [390,680,1280]){
   await page.setViewportSize({width,height:700});
+  await page.evaluate(()=>window.composerState(0,false));
+  for(const text of ['', '一句简短的话']){
+   await editor.fill(text);
+   await page.waitForFunction(()=>document.querySelectorAll('.composer-context .attachments li').length===0);
+   const g=await measure(),field=await editor.boundingBox();
+   check(g.card.height<=56&&g.buttonHit&&g.addHit&&g.inside&&g.separate&&g.scrollInside&&!g.overflow,'compact row '+JSON.stringify(g));
+   check(Math.abs(g.button.y+g.button.height/2-(field.y+field.height/2))<=3,'short input is not on the action row');
+   const gear=await page.getByRole('button',{name:'设置',exact:true}).boundingBox(),surface=await page.locator('.history-surface').boundingBox();
+   check(gear.y-surface.y<20&&surface.x+surface.width-gear.x<60,'settings is not at top right '+JSON.stringify({gear,surface}));
+   const chat=await page.locator('.chat-scroll').boundingBox();
+   check(chat.y>=gear.y+gear.height,'scrolling messages can cover the settings entry');
+   await page.screenshot({path:`${out}/compact-${width}-${text?'short':'empty'}.png`});
+  }
   for(const working of [false,true])for(const count of [0,12]){
    const stop=working&&count===0,label=stop?'停止工作':working?'补充说明':'发送',text=stop?'':longText;
    await page.evaluate(({count,working})=>window.composerState(count,working),{count,working});

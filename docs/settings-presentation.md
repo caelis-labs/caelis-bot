@@ -28,7 +28,7 @@ recovery and original-receipt contracts.
   it does not call `Submit` again.
 - `context-navigation` uses the cancelable `settings-navigate` guard and checks
   visible dialogs and `data-settings-dirty="true"` forms. Chat places its gear
-  outside the composer at bottom left. Desktop opens/focuses one retained native
+  at the top right of the existing chat surface. Desktop opens/focuses one retained native
   settings window without hiding chat; the native close button hides settings.
   Web presents the same settings in a closable panel above retained chat, using
   existing URL navigation, focus restoration and narrow-screen full-height layout.
@@ -58,7 +58,7 @@ with the localized title Screenshot / 截图, while the feature is enabled.
 The macOS installed menu updates its tagged item immediately; Windows replaces
 the tray menu after a committed preference change. Paste/pin internals, capture
 commands, saved F1/F3 shortcuts and permission checks remain unchanged.
-Windows uses the same bottom-left entry and independent native settings lifetime;
+Windows uses the same top-right entry and independent native settings lifetime;
 cross-compilation and lifecycle contracts do not claim Windows GUI acceptance.
 
 Run `script/build_and_run.sh --settings-preview` for a separate AppKit/WKWebView
@@ -80,7 +80,7 @@ navigation of existing capabilities, not Bot tools, permissions or workflows.
 
 ## Web surface acceptance
 
-Web uses the same components and state, with the composer-adjacent gear and
+Web uses the same components and state, with the top-right gear and
 shared close-settings control. It does not emulate AppKit attachment
 APIs. The Web navigation adapter honors dialogs/dirty forms before changing a
 route; every entry also checks durable setup/introduction state. The chat remains

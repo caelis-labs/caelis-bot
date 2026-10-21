@@ -65,10 +65,10 @@ async(page)=>{
  for(const width of [1280,680,390]){
   await page.setViewportSize({width,height:700});
   const geometry=await page.evaluate(()=>{
-   const scroll=document.querySelector('.composer-scroll'),action=document.querySelector('.composer-actions'),send=document.querySelector('[aria-label="发送"]'),card=document.querySelector('.compose-area');
+   const scroll=document.querySelector('.composer-scroll'),action=document.querySelector('.composer-actions .add'),send=document.querySelector('[aria-label="发送"]'),card=document.querySelector('.compose-area');
    scroll.scrollTop=scroll.scrollHeight;
    const a=action.getBoundingClientRect(),b=scroll.getBoundingClientRect(),c=card.getBoundingClientRect(),d=send.getBoundingClientRect();
-   return {width:innerWidth,scrolling:scroll.scrollHeight>scroll.clientHeight,separate:b.bottom<=a.top+1,buttonVisible:d.bottom<=c.bottom&&d.right<=c.right,bottom:innerHeight-c.bottom,overflow:document.documentElement.scrollWidth>innerWidth};
+   return {width:innerWidth,scrolling:scroll.scrollHeight>scroll.clientHeight,separate:a.right<=b.left&&b.right<=d.left,buttonVisible:d.bottom<=c.bottom&&d.right<=c.right,bottom:innerHeight-c.bottom,overflow:document.documentElement.scrollWidth>innerWidth};
   });
   check(geometry.scrolling&&geometry.separate&&geometry.buttonVisible&&!geometry.overflow,'composer geometry '+JSON.stringify(geometry));
   result.push(geometry);await page.screenshot({path:out+'/composer-'+width+'.png'});

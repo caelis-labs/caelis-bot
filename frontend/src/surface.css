@@ -831,15 +831,20 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-experiments .setting-row { display:flex; flex-wrap:nowrap; min-height:54px; gap:16px; }
 .settings-window .runtime-experiments .setting-control { flex:0 0 auto; width:auto; }
 
-/* Composer content scrolls independently of its fixed actions and settings entry. */
+/* Compact input grows within the scroller; actions stay outside its bounds. */
 .history-surface footer { display:flex; align-items:flex-end; gap:10px; max-width:804px; padding-left:22px; padding-right:22px; }
-.chat-settings { flex:0 0 40px; width:40px; height:40px; margin-bottom:5px; display:grid; place-items:center; border:0; border-radius:10px; background:transparent; color:var(--muted); }
+.chat-settings-entry { position:absolute; top:6px; right:14px; z-index:4; }
+.history-surface:has(.chat-settings-entry) .chat-scroll { margin-top:38px; padding-top:0; }
+.chat-settings { width:28px; height:28px; padding:0; display:grid; place-items:center; border:0; border-radius:10px; background:transparent; color:var(--muted); }
 .chat-settings:hover,.chat-settings[aria-busy=true] { background:var(--wash); color:var(--ink); }
 .chat-settings:active { background:var(--caelis-selected); }
-.history-surface .compose-area { flex:1; min-width:0; overflow:hidden; }
-.composer-scroll { max-height:min(40vh,320px); max-height:min(40dvh,320px); overflow-y:auto; overscroll-behavior:contain; padding:12px 12px 0; }
+.history-surface .compose-area { flex:1; min-width:0; overflow:hidden; display:grid; grid-template-columns:30px minmax(0,1fr) 30px; align-items:end; column-gap:10px; padding:10px 12px; }
+.composer-scroll { grid-column:2; grid-row:1; min-width:0; align-self:center; max-height:min(40vh,320px); max-height:min(40dvh,320px); overflow-y:auto; overscroll-behavior:contain; padding:0; }
 .composer-scroll textarea { display:block; max-height:none; overflow:hidden; padding:0; font-size:14px; line-height:24px; }
-.history-surface .composer-actions { justify-content:space-between; min-height:48px; padding:8px 12px 10px; }
+/* Controls occupy their own columns, outside the text/attachment scroller. */
+.history-surface .composer-actions { display:contents; }
+.composer-actions .add { grid-column:1; grid-row:1; }
+.composer-actions .send { grid-column:3; grid-row:1; }
 .history-surface .composer-context { padding:10px 0 0; }
 .composer-scroll .attachments { max-height:none; overflow:visible; }
 @media(max-width:650px) { .history-surface footer { padding-left:14px; padding-right:14px; } }
