@@ -1,8 +1,8 @@
 # CaelisBot for Linux / WSL
 
-**The installer is implemented in source but has not been published.** The first
-release still needs the persistent Ed25519 signing identity configured. Do not
-use QA packages or keys as production downloads.
+Use the signed stable release assets and installer below. The production
+Ed25519 identity is pinned in the installer and updater; QA packages and keys
+are not production downloads.
 
 The release format is a complete managed `tar.gz` for **Linux amd64 or arm64**,
 including Caelis CLI, Web assets, notices, and a signed companion launcher.
@@ -16,8 +16,7 @@ manager**. Install missing dependencies through your distribution's package
 manager. The installer never invokes sudo, weakens sandboxing, changes firewall
 rules, or enables linger. No Go or Node is needed for the published package.
 
-After the first signed release has been published and read back, the intended
-entry point will be:
+Install the latest signed Linux release:
 
 ```sh
 curl -fsSL https://releases.caelis.dev/caelis-bot/install.sh | sh
