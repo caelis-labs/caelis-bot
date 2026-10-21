@@ -1,19 +1,48 @@
 """Filesystem/user-service fixture only; never invokes the host's systemctl."""
 import importlib.util
+import ast
 import contextlib
+import http.server
 import io
 import json
 import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
 from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('installer',pathlib.Path(__file__).parents[1]/'deploy/headless/install.py')
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 
 class InstallerTests(unittest.TestCase):
+    def test_bootstrap_identifies_its_public_download_requests(self):
+        # Execute the shipped fetch function against HTTP. The release CDN
+        # rejects urllib's generic user agent before signature verification.
+        source=(pathlib.Path(__file__).parents[1]/'deploy/headless/install.sh.in').read_text().split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        fetch=next(node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name=='fetch')
+        observed=[]
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append(self.headers.get('User-Agent'))
+                accepted=observed[-1]=='CaelisBot-Installer/1'
+                self.send_response(200 if accepted else 403);self.end_headers()
+                self.wfile.write(b'signed bytes' if accepted else b'forbidden')
+            def log_message(self,*args): pass
+        with http.server.HTTPServer(('127.0.0.1',0),Handler) as server:
+            thread=threading.Thread(target=server.serve_forever);thread.start()
+            try:
+                base=f'http://127.0.0.1:{server.server_port}/'
+                namespace={'urllib':urllib,'BASE':base}
+                exec(compile(ast.Module(body=[fetch],type_ignores=[]),'<bootstrap>','exec'),namespace)
+                self.assertEqual(namespace['fetch'](base+'latest.json',64),b'signed bytes')
+                self.assertEqual(namespace['fetch'](base+'launcher',64),b'signed bytes')
+                self.assertEqual(observed,['CaelisBot-Installer/1']*2)
+            finally:
+                server.shutdown();thread.join()
+
     def test_idempotence_explicit_upgrade_and_profile_preservation(self):
         with tempfile.TemporaryDirectory(prefix='caelis-installer-fixture-') as temp:
             home=pathlib.Path(temp);bundle=home/'bundle';bundle.mkdir()
