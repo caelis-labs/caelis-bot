@@ -57,16 +57,6 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 		}
 		return v
 	}
-	initializeDefaults := func(profile string) {
-		c, info, e := experimentalClient(ctx, settings)
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer c.http.CloseIdleConnections()
-		if e = initializeExperiments(ctx, c, info, profile); e != nil {
-			t.Fatal(e)
-		}
-	}
 	start()
 	v := read()
 	if !v.Supported {
@@ -77,11 +67,13 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 			t.Fatal("read initialized Core defaults", v)
 		}
 	}
-	initializeDefaults(dir)
-	v = read()
-	for _, f := range v.Features {
-		if !f.Enabled {
-			t.Fatal("first connection did not enable defaults", v)
+	if err = ProbeBinding(ctx, settings, dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range experimentalIDs {
+		v, err = ChangeRuntimeExperiments(ctx, settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: true, ExpectedRevision: v.Revision})
+		if err != nil || v.SaveState != "saved" {
+			t.Fatal("explicit enable failed", v, err)
 		}
 	}
 	for _, id := range experimentalIDs {
@@ -93,8 +85,15 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 	originalID, revision := v.OperationID, v.Revision
 	stop()
 	start()
-	initializeDefaults(dir)
-	initializeDefaults(filepath.Join(root, "second-bot"))
+	for _, profile := range []string{dir, filepath.Join(root, "second-bot")} {
+		if err = ProbeBinding(ctx, settings, profile); err != nil {
+			t.Fatal(err)
+		}
+		current, e := ReadRuntimeExperiments(ctx, settings, profile)
+		if e != nil || current.Revision != revision {
+			t.Fatal("fresh profile changed shared configuration", current, e)
+		}
+	}
 	v = read()
 	for _, f := range v.Features {
 		if f.Enabled {
@@ -104,5 +103,5 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 	if v.Revision != revision || v.OperationID != originalID {
 		t.Fatal("restart wrote a new operation", v)
 	}
-	t.Log("official Host: read-only entry, three defaults, three independent saves, Host restart and second Bot profile preserved all disabled choices")
+	t.Log("official Host: Core defaults unchanged, six explicit independent saves, Host restart and second Bot profile preserved all disabled choices")
 }

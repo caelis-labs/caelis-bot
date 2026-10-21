@@ -13,20 +13,38 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 const experimentalCapability = "experimental-features-v1"
 
 var experimentalIDs = []string{"async_compact", "mcp_catalog_refresh", "deferred_tool_retirement"}
 
-// Shared by settings and resident initialization. Only original request metadata
-// lives here; desired values always come from Core's configuration reader.
-var experimentsMu sync.Mutex
+// Only local journal transitions are serialized, separately for each Store's
+// journal. No lock spans a Host request. Core CAS remains the shared config owner.
+var experimentJournalLocks sync.Map
+
+func lockExperimentJournal(ctx context.Context, path string) (func(), error) {
+	mu, _ := experimentJournalLocks.LoadOrStore(filepath.Clean(path), &sync.Mutex{})
+	lock := mu.(*sync.Mutex)
+	if err := lockwait.Lock(ctx, lock); err != nil {
+		return nil, err
+	}
+	return lock.Unlock, nil
+}
+
+func readExperimentState(ctx context.Context, path string) (experimentJournal, error) {
+	unlock, err := lockExperimentJournal(ctx, path)
+	if err != nil {
+		return experimentJournal{}, err
+	}
+	defer unlock()
+	return readExperimentJournal(path)
+}
 
 type experimentJournal struct {
-	Initialized bool                      `json:"initialized"`
-	Request     *wire.ExperimentalRequest `json:"request,omitempty"`
-	Outcome     string                    `json:"outcome,omitempty"`
+	Request *wire.ExperimentalRequest `json:"request,omitempty"`
+	Outcome string                    `json:"outcome,omitempty"`
 }
 
 func experimentPath(dir string, info wire.ServerInfo) string {
@@ -111,9 +129,9 @@ func settleExperiment(ctx context.Context, c *client, path string, j *experiment
 	if err := c.json(ctx, "GET", "/operations/"+idPath(j.Request.OperationId), nil, &receipt, "", ""); err != nil {
 		return nil
 	} // Unknown stays unknown, including missing receipts.
-	return recordExperiment(path, j, receipt)
+	return recordExperiment(ctx, path, j, receipt)
 }
-func recordExperiment(path string, j *experimentJournal, r wire.CommandResult) error {
+func recordExperiment(ctx context.Context, path string, j *experimentJournal, r wire.CommandResult) error {
 	if j.Request == nil || r.OperationId != j.Request.OperationId {
 		return nil
 	}
@@ -121,8 +139,21 @@ func recordExperiment(path string, j *experimentJournal, r wire.CommandResult) e
 	case "committed", "rejected", "conflicted":
 		next := *j
 		next.Outcome = string(r.Outcome)
-		if err := privateWrite(path, next); err != nil {
+		unlock, err := lockExperimentJournal(ctx, path)
+		if err != nil {
 			return err
+		}
+		defer unlock()
+		current, err := readExperimentJournal(path)
+		if err != nil {
+			return err
+		}
+		// A delayed reply may only settle its own original intent. Never replace
+		// a newer user action that has already been admitted by another caller.
+		if current.Request != nil && current.Request.OperationId == j.Request.OperationId && current.Outcome == "pending" {
+			if err = privateWrite(path, next); err != nil {
+				return err
+			}
 		}
 		*j = next
 	}
@@ -138,13 +169,11 @@ func postExperiment(ctx context.Context, c *client, path string, j *experimentJo
 		}
 	}
 	// A failed final journal write leaves the pre-dispatch pending intent durable.
-	_ = recordExperiment(path, j, r)
+	_ = recordExperiment(ctx, path, j, r)
 }
 
-// ReadRuntimeExperiments never initializes defaults or dispatches a mutation.
+// ReadRuntimeExperiments only reflects Core configuration and original receipts.
 func ReadRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings, dir string) (api.RuntimeExperiments, error) {
-	experimentsMu.Lock()
-	defer experimentsMu.Unlock()
 	c, info, err := experimentalClient(ctx, settings)
 	if err != nil {
 		return api.RuntimeExperiments{}, err
@@ -154,7 +183,7 @@ func ReadRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings, d
 		return api.RuntimeExperiments{Features: []api.RuntimeExperiment{}}, nil
 	}
 	path := experimentPath(dir, info)
-	j, err := readExperimentJournal(path)
+	j, err := readExperimentState(ctx, path)
 	if err != nil {
 		return api.RuntimeExperiments{}, err
 	}
@@ -171,10 +200,8 @@ func ReadRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings, d
 // ChangeRuntimeExperiments acknowledges a durable save flow. The caller reads
 // that flow until saved/rejected/conflicted; a pending flow never posts again.
 func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings, dir string, change api.RuntimeExperimentChange) (api.RuntimeExperiments, error) {
-	experimentsMu.Lock()
-	defer experimentsMu.Unlock()
 	reject := func() (api.RuntimeExperiments, error) {
-		return api.RuntimeExperiments{}, &api.ActionRejectedError{Code: "experimental_save_unavailable"}
+		return api.RuntimeExperiments{}, errors.Join(&api.ActionRejectedError{Code: "experimental_save_unavailable"}, ctx.Err())
 	}
 	if !slices.Contains(experimentalIDs, change.ID) {
 		return reject()
@@ -191,7 +218,7 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 		return reject()
 	}
 	path := experimentPath(dir, info)
-	j, err := readExperimentJournal(path)
+	j, err := readExperimentState(ctx, path)
 	if err != nil {
 		return reject()
 	}
@@ -202,13 +229,25 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 	if err != nil {
 		return reject()
 	}
+	unlock, err := lockExperimentJournal(ctx, path)
+	if err != nil {
+		return reject()
+	}
+	// Re-read after network work: another tab may have reserved an intent.
+	j, err = readExperimentJournal(path)
+	if err != nil {
+		unlock()
+		return reject()
+	}
 	if j.Outcome == "pending" {
+		unlock()
 		return projectExperiments(v, j), nil
 	}
 	// A stale tab's deliberate action must not overwrite a newer Host revision.
 	if string(v.Revision) != change.ExpectedRevision {
 		out := projectExperiments(v, j)
 		out.SaveState = "conflicted"
+		unlock()
 		return out, nil
 	}
 	values := wire.ExperimentalValues{}
@@ -220,8 +259,10 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 	case "deferred_tool_retirement":
 		values.DeferredToolRetirement = &change.Enabled
 	}
-	j = experimentJournal{Initialized: true, Request: &wire.ExperimentalRequest{OperationId: "bot-experiment-" + rand.Text(), ExpectedRevision: v.Revision, Values: values}, Outcome: "pending"}
-	if err = privateWrite(path, j); err != nil {
+	j = experimentJournal{Request: &wire.ExperimentalRequest{OperationId: "bot-experiment-" + rand.Text(), ExpectedRevision: v.Revision, Values: values}, Outcome: "pending"}
+	err = privateWrite(path, j)
+	unlock()
+	if err != nil {
 		return reject()
 	}
 	postExperiment(ctx, c, path, &j)
@@ -232,51 +273,4 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 	out := projectExperiments(v, j)
 	out.SaveState = "pending"
 	return out, nil
-}
-
-// initializeExperiments is only called during actual resident connection, never
-// settings inspection. Core owns the deterministic bootstrap receipt across Bot
-// profiles. The local marker prevents any later default write after user edits.
-func initializeExperiments(ctx context.Context, c *client, info wire.ServerInfo, dir string) error {
-	if !slices.Contains(info.Capabilities, experimentalCapability) {
-		return nil
-	}
-	experimentsMu.Lock()
-	defer experimentsMu.Unlock()
-	path := experimentPath(dir, info)
-	j, err := readExperimentJournal(path)
-	if err != nil {
-		return err
-	}
-	if j.Initialized {
-		return settleExperiment(ctx, c, path, &j)
-	}
-	on := true
-	req := wire.ExperimentalRequest{OperationId: "caelis-bot-experiments-v1-" + digest([]byte(value(info.StoreId)))[:24], Values: wire.ExperimentalValues{AsyncCompact: &on, McpCatalogRefresh: &on, DeferredToolRetirement: &on}}
-	var receipt wire.CommandResult
-	err = c.json(ctx, "GET", "/operations/"+idPath(req.OperationId), nil, &receipt, "", "")
-	if err == nil {
-		if receipt.OperationId != req.OperationId {
-			return errors.New("experimental initialization receipt mismatch")
-		}
-		j = experimentJournal{Initialized: true, Request: &req, Outcome: "pending"}
-		if err = privateWrite(path, j); err != nil {
-			return err
-		}
-		return recordExperiment(path, &j, receipt)
-	}
-	if !isRemoteStatus(err, 404) {
-		return err
-	}
-	v, err := experimentalSnapshot(ctx, c)
-	if err != nil {
-		return err
-	}
-	req.ExpectedRevision = v.Revision
-	j = experimentJournal{Initialized: true, Request: &req, Outcome: "pending"}
-	if err = privateWrite(path, j); err != nil {
-		return err
-	}
-	postExperiment(ctx, c, path, &j)
-	return nil
 }

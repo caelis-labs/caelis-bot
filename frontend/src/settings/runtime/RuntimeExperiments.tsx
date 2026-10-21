@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import type {RuntimeExperiments as View} from '../../backend/contract';
-import {SettingRow} from '../../SettingsUI';
+import {SettingGroup,SettingRow} from '../../SettingsUI';
 import {useI18n} from '../../i18n';
 
 const labels={
@@ -58,11 +58,7 @@ export function RuntimeExperiments(){
   notice==='pending'?'experimentalPending':notice==='saved'?'experimentalSaved':
   notice==='conflicted'||notice==='superseded'?'experimentalChanged':
   notice==='rejected'?'experimentalRejected':'';
- return <section className="runtime-experiments" aria-labelledby="runtime-experiments-title" aria-busy={busy}>
-  <header>
-   <h3 id="runtime-experiments-title">{t('settings.experimentalTitle')}</h3>
-   <p className="settings-note">{t('settings.experimentalScope')}</p>
-  </header>
+ return <SettingGroup title={t('settings.experimentalTitle')}><div className="runtime-experiments" aria-busy={busy}>
   {value?.supported?value.features.filter(feature=>feature.id in labels).map(feature=>
    <SettingRow key={feature.id} label={t(`settings.${labels[feature.id as keyof typeof labels]}`)} htmlFor={`experiment-${feature.id}`}>
     <input id={`experiment-${feature.id}`} className="settings-switch" role="switch" type="checkbox"
@@ -73,5 +69,5 @@ export function RuntimeExperiments(){
   {note&&<p className="settings-note" role="status">{t(`settings.${note}`)}</p>}
   {(error||value?.saveState==='pending'||notice==='conflicted'||notice==='superseded'||notice==='rejected')&&
    <button className="text-action" disabled={busy} onClick={()=>{polls.current=0;void read(true)}}>{t('runtime.recheck')}</button>}
- </section>;
+ </div></SettingGroup>;
 }

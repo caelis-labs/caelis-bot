@@ -130,14 +130,15 @@ ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认�
 
 ## 共享 Host 实验特性
 
-设置中的 Caelis Runtime → 高级配置使用 Core `experimental-features-v1`：
+设置中的 Caelis Runtime → 实验特性与高级配置平级，使用 Core `experimental-features-v1`：
 `GET/POST /configuration/experimental` 读取或分别保存异步压缩、MCP 动态刷新、延迟工具卸载。
 这是共享 Host 的 desired 配置，下次 Runtime 激活生效；不热改当前 Runtime，也不重启 Host。
 桌面和 Web 使用同一组件与配置入口，页面读取不会写入默认值。
 
-Bot 首次实际接入此 Store 时，通过固定 bootstrap operation ID 开启三项；随后保留用户修改。
-跨 Bot profile 先查询该原生回执，本地只保存初始化标记与原请求元数据，不复制配置权威。
-单项保存携带读取的 revision；冲突读取当前值，未知结果只查原 ID，不重放。
+Bot 连接和设置读取不修改实验配置，初始状态遵循 Core 默认关闭；已有配置始终如实回显。
+只有用户主动切换才保存单项，携带读取的 revision；冲突读取当前值，未知结果只查原 ID，不重放。
+本地仅保存显式修改的原请求元数据，不记录初始化标记或复制配置权威。
+按 Store 区分的本地回执锁可取消等待，网络请求不持锁；其他 Host 不受阻塞。
 缺少可选能力不阻塞 Bot 连接，设置页如实提示不支持。
 
 ## 所有权与公开接口
