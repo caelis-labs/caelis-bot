@@ -395,7 +395,14 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return projected, errors.New("original worker state mismatch")
 	}
 	if state.Run.Active == nil && !workerNativeActive(state) {
-		return projected, errors.New("original worker activity unconfirmed")
+		// active is optional in the native contract. A fresh terminal state
+		// from this exact owner also confirms inactivity, but says nothing
+		// about whether its transcript can be read successfully.
+		switch value(state.Run.Status) {
+		case "completed", "failed", "cancelled", "stopped", "interrupted":
+		default:
+			return projected, errors.New("original worker activity unconfirmed")
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

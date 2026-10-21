@@ -99,7 +99,7 @@ func TestPersistedPendingProjectedUnknownRetiresOnlyWithOriginalIdle(t *testing.
 
 func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 	for _, persisted := range []string{"pending", "unknown", "working"} {
-		for _, fact := range []string{"idle", "active", "working-status", "approval", "missing-activity", "unreadable"} {
+		for _, fact := range []string{"idle", "active", "working-status", "approval", "missing-activity", "unreadable", "completed", "failed", "cancelled", "stopped", "interrupted"} {
 			t.Run(persisted+"/"+fact, func(t *testing.T) {
 				var gets atomic.Int32
 				s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +113,10 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 						return
 					}
 					state := wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown")}}
-					if fact != "missing-activity" {
+					terminal := fact == "completed" || fact == "failed" || fact == "cancelled" || fact == "stopped" || fact == "interrupted"
+					if terminal {
+						state.Run.Status = pointer(fact)
+					} else if fact != "missing-activity" {
 						state.Run.Active = pointer(fact == "active")
 					}
 					if fact == "working-status" {
@@ -139,6 +142,9 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 				}
 				if fact == "active" && s.WorkStates()[0].Activity != "active" {
 					t.Fatal("fresh active owner was hidden by stale idle projection", s.WorkStates())
+				}
+				if (fact == "completed" || fact == "failed" || fact == "cancelled" || fact == "stopped" || fact == "interrupted") && s.WorkStates()[0].Activity != "idle" {
+					t.Fatal("native terminal state did not confirm inactivity")
 				}
 				if s.state.Workers["task"].PromptID != "original-prompt" {
 					t.Fatal("original prompt receipt lost")
