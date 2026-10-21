@@ -864,3 +864,23 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .permission-settings .permission-repair-entry { padding:0; min-height:28px; border:0; background:transparent; font-size:12px; text-align:left; }
 
 .settings-window .permission-settings>.settings-section-title { margin:0 0 8px; }
+
+/* Account connection pages scroll with Settings rather than a short nested list. */
+.settings-window .provider-connection:not(.onboarding-connection) .connection-detail-body { max-width:860px; }
+.settings-window .provider-account-models .provider-model-scroll { max-height:none; overflow:visible; }
+.settings-window .provider-model-scroll > label > span { display:flex; flex:1; min-width:0; flex-direction:column; gap:5px; overflow-wrap:anywhere; }
+.settings-window .provider-model-scroll strong { font-size:14px; font-weight:500; line-height:1.5; }
+.settings-window .provider-model-scroll small { display:block; color:var(--muted); font-size:12px; line-height:1.5; }
+.settings-window .provider-model-list input[type=radio] { flex:none; }
+.settings-window .runtime-authorization { max-width:620px; padding:8px 0; }
+.settings-window .runtime-authorization .runtime-device-code { margin:22px 0; }
+.settings-window .runtime-authorization .codex-user-code { display:flex; align-items:center; gap:12px; }
+.settings-window .runtime-authorization .codex-user-code button { display:flex; align-items:center; padding:8px; }
+.settings-window .authorization-primary { margin:20px 0 12px; }
+.settings-window .authorization-primary .runtime-url { margin:12px 0 0; font-size:12px; color:var(--muted); }
+.settings-window .authorization-secondary { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; margin:24px 0 0; }
+.settings-window .authorization-secondary .text-action { margin:0; }
+.settings-window .onboarding-oauth .authorization-secondary { justify-content:center; }
+.settings-window .authorization-expiry { font-size:12px; }
+.settings-window .provider-connection:not(.onboarding-connection) .setup-end { justify-content:flex-start; gap:12px; margin:24px 0; }
+@media(max-width:540px) { .settings-window .codex-runtime-panel .codex-login > .primary { width:100%;min-width:0; }.settings-window .runtime-device-code code { font-size:23px; } }

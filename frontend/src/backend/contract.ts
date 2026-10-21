@@ -343,6 +343,7 @@ export interface RuntimeFlow {
   stage: string;
   title: string;
   message: string;
+  reason?: string;
   installation: RuntimeInstallation | null;
   authorization: RuntimeAuthorization | null;
   launchers: Array<RuntimeConnectChoice>;

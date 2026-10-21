@@ -23,6 +23,9 @@ export type AuthMethod = { id: string; name: string; description: string; availa
 export type ConnectionStage = 'preparing' | 'launcher' | 'installation' | 'auth-method' | 'authorization' | 'models' | 'complete' | 'failed' | 'unknown';
 export type ConnectionFlow = {
  id: string; revision: string; sequence: number; stage: ConnectionStage; title: string; message: string;
+ reason?: string;
+ // A failed observation is not an authoritative operation outcome.
+ observationUnavailable?: boolean;
  installation?: { destination: string; source: string; platform: string; instructions: string; canInstall: boolean };
  launchers?: ConnectChoice[]; methods?: AuthMethod[];
  authorization?: { url: string; userCode?: string; inputLabel?: string; expiresAt?: string; canSubmit: boolean };

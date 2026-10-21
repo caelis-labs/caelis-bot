@@ -1,7 +1,7 @@
 import {recoverRead} from '../../read-recovery';
 import { backend } from '../../desktop';
 import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupChoice, SetupOverview, SetupRequest, SetupState, Snapshot, WorkExecutionSettings, RuntimeConfiguration, RuntimeMutationResult, RuntimeFlow } from '../../backend/contract';
-import { groupLegacyModels, withWorkUsage } from './state';
+import { acceptConnectionProgress, groupLegacyModels, withWorkUsage } from './state';
 import type { ConnectionFlow, RuntimeSettingsClient } from './types';
 
 type Invoke = <T>(method: string, ...args: unknown[]) => Promise<T>;
@@ -21,11 +21,11 @@ function checkResult(receipt: RuntimeMutationResult) { if(receipt.outcome !== 'c
 export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: RuntimeSettings): RuntimeSettingsClient {
  const currentProfile = () => profile ? Promise.resolve(profile) : invoke<RuntimeSettings>('RuntimeSettings');
  const observe = (initial: RuntimeFlow, signal: AbortSignal, progress: (flow: ConnectionFlow) => void) => {
-  let current=initial;
+  let current=projectFlow(initial);
   void (async()=>{
    while(!signal.aborted && !['complete','failed','unknown'].includes(current.stage)) {
-    try { const next=await recoverRead(()=>invoke<RuntimeFlow>('WaitRuntimeConnection',current.id,current.sequence),signal);if(signal.aborted)return;current=next;progress(projectFlow(next)); }
-    catch { if(!signal.aborted)progress({...projectFlow(current),stage:'unknown',title:'',message:''});return; }
+    try { const next=await recoverRead(()=>invoke<RuntimeFlow>('WaitRuntimeConnection',current.id,current.sequence),signal);if(signal.aborted)return;current=acceptConnectionProgress(current,projectFlow(next));progress(current); }
+    catch { if(!signal.aborted)progress({...current,observationUnavailable:true});return; }
    }
   })();
   return projectFlow(initial);
@@ -71,7 +71,14 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(m => ({ value:m.value,name:m.label || m.value,parameters:m.parameters })) };
   },
   async startConnection(input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('StartRuntimeConnection',{...input,settings:profile ?? null}),signal,progress);},
-  async advanceConnection(flow,action,input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('AdvanceRuntimeConnection',{id:flow.id,revision:flow.revision,action,input}),signal,progress);},
+  async advanceConnection(flow,action,input,signal,progress){
+   signal.throwIfAborted();
+   // Refresh is an observation, including after a lost reply. Do not create a
+   // new Web write receipt for an unchanged native authentication operation.
+   const next=action==='refresh'?await invoke<RuntimeFlow>('WaitRuntimeConnection',flow.id,-1):
+    await invoke<RuntimeFlow>('AdvanceRuntimeConnection',{id:flow.id,revision:flow.revision,action,input});
+   return observe(next,signal,progress);
+  },
   async cancelConnection(flow){await invoke('CancelRuntimeConnection',flow.id);},
   async openURL(url){await invoke('OpenMessageLink',url);},
  };

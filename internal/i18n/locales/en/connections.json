@@ -68,5 +68,8 @@
   "oauthResponse": "Authorization code or callback URL",
   "gatewayUnavailable": "Models could not be loaded. Check the gateway address and retry.",
   "gatewayNoModels": "The gateway returned no available models. Connect a model in the gateway, then retry.",
-  "gatewayServerAddress": "This address is accessed from the CaelisBot server."
+  "gatewayServerAddress": "This address is accessed from the CaelisBot server.",
+  "authObservationUnavailable": "Unable to check sign-in status right now. Check again shortly.",
+  "authResultUnconfirmed": "This sign-in is still being reconciled. Do not start another sign-in.",
+  "authCancelled": "Sign-in cancelled."
 }

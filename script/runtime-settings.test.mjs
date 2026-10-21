@@ -253,3 +253,36 @@ test('reads begun before a model choice or its acknowledgement cannot overwrite 
  assert.equal(delivery.snapshot()[0].selection.model,'new');complete();
  await new Promise(resolve=>setImmediate(resolve));assert.notEqual(delivery.version(),saving);assert.deepEqual(delivery.snapshot(),[]);
 });
+
+test('auth read outage retains challenge and refresh reads the original flow without a write',async()=>{
+ const calls=[],auth={id:'original-flow',sequence:4,revision:'4',stage:'authorization',title:'Authorize',message:'',authorization:{url:'https://example.invalid/device',userCode:'TEST-ONLY',expiresAt:'2099-01-01T00:00:00Z',canSubmit:false}};
+ let fail=true,notify;
+ const observed=new Promise(resolve=>notify=resolve);
+ const client=createRuntimeSettingsClient(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='StartRuntimeConnection')return auth;
+  assert.equal(method,'WaitRuntimeConnection');assert.equal(args[0],auth.id);
+  if(fail)throw Error('offline');
+  return {...auth,sequence:5,stage:'complete',authorization:null};
+ });
+ await client.startConnection({kind:'account',choice:'openai-codex'},new AbortController().signal,notify);
+ const retained=await observed;
+ assert.equal(retained.stage,'authorization');assert.deepEqual(retained.authorization,auth.authorization);assert.equal(retained.observationUnavailable,true);
+ fail=false;
+ const finished=await client.advanceConnection(retained,'refresh',{},new AbortController().signal,()=>{});
+ assert.equal(finished.stage,'complete');assert.equal(finished.authorization,undefined);
+ assert.equal(calls.filter(c=>c[0]==='StartRuntimeConnection').length,1);
+ assert.deepEqual(calls.at(-1),['WaitRuntimeConnection','original-flow',-1]);
+ assert.equal(calls.filter(c=>c[0]==='AdvanceRuntimeConnection').length,0);
+});
+test('auth observation rejects delayed lower sequences and preserves real unknown outcome',async()=>{
+ const initial={id:'original-flow',sequence:4,revision:'4',stage:'authorization',title:'Authorize',message:'',authorization:{url:'https://example.invalid/device',userCode:'TEST-ONLY',canSubmit:false}};
+ const updates=[{...initial,sequence:2,stage:'models',authorization:null},{...initial,sequence:5,stage:'unknown'}],shown=[],calls=[];
+ let finish;const done=new Promise(resolve=>finish=resolve);
+ const client=createRuntimeSettingsClient(async(method,...args)=>{calls.push([method,...args]);return method==='StartRuntimeConnection'?initial:updates.shift()});
+ await client.startConnection({kind:'account',choice:'openai-codex'},new AbortController().signal,v=>{shown.push(v);if(v.stage==='unknown')finish()});
+ await done;
+ assert.equal(shown[0].stage,'authorization');assert.equal(shown[0].sequence,4);
+ assert.equal(shown[1].stage,'unknown');assert.deepEqual(shown[1].authorization,initial.authorization);
+ assert.equal(calls.filter(c=>c[0]==='StartRuntimeConnection').length,1);
+});

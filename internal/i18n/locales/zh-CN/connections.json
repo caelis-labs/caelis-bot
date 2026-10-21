@@ -68,5 +68,8 @@
   "oauthResponse": "授权码或回调地址",
   "gatewayUnavailable": "暂未读取到模型，请检查网关地址后重试。",
   "gatewayNoModels": "网关没有返回可用模型，请在网关中连接模型后重试。",
-  "gatewayServerAddress": "此地址由运行 CaelisBot 的主机访问。"
+  "gatewayServerAddress": "此地址由运行 CaelisBot 的主机访问。",
+  "authObservationUnavailable": "暂时无法检查登录状态，可稍后再次检查。",
+  "authResultUnconfirmed": "这次登录的结果仍在核对，请勿重新发起。",
+  "authCancelled": "已取消登录。"
 }
