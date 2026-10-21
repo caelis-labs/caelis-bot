@@ -3,7 +3,7 @@ import {createManagedUpdateClient,type UpdateIntent} from './managed-update-clie
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
 import type {ChatUpdate,Snapshot} from './backend/contract';
-import {createNavigationGuard,parseWebRoute,webRouteHash,type WebNavigation} from './web-navigation';
+import {createNavigationGuard,parseWebRoute,webRouteHash,taskToggleRoute,type WebNavigation} from './web-navigation';
 import {settingsHasModal} from './context-navigation';
 export type {WebNavigation} from './web-navigation';
 
@@ -94,7 +94,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'CloseSettings':await navigation(settingsReturn,true);return undefined as T;
    case 'OpenRuntimeSettings':await navigation({view:'settings',section:'connections'});return undefined as T;
    case 'OpenSettings':await navigation({view:'settings',section:'general'});return undefined as T;
-   case 'OpenTaskTerminal':await navigation({view:'task',task:String(args[0])});return undefined as T;
+   case 'OpenTaskTerminal':await navigation(taskToggleRoute(view,String(args[0])));return undefined as T;
    case 'SurfaceReady':return undefined as T; // Browser has no native presentation handshake.
    case 'PickFiles':return await pick() as T;
    case 'PasteAttachments':{const files=pasted;pasted=[];return {handled:files.length>0,files:files.length?await upload(files):[]} as T;}

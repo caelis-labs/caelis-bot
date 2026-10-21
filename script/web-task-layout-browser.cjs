@@ -1,6 +1,6 @@
 // Synthetic API fixture; production Web transport, task pane and shared chat components.
 async(page)=>{
- const base=new URL(page.url()).origin,errors=[],calls=[],out='output/playwright/feedback-six';
+ const base=new URL(page.url()).origin,errors=[],calls=[],out='output/playwright/ui-findings/worker-panel';
  const check=(v,m)=>{if(!v)throw Error(m)};let empty=false,failRead=false,delayRead=false,delayed=0;
  page.on('pageerror',e=>errors.push(e.message));
  const source=await(await page.request.get(base+'/wails/runtime.js')).text();
@@ -19,7 +19,10 @@ async(page)=>{
   }
   const args=route.request().postDataJSON()?.args??[],method=names[path];
   if(!method)return route.fulfill({status:404,json:{error:'fixture_unavailable'}});
-  return route.fulfill({json:{value:await page.evaluate(async({method,args})=>window.fixtureCall.ByName(method,...args),{method,args})}});
+  const value=await page.evaluate(async({method,args})=>window.fixtureCall.ByName(method,...args),{method,args});
+  const snapshot=value?.snapshot||value;
+  if(Array.isArray(snapshot?.items))snapshot.items.push(...tasks.slice(0,2).map(t=>({id:'link-'+t.id,kind:'assistant',text:t.title,task:{id:t.id,status:t.status},status:'completed',artifacts:[]})));
+  return route.fulfill({json:{value}});
  });
  await page.setViewportSize({width:1600,height:1000});await page.goto(base+'/web.html#/chat');
  await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();
@@ -32,7 +35,20 @@ async(page)=>{
  const before=await retained();
  const pane=page.getByRole('complementary',{name:'后台任务'});
  const select=async(name)=>{await pane.getByRole('button',{name:'选择任务',exact:true}).click();await page.getByRole('menuitemradio',{name,exact:true}).click();};
+ check(!await pane.isVisible(),'task pane opened without selection');
+ await page.getByRole('button',{name:tasks[0].title,exact:true}).click();
  await pane.getByText('整理本周调研与参考资料：已完成资料核对。',{exact:true}).waitFor();
+ await page.getByRole('button',{name:tasks[0].title,exact:true}).click();
+ await pane.waitFor({state:'hidden'});check(!await pane.isVisible(),'same task bubble did not close pane');
+ await page.getByRole('button',{name:tasks[0].title,exact:true}).click();
+ await page.getByRole('button',{name:tasks[1].title,exact:true}).click();
+ await pane.getByText('检查页面布局与图片交付：已完成资料核对。',{exact:true}).waitFor();
+ await select(tasks[0].title);
+ await pane.getByText('整理本周调研与参考资料：已完成资料核对。',{exact:true}).waitFor();
+ check(await pane.getByRole('button',{name:'关闭任务面板',exact:true}).isVisible(),'wide close missing');
+ const bar=await page.locator('.chat-scroll').evaluate(n=>({width:getComputedStyle(n).scrollbarWidth,colors:getComputedStyle(n).scrollbarColor}));
+ check(bar.width==='thin'&&bar.colors.endsWith('rgba(0, 0, 0, 0)'),'chat scrollbar track is opaque');
+ const stableBefore=await retained();
  await page.screenshot({path:out+'/tasks-after-1600.png'});
  await pane.getByRole('button',{name:'选择任务',exact:true}).click();
  check(await page.getByRole('menuitemradio').count()===10,'missing task choices');
@@ -47,27 +63,27 @@ async(page)=>{
  failRead=false;await pane.getByRole('button',{name:'重新读取',exact:true}).click();await pane.getByText('核对定时提醒：已完成资料核对。',{exact:true}).waitFor();
  await select('检查页面布局与图片交付');
  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'关闭设置',exact:true}).click();
- check(JSON.stringify(await retained())===JSON.stringify(before),'settings lost chat draft/files/scroll or remounted composer');
+ const afterSettings=await retained();check(JSON.stringify(afterSettings)===JSON.stringify(stableBefore),'settings lost chat state '+JSON.stringify({before:stableBefore,after:afterSettings}));
  const widths=[];
  for(const width of [1200,900,390]){
   await page.setViewportSize({width,height:900});
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-  if(width<1000){await page.getByRole('button',{name:'后台任务',exact:true}).click();await pane.waitFor();}
+  if(!await pane.isVisible()){await page.getByRole('button',{name:'后台任务',exact:true}).click();await pane.waitFor();}
   check(await pane.getByRole('button',{name:'选择任务',exact:true}).innerText()==='检查页面布局与图片交付','task selection lost when returning from settings/chat');
   check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow '+width);
   await page.screenshot({path:out+'/tasks-after-'+width+'.png'});
-  if(width<1000){await pane.getByRole('button',{name:'返回聊天',exact:true}).click();await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();}
+  if(width<1000){await pane.getByRole('button',{name:'关闭任务面板',exact:true}).click();await pane.waitFor({state:'hidden'});await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();}
   const value=await retained();check(value.same&&value.draft===before.draft&&value.files===1,'narrow task switch lost draft/files/composer '+width);
   widths.push(width);
  }
  // Same-width switch must preserve exact scroll, not reset to the tail.
  await page.evaluate(()=>document.querySelector('.chat-scroll').scrollTop=120);const narrow=await retained();
- await page.getByRole('button',{name:'后台任务',exact:true}).click();await pane.getByRole('button',{name:'返回聊天',exact:true}).click();
+ await page.getByRole('button',{name:'后台任务',exact:true}).click();await pane.getByRole('button',{name:'关闭任务面板',exact:true}).click();await pane.waitFor({state:'hidden'});
  check(JSON.stringify(await retained())===JSON.stringify(narrow),'narrow task switch moved chat scroll');
  empty=true;await page.setViewportSize({width:1600,height:1000});await page.waitForFunction(()=>!document.querySelector('.web-workspace')?.classList.contains('has-tasks'));
  const centered=await page.locator('.web-chat').boundingBox();check(Math.abs(centered.x+(centered.width/2)-800)<2,'empty chat not centered');
  await page.screenshot({path:out+'/tasks-empty-1600.png'});
  check(!calls.some(p=>/tasks\/(start|send|interrupt|cancel|report|ack)/.test(p)),'task execution endpoint used');
  check(errors.length===0,errors.join('\n'));
- return {fixture:true,taskCount:tasks.length,widths:[1600,...widths],delayedPreviousTaskIgnored:true,localReadRetry:true,draftFilesComposerAndScrollRetained:true,noTaskCentered:true,taskCalls:[...new Set(calls.filter(p=>p.includes('/tasks/')))],errors};
+ return {fixture:true,sameBubbleToggles:true,otherBubbleSwitches:true,closeOnlyHides:true,taskCount:tasks.length,widths:[1600,...widths],delayedPreviousTaskIgnored:true,localReadRetry:true,draftFilesComposerAndScrollRetained:true,noTaskCentered:true,taskCalls:[...new Set(calls.filter(p=>p.includes('/tasks/')))],errors};
 }

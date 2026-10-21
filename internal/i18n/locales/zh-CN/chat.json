@@ -1,4 +1,7 @@
 {
+  "closeTaskPanel": "关闭任务面板",
+  "taskResult": "任务结果",
+  "taskProgress": "工作进展",
   "surfaceRetryTitle": "暂时无法完成",
   "surfaceRestartTitle": "暂时无法显示内容",
   "surfaceRetryNeeded": "请稍后重试。需要帮助时，可复制反馈信息。",
