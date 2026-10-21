@@ -65,6 +65,7 @@ type Server struct {
 	origins     map[string]bool
 	hosts       map[string]bool
 	secure      bool
+	cookieName  string
 	mu          sync.Mutex
 	auth        authState
 	pair        pairing
@@ -105,6 +106,10 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{config: config, services: services, mux: http.NewServeMux(), origins: map[string]bool{}, hosts: map[string]bool{}, auth: authState{Sessions: map[string]session{}}, operations: map[string]operation{}, subscribers: map[chan []byte]struct{}{}, ctx: ctx, cancel: cancel}
+	// Cookies are host-scoped, not port-scoped. Independent local profiles must
+	// not log each other out during lease renewal. Keep the namespace stable
+	// across restarts without exposing the private directory.
+	s.cookieName = "caelisbot_session_" + digest(filepath.Clean(config.Directory))[:16]
 	for _, origin := range config.Origins {
 		u, e := url.Parse(origin)
 		if e != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
@@ -327,15 +332,26 @@ func (s *Server) localBootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "session_unavailable")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "caelisbot_session", Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
 	s.bootstrapResponse(w, entry)
 }
 
 type sessionKey struct{}
 
 func sessionID(r *http.Request) string { v, _ := r.Context().Value(sessionKey{}).(string); return v }
+
+// Accept a legacy cookie only through this profile's own session authority.
+// Bootstrap migrates it without creating another session or clearing a cookie
+// that may still belong to another older instance on this host.
+func (s *Server) sessionCookie(r *http.Request) (*http.Cookie, error) {
+	c, err := r.Cookie(s.cookieName)
+	if err == http.ErrNoCookie {
+		return r.Cookie("caelisbot_session")
+	}
+	return c, err
+}
 func (s *Server) authenticate(r *http.Request) (string, session, bool) {
-	c, e := r.Cookie("caelisbot_session")
+	c, e := s.sessionCookie(r)
 	if e != nil {
 		return "", session{}, false
 	}
@@ -426,12 +442,15 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Remove(filepath.Join(s.config.Directory, "pairing-code"))
-	http.SetCookie(w, &http.Cookie{Name: "caelisbot_session", Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
 	jsonOut(w, 200, map[string]any{"csrf": entry.CSRF})
 }
 
 func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, entry, _ := s.authenticate(r)
+	if c, err := s.sessionCookie(r); err == nil && c.Name != s.cookieName {
+		http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: c.Value, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: int(entry.Expires - time.Now().Unix())})
+	}
 	s.bootstrapResponse(w, entry)
 }
 func (s *Server) bootstrapResponse(w http.ResponseWriter, entry session) {
@@ -445,7 +464,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "operation_unconfirmed")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "caelisbot_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode})
 	jsonOut(w, 200, nil)
 }
 
