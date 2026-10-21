@@ -235,11 +235,19 @@ def main():
         command("check")
         until(lambda s: s["state"] == "no_compatible_update")
         record("no-linux-offer")
-        assert request("/api/v1/updates/status", authenticated=False)[0] == 401
+        # This launcher listens directly on loopback: local clients need CSRF,
+        # not a persistent browser grant. Proxy metadata cannot inherit that
+        # trust, even if it claims the original client was also loopback.
+        assert request("/api/v1/updates/status", authenticated=False)[0] == 200
+        assert not list(jar), "local bootstrap issued a browser grant"
+        assert json.loads((profile / "Web" / "sessions.json").read_text())["sessions"] == {}
+        for forwarded in ("127.0.0.1", "198.51.100.1"):
+            code, value = request("/api/v1/updates/status", headers={"X-Forwarded-For": forwarded}, authenticated=False)
+            assert (code, value) == (401, {"error": "pair_required"}), (code, value)
         assert request("/api/v1/updates/command", {"id": uuid.uuid4().hex, "action": "check"}, {"X-CSRF-Token": "wrong"})[0] == 403
         assert request("/api/v1/updates/command", {"id": uuid.uuid4().hex, "action": "check", "url": "http://evil.invalid"})[0] == 400
         assert request("/api/v1/updates/command", {"id": uuid.uuid4().hex, "action": "check"}, {"Origin": "https://evil.invalid"})[0] == 403
-        record("auth-csrf-origin-no-arbitrary-url")
+        record("local-no-grant-proxy-auth-csrf-origin-no-arbitrary-url")
         # Automatic check/download, with actual byte samples from a throttled feed.
         offered[:] = ["b"]
         command("automatic", automatic=True)
