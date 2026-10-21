@@ -507,6 +507,12 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 		return s.workerViewLocked(previous), errors.Join(callErr, err)
 	}
 	s.bumpLocked()
+	// Only this newly submitted invocation reaches finishWorkerSubmission.
+	// Preserve explicit pre-dispatch/native refusal, not an older projection or
+	// a failed lookup of an unknown operation. Persistence must succeed first.
+	if callErr != nil && result.OperationId == previous.Submission.OperationID && (result.Outcome == "rejected" || result.Outcome == "conflicted") {
+		callErr = &api.WorkMessageRejection{Cause: callErr}
+	}
 	return s.workerViewLocked(w), callErr
 }
 
