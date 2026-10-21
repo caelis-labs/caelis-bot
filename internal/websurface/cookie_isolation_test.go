@@ -57,8 +57,8 @@ func TestLocalProfilesKeepIndependentBrowserSessions(t *testing.T) {
 		request(ah.URL, "/api/v1/composer/claim", av["csrf"].(string))
 		request(bh.URL, "/api/v1/composer/claim", bv["csrf"].(string))
 	}
-	if len(a.auth.Sessions) != 1 || len(b.auth.Sessions) != 1 {
-		t.Fatal("session renewal created replacement sessions")
+	if len(a.auth.Sessions) != 0 || len(b.auth.Sessions) != 0 {
+		t.Fatal("local requests created persistent grants")
 	}
 }
 

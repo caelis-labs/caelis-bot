@@ -46,13 +46,15 @@ type Config struct {
 	// reverse proxy must use the authenticated listener, never this local surface.
 	DirectLoopback bool
 	LocalProxyKey  string
+	now            func() time.Time // Tests advance idle time without sleeping.
 }
 type session struct {
 	CSRF    string `json:"csrf"`
 	Expires int64  `json:"expires"`
 }
 type authState struct {
-	Sessions map[string]session `json:"sessions"`
+	Sessions  map[string]session `json:"sessions"`
+	LocalCSRF string             `json:"localCSRF,omitempty"` // One profile CSRF token, not a browser grant.
 }
 type pairing struct {
 	Hash    string `json:"hash"`
@@ -68,6 +70,8 @@ type Server struct {
 	cookieName  string
 	mu          sync.Mutex
 	auth        authState
+	authDirty   bool
+	now         func() time.Time
 	pair        pairing
 	attempts    []time.Time
 	operations  map[string]operation
@@ -109,6 +113,10 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 	// Cookies are host-scoped, not port-scoped. Independent local profiles must
 	// not log each other out during lease renewal. Keep the namespace stable
 	// across restarts without exposing the private directory.
+	s.now = config.now
+	if s.now == nil {
+		s.now = time.Now
+	}
 	s.cookieName = "caelisbot_session_" + digest(filepath.Clean(config.Directory))[:16]
 	for _, origin := range config.Origins {
 		u, e := url.Parse(origin)
@@ -124,12 +132,9 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 		s.hosts[strings.ToLower(u.Host)] = true
 		s.secure = u.Scheme == "https"
 	}
-	if err = readState(filepath.Join(config.Directory, "sessions.json"), &s.auth); err != nil {
+	if err = s.loadAuth(); err != nil {
 		cancel()
 		return nil, err
-	}
-	if s.auth.Sessions == nil {
-		s.auth.Sessions = map[string]session{}
 	}
 	if err = s.loadOperations(); err != nil {
 		cancel()
@@ -147,8 +152,6 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 		return nil, err
 	}
 	s.mux.HandleFunc("POST /api/v1/pair", s.exchange)
-	s.mux.HandleFunc("GET /api/v1/bootstrap", s.bootstrap)
-	s.mux.HandleFunc("POST /api/v1/bootstrap", s.bootstrap)
 	s.mux.HandleFunc("POST /api/v1/logout", s.logout)
 	s.mux.HandleFunc("POST /api/v1/composer/claim", s.claim)
 	s.mux.HandleFunc("GET /api/v1/events", s.events)
@@ -176,8 +179,9 @@ func New(config Config, services Services, assets fs.FS) (*Server, error) {
 		}
 		files.ServeHTTP(w, r)
 	})
-	s.workers.Add(1)
+	s.workers.Add(2)
 	go s.observe()
+	go s.maintainAuth()
 	return s, nil
 }
 
@@ -256,17 +260,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 403, "origin_denied")
 			return
 		}
-		if r.URL.Path == "/api/v1/bootstrap" && r.Method == "POST" {
-			if _, _, ok := s.authenticate(r); !ok {
-				if !s.localRequest(r) {
-					fail(w, 401, "pair_required")
-					return
-				}
-				s.localBootstrap(w, r)
-				return
-			}
-			// Bootstrap only returns this already-authenticated session's CSRF token.
-			s.bootstrap(w, r)
+		if r.URL.Path == "/api/v1/pair" && r.Method == "POST" && s.localRequest(r) {
+			_, entry, _ := s.authenticate(r)
+			s.bootstrapResponse(w, entry)
 			return
 		}
 		if r.URL.Path != "/api/v1/pair" {
@@ -275,11 +271,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fail(w, 401, "pair_required")
 				return
 			}
-			if r.Method != "GET" && r.Header.Get("X-CSRF-Token") != entry.CSRF {
+			bootstrap := r.URL.Path == "/api/v1/bootstrap"
+			if r.Method != "GET" && !bootstrap && r.Header.Get("X-CSRF-Token") != entry.CSRF {
 				fail(w, 403, "csrf_denied")
 				return
 			}
+			// Only a request admitted by Host/Origin and CSRF renews a grant.
+			s.useSession(w, r, key)
 			r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, key))
+			if bootstrap {
+				s.bootstrapResponse(w, entry)
+				return
+			}
 		}
 	}
 	s.mux.ServeHTTP(w, r)
@@ -288,9 +291,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Forwarding metadata never establishes local authority. The optional proof is
 // supplied only by our host-loopback relay, not by the browser or a public proxy.
 func (s *Server) localRequest(r *http.Request) bool {
-	u, err := url.Parse(r.Header.Get("Origin"))
+	// Same-origin GETs (including EventSource) need not send Origin. Host is
+	// checked against the exact allowlist before this connection-bound test.
+	u, err := url.Parse("http://" + r.Host)
 	if err != nil || !loopbackHost(u.Hostname()) {
 		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || !loopbackHost(u.Hostname()) {
+			return false
+		}
 	}
 	for _, name := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"} {
 		if r.Header.Get(name) != "" {
@@ -311,30 +322,6 @@ func loopbackHost(host string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
-func (s *Server) localBootstrap(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	for key, value := range s.auth.Sessions {
-		if value.Expires <= now.Unix() {
-			delete(s.auth.Sessions, key)
-		}
-	}
-	if len(s.auth.Sessions) >= 16 {
-		fail(w, 429, "device_limit")
-		return
-	}
-	raw := token()
-	entry := session{token(), now.Add(7 * 24 * time.Hour).Unix()}
-	s.auth.Sessions[digest(raw)] = entry
-	if err := localstate.Write(filepath.Join(s.config.Directory, "sessions.json"), s.auth); err != nil {
-		delete(s.auth.Sessions, digest(raw))
-		fail(w, 503, "session_unavailable")
-		return
-	}
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
-	s.bootstrapResponse(w, entry)
-}
 
 type sessionKey struct{}
 
@@ -350,17 +337,7 @@ func (s *Server) sessionCookie(r *http.Request) (*http.Cookie, error) {
 	}
 	return c, err
 }
-func (s *Server) authenticate(r *http.Request) (string, session, bool) {
-	c, e := s.sessionCookie(r)
-	if e != nil {
-		return "", session{}, false
-	}
-	key := digest(c.Value)
-	s.mu.Lock()
-	entry, ok := s.auth.Sessions[key]
-	s.mu.Unlock()
-	return key, entry, ok && entry.Expires > time.Now().Unix()
-}
+
 func jsonOut(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -395,7 +372,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now()
+	now := s.now()
 	recent := s.attempts[:0]
 	for _, t := range s.attempts {
 		if now.Sub(t) < time.Minute {
@@ -418,18 +395,10 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw := token()
-	entry := session{token(), now.Add(7 * 24 * time.Hour).Unix()}
-	for key, value := range s.auth.Sessions {
-		if value.Expires <= now.Unix() {
-			delete(s.auth.Sessions, key)
-		}
-	}
-	if len(s.auth.Sessions) >= 16 {
-		fail(w, 429, "device_limit")
-		return
-	}
+	entry := session{CSRF: token(), Expires: now.Add(sessionIdleTTL).Unix()}
+	s.pruneSessionsLocked(now)
 	s.auth.Sessions[digest(raw)] = entry
-	if e := localstate.Write(filepath.Join(s.config.Directory, "sessions.json"), s.auth); e != nil {
+	if e := s.writeAuthLocked(); e != nil {
 		delete(s.auth.Sessions, digest(raw))
 		fail(w, 503, "pair_unavailable")
 		return
@@ -437,22 +406,15 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 	s.pair = pairing{}
 	if e := localstate.Write(filepath.Join(s.config.Directory, "pairing.json"), s.pair); e != nil {
 		delete(s.auth.Sessions, digest(raw))
-		_ = localstate.Write(filepath.Join(s.config.Directory, "sessions.json"), s.auth)
+		_ = s.writeAuthLocked()
 		fail(w, 503, "pair_unavailable")
 		return
 	}
 	_ = os.Remove(filepath.Join(s.config.Directory, "pairing-code"))
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: raw, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600})
+	s.setSessionCookie(w, raw)
 	jsonOut(w, 200, map[string]any{"csrf": entry.CSRF})
 }
 
-func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
-	_, entry, _ := s.authenticate(r)
-	if c, err := s.sessionCookie(r); err == nil && c.Name != s.cookieName {
-		http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: c.Value, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode, MaxAge: int(entry.Expires - time.Now().Unix())})
-	}
-	s.bootstrapResponse(w, entry)
-}
 func (s *Server) bootstrapResponse(w http.ResponseWriter, entry session) {
 	jsonOut(w, 200, map[string]any{"csrf": entry.CSRF, "version": s.config.Version, "capabilities": map[string]any{"web": true, "terminal": false, "computerUse": false, "nativeWindows": false, "reason": "Linux / WSL 暂不支持桌面电脑操作；网页不提供终端窗口。"}})
 }
@@ -460,7 +422,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.auth.Sessions, sessionID(r))
-	if e := localstate.Write(filepath.Join(s.config.Directory, "sessions.json"), s.auth); e != nil {
+	if e := s.writeAuthLocked(); e != nil {
 		fail(w, 503, "operation_unconfirmed")
 		return
 	}

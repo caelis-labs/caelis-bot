@@ -15,7 +15,7 @@ Linux/WSL 正式发行形态与安装入口状态见[安装说明](install.linux
 ./dist/headless/linux-arm64/caelisbot serve                    # 默认 127.0.0.1:9317
 ```
 
-打开 `http://127.0.0.1:9317` 即可使用，无需配对。只有绑定 loopback 的监听器、真实 loopback TCP 客户端及精确 localhost Origin 同时满足，才自动建立 HttpOnly 会话；仍检查 Host、Origin 和 CSRF。任何 Forwarded/X-Forwarded-* 声明都不能建立本机信任。
+打开 `http://127.0.0.1:9317` 即可使用，无需配对。只有绑定 loopback 的监听器、真实 loopback TCP 客户端及允许的 localhost Host/Origin 同时满足，才直接获得本机访问权；不创建浏览器授权记录，仍检查 Host、Origin 和 CSRF。任何 Forwarded/X-Forwarded-* 声明都不能建立本机信任。
 
 远程访问才需要从启动提示的私有文件读取一次性配对码并填入页面。码有效 10 分钟，使用一次后销毁；过期可运行 `caelisbot pair`，仅输出文件位置。不要把码放进 URL、shell 参数、日志或共享文档。
 
@@ -72,13 +72,13 @@ docker run -d --name caelisbot-web \
 完整原生 Linux 发行目录为首选；VM 中运行与本机相同。可以使用 SSH 本地转发：
 
 ```sh
-# guest: 默认 loopback；browser origin 为转发后的地址
-caelisbot serve --origin http://127.0.0.1:9317
+# guest: SSH 隐藏了原始 peer，上游保留认证
+caelisbot serve --require-pairing --origin http://127.0.0.1:9317
 # host: 显式建立转发，不修改防火墙
 ssh -N -L 127.0.0.1:9317:127.0.0.1:9317 user@guest
 ```
 
-本轮 Rocky 体验采用更明确的上游边界：guest 仅监听 loopback 并启用 `--require-pairing`，宿主 SSH 仅转发 `127.0.0.1:19318`，上述 host-only relay 在 `127.0.0.1:19317` 加私有证明。浏览器本机免配对，直接访问原始转发端口仍需认证；不依赖 SSH peer=loopback 来信任任意代理来源。
+需本机免配对时采用明确的上游边界：guest 仅监听 loopback 并启用 `--require-pairing`，宿主 SSH 仅转发 `127.0.0.1:19318`，上述 host-only relay 在 `127.0.0.1:19317` 加私有证明。浏览器本机免配对，直接访问原始转发端口仍需认证；不依赖 SSH peer=loopback 来信任任意代理来源。
 
 也可显式 `--listen <guest私网IP>:9317 --origin http://<guest私网IP>:9317`，仅适用于可信宿主/VM 私网；配对仍必需。不得默认无认证监听全部网卡。
 
@@ -96,11 +96,21 @@ caelisbot serve --require-pairing --listen 127.0.0.1:9317 --origin https://your-
 
 若显式监听 Tailscale IP，可配置精确 HTTP origin；流量安全依赖 Tailscale 加密，仍使用 CaelisBot 配对/会话认证。共享 LAN 或非加密远端链路用 HTTPS 代理。私网成员身份不自动等于 Bot 使用权限。
 
+### 浏览器授权生命周期
+
+远程授权不设固定数量上限。通过来源/CSRF 校验的请求和成功推送的 SSE 心跳续期，连续使用不受原固定 7 天期限影响；断开后闲置满 7 天失效。每分钟合并保存续期并清理过期记录，正常退出也保存；异常退出或磁盘写入失败可能丢失最近尚未落盘的续期。浏览器 cookie 同步续期，仍保留 HttpOnly、SameSite 和 HTTPS Secure。
+
+旧记录保留 token、CSRF 和原操作归属，不要求重新配对；旧到期时间作为迁移起点，下一次有效使用开始续期，已过期远程授权不能复活。旧本机 cookie 如仍存在，继续读取其原回执；新的本机访问使用稳定的 profile 本地归属，只保存一份防跨站 CSRF 元数据，不建立逐浏览器授权记录。退出/重启不会重发原操作。
+
+数量不限意味着有效授权的内存/磁盘用量随数量增长。配对仍需主机生成、10 分钟有效的一次性随机码，入口维持每服务每分钟 10 次尝试限制；无效码不分配记录。这足以限制猜码和无权限记录灌入，但不是对已获主机配对权限者的存储配额，也不防流量型拒绝服务；公网/共享代理还需部署侧限流。32 条同时 SSE 流的资源保护与持久授权数量无关，断开立即释放。
+
+`--require-pairing` 是远程代理的必要部署条件。SSH、OrbStack 或反向代理若把来源改写为 loopback 且不带转发元数据，HTTP 服务无法再区分本机浏览器与代理后的远程客户端。此时不能根据 Host/Origin 宣称本机信任：上游启用认证，需要免配对时使用只绑定宿主 loopback 的私有 proof relay。默认直连模式只适用于未向远程转发的本机监听器；relay 本身也不得被远程代理公开。
+
 ## 安全与恢复契约
 
 | 边界 | 实现 |
 |---|---|
-| 浏览器权限 | 真实本机自动建立会话；远程一次性配对 → 7 天 HttpOnly / SameSite=Strict cookie；HTTPS origin 设置 Secure。没有账户平台或多租户 |
+| 浏览器权限 | 真实本机免认证、无新增授权记录；远程一次性配对 → 7 天闲置期限的 HttpOnly / SameSite=Strict cookie；HTTPS origin 设置 Secure。没有账户平台或多租户 |
 | 请求来源 | 精确 Host/Origin、拒绝 cross-site、写请求 CSRF + 自定义请求头；无通配 CORS |
 | 网络 API | `internal/websurface/routes.go` 固定路径、签名和能力 allowlist；没有任意 Wails RPC、shell 或 Core API 代理 |
 | 密钥 | 写入既有配置 owner；只持久化 ingress 参数摘要，原参数不入 Web 操作账本；会话 token 只保存哈希 |

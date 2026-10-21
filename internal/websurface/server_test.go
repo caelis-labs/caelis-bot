@@ -36,6 +36,9 @@ type client struct {
 }
 
 func testServer(t *testing.T, engines ...api.Engine) *Server {
+	return testServerConfig(t, nil, engines...)
+}
+func testServerConfig(t *testing.T, configure func(*Config), engines ...api.Engine) *Server {
 	t.Helper()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("Web service requires Unix private filesystem; Windows uses WSL")
@@ -53,7 +56,11 @@ func testServer(t *testing.T, engines ...api.Engine) *Server {
 	if len(engines) > 0 {
 		engine = engines[0]
 	}
-	s, err := New(Config{Directory: filepath.Join(root, "Web"), Origins: []string{testOrigin}, Version: "test"}, Services{Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil), Surface: surface}, fstest.MapFS{"web.html": {Data: []byte("CaelisBot")}})
+	config := Config{Directory: filepath.Join(root, "Web"), Origins: []string{testOrigin}, Version: "test"}
+	if configure != nil {
+		configure(&config)
+	}
+	s, err := New(config, Services{Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil), Surface: surface}, fstest.MapFS{"web.html": {Data: []byte("CaelisBot")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,8 +368,8 @@ func TestLocalBootstrapUsesConnectionBoundary(t *testing.T) {
 			}
 			if tc.want == 200 {
 				cookies := w.Result().Cookies()
-				if len(cookies) != 1 || !cookies[0].HttpOnly {
-					t.Fatal("missing local session")
+				if len(cookies) != 0 || len(s.auth.Sessions) != 0 {
+					t.Fatal("local bootstrap allocated a browser grant")
 				}
 				var body struct {
 					CSRF string `json:"csrf"`

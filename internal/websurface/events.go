@@ -90,6 +90,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if write("event: snapshot\ndata: "+string(data)+"\n\n") != nil {
 				return
 			}
+			s.touchSession(sessionID(r))
 		case <-heartbeat.C:
 			if _, _, ok := s.authenticate(r); !ok {
 				return
@@ -97,6 +98,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if write(": heartbeat\n\n") != nil {
 				return
 			}
+			s.touchSession(sessionID(r))
 		case <-r.Context().Done():
 			return
 		case <-s.ctx.Done():
