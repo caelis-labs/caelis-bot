@@ -129,7 +129,7 @@ Managed 安装在 Web 设置更新，原 launcher 校验完整包并通过原 Bo
 - `internal/app/web_surface.go`：只读委托已有任务 manager，不改任务账本或恢复逻辑。
 - 前端：同一个 `History/Settings/RuntimePreparation/QuestionPrompt/ApprovalCard`；新增 transport、紧凑齿轮/任务入口和平台能力过滤。没有新 Web 聊天业务模型。
 - `cmd/web-fixture` 和 `internal/desktop/web_fixture.go` 仅 `webfixture` tag 可编译，不进入发行 binary；显式模拟模型，复用真实服务投影/草稿/附件。
-- Bot guidance 补充 surface 与工具执行主机的区别；不接入新的 async/MCP 实验 feature。
+- Bot guidance 补充 surface 与工具执行主机的区别；共享 Runtime 的三项实验配置在桌面/Web 使用同一设置组件，见 [Caelis 集成](caelis-integration.md#共享-host-实验特性)。
 
 验收证据见 [headless-web-acceptance.md](headless-web-acceptance.md)。无真实模型凭据时，fixture 成功不能当作真实模型、渠道送达、Worker Runtime 或 GUI 验收。
 

@@ -1,3 +1,4 @@
+import {RuntimeExperiments} from './RuntimeExperiments';
 import {isWebSurface} from '../../transport';
 import type {SetupState} from '../../backend/contract';
 import {useI18n} from '../../i18n';
@@ -12,6 +13,7 @@ export function BuiltinRuntimePanel({state,busy,checking,count,onAction,onConnec
   {available&&<SettingGroup><button className="connection-navigation-row" onClick={onConnect}><span><strong>{t('runtime.modelConnections')}</strong>{count!==undefined&&<small>{t('runtime.modelCount',{count})}</small>}</span><SettingsChevron/></button></SettingGroup>}
 
   {available&&<SettingGroup title={t('settings.connectionAdvanced')}><button className="connection-navigation-row" onClick={onTeam}><strong>{t('runtime.teamSettings')}</strong><SettingsChevron/></button></SettingGroup>}
+  {available&&<RuntimeExperiments/>}
   {!available&&<button className="text-action" disabled={busy||checking} onClick={onDetect}>{t('runtime.recheck')}</button>}
   {installed&&!isWebSurface()&&<SettingGroup><SettingRow label={t('settings.codexVersion')} description={<>{state.installation.version}{state.installation.updateState==='current'&&<span> · {t('settings.codexUpToDate')}</span>}</>}>{state.installation.bundled?<span className="settings-note">{t('runtime.bundledUpdateHint')}</span>:<button disabled={busy||checking} onClick={()=>onAction('check-update')}>{t('runtime.checkUpdate')}</button>}</SettingRow>
    {!state.installation.bundled&&state.installation.updateState==='available'&&<SettingRow label={t('runtime.newVersionAvailable',{version:state.installation.latestVersion})}><button disabled={busy} onClick={()=>onAction('update')}>{t('runtime.update')}</button></SettingRow>}

@@ -1,5 +1,7 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
+ "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},
  "backend.DiagnosticReport":{"path":"/api/v1/diagnostics/read","read":true},
  "backend.Snapshot": {
   "path": "/api/v1/conversation/snapshot",

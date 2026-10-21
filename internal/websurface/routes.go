@@ -23,6 +23,8 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/connections/setup-install-progress", Function: b.SetupInstallProgress, Read: true, Composer: false},
 		{Path: "/api/v1/connections/model-selections", Function: b.ModelSelections, Read: true, Composer: false},
 		{Path: "/api/v1/connections/setup-models", Function: b.SetupModels, Read: true, Composer: false},
+		{Path: "/api/v1/connections/experiments", Function: b.RuntimeExperiments, Read: true, Composer: false},
+		{Path: "/api/v1/connections/experiments-save", Function: b.ChangeRuntimeExperiments, Read: false, Composer: false},
 		{Path: "/api/v1/connections/profile-configuration", Function: b.ProfileConfiguration, Read: true, Composer: false},
 		{Path: "/api/v1/connections/runtime-review-mode", Function: b.RuntimeReviewMode, Read: true, Composer: false},
 		{Path: "/api/v1/connections/local-worker-selection", Function: b.LocalWorkerSelection, Read: true, Composer: false},
