@@ -115,6 +115,28 @@ test('lightweight public-tree guard runs without installing the GLB validator', 
   } finally {rmSync(directory, {recursive: true, force: true});}
 });
 
+test('CLI fetches an older event base missing from a shallow PR checkout', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bot-ci-shallow-'));
+  try {
+    const origin = join(directory, 'origin'), checkout = join(directory, 'checkout');
+    mkdirSync(origin);
+    const git = args => execFileSync('git', args, {cwd: origin, encoding: 'utf8'}).trim();
+    git(['init', '-q']); git(['config', 'user.email', 'fixture@example.invalid']); git(['config', 'user.name', 'Fixture']);
+    for (const [path, data] of Object.entries(metadata())) writeFileSync(join(origin, path), JSON.stringify(data));
+    git(['add', '.']); git(['commit', '-qm', 'base']); const base = git(['rev-parse', 'HEAD']);
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(origin, 'runtime.js'), String(i));
+      git(['add', '.']); git(['commit', '-qm', `product ${i}`]);
+    }
+    execFileSync('git', ['clone', '-q', '--depth=2', `file://${origin}`, checkout]);
+    assert.throws(() => execFileSync('git', ['cat-file', '-e', `${base}^{commit}`], {cwd: checkout, stdio: 'ignore'}));
+    const output = join(directory, 'output');
+    execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: checkout, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
+    assert.equal(readFileSync(output, 'utf8'), 'kind=full\n');
+    execFileSync('git', ['cat-file', '-e', `${base}^{commit}`], {cwd: checkout});
+  } finally {rmSync(directory, {recursive: true, force: true});}
+});
+
 test('PR workflow has only scoped product jobs; publishing owns package creation', () => {
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
   assert.doesNotMatch(workflow, /^  (?:macos|windows)-preview:/m);

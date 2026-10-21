@@ -91,7 +91,10 @@ func controlledOwnerProcess(t *testing.T) (*exec.Cmd, string, ownerProcessIdenti
 	})
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
+		// A Unix socket path exists after bind, before listen is necessarily
+		// complete. Wait for the controlled listener, not just its inode.
+		if conn, err := net.DialTimeout("unix", path, 100*time.Millisecond); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {

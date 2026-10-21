@@ -83,6 +83,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (base) {
       if (!/^[a-f0-9]{40}$/.test(base)) throw new Error('Invalid CI base commit');
       const git = args => execFileSync('git', args, {encoding: 'utf8'});
+      // An older PR's event base may precede both shallow merge parents.
+      // Fetch that exact object; never substitute a moving branch or skip checks.
+      try { execFileSync('git', ['cat-file', '-e', `${base}^{commit}`], {stdio: 'ignore'}); }
+      catch { git(['fetch', '--no-tags', '--depth=1', 'origin', base]); }
       const paths = git(['diff', '--name-only', '--no-renames', '-z', base, 'HEAD']).split('\0').filter(Boolean);
       result = classifyChanges(paths, path => git(['show', `${base}:${path}`]), path => git(['show', `HEAD:${path}`]));
     }
