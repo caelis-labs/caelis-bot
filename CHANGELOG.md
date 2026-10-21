@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/caelis-labs/caelis-bot/compare/v0.18.0...v0.18.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **install:** identify Linux bootstrap download requests ([#215](https://github.com/caelis-labs/caelis-bot/issues/215)) ([cbd8867](https://github.com/caelis-labs/caelis-bot/commit/cbd8867caad6d6da181a66d32961bfbd8279e821))
+
 ## [0.18.0](https://github.com/caelis-labs/caelis-bot/compare/v0.17.1...v0.18.0) (2026-10-21)
 
 
