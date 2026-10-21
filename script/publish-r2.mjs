@@ -1,6 +1,6 @@
 import {releaseCommand} from './release-network.mjs';
 import {r2Client} from './r2-client.mjs';
-import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {copyFileSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +12,7 @@ const prefix = 'caelis-bot/'; // Fixed ownership boundary in the shared Caelis b
 const platformFeed = `${prefix}feeds/macos/arm64/stable/`;
 export function cleanupKeys(keys, tag) {
   validateTag(tag);
-  const owned = /^caelis-bot\/releases\/(v\d+\.\d+\.\d+)\/(Caelis-Bot-\d+\.\d+\.\d+-macos-arm64\.dmg(?:\.sha256)?|latest\.json(?:\.sig)?)$/;
+  const owned = /^caelis-bot\/releases\/(v\d+\.\d+\.\d+)\/(Caelis-Bot-\d+\.\d+\.\d+-macos-arm64(?:\.dmg(?:\.sha256)?|-stable\.publication\.json)|latest\.json(?:\.sig)?|appcast\.xml)$/;
   // Preflight the entire listing before deleting anything. Ignore unrelated data.
   const releases = keys.filter(key => key.startsWith(`${prefix}releases/`) && !/\/(windows-amd64|linux-amd64|linux-arm64)\//.test(key));
   for (const key of releases) {
@@ -59,6 +59,7 @@ export function publish(directory, env = process.env, run = (cmd,args) => releas
        receipt.validation!=='developer-id-notarized-stapled-gatekeeper') {
       throw new Error('Mac publication receipt differs from verified feed');
     }
+    copyFileSync(join(temporary,receiptName),join(directory,receiptName));
     const existing=list();
     cleanupKeys(existing,tag);
     const pointer=`${prefix}latest.json`;
@@ -74,7 +75,7 @@ export function publish(directory, env = process.env, run = (cmd,args) => releas
     const client=r2Client(directory,temporary,env,run);
     const put=(file,key,type,cache)=>client.put(file,key,type,cache.includes('immutable'),existing);
     const immutable='public, max-age=31536000, immutable', mutable='no-cache, max-age=0, must-revalidate';
-    for(const file of [manifest.file,`${manifest.file}.sha256`,'latest.json','latest.json.sig']) {
+    for(const file of [manifest.file,`${manifest.file}.sha256`,'appcast.xml','latest.json','latest.json.sig',receiptName]) {
       put(file,versioned+file,file.endsWith('.dmg')?'application/x-apple-diskimage':'text/plain',immutable);
     }
     // The platform feed is selected from its own signed pointer. GitHub's
