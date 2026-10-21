@@ -1,6 +1,6 @@
 // Synthetic API fixture; production Web transport, task pane and shared chat components.
 async(page)=>{
- const base=new URL(page.url()).origin,errors=[],calls=[],out='output/playwright/ui-findings/layout-refinement';
+ const base=new URL(page.url()).origin,errors=[],calls=[],out='output/playwright/ui-findings/task-menu';
  const check=(v,m)=>{if(!v)throw Error(m)};let empty=false,failRead=false,delayRead=false,delayed=0;
  page.on('pageerror',e=>errors.push(e.message));
  const source=await(await page.request.get(base+'/wails/runtime.js')).text();
@@ -28,13 +28,13 @@ async(page)=>{
  await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();
 
  await page.getByText('fixture-notes.txt',{exact:true}).waitFor();
- await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
- const retained=()=>page.evaluate(()=>({draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,same:window.retainedComposer===document.querySelector('textarea')}));
- await page.evaluate(()=>{window.retainedComposer=document.querySelector('textarea');document.querySelector('.chat-scroll').scrollTop=140});
+ await page.waitForFunction(()=>document.querySelector('.composer-editor')?.innerText.includes('retained draft'));
+ const retained=()=>page.evaluate(()=>({draft:document.querySelector('.composer-editor')?.innerText,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,same:window.retainedComposer===document.querySelector('.composer-editor')}));
+ await page.evaluate(()=>{window.retainedComposer=document.querySelector('.composer-editor');document.querySelector('.chat-scroll').scrollTop=140});
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  const before=await retained();
  const pane=page.getByRole('complementary',{name:'后台任务'});
- const select=async(name)=>{await pane.getByRole('button',{name:'选择任务',exact:true}).click();await page.getByRole('menuitemradio',{name,exact:true}).click();};
+ const select=async(name)=>{await pane.getByRole('button',{name:'选择任务',exact:true}).click();await page.getByRole('menuitemradio',{name:new RegExp(name)}).click();};
  check(!await pane.isVisible(),'task pane opened without selection');
  await page.getByRole('button',{name:tasks[0].title,exact:true}).click();
  await pane.getByText('整理本周调研与参考资料：已完成资料核对。',{exact:true}).waitFor();
@@ -53,10 +53,16 @@ async(page)=>{
  check(visibleMessages[0].text.includes('请核对已有资料')&&visibleMessages[3].text.includes('最后核对'),'result-first ordering or request missing');
  check(await pane.locator('details,.bot-avatar,.web-task-author,.web-task-meta,time').count()===0,'task body contains collapsed requirement, avatar or status/time labels');
  check(await pane.getByText('请完整保留这些要求，并按照原顺序继续说明。',{exact:true}).isVisible(),'request hidden');
- const stableBefore=await retained();
+ const separators=await pane.locator('.web-task-message+.web-task-message').evaluateAll(nodes=>nodes.map(n=>getComputedStyle(n,'::before').borderTopWidth));check(separators.length===3&&separators.every(v=>v==='1px'),'message separators missing');
+
  await page.screenshot({path:out+'/tasks-after-1600.png'});
  await pane.getByRole('button',{name:'选择任务',exact:true}).click();
  check(await page.getByRole('menuitemradio').count()===10,'missing task choices');
+ const menuGeometry=await page.getByRole('menu',{name:'选择任务',exact:true}).evaluate(n=>({width:n.getBoundingClientRect().width,pane:document.querySelector('.web-task-pane').getBoundingClientRect().width}));
+ check(menuGeometry.width<=360&&menuGeometry.width<menuGeometry.pane,'menu still spans task pane');
+ check(await pane.locator('.settings-select-trigger').getByRole('img',{name:'运行中',exact:true}).count()===1,'running indicator missing');
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('role')==='menuitemradio');await page.keyboard.press('End');check(await page.getByRole('menuitemradio').last().evaluate(n=>document.activeElement===n),'menu End focus');await page.keyboard.press('Home');check(await page.getByRole('menuitemradio').first().evaluate(n=>document.activeElement===n),'menu Home focus');
+ check(await page.getByRole('menuitemradio').first().evaluate(n=>getComputedStyle(n).outlineStyle!=='none'),'keyboard focus not visible');
  await page.screenshot({path:out+'/tasks-choices-1600.png'});await page.keyboard.press('Escape');
  // Late response from the previous task must not replace the new selection.
  delayRead=true;
@@ -67,6 +73,9 @@ async(page)=>{
  failRead=true;await select('核对定时提醒');await pane.getByText('暂时无法读取这项工作的记录。',{exact:true}).waitFor();
  failRead=false;await pane.getByRole('button',{name:'重新读取',exact:true}).click();await pane.getByText('核对定时提醒：已完成资料核对。',{exact:true}).waitFor();
  await select('检查页面布局与图片交付');
+ tasks[1].status='failed';await pane.locator('.settings-select-trigger').getByRole('img',{name:'失败',exact:true}).waitFor();
+ tasks[1].status='completed';await pane.locator('.settings-select-trigger').getByRole('img',{name:'已完成',exact:true}).waitFor();
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));const stableBefore=await retained();
  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'关闭设置',exact:true}).click();
  const afterSettings=await retained();check(JSON.stringify(afterSettings)===JSON.stringify(stableBefore),'settings lost chat state '+JSON.stringify({before:stableBefore,after:afterSettings}));
  const widths=[];
@@ -82,6 +91,7 @@ async(page)=>{
    check(chat.x<=Math.max(24,width*.05)&&task.width>=width*.42,'split reading widths are not useful '+JSON.stringify({width,chat,task}));
   }
   await page.screenshot({path:out+'/tasks-after-'+width+'.png'});
+  if(width===390){await pane.getByRole('button',{name:'选择任务',exact:true}).click();const r=await page.getByRole('menu',{name:'选择任务',exact:true}).boundingBox();check(r.x>=8&&r.x+r.width<=width-8&&r.width<=360,'narrow menu crosses viewport');await page.screenshot({path:out+'/tasks-choices-390.png'});await page.keyboard.press('Escape');}
   if(width<1000){await pane.getByRole('button',{name:'关闭任务面板',exact:true}).click();await pane.waitFor({state:'hidden'});await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();}
   const value=await retained();check(value.same&&value.draft===before.draft&&value.files===1,'narrow task switch lost draft/files/composer '+width);
   widths.push(width);
@@ -95,5 +105,5 @@ async(page)=>{
  await page.screenshot({path:out+'/tasks-empty-1600.png'});
  check(!calls.some(p=>/tasks\/(start|send|interrupt|cancel|report|ack)/.test(p)),'task execution endpoint used');
  check(errors.length===0,errors.join('\n'));
- return {fixture:true,originalMessageOrder:true,fullRequirements:true,noAvatarsOrStatusLabels:true,sameBubbleToggles:true,otherBubbleSwitches:true,closeOnlyHides:true,taskCount:tasks.length,widths:[1600,...widths],delayedPreviousTaskIgnored:true,localReadRetry:true,draftFilesComposerAndScrollRetained:true,noTaskCentered:true,taskCalls:[...new Set(calls.filter(p=>p.includes('/tasks/')))],errors};
+ return {fixture:true,originalMessageOrder:true,fullRequirements:true,noAvatarsOrSeparateStatusRows:true,compactStatusIndicators:true,messageBoundarySeparators:true,keyboardChoices:true,sameBubbleToggles:true,otherBubbleSwitches:true,closeOnlyHides:true,taskCount:tasks.length,widths:[1600,...widths],delayedPreviousTaskIgnored:true,localReadRetry:true,draftFilesComposerAndScrollRetained:true,noTaskCentered:true,taskCalls:[...new Set(calls.filter(p=>p.includes('/tasks/')))],errors};
 }
