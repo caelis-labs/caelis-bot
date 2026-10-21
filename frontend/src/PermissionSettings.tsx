@@ -86,8 +86,10 @@ export function PermissionSettings({embedded=false,active=true,focusVersion=0,ca
    <section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>
+    <p>{t('settings.permissionPrivacyManual')}</p>
+    <p>{t('settings.permissionPrivacyRecording')}</p>
    </section>
-   <button className="text-action" onClick={()=>setRepairOpen(true)}>{t('settings.permissionRepairTitle')}</button>
+   <button className="text-action permission-repair-entry" onClick={()=>setRepairOpen(true)}>{t('settings.permissionRepairTitle')}</button>
    {repairOpen&&<SettingsDialog title={t('settings.permissionRepairTitle')} busy={!!busy} onClose={()=>{setRepairOpen(false);setConfirmed(false);}}><div className="permission-repair">
     <p className="settings-note">{t('settings.permissionMissingApp')}</p>
     <div className="permission-app-path"><code>{state.appPath}</code><button disabled={!!busy} onClick={()=>void perform('reveal',()=>call('RevealPermissionApp'))}>{t('settings.permissionReveal')}</button></div>

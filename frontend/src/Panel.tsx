@@ -5,7 +5,7 @@ import {Recovery} from './SurfaceBoundary';
 import {ChatFeedback} from './ChatFeedback';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import { useConnectionNotice } from './use-connection-notice';
-import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
+import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receipt, Snapshot, Submission, QuestionCard } from './backend/contract';
@@ -290,25 +290,19 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   return()=>{void flushDraft();lifetime.current++;stopDraft();stopFileRead.current();fileOrder.current.reset();window.removeEventListener('files-changed',changed);};
  },[]);
  useEffect(()=>{if(active&&loaded&&!busy)input.current?.focus({preventScroll:true});},[active,loaded,busy,focusRevision]);
- const measuredDraft=useRef({text:'',height:0});
- const sizeEditor=(text:string)=>{
+ const sizeEditor=()=>{
   // Recent WebKit sizes the field in CSS. Older WebKit still needs a measured
-  // fallback, but a capped field cannot grow when text is only appended.
+  // fallback. The content scroller bounds the combined text and attachments.
   if(CSS.supports('field-sizing','content'))return;
   const editor=input.current;if(!editor)return;
-  const previous=measuredDraft.current;
-  if(previous.height===127&&text.startsWith(previous.text)){
-   measuredDraft.current={text,height:127};return;
-  }
   editor.style.height='0px';
-  const height=Math.max(27,Math.min(127,editor.scrollHeight));
+  const height=Math.max(27,editor.scrollHeight);
   editor.style.height=`${height}px`;
-  measuredDraft.current={text,height};
  };
  const setDraftValue=(text:string,composingNow=false)=>{
   draft.current=text;
   if(input.current&&input.current.value!==text)input.current.value=text;
-  sizeEditor(text);
+  sizeEditor();
   if(composingNow)return;
   const nonempty=!!text.trim();
   if(hasTextRef.current!==nonempty){hasTextRef.current=nonempty;setHasText(nonempty);}
@@ -494,11 +488,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
   onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false)}}
   onDrop={()=>setDragging(false)}>
-  <div className="capsule">
-   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
+  <div className="composer-scroll">
    <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
-   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
-  </div>
   {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
   {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
@@ -509,6 +500,11 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>{save(draft.current,refs.filter(v=>v!==id));input.current?.focus();}}><Icon name="xmark"/></button></li>)}
   </ul>}
   </div>}
+  </div>
+  <div className="capsule composer-actions">
+   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
+   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
+  </div>
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
    onSelect={plugin=>{setPluginLabels(previous=>({...previous,[plugin.id]:plugin.name}));save(draft.current,[...refs,plugin.id]);setExpanded(false);input.current?.focus();}}/>}
@@ -516,7 +512,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
 },(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&a.quoteRequest===b.quoteRequest&&a.feedbackTarget===b.feedbackTarget&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
 
-export function History({composerGeneration=0}:{composerGeneration?:number}={}) {
+export function History({composerGeneration=0,settingsEntry}:{composerGeneration?:number;settingsEntry?:ReactNode}={}) {
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
@@ -671,6 +667,7 @@ export function History({composerGeneration=0}:{composerGeneration?:number}={}) 
    </div>
   </aside>}
   <footer>
+   {settingsEntry}
    {composerMounted.current&&<Composer key={composerGeneration} snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
   </footer>
   {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}

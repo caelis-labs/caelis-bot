@@ -69,3 +69,13 @@ body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
  .web-task-selection{padding:4px 16px 12px}
  .web-task-scroll{padding:4px 16px 24px}
 }
+
+/* The existing settings route presents a retained panel above the live chat.
+   No popup or second configuration/navigation owner is involved. */
+.web-settings-layer{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:24px;background:#0005}
+.web-settings-layer[hidden]{display:none}
+.web-settings-panel{width:min(1180px,100%);height:min(900px,100%);min-width:0;overflow:hidden;border-radius:14px;box-shadow:0 16px 64px #0003;background:var(--caelis-window)}
+.web-settings-panel .settings-window{border-radius:inherit}
+.web-settings-panel .settings-toolbar{padding-right:64px;position:relative}
+.web-settings-panel .settings-navigation{right:16px;top:18px}
+@media(max-width:680px){.web-settings-layer{padding:0}.web-settings-panel{height:100%;width:100%;border-radius:0;box-shadow:none}.web-settings-panel .settings-toolbar{padding-right:54px}.web-settings-panel .settings-navigation{right:12px}}

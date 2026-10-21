@@ -9,7 +9,7 @@ const phases=new Set(['unconfigured','pairing','scanned','verify','blocked','exp
 function stateKey(phase:string):MessageKey{return `settings.weixinState_${phases.has(phase)?phase:'attention'}` as MessageKey}
 function issueKey(issue:string):MessageKey{return `settings.weixinIssue_${issueKeys.has(issue)?issue:'pairing_failed'}` as MessageKey}
 
-export function WeixinSettings({onBack,active=true}:{onBack?:()=>void;active?:boolean}){
+export function WeixinSettings({active=true}:{active?:boolean}){
  const {t}=useI18n();
  const [status,setStatus]=useState<WeixinStatus|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[code,setCode]=useState(''),[forget,setForget]=useState(false);
  const acting=useRef(false),lastAuto=useRef(''),autoSuppressed=useRef(false),autoQRCount=useRef(0);
@@ -20,7 +20,6 @@ export function WeixinSettings({onBack,active=true}:{onBack?:()=>void;active?:bo
  const phase=status?.phase??'unconfigured';
  const issue=error||status?.issue||'';
  return <section className="telegram-page" aria-labelledby="weixin-title" data-settings-dirty={!!code||busy||forget}>
-  {onBack&&<button className="text-action telegram-back" type="button" onClick={onBack}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="weixin-title">{t('settings.weixinTitle')}</h1><p>{t('settings.weixinDescription')}</p></div><span className={`telegram-state telegram-state-${phase==='connected'?'connected':phase==='paused'?'paused':phase==='unconfigured'?'unconfigured':'pairing'}`} role="status">{t(stateKey(phase))}</span></div>
   {phase==='unconfigured'&&<div className="telegram-step"><p>{t('settings.weixinStartHelp')}</p><button className="primary" disabled={busy} onClick={()=>void act('StartWeixinPairing')}>{t('settings.weixinStart')}</button></div>}
   {['pairing','scanned','verify'].includes(phase)&&<div className="telegram-step"><h3>{t('settings.weixinScanHeading')}</h3>{status?.qrImage&&<img className="weixin-qr" src={status.qrImage} width="280" height="280" alt={t('settings.weixinQRAlt')}/> }<p>{t(phase==='scanned'?'settings.weixinScannedHelp':'settings.weixinScanHelp')}</p>{phase==='verify'&&<><label htmlFor="weixin-verify">{t('settings.weixinVerifyLabel')}</label><input id="weixin-verify" type="text" value={code} autoComplete="off" maxLength={32} onChange={event=>setCode(event.target.value)}/><button className="primary" disabled={busy||code.trim().length<3} onClick={()=>void act('VerifyWeixinPairing',code)}>{t('settings.weixinVerify')}</button></>}</div>}

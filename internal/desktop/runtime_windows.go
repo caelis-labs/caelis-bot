@@ -263,38 +263,50 @@ func Run(assets fs.FS) error {
 func (s *Service) configureWindowsContext(native *application.App, name string, history, settings, preview *application.WebviewWindow) {
 	// Presentation tokens are confined to the UI thread. Closing a panel
 	// invalidates delayed renderer acknowledgements without cancelling work.
-	var presentation uint64
+	var presentation surfacePresentations
 	var settingsMode, setupMode atomic.Bool
-	prepare := func(window *application.WebviewWindow, surface string) {
-		presentation++
-		window.ExecJS(fmt.Sprintf("(function prepare(){if(window.prepareSurface)window.prepareSurface(%q,%d);else setTimeout(prepare,50)})()", surface, presentation))
+	prepare := func(window *application.WebviewWindow, surface, section string) {
+		token := presentation.prepare(surface)
+		window.ExecJS(fmt.Sprintf("(function prepare(){if(window.prepareSurface)window.prepareSurface(%q,%d,%q);else setTimeout(prepare,50)})()", surface, token, section))
 	}
 	s.surfaceReady = func(surface string, token uint64) {
 		application.InvokeSync(func() {
-			if token != presentation || (surface != "chat" && surface != "settings") {
+			if !presentation.accept(surface, token) {
 				return
 			}
-			target, previous, event := history, settings, "settings-close"
+			target := history
 			if surface == "settings" {
-				target, previous, event = settings, history, "history-close"
+				target = settings
 			}
-			previous.Hide()
-			previous.ExecJS("window.dispatchEvent(new Event('" + event + "'))")
 			activateWindowsWindow(target)
 		})
 	}
-	showHistory := func() { settingsMode.Store(false); prepare(history, "chat") }
+	showHistory := func() {
+		if setupMode.Swap(false) {
+			presentation.cancel("settings")
+			settingsMode.Store(false)
+			settings.Hide()
+			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
+		}
+		prepare(history, "chat", "")
+	}
 	s.openHistory = func() {
 		if s.prepareWindowRecall() {
 			application.InvokeSync(showHistory)
 		}
 	}
+	s.focusSettings = func() { application.InvokeSync(func() { activateWindowsWindow(settings) }) }
 	s.openSettings = func() {
 		if !s.prepareWindowRecall() {
 			return
 		}
-		s.presentSettings(application.InvokeSync, func(welcome bool, title string) {
+		s.presentSettings(application.InvokeSync, func(welcome bool, title, section string) {
 			settingsMode.Store(true)
+			if welcome {
+				presentation.cancel("chat")
+				history.Hide()
+				history.ExecJS("window.dispatchEvent(new Event('history-close'))")
+			}
 			if setupMode.Swap(welcome) != welcome {
 				settings.Hide()
 				if welcome {
@@ -304,15 +316,12 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 				}
 			}
 			settings.SetTitle(strings.Replace(title, "Caelis Bot", name, 1))
-			prepare(settings, "settings")
+			prepare(settings, "settings", section)
 		})
 	}
 	s.closeHistory = func() {
 		application.InvokeSync(func() {
-			if settingsMode.Load() {
-				return
-			}
-			presentation++
+			presentation.cancel("chat")
 			history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 			history.Hide()
 		})
@@ -322,15 +331,16 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 			if !settingsMode.Load() {
 				return
 			}
-			presentation++
+			presentation.cancel("settings")
+			settingsMode.Store(false)
 			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
 			settings.Hide()
 		})
 	}
 	s.settingsVisible = func() bool { return settingsMode.Load() && settings.IsVisible() }
-	s.historyVisible = func() bool { return !settingsMode.Load() && history.IsVisible() }
+	s.historyVisible = func() bool { return history.IsVisible() }
 	s.historyCanHide = func() bool {
-		return !settingsMode.Load() && history.IsVisible() && history.IsFocused() && !history.IsMinimised()
+		return history.IsVisible() && history.IsFocused() && !history.IsMinimised()
 	}
 	s.petChatCanHide = s.historyCanHide
 	s.recallWindows = func() {

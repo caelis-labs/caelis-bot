@@ -8,7 +8,7 @@ import {telegramPhase,type TelegramStatus} from './telegram-state';
 const issues=new Set(['invalid_token','network','occupied','webhook','credential','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy','approval_unavailable']);
 function issueKey(issue:string):MessageKey {return `settings.telegramIssue_${issues.has(issue)?issue:'setup_failed'}` as MessageKey;}
 
-export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:boolean}={}){
+export function TelegramSettings({active=true}:{active?:boolean}={}){
  const {t}=useI18n();
  const [status,setStatus]=useState<TelegramStatus|null>(null),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [route,setRoute]=useState<'new'|'existing'>('new'),[confirmForget,setConfirmForget]=useState(false);
@@ -39,7 +39,6 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
  const tokenInvalid=issue==='invalid_token'&&!hasToken;
  const showToken=phase==='unconfigured'||issue==='invalid_token'||issue==='credential'||issue==='webhook';
  return <section className="telegram-page" aria-labelledby="telegram-title" data-settings-dirty={hasToken||busy||confirmForget}>
-  {onBack&&<button type="button" className="text-action telegram-back" onClick={()=>{clearToken();onBack()}}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="telegram-title">{t('settings.telegramTitle')}</h1><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
   {phase==='loading'&&<p role="status">{t('common.loading')}</p>}
   {phase==='connecting'&&<p role="status" className="telegram-feedback">{t('settings.telegramConnectingHelp')}</p>}

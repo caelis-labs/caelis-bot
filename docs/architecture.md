@@ -910,10 +910,12 @@ acceptance. The pin, package and permissions evidence are in
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. Chat and settings use
-separate retained native windows and WebViews; only the requested contextual
-surface is presented. Native titlebar accessories dispatch navigation into their
-owning renderer, which checks onboarding, dialogs and unsaved forms. Returning
-preserves the mounted composer, draft, attachments and chat reading position.
+separate retained native windows and WebViews. The composer-adjacent settings
+entry opens or focuses the existing settings window without hiding chat. Native
+close hides only its own window. Renderer navigation checks onboarding, dialogs
+and unsaved forms; opening and closing settings preserve the mounted composer,
+draft, attachments and chat reading position. Web reuses those components in a
+same-page panel and retains its existing URL guard as the navigation authority.
 Native sheets remain attached to their originating window. Closing a window hides
 presentation without deciding requests or stopping work.
 

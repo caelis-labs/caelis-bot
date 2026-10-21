@@ -18,7 +18,8 @@
 body[data-surface=context] { background:var(--caelis-chat); }
 .context-window,.context-view { width:100%; height:100dvh; min-width:0; }
 .context-view[hidden] { display:none; }
-.context-window .history-surface { height:calc(100dvh - 32px); }
+/* Native chrome is outside the viewport; the floating navigation takes no layout space. */
+.context-window .history-surface { height:100%; }
 .context-view { animation:surface-arrive .16s ease-out; }
 @keyframes surface-arrive { from { opacity:.65; transform:translateY(3px); } to { opacity:1; transform:none; } }
 .settings-window aside { flex-basis:212px; width:212px; padding:22px 12px 14px; background:var(--caelis-sidebar); }
@@ -176,7 +177,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-page { width:100%; max-width:620px; margin:0 auto; }
 /* New presentation also supports WebKit versions predating dynamic viewport units. */
 .context-window,.context-view,.settings-window,.setup-page { height:100vh; height:100dvh; }
-.context-window .history-surface { height:calc(100vh - 32px); height:calc(100dvh - 32px); }
 .draft-image-viewer { width:fit-content; max-width:94vw; max-height:90vh; padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--caelis-popover); }
 .draft-image-viewer .runtime-dialog-heading { margin-bottom:14px; }
 .draft-image-viewer .runtime-dialog-heading h2 { font-size:13px; }
@@ -823,10 +823,44 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .gateway-read-notice>div { display:flex; align-items:center; gap:12px; }
 .context-navigation{position:absolute;right:14px;top:6px;z-index:4;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;color:var(--muted);background:var(--panel)}
 .context-navigation:hover{background:var(--wash);color:var(--ink)}
-.context-window[data-native-chrome="false"] .chat-scroll{padding-top:34px}
+
 .settings-toolbar{position:relative}.settings-navigation{top:50%;transform:translateY(-50%)}
 .settings-window .settings-navigation{padding:0;border:0;min-height:28px;background:var(--panel)}
 
 .settings-window .runtime-experiments>p,.settings-window .runtime-experiments>button { margin:12px 20px; }
 .settings-window .runtime-experiments .setting-row { display:flex; flex-wrap:nowrap; min-height:54px; gap:16px; }
 .settings-window .runtime-experiments .setting-control { flex:0 0 auto; width:auto; }
+
+/* Composer content scrolls independently of its fixed actions and settings entry. */
+.history-surface footer { display:flex; align-items:flex-end; gap:10px; max-width:804px; padding-left:22px; padding-right:22px; }
+.chat-settings { flex:0 0 40px; width:40px; height:40px; margin-bottom:5px; display:grid; place-items:center; border:0; border-radius:10px; background:transparent; color:var(--muted); }
+.chat-settings:hover,.chat-settings[aria-busy=true] { background:var(--wash); color:var(--ink); }
+.chat-settings:active { background:var(--caelis-selected); }
+.history-surface .compose-area { flex:1; min-width:0; overflow:hidden; }
+.composer-scroll { max-height:min(40vh,320px); max-height:min(40dvh,320px); overflow-y:auto; overscroll-behavior:contain; padding:12px 12px 0; }
+.composer-scroll textarea { display:block; max-height:none; overflow:hidden; padding:0; font-size:14px; line-height:24px; }
+.history-surface .composer-actions { justify-content:space-between; min-height:48px; padding:8px 12px 10px; }
+.history-surface .composer-context { padding:10px 0 0; }
+.composer-scroll .attachments { max-height:none; overflow:visible; }
+@media(max-width:650px) { .history-surface footer { padding-left:14px; padding-right:14px; } }
+
+/* One route trail, shared by desktop and Web. Every ancestor stays reachable. */
+.settings-window .settings-toolbar { height:auto; min-height:64px; padding-top:12px; padding-bottom:12px; }
+.settings-breadcrumbs { flex:1; min-width:0; padding-right:22px; }
+.settings-breadcrumbs ol { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:center; margin:0; padding:0; list-style:none; }
+.settings-breadcrumbs li { display:flex; gap:12px; align-items:baseline; min-width:0; overflow-wrap:anywhere; }
+.settings-window .settings-breadcrumbs button { border:0; background:transparent; padding:0; min-height:28px; font-size:14px; color:var(--muted); text-align:left; }
+.settings-breadcrumbs button:hover { color:var(--ink); text-decoration:underline; }
+.settings-breadcrumbs [aria-current=page] { color:var(--ink); font-size:16px; font-weight:600; line-height:28px; }
+
+/* Permissions share one reading edge inside and outside the existing list. */
+.settings-window .permission-settings .permission-intro { margin:6px 0 18px; font-size:12px; line-height:1.65; }
+.settings-window .permission-settings .permission-description p { line-height:1.6; }
+.settings-window .permission-settings .permission-description small { font-size:11px; line-height:1.6; }
+.settings-window .permission-settings .permission-system-note { margin:10px 0 0; font-size:11px; line-height:1.6; }
+.settings-window .permission-settings .permission-privacy { padding:0; margin:22px 0 12px; }
+.settings-window .permission-settings .permission-privacy h2 { margin:0 0 8px; font-size:12px; line-height:1.6; }
+.settings-window .permission-settings .permission-privacy p { max-width:none; margin:4px 0; font-size:12px; line-height:1.65; }
+.settings-window .permission-settings .permission-repair-entry { padding:0; min-height:28px; border:0; background:transparent; font-size:12px; text-align:left; }
+
+.settings-window .permission-settings>.settings-section-title { margin:0 0 8px; }

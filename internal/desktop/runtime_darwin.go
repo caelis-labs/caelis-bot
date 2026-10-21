@@ -201,38 +201,41 @@ func Run(assets fs.FS) error {
 		Hidden: true, URL: "/?surface=settings&chrome=native", BackgroundType: application.BackgroundTypeSolid,
 	})
 	var settingsMode, setupMode atomic.Bool
-	var presentation uint64
-	prepare := func(window *application.WebviewWindow, surface string) {
-		presentation++
-		window.ExecJS(fmt.Sprintf("(function prepare(){if(window.prepareSurface)window.prepareSurface(%q,%d);else setTimeout(prepare,50)})()", surface, presentation))
+	var presentation surfacePresentations
+	prepare := func(window *application.WebviewWindow, surface, section string) {
+		token := presentation.prepare(surface)
+		window.ExecJS(fmt.Sprintf("(function prepare(){if(window.prepareSurface)window.prepareSurface(%q,%d,%q);else setTimeout(prepare,50)})()", surface, token, section))
 	}
 	s.surfaceReady = func(surface string, token uint64) {
 		application.InvokeSync(func() {
-			if token != presentation {
+			if !presentation.accept(surface, token) {
 				return
 			}
-			target, previous := history, settings
+			target := history
 			if surface == "settings" {
-				target, previous = settings, history
+				target = settings
 			}
 			syncMacDock(history, settings, true)
 			target.UnMinimise()
 			target.Show()
 			target.Focus()
-			previous.Hide()
-			previous.ExecJS("window.dispatchEvent(new Event('" + map[bool]string{true: "history-close", false: "settings-close"}[surface == "settings"] + "'))")
 		})
 	}
 	for _, window := range []*application.WebviewWindow{bubble, history} {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
 	}
+	s.focusSettings = func() { application.InvokeSync(func() { settings.UnMinimise(); settings.Show(); settings.Focus() }) }
 	s.openSettings = func() {
 		if !s.prepareWindowRecall() {
 			return
 		}
-		s.presentSettings(application.InvokeSync, func(welcome bool, title string) {
+		s.presentSettings(application.InvokeSync, func(welcome bool, title, section string) {
 			settingsMode.Store(true)
-			macContextNavigation(settings, true, !welcome, "")
+			if welcome {
+				presentation.cancel("chat")
+				history.Hide()
+				history.ExecJS("window.dispatchEvent(new Event('history-close'))")
+			}
 			if setupMode.Swap(welcome) != welcome {
 				settings.Hide()
 				if welcome {
@@ -243,7 +246,7 @@ func Run(assets fs.FS) error {
 			}
 			settings.SetTitle(strings.Replace(title, "Caelis Bot", appName, 1))
 			syncMacDock(history, settings, true)
-			prepare(settings, "settings")
+			prepare(settings, "settings", section)
 		})
 	}
 	s.closeSettings = func() {
@@ -253,7 +256,8 @@ func Run(assets fs.FS) error {
 			if !settingsMode.Load() {
 				return
 			}
-			presentation++ // Cancel a renderer acknowledgement after dismissal.
+			presentation.cancel("settings") // Ignore acknowledgements after dismissal.
+			settingsMode.Store(false)
 			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
 			settings.Hide()
 			syncMacDock(history, settings, false)
@@ -282,9 +286,13 @@ func Run(assets fs.FS) error {
 		}
 	}
 	showHistory := func() {
-		settingsMode.Store(false)
-		macContextNavigation(history, false, true, "")
-		prepare(history, "chat")
+		if setupMode.Swap(false) {
+			presentation.cancel("settings")
+			settingsMode.Store(false)
+			settings.Hide()
+			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
+		}
+		prepare(history, "chat", "")
 	}
 	s.openHistory = func() {
 		if s.prepareWindowRecall() {
@@ -293,18 +301,15 @@ func Run(assets fs.FS) error {
 	}
 	s.closeHistory = func() {
 		application.InvokeSync(func() {
-			if settingsMode.Load() {
-				return
-			}
-			presentation++
+			presentation.cancel("chat")
 			history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 			history.Hide()
 			syncMacDock(history, settings, false)
 		})
 	}
-	s.historyVisible = func() bool { return !settingsMode.Load() && macWindowVisible(history) }
-	s.historyCanHide = func() bool { return !settingsMode.Load() && macWindowCanHide(history) }
-	s.petChatCanHide = func() bool { return !settingsMode.Load() && macWindowPetCanHide(history) }
+	s.historyVisible = func() bool { return macWindowVisible(history) }
+	s.historyCanHide = func() bool { return macWindowCanHide(history) }
+	s.petChatCanHide = func() bool { return macWindowPetCanHide(history) }
 	s.recallWindows = func() {
 		if !s.prepareWindowRecall() {
 			return
@@ -440,8 +445,6 @@ func Run(assets fs.FS) error {
 		}
 	}
 	s.languageChanged = func(state LanguageState) {
-		macContextNavigation(history, false, !setupMode.Load(), i18n.Text(state.Locale, "native.settings", nil))
-		macContextNavigation(settings, true, !setupMode.Load(), i18n.Text(state.Locale, "native.closeSettings", nil))
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
@@ -465,8 +468,6 @@ func Run(assets fs.FS) error {
 		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
 		installMacArtifactPreviewToolbar(preview, s.LanguagePreferences().Locale)
 		styleMacSettings(settings)
-		macContextNavigation(history, false, false, s.text("native.settings", nil))
-		macContextNavigation(settings, true, false, s.text("native.closeSettings", nil))
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)
 			err := core.Close()

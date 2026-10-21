@@ -16,7 +16,7 @@ export function identity(){const b=new Uint8Array(16);crypto.getRandomValues(b);
 if(!crypto.randomUUID)crypto.randomUUID=()=>{const h=identity();return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20)}`;};
 
 export function createWebTransport(bootstrap:WebBootstrap){
- const tab=identity();let epoch='',view:WebNavigation={view:'settings',section:'setup'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
+ const tab=identity();let settingsReturn:WebNavigation={view:'chat'};let epoch='',view:WebNavigation={view:'settings',section:'setup'},cached:ChatUpdate|undefined,stream:EventSource|undefined;
  const headers=()=>({'Content-Type':'application/json','X-Caelis-Request':'1','X-CSRF-Token':bootstrap.csrf,'X-Caelis-Tab':tab,'X-Caelis-Edit-Epoch':epoch});
  const gatedNavigation=createNavigationGuard(async()=>{
   const [overview,initialization]=await Promise.all([
@@ -27,6 +27,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  },(next,replace)=>{
   const hash=webRouteHash(next);
   if(location.hash!==hash)history[replace?'replaceState':'pushState'](null,'',hash);
+  if(next.view==='settings'&&view.view!=='settings')settingsReturn=view;
   view=next;window.dispatchEvent(new CustomEvent('web-navigation',{detail:next}));
  });
  const navigation=async(next:WebNavigation,replace=false)=>{
@@ -89,7 +90,8 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'HistoryVisible':return (view.view==='chat') as T;
    case 'SettingsVisible':return (view.view==='settings') as T;
    case 'SettingsSection':return (view.section??'general') as T;
-   case 'OpenHistory':case 'CloseSettings':await navigation({view:'chat'});return undefined as T;
+   case 'OpenHistory':await navigation({view:'chat'});return undefined as T;
+   case 'CloseSettings':await navigation(settingsReturn,true);return undefined as T;
    case 'OpenRuntimeSettings':await navigation({view:'settings',section:'connections'});return undefined as T;
    case 'OpenSettings':await navigation({view:'settings',section:'general'});return undefined as T;
    case 'OpenTaskTerminal':await navigation({view:'task',task:String(args[0])});return undefined as T;

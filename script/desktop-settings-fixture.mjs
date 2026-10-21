@@ -23,6 +23,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'SettingsVisible':return true;
  case 'HistoryVisible':return true;
  case 'AppVersion':return 'Synthetic Dev';
+ case 'SystemPermissions':return {supported:true,appPath:'/Synthetic/Caelis Settings Preview.app',development:true,permissions:[{id:'accessibility',status:'authorized'},{id:'screenCapture',status:'notDetermined'},{id:'automation',status:'notDetermined',target:'Terminal'},{id:'notifications',status:'authorized'}]};
  case 'SurfaceReady':return;
  case 'OpenSettings':native('settings');return;
  case 'OpenHistory':native('chat');return;
