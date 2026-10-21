@@ -70,6 +70,9 @@ test('R2 commits verified bytes and prunes older platform baselines only after v
   assert.ok(![...f.objects.keys()].some(k=>k.startsWith('caelis-bot/releases/v1.0.0/')));
   assert.ok(f.objects.has('caelis-bot/appcast.xml'));
   assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/stable/appcast.xml'));
+  for (const name of [f.file, f.file+'.sha256', 'appcast.xml', 'latest.json', 'latest.json.sig', 'Caelis-Bot-1.2.3-macos-arm64-stable.publication.json']) {
+    assert.deepEqual(f.objects.get(`caelis-bot/releases/${f.tag}/${name}`), readFileSync(join(f.directory,name)));
+  }
   assert.ok(f.calls.some(c=>c[2]==='delete-object'));
   assert.match(publish(f.directory,f.env,f.run),/Published/);
 }));
@@ -78,7 +81,7 @@ test('signed legacy stable build numbers remain verifiable for R2 retry',()=>fix
   assert.match(publish(f.directory,f.env,f.run),/Published/);
 },{legacyBuild:true}));
 
-for(const stage of ['caelis-bot/releases/v1.2.3/Caelis-Bot-1.2.3-macos-arm64.dmg','caelis-bot/appcast.xml','caelis-bot/latest.json']) {
+for(const stage of ['caelis-bot/releases/v1.2.3/Caelis-Bot-1.2.3-macos-arm64.dmg','caelis-bot/releases/v1.2.3/appcast.xml','caelis-bot/releases/v1.2.3/Caelis-Bot-1.2.3-macos-arm64-stable.publication.json','caelis-bot/appcast.xml','caelis-bot/latest.json']) {
   test(`failed upload ${stage} preserves old release`,()=>fixture(f=>{
     f.controls.failKey=stage;
     assert.throws(()=>publish(f.directory,f.env,f.run),/upload failed/);
@@ -129,6 +132,9 @@ test('wrong public key, tampered manifest and changed DMG all fail verification'
 test('cleanup ownership and stable numeric ordering',()=>{
   assert.deepEqual(cleanupKeys(['releases/v1.0.0/caelis.tar.gz','caelis-bot/appcast.xml'],'v1.2.3'),[]);
   assert.throws(()=>cleanupKeys(['caelis-bot/releases/v1.0.0/../../elsewhere'],'v1.2.3'));
+  const old = ['caelis-bot/releases/v1.0.0/appcast.xml', 'caelis-bot/releases/v1.0.0/Caelis-Bot-1.0.0-macos-arm64-stable.publication.json'];
+  assert.deepEqual(cleanupKeys([...old, 'caelis-bot/releases/linux-arm64/v1.0.0/linux-arm64-install.json', 'caelis-bot/releases/windows-amd64/v1.0.0/windows-update.json'], 'v1.2.3'), old);
+  assert.throws(()=>cleanupKeys(['caelis-bot/releases/v1.0.0/Caelis-Bot-2.0.0-macos-arm64-stable.publication.json'], 'v1.2.3'));
   assert.equal(compareStable('v1.10.0','v1.9.9'),1);
   assert.equal(compareStable('v1.2.3','v1.2.3'),0);
   assert.equal(validateUpdateKey('',false),'');
