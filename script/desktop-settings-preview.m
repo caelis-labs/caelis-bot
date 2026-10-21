@@ -15,7 +15,8 @@
 @end
 @implementation DesktopSettingsPreview
 - (NSWindow *)window:(BOOL)settings {
- NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(170,120,settings?1040:640,settings?740:700) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
+ CGFloat chatWidth=640;const char *width=getenv("BOT_SETTINGS_PREVIEW_WIDTH");if(width)chatWidth=MAX(300,MIN(1400,atof(width)));
+ NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(170,120,settings?1040:chatWidth,settings?740:700) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
  window.title=settings?@"Caelis Bot Dev — 设置（合成数据）":@"Caelis Bot Dev — 聊天（合成数据）";window.releasedWhenClosed=NO;window.delegate=self;
  WKWebViewConfiguration *config=[WKWebViewConfiguration new];[config.userContentController addScriptMessageHandler:self name:@"navigation"];
  WKWebView *web=[[WKWebView alloc] initWithFrame:window.contentView.bounds configuration:config];web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;window.contentView=web;

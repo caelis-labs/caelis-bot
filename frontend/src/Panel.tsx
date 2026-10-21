@@ -225,6 +225,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  const [quoted,setQuoted]=useState<QuotedMessage|null>(null);
  const [hasText,setHasText]=useState(false),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [pluginLabels,setPluginLabels]=useState<Record<string,string>>({});
+ const [multiline,setMultiline]=useState(false);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState<'duplicate'|''>('');
@@ -291,14 +292,29 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  },[]);
  useEffect(()=>{if(active&&loaded&&!busy)input.current?.focus({preventScroll:true});},[active,loaded,busy,focusRevision]);
  const sizeEditor=()=>{
-  // Recent WebKit sizes the field in CSS. Older WebKit still needs a measured
-  // fallback. The content scroller bounds the combined text and attachments.
-  if(CSS.supports('field-sizing','content'))return;
-  const editor=input.current;if(!editor)return;
+  const editor=input.current,card=editor?.closest('.compose-area');if(!editor||!card)return;
+  // Measure at the compact center-column width even while expanded. Otherwise
+  // widening a wrapped line would repeatedly collapse and expand the editor.
+  const compactWidth=getComputedStyle(card).gridTemplateColumns.split(' ')[1];
+  const previousWidth=editor.style.width;
+  editor.style.width=compactWidth;
   editor.style.height='0px';
-  const height=Math.max(27,editor.scrollHeight);
-  editor.style.height=`${height}px`;
+  const compactHeight=editor.scrollHeight;
+  setMultiline(compactHeight>32);
+  editor.style.width=previousWidth;
+  editor.style.height='';
+  // Older WebKit needs an explicit height; current engines use field-sizing.
+  if(!CSS.supports('field-sizing','content')){
+   editor.style.height='0px';editor.style.height=`${Math.max(27,editor.scrollHeight)}px`;
+  }
  };
+ useLayoutEffect(()=>{
+  const card=input.current?.closest('.compose-area');if(!card)return;
+  let width=-1;
+  const observer=new ResizeObserver(()=>{if(card.clientWidth!==width){width=card.clientWidth;sizeEditor();}});
+  observer.observe(card);return()=>observer.disconnect();
+ },[]);
+ useLayoutEffect(()=>{sizeEditor();},[multiline,files.length,refs.length,!!quoted]);
  const setDraftValue=(text:string,composingNow=false)=>{
   draft.current=text;
   if(input.current&&input.current.value!==text)input.current.value=text;
@@ -483,16 +499,12 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
  const needsConnection=loaded&&!!(hasText||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
- return <div className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
+ return <div className={`compose-area${multiline||files.length||refs.length||quoted?' compose-expanded':''}${dragging?' file-dragging':''}`} data-file-drop-target
   onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
   onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false)}}
   onDrop={()=>setDragging(false)}>
   <div className="composer-scroll">
-   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
-  {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
-  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
-  {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
   {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
   {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>{save(draft.current,refs,null);input.current?.focus();}}><Icon name="xmark"/></button></div>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
@@ -500,6 +512,11 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>{save(draft.current,refs.filter(v=>v!==id));input.current?.focus();}}><Icon name="xmark"/></button></li>)}
   </ul>}
   </div>}
+   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
+  {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
+  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
+  {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
+
   </div>
   <div className="capsule composer-actions">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>

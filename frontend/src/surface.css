@@ -845,7 +845,12 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .history-surface .composer-actions { display:contents; }
 .composer-actions .add { grid-column:1; grid-row:1; }
 .composer-actions .send { grid-column:3; grid-row:1; }
-.history-surface .composer-context { padding:10px 0 0; }
+/* Long drafts use the whole reading width; their scrollbar hugs the card edge.
+   The fixed bottom actions remain outside the scrolling region. */
+.compose-expanded .composer-scroll { grid-column:1 / -1; padding:0 2px; margin-bottom:8px; }
+.compose-expanded .composer-actions .add,.compose-expanded .composer-actions .send { grid-row:2; }
+
+.history-surface .composer-context { padding:0 0 10px; }
 .composer-scroll .attachments { max-height:none; overflow:visible; }
 @media(max-width:650px) { .history-surface footer { padding-left:14px; padding-right:14px; } }
 

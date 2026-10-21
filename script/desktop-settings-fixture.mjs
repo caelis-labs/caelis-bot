@@ -10,6 +10,12 @@ const files=[{id:'fixture-file',name:'fixture-notes.txt',size:32,type:'text/plai
 const option={model:'fixture/model',name:'Saved Model',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],default:false,imageInput:false};
 const selections=[];
 const plugins={revision:1,items:['stable','target','notes'].map((id,i)=>({id,title:['Stable Tools','New Plugin','Notes Skill'][i],version:'1.0',description:'Synthetic local regression fixture',installed:i!==1,enabled:i!==1,status:i!==1?'enabled':'available',skills:i===2?[{id:'notes',name:'Notes'}]:[],mcpServers:i===2?[]:[{id:'tools',name:'Tools'}]}))};
+window.fixtureMenuData=(count=2,nativeCount=2,fileCount=0)=>{
+ plugins.items=Array.from({length:count},(_,i)=>({id:'menu-'+i,title:'Plugin '+i+' — 长名称排版',description:'用于检查插件菜单描述的可读性、可点击区域和滚动边界，不执行任何外部操作。',installed:true,enabled:true,status:'enabled'}));
+ window.fixtureNativePlugins=Array.from({length:nativeCount},(_,i)=>({id:'native-'+i,name:'Native '+i,description:'Synthetic native plugin package',source:'codex'}));
+ files.splice(0,files.length,...Array.from({length:fileCount},(_,i)=>({id:'menu-file-'+i,name:'menu-notes-'+i+'.txt',size:32,type:'text/plain',image:false,unavailable:false})));
+ window.dispatchEvent(new Event('files-changed'));
+};
 window.fixtureRefreshDelay=0;window.fixtureRuntimeFailure='';window.fixtureInstallFailure=false;
 window.fixtureDraftFailure=false;window.fixtureUnknownSend=false;
 window.fixtureChatFailure=fail=>{window.fixtureDraftFailure=fail;window.dispatchEvent(new Event('files-changed'));};
@@ -48,6 +54,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'Snapshot':case 'ComposerSnapshot':case 'SnapshotSummary':return snapshot;
  case 'Draft':return draft;
  case 'SaveDraft':draft={...draft,...args[0],revision:draft.revision+1};return draft;
+ case 'PickFiles':return structuredClone(files);
  case 'DraftFiles':if(window.fixtureDraftFailure)throw Error('Synthetic attachment read unavailable');return files;
  case 'Submit':{
   if(!window.fixtureUnknownSend)throw Error('Synthetic send disabled');
@@ -55,7 +62,7 @@ export const Call={ByName:async(name,...args)=>{
   return snapshot.lastReceipt;
  }
  case 'BotInitialization':return {required:false,status:'completed'};
- case 'NativePlugins':return [];
+ case 'NativePlugins':return window.fixtureNativePlugins||[];
  case 'SetNativeMenuOpen':return;
  case 'Plugins':return structuredClone(plugins);
  case 'PluginAction':{
