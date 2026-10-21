@@ -4,15 +4,21 @@ export type ReferencePosition={id:string;offset:number};
 export type ComposerDocument={text:string;referenceIds:string[];referencePositions:ReferencePosition[]};
 export function readComposer(root:Node):ComposerDocument {
  let text='';const referenceIds:string[]=[],referencePositions:ReferencePosition[]=[];
+ const isBlock=(node:Node|null)=>node instanceof HTMLElement&&/^(DIV|P|LI)$/.test(node.tagName);
  const visit=(node:Node)=>{
   if(node.nodeType===Node.TEXT_NODE){text+=node.textContent??'';return;}
   if(!(node instanceof HTMLElement)&&node!==root){for(const child of node.childNodes)visit(child);return;}
   const el=node as HTMLElement,id=el.dataset?.reference;
   if(id){if(!referenceIds.includes(id)){referenceIds.push(id);referencePositions.push({id,offset:text.length});}return;}
-  if(el.tagName==='BR'){if(node.nextSibling)text+='\n';return;}
-  const block=/^(DIV|P|LI)$/.test(el.tagName)&&node!==root;
-  if(block&&node.previousSibling&&!text.endsWith('\n'))text+='\n';
+  // A final BR in an inline run is the browser's empty-line placeholder;
+  // the following block boundary (if any) supplies the line break.
+  if(el.tagName==='BR'){if(node.nextSibling&&!isBlock(node.nextSibling))text+='\n';return;}
+  const block=isBlock(node)&&node!==root;
+  // Empty blocks are logical lines too. A preceding newline cannot stand in
+  // for this boundary (e.g. alpha<div><br></div><div>beta</div>).
+  if(block&&node.previousSibling)text+='\n';
   for(const child of node.childNodes)visit(child);
+  if(block&&node.nextSibling&&!isBlock(node.nextSibling))text+='\n';
  };
  visit(root);return {text,referenceIds,referencePositions};
 }
