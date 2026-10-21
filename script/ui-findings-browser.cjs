@@ -30,12 +30,12 @@ async(page)=>{
  });
 
  const result=[];
- const retained=()=>page.evaluate(()=>({draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,same:window.fixtureComposer===document.querySelector('textarea')}));
+ const retained=()=>page.evaluate(()=>({draft:document.querySelector('.composer-editor')?.innerText,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,same:window.fixtureComposer===document.querySelector('.composer-editor')}));
  await page.setViewportSize({width:1280,height:850});
  await page.goto(base+'/web.html#/chat');
  await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();
- await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
- await page.evaluate(()=>{document.querySelector('.chat-scroll').scrollTop=140;window.fixtureComposer=document.querySelector('textarea')});
+ await page.waitForFunction(()=>document.querySelector('.composer-editor')?.innerText.includes('retained draft'));
+ await page.evaluate(()=>{document.querySelector('.chat-scroll').scrollTop=140;window.fixtureComposer=document.querySelector('.composer-editor')});
  await page.waitForTimeout(100);
  const before=await retained();
  for(const width of [1280,680,390]){

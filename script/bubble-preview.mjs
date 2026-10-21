@@ -310,11 +310,11 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
  try{
   for(const mode of modes){
    window.fixtureSendSetup(mode);
-   await wait(()=>!!document.querySelector('textarea:not(:disabled)')&&snapshot.canSend);
+   await wait(()=>!!document.querySelector('.composer-editor[contenteditable=true]')&&snapshot.canSend);
    await delay(550);
-   const editor=document.querySelector('textarea');
+   const editor=document.querySelector('.composer-editor');
    const text='检查发送体验。\n多行内容也应稳定。';
-   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,text);editor.dispatchEvent(new Event('input',{bubbles:true}));
+   editor.textContent=text;editor.dispatchEvent(new Event('input',{bubbles:true}));
    await wait(()=>!!document.querySelector('.send:not(:disabled)'));
    const frames=[],started=performance.now();let recording=true;activeCase={mode,frames};
    const record=()=>{
@@ -322,7 +322,7 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
     const composer=document.querySelector('.compose-area'),capsule=document.querySelector('.capsule'),group=users[0]?.closest('.history-message-group'),divider=group?.querySelector('.history-time-divider'),spinner=composer.querySelector('.composer-progress,.setup-spinner'),button=document.querySelector('.send');
     const spinnerRect=spinner?.getBoundingClientRect(),buttonRect=button.getBoundingClientRect();
     const spinnerInButton=!spinner||button.contains(spinner)&&parseFloat(getComputedStyle(spinner).width)<=18&&parseFloat(getComputedStyle(spinner).height)<=18&&spinnerRect.left>=buttonRect.left&&spinnerRect.right<=buttonRect.right&&spinnerRect.top>=buttonRect.top&&spinnerRect.bottom<=buttonRect.bottom;
-    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,userTop:users[0]?.getBoundingClientRect().top??0,groupHeight:group?.getBoundingClientRect().height??0,divider:divider?.querySelector('time')?.dateTime??'',dividerBeforeUser:!divider||!!(divider.compareDocumentPosition(users[0])&Node.DOCUMENT_POSITION_FOLLOWING),dividers:document.querySelectorAll('.history-time-divider').length,composerExtraHeight:composer.getBoundingClientRect().height-capsule.getBoundingClientRect().height,spinner:!!spinner,spinnerInButton,emptyReply:!!reply&&!reply.textContent,editor:editor.value,files:document.querySelectorAll('.composer-context .attachments li').length,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),loading:!!document.querySelector('.working-message .loading-dots'),delivery:document.querySelector('.message-row.user .message-delivery')?.textContent??'',reply:reply?.textContent??''});
+    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,userTop:users[0]?.getBoundingClientRect().top??0,groupHeight:group?.getBoundingClientRect().height??0,divider:divider?.querySelector('time')?.dateTime??'',dividerBeforeUser:!divider||!!(divider.compareDocumentPosition(users[0])&Node.DOCUMENT_POSITION_FOLLOWING),dividers:document.querySelectorAll('.history-time-divider').length,composerExtraHeight:composer.getBoundingClientRect().height-52,spinner:!!spinner,spinnerInButton,emptyReply:!!reply&&!reply.textContent,editor:editor.innerText,files:document.querySelectorAll('.composer-context .attachments li').length,disabled:(editor.contentEditable!=='true'),stop:!!document.querySelector('.composer-stop'),loading:!!document.querySelector('.working-message .loading-dots'),delivery:document.querySelector('.message-row.user .message-delivery')?.textContent??'',reply:reply?.textContent??''});
     if(recording)requestAnimationFrame(record);
    };requestAnimationFrame(record);
    document.querySelector('.send').click();
@@ -344,15 +344,15 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
    }
    if(mode.endsWith('accepted')){
     if(acceptedReads!==1)throw Error('accepted draft read '+acceptedReads+' times');
-    if(editor.value!=='')throw Error('accepted draft was restored');
+    if(editor.innerText!=='')throw Error('accepted draft was restored');
     const settled=frames.findIndex(frame=>frame.editor==='');
     if(frames.slice(settled).some(frame=>frame.editor!==''))throw Error('cleared draft flashed back');
     if(!frames.some(frame=>frame.stop&&!frame.disabled))throw Error('stop action never became available');
     if(!document.querySelector('[data-message-id^="reply:"] .markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
     if(document.querySelector('.composer-context .attachments li'))throw Error('accepted attachments reappeared');
    }else if(mode==='draft-failure'){
-    if(editor.disabled||document.querySelector('.input-error')||document.querySelector('.compose-area .setup-spinner,.compose-area .composer-progress')||!document.querySelector('.composer-stop'))throw Error('accepted draft recovery interrupted the composer or exposed a technical alert');
-   }else if(editor.value!==text)throw Error(mode+' lost the unaccepted draft');
+    if((editor.contentEditable!=='true')||document.querySelector('.input-error')||document.querySelector('.compose-area .setup-spinner,.compose-area .composer-progress')||!document.querySelector('.composer-stop'))throw Error('accepted draft recovery interrupted the composer or exposed a technical alert');
+   }else if(editor.innerText!==text)throw Error(mode+' lost the unaccepted draft');
    if(mode==='attachments-rejected'&&document.querySelectorAll('.composer-context .attachments li').length!==1)throw Error('rejected attachment was not restored');
    if(mode==='unknown'){
     if(document.querySelector('.send:not(:disabled)'))throw Error('unknown request can be sent again');
@@ -361,7 +361,7 @@ window.fixtureSendRegression=async(modes=['accepted','attachments-accepted','att
     // A later authoritative rejection ends uncertainty without another send.
     snapshot.lastReceipt={...snapshot.lastReceipt,outcome:'rejected'};
     await wait(()=>!!document.querySelector('.send:not(:disabled)'));
-    if(sendCount!==1||editor.value!==text)throw Error('late refusal replayed or lost the original draft');
+    if(sendCount!==1||editor.innerText!==text)throw Error('late refusal replayed or lost the original draft');
    }
    results.push({mode,sendCount,acceptedReads,frames});
   }

@@ -30,11 +30,11 @@ async(page)=>{
  await page.setViewportSize({width:640,height:700});
  await page.goto(base+'/web.html?chrome=native#/chat');
  await page.getByRole('textbox',{name:'写下想法',exact:true}).waitFor();
- await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
+ await page.waitForFunction(()=>document.querySelector('.composer-editor')?.innerText.includes('retained draft'));
  await page.getByText('fixture-notes.txt',{exact:true}).waitFor();
- await page.evaluate(()=>{document.querySelector('.chat-scroll').scrollTop=140;window.fixtureComposer=document.querySelector('textarea')});
+ await page.evaluate(()=>{document.querySelector('.chat-scroll').scrollTop=140;window.fixtureComposer=document.querySelector('.composer-editor')});
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
- const retained=()=>page.evaluate(()=>({draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,sameComposer:window.fixtureComposer===document.querySelector('textarea')}));
+ const retained=()=>page.evaluate(()=>({draft:document.querySelector('.composer-editor')?.innerText,files:document.querySelectorAll('[aria-label="移除 fixture-notes.txt"]').length,scroll:document.querySelector('.chat-scroll')?.scrollTop,sameComposer:window.fixtureComposer===document.querySelector('.composer-editor')}));
  const before=await retained();
  await page.screenshot({path:out+'/chat-640-fixture.png'});
  await page.getByRole('button',{name:'设置',exact:true}).click();
@@ -97,7 +97,7 @@ async(page)=>{
  check(await page.locator('[data-transient-feedback]').count()===0,'feedback dismissal failed');
  check(await page.locator('[data-message-id]').count()===24,'dismissal changed transcript');
  await page.evaluate(()=>window.fixtureChatFailure(false));
- await page.waitForFunction(()=>!document.querySelector('textarea')?.disabled);
+ await page.waitForFunction(()=>document.querySelector('.composer-editor')?.contentEditable==='true');
  await page.evaluate(()=>{window.fixtureUnknownSend=true});
  await page.getByRole('button',{name:'发送',exact:true}).click();
  await page.locator('.chat-content [data-transient-feedback]').waitFor();

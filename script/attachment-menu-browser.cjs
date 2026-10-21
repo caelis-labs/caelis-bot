@@ -52,7 +52,7 @@ async(page)=>{
    await page.screenshot({path:out+'/'+surface+'-'+width+'.png'});
    const last=page.getByRole('menuitem',{name:/Native 2/});await last.scrollIntoViewIfNeeded();await last.click();
    check(await page.locator('.attachment-menu').count()===0,'selection did not close');
-   check(await input.evaluate(n=>document.activeElement===n&&n.value.startsWith('保留的输入')),'selection lost draft/focus');
+   check(await input.evaluate(n=>document.activeElement===n&&n.innerText.startsWith('保留的输入')),'selection lost draft/focus');
    await add.click();await page.keyboard.press('Escape');check(await add.evaluate(n=>document.activeElement===n),'Escape focus');
    await add.click();await page.locator('.chat-scroll').click({position:{x:8,y:8}});check(await page.locator('.attachment-menu').count()===0,'outside did not close');
    await page.evaluate(()=>window.fixtureMenuData(0,0,0));await input.fill('短文案');await add.click();
@@ -60,12 +60,12 @@ async(page)=>{
    await measure(surface+'-'+width+'-empty');
    await page.keyboard.press('ArrowDown');check(await page.getByRole('menuitem',{name:'添加文件',exact:true}).evaluate(n=>document.activeElement===n),'keyboard item focus');
    if(surface==='desktop'){await page.getByRole('menuitem',{name:'添加文件',exact:true}).click();check(await page.evaluate(()=>fixtureCalls.includes('PickFiles')),'file picker not invoked');}else{await page.keyboard.press('Escape');}
-   const selected=page.getByRole('button',{name:'移除引用',exact:true});if(await selected.count())await selected.last().click();
+   await input.fill('短文案');
   }
   if(surface==='web'){
    await page.setViewportSize({width:1600,height:850});await page.getByRole('button',{name:'菜单分屏布局检查',exact:true}).click();
    await page.evaluate(()=>window.fixtureMenuData(8,3,2));await add.click();await page.getByRole('menuitem',{name:/Plugin 0/}).waitFor();await measure('web-split');await page.screenshot({path:out+'/web-split.png'});if(surface==='desktop'){await page.getByRole('menuitem',{name:'添加文件',exact:true}).click();check(await page.evaluate(()=>fixtureCalls.includes('PickFiles')),'file picker not invoked');}else{await page.keyboard.press('Escape');}
-   const selected=page.getByRole('button',{name:'移除引用',exact:true});if(await selected.count())await selected.last().click();
+   await input.fill('短文案');
   }
  }
  check(errors.length===0,errors.join('\n'));

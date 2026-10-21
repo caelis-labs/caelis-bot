@@ -31,6 +31,13 @@
  NSMenu *main=[NSMenu new];NSMenuItem *root=[NSMenuItem new];[main addItem:root];NSMenu *menu=[NSMenu new];root.submenu=menu;
  NSArray *titles=@[@"Connections",@"Plugins",@"Slow refresh",@"Fail Codex refresh",@"Native navigation regression",@"Save evidence",@"Quit fixture",@"Chat read failure",@"Recover chat read",@"Unknown send fixture",@"Renderer failure"];
  for(NSUInteger i=0;i<titles.count;i++){NSMenuItem *item=[menu addItemWithTitle:titles[i] action:@selector(command:) keyEquivalent:@""];item.tag=i;item.target=self;}
+ NSMenuItem *editRoot=[main addItemWithTitle:@"Edit" action:nil keyEquivalent:@""];NSMenu *edit=[NSMenu new];editRoot.submenu=edit;
+ [edit addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+ NSMenuItem *redo=[edit addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"z"];redo.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;
+ [edit addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+ [edit addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+ [edit addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+ [edit addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
  NSApp.mainMenu=main;
  NSMenuItem *captureRoot=[main addItemWithTitle:@"Capture menu fixture" action:nil keyEquivalent:@""];
  self.captureMenu=[NSMenu new];self.captureMenu.autoenablesItems=NO;captureRoot.submenu=self.captureMenu;
@@ -84,9 +91,9 @@
 }
 - (void)regression {
  [self show:NO];
- [self.chatWeb evaluateJavaScript:@"(()=>{const scroll=document.querySelector('.chat-scroll');scroll.scrollTop=140;window.fixtureBefore={draft:document.querySelector('textarea')?.value,files:document.body.innerText.includes('fixture-notes.txt'),scroll:scroll.scrollTop};window.fixtureComposer=document.querySelector('textarea');return true})()" completionHandler:^(id before,NSError *error){
+ [self.chatWeb evaluateJavaScript:@"(()=>{const scroll=document.querySelector('.chat-scroll');scroll.scrollTop=140;window.fixtureBefore={draft:document.querySelector('.composer-editor')?.innerText,files:document.body.innerText.includes('fixture-notes.txt'),scroll:scroll.scrollTop};window.fixtureComposer=document.querySelector('.composer-editor');return true})()" completionHandler:^(id before,NSError *error){
   [self sampleOpen:1 completion:^{[self sampleOpen:2 completion:^{
-   [self.chatWeb evaluateJavaScript:@"JSON.stringify({before:fixtureBefore,after:{draft:document.querySelector('textarea')?.value,files:document.body.innerText.includes('fixture-notes.txt'),scroll:document.querySelector('.chat-scroll').scrollTop},sameComposer:fixtureComposer===document.querySelector('textarea')})" completionHandler:^(id result,NSError *err){
+   [self.chatWeb evaluateJavaScript:@"JSON.stringify({before:fixtureBefore,after:{draft:document.querySelector('.composer-editor')?.innerText,files:document.body.innerText.includes('fixture-notes.txt'),scroll:document.querySelector('.chat-scroll').scrollTop},sameComposer:fixtureComposer===document.querySelector('.composer-editor')})" completionHandler:^(id result,NSError *err){
     if(result)[result writeToFile:[self.evidence stringByAppendingPathComponent:@"navigation.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
     NSData *timing=[NSJSONSerialization dataWithJSONObject:self.timings options:NSJSONWritingPrettyPrinted error:nil];[timing writeToFile:[self.evidence stringByAppendingPathComponent:@"timings.json"] atomically:YES];
     [self capture];
@@ -101,7 +108,7 @@
 - (void)capture {
  BOOL settings=self.settings.visible;WKWebView *web=settings?self.settingsWeb:self.chatWeb;NSString *name=settings?@"settings":@"chat";
  [web takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image,NSError *error){if(!image)return;NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];[[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".png"]] atomically:YES];}];
- [web evaluateJavaScript:@"JSON.stringify({text:document.body.innerText,calls:fixtureCalls,overflow:document.documentElement.scrollWidth>innerWidth,composerFeedback:document.querySelectorAll('footer [data-transient-feedback],footer .surface-recovery').length,messageFeedback:document.querySelectorAll('.chat-content [data-transient-feedback]').length,messages:document.querySelectorAll('[data-message-id]').length,draft:document.querySelector('textarea')?.value,files:document.querySelectorAll('.draft-file').length})" completionHandler:^(id result,NSError *error){if(result)[result writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];}];
+ [web evaluateJavaScript:@"JSON.stringify({text:document.body.innerText,calls:fixtureCalls,overflow:document.documentElement.scrollWidth>innerWidth,composerFeedback:document.querySelectorAll('footer [data-transient-feedback],footer .surface-recovery').length,messageFeedback:document.querySelectorAll('.chat-content [data-transient-feedback]').length,messages:document.querySelectorAll('[data-message-id]').length,draft:document.querySelector('.composer-editor')?.innerText,files:document.querySelectorAll('.draft-file').length})" completionHandler:^(id result,NSError *error){if(result)[result writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];}];
 }
 - (BOOL)windowShouldClose:(NSWindow *)window {
  WKWebView *web=window==self.settings?self.settingsWeb:self.chatWeb;

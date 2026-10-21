@@ -272,8 +272,16 @@ type Reference struct {
 	Description string `json:"description"`
 	Kind        string `json:"kind"`
 }
+
+// DraftReferencePosition is optional renderer layout metadata. Offset counts
+// UTF-16 code units in Text; it is never used to resolve or authorize a reference.
+type DraftReferencePosition struct {
+	ID     string `json:"id"`
+	Offset int    `json:"offset"`
+}
 type Draft struct {
-	Notice string `json:"notice"`
+	ReferencePositions []DraftReferencePosition `json:"referencePositions,omitempty"`
+	Notice             string                   `json:"notice"`
 	// CleanupPending is a confirmed send whose local cleanup has not persisted.
 	// PendingSend is an original submission with no confirmed terminal receipt.
 	CleanupPending         bool           `json:"cleanupPending,omitempty"`

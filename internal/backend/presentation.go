@@ -59,6 +59,7 @@ func (s *Service) Draft() api.Draft {
 		}
 	}
 	d.ReferenceIDs = slices.Clone(d.ReferenceIDs)
+	d.ReferencePositions = slices.Clone(d.ReferencePositions)
 	return d
 }
 func draftReceipt(v api.Snapshot, id string) api.Receipt {
@@ -81,13 +82,19 @@ func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
 	if d.Revision != s.draft.Revision {
 		return s.draft, errors.New("草稿已在另一处更新，请重新打开输入框")
 	}
-	if len(d.Text) > 256*1024 || len(d.ReferenceIDs) > 64 {
+	if len(d.Text) > 256*1024 || len(d.ReferenceIDs) > 64 || len(d.ReferencePositions) > 64 {
 		return s.draft, errors.New("内容过长")
+	}
+	for _, position := range d.ReferencePositions {
+		if position.Offset < 0 || position.Offset > len(d.Text) || !slices.Contains(d.ReferenceIDs, position.ID) {
+			return s.draft, errors.New("无效的引用位置")
+		}
 	}
 	d.Quoted = api.BoundQuote(d.Quoted)
 	d.Revision++
 	d.Notice = "" // Only the host can issue persistence notices.
 	d.ReferenceIDs = slices.Clone(d.ReferenceIDs)
+	d.ReferencePositions = slices.Clone(d.ReferencePositions)
 	if err := s.persistDraft(d, s.draftSend); err != nil {
 		return s.draft, err
 	}

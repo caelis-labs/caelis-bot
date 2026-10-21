@@ -77,6 +77,7 @@ export interface Decision {
   answers: Record<string, Array<string>>;
 }
 export interface Draft {
+  referencePositions?: Array<DraftReferencePosition>;
   notice: string;
   cleanupPending?: boolean;
   rejectedCleanupPending?: boolean;
@@ -86,6 +87,10 @@ export interface Draft {
   text: string;
   referenceIds: Array<string>;
   quoted?: QuotedMessage | null;
+}
+export interface DraftReferencePosition {
+  id: string;
+  offset: number;
 }
 export interface ExecutionOptions {
   defaultApprovalMode: string;

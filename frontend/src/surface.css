@@ -840,7 +840,11 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .chat-settings:active { background:var(--caelis-selected); }
 .history-surface .compose-area { flex:1; min-width:0; overflow:hidden; display:grid; grid-template-columns:30px minmax(0,1fr) 30px; align-items:end; column-gap:10px; padding:10px 12px; }
 .composer-scroll { grid-column:2; grid-row:1; min-width:0; align-self:center; max-height:min(40vh,320px); max-height:min(40dvh,320px); overflow-y:auto; overscroll-behavior:contain; padding:0; }
-.composer-scroll textarea { display:block; max-height:none; overflow:hidden; padding:0; font-size:14px; line-height:24px; }
+.composer-editor { display:block; width:100%; min-height:27px; outline:none; white-space:pre-wrap; overflow-wrap:anywhere; padding:0; font-size:14px; line-height:24px; }
+.composer-editor[data-empty=true]::before { content:attr(data-placeholder); color:var(--muted); pointer-events:none; }
+.composer-reference { display:inline-flex; align-items:baseline; gap:4px; max-width:100%; margin-right:3px; color:var(--accent); font-weight:500; vertical-align:baseline; white-space:nowrap; border-radius:3px; }
+.composer-reference-name { max-width:24ch; overflow:hidden; text-overflow:ellipsis; }
+.composer-reference-icon { font-size:12px; }
 /* Controls occupy their own columns, outside the text/attachment scroller. */
 .history-surface .composer-actions { display:contents; }
 .composer-actions .add { grid-column:1; grid-row:1; }

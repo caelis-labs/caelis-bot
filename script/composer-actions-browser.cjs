@@ -2,7 +2,7 @@
 // desktop-settings-preview.html server. Output directory must already exist.
 // Real shared UI/Web transport; synthetic, in-memory Submit/Interrupt only.
 async(page)=>{
- const base=new URL(page.url()).origin,out='output/playwright/ui-findings/layout-refinement';
+ const base=new URL(page.url()).origin,out='output/playwright/ui-findings/inline-reference';
  const source=await(await page.request.get(base+'/wails/runtime.js')).text();
  const routes=await page.evaluate(async()=>(await import('/src/web-routes.ts')).webRoutes);
  const names=Object.fromEntries(Object.entries(routes).map(([name,route])=>[route.path,name.split('.').at(-1)]));
@@ -46,7 +46,7 @@ async(page)=>{
  await page.goto(base+'/web.html#/chat');
  const editor=page.getByRole('textbox',{name:'写下想法',exact:true});
  await editor.waitFor();
- await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('retained draft'));
+ await page.waitForFunction(()=>document.querySelector('.composer-editor')?.innerText.includes('retained draft'));
  const longText=Array.from({length:70},(_,i)=>'长文本与多附件 · line '+i).join('\n');
  const waitForAction=async(label,count)=>{
   // State preparation is asynchronous: ChatSnapshot polls every 450 ms and
@@ -66,7 +66,7 @@ async(page)=>{
   const hit=element=>{const r=element.getBoundingClientRect();return [[.5,.5],[.12,.5],[.88,.5],[.5,.12],[.5,.88]].every(([x,y])=>element.contains(document.elementFromPoint(r.x+r.width*x,r.y+r.height*y)));};
   const inside=r=>r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom&&r.top>=0&&r.bottom<=innerHeight;
   return {label:button.getAttribute('aria-label'),enabled:!button.disabled,buttonHit:hit(button),addHit:hit(add),
-   inside:inside(b)&&inside(add.getBoundingClientRect()),separate:a.right<=s.left&&s.right<=b.left,
+   inside:inside(b)&&inside(add.getBoundingClientRect()),separate:(a.right<=s.left&&s.right<=b.left)||(s.bottom<=a.top&&s.bottom<=b.top),
    scrollInside:s.left>=c.left&&s.right<=c.right&&s.top>=c.top&&s.bottom<c.bottom,
    scrollTop:scroller.scrollTop,scrollMax:scroller.scrollHeight-scroller.clientHeight,
    scrollbarWidth:scroller.offsetWidth-scroller.clientWidth,

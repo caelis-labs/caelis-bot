@@ -152,6 +152,7 @@ func (s *Service) RestoreRuntimeBinding(b RuntimeBinding, targetDraftRevision ui
 				latest.Revision = b.Draft.Revision + 1
 			}
 			latest.ReferenceIDs = slices.Clone(latest.ReferenceIDs)
+			latest.ReferencePositions = slices.Clone(latest.ReferencePositions)
 			b.Draft = latest // Keep visible input even if the disk write fails.
 			if writeErr := localstate.Write(b.DraftFile, draftDocument{Version: 2, Draft: latest}); writeErr != nil {
 				err = writeErr
