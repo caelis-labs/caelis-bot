@@ -45,6 +45,7 @@ func (f *connectionFlow) expireLocked() {
 		return
 	}
 	f.view.Stage = "failed"
+	f.view.Reason = "expired"
 	f.view.Title = "连接过程已过期"
 	f.view.Message = "请刷新连接后重新开始。"
 	if f.pending {
@@ -64,6 +65,12 @@ func (f *connectionFlow) cloneLocked() api.RuntimeFlow {
 	b, _ := json.Marshal(f.view)
 	var copy api.RuntimeFlow
 	_ = json.Unmarshal(b, &copy)
+	if copy.Authorization != nil {
+		if deadline, err := time.Parse(time.RFC3339, copy.Authorization.ExpiresAt); err == nil && !time.Now().Before(deadline) {
+			copy.Authorization = nil
+			copy.Reason = "expired"
+		}
+	}
 	// An actionable step is visible only after its producing native call has
 	// completed. Browser input is the one operation allowed during a pending call.
 	if f.pending && (copy.Stage == "launcher" || copy.Stage == "models" || copy.Stage == "installation" || copy.Stage == "auth-method") {
@@ -92,7 +99,11 @@ func (f *connectionFlow) unknown() {
 		v.Stage = "unknown"
 		v.Title = "操作结果尚未确认"
 		v.Message = "请刷新连接核对结果，不要重复提交。"
-		v.Authorization = nil
+		// Losing the stream does not establish the original command's outcome.
+		// Keep the last challenge visible for reconciliation, never resubmit it.
+		if v.Authorization != nil {
+			v.Authorization.CanSubmit = false
+		}
 	})
 }
 func (f *connectionFlow) result(result wire.CommandResult, err error) bool {
@@ -109,7 +120,11 @@ func (f *connectionFlow) result(result wire.CommandResult, err error) bool {
 			}
 			v.Title = "连接尚未完成"
 			v.Message = r.Message
-			v.Authorization = nil
+			if v.Stage != "unknown" {
+				v.Authorization = nil
+			} else if v.Authorization != nil {
+				v.Authorization.CanSubmit = false
+			}
 		})
 		return false
 	}
@@ -118,10 +133,44 @@ func (f *connectionFlow) result(result wire.CommandResult, err error) bool {
 func (f *connectionFlow) complete() {
 	f.update(func(v *api.RuntimeFlow) {
 		v.Stage = "complete"
+		v.Reason = ""
 		v.Title = "连接已添加"
 		v.Message = "现在可以为模型选择用途。"
 		v.Authorization = nil
 	})
+}
+
+// Reconcile only the original native receipt. Missing/accepted/unknown receipts
+// cannot authorize a new connection or prove cancellation. Account connection
+// is one final command; ACP preparation receipts do not mean connected.
+// No network under mu.
+func (f *connectionFlow) reconcile(ctx context.Context) {
+	f.mu.Lock()
+	op, unresolved := f.operation, f.view.Stage == "unknown"
+	f.mu.Unlock()
+	if !unresolved || f.request.Kind != "account" || op == "" || f.client == nil {
+		return
+	}
+	var result wire.CommandResult
+	if err := f.client.jsonTimeout(ctx, "GET", "/operations/"+idPath(op), nil, &result, "", "", 5*time.Second); err != nil || result.OperationId != op {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.operation != op || f.view.Stage != "unknown" {
+		return
+	}
+	switch result.Outcome {
+	case "committed":
+		f.view.Stage, f.view.Title, f.view.Message = "complete", "连接已添加", "现在可以为模型选择用途。"
+		f.view.Reason = ""
+	case "rejected", "conflicted":
+		f.view.Stage, f.view.Title, f.view.Message = "failed", "连接尚未完成", "请检查连接后重试。"
+	default:
+		return
+	}
+	f.view.Authorization = nil
+	f.publishLocked()
 }
 func (s *Connections) lookup(id string) (*connectionFlow, error) {
 	s.mu.Lock()
@@ -262,6 +311,7 @@ func (s *Connections) Wait(ctx context.Context, id string, after int) (api.Runti
 	if err != nil {
 		return api.RuntimeFlow{}, err
 	}
+	f.reconcile(ctx)
 	f.mu.Lock()
 	changed := f.changed
 	view := f.cloneLocked()
@@ -294,6 +344,7 @@ func (s *Connections) Cancel(_ context.Context, id string) error {
 		f.view.Message = "正在核对已发生的操作，请刷新连接列表。"
 	} else if f.view.Stage != "complete" && f.view.Stage != "unknown" {
 		f.view.Stage = "failed"
+		f.view.Reason = "cancelled"
 		f.view.Title = "连接已取消"
 	}
 	f.view.Authorization = nil
@@ -317,6 +368,7 @@ func (s *Connections) Advance(ctx context.Context, action api.RuntimeFlowAction)
 		return api.RuntimeFlow{}, err
 	}
 	if action.Action == "refresh" {
+		f.reconcile(ctx)
 		return f.snapshot(), nil
 	}
 	f.mu.Lock()

@@ -105,3 +105,41 @@ func TestMessageLinksOnlyOpenExplicitWebURLs(t *testing.T) {
 		t.Fatal("explicit web link failed")
 	}
 }
+
+func TestDraftReferencePositionsPersistWithoutChangingSubmission(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "draft.json")
+	create := func() *Service {
+		s := NewService(draftEngine{outcome: "unknown"}, nil, nil, nil, nil)
+		if err := s.ConfigureDraft(path); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	s := create()
+	positions := []api.DraftReferencePosition{{ID: "stable-reference", Offset: 2}}
+	first, err := s.SaveDraft(api.Draft{Text: "中文 before after", ReferenceIDs: []string{"stable-reference"}, ReferencePositions: positions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions[0].Offset = 0
+	got := create().Draft()
+	if len(got.ReferencePositions) != 1 || got.ReferencePositions[0].Offset != 2 {
+		t.Fatalf("lost reference placement: %+v", got)
+	}
+	got.ReferencePositions[0].Offset = 1
+	if s.Draft().ReferencePositions[0].Offset != 2 {
+		t.Fatal("caller can mutate stored positions")
+	}
+	// Layout-only edits use the same CAS and cannot be cleared by an old send.
+	next, err := s.SaveDraft(api.Draft{Revision: first.Revision, Text: first.Text, ReferenceIDs: first.ReferenceIDs, ReferencePositions: []api.DraftReferencePosition{{ID: "stable-reference", Offset: 3}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.clearDraftAtRevision(api.Submission{Text: first.Text, ReferenceIDs: first.ReferenceIDs}, first.Revision)
+	if s.Draft().Revision != next.Revision || s.Draft().Text == "" {
+		t.Fatal("old submission cleared newer layout")
+	}
+	if _, err = s.SaveDraft(api.Draft{Revision: next.Revision, Text: "text", ReferenceIDs: []string{"stable-reference"}, ReferencePositions: []api.DraftReferencePosition{{ID: "not-selected", Offset: 1}}}); err == nil {
+		t.Fatal("accepted unbound reference position")
+	}
+}

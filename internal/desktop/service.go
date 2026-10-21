@@ -109,6 +109,7 @@ type Service struct {
 	petChatCanHide         func() bool
 	activate               func()
 	openSettings           func()
+	focusSettings          func()
 	closeSettings          func()
 	settingsVisible        func() bool
 	settingsSection        string

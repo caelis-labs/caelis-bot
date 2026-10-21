@@ -5,7 +5,7 @@ import { SettingsChevron } from './SettingsIcons';
 type Option = {'data-badge'?:string;'data-description'?:string;title?:string;value:string;children:ReactNode;disabled?:boolean;hidden?:boolean};
 // Keep the option markup at call sites; render every settings menu with the
 // same accessible control, including menus inside dialogs.
-export function SettingsSelect({id,value,disabled,onChange,children,placeholder,searchable=false,centered=true,'aria-label':ariaLabel}:{placeholder?:ReactNode;centered?:boolean;searchable?:boolean;id?:string;value:string;disabled?:boolean;onChange:(event:{target:{value:string}})=>void;children:ReactNode;'aria-label'?:string}) {
+export function SettingsSelect({id,value,disabled,onChange,children,placeholder,searchable=false,centered=true,compact=false,'aria-label':ariaLabel}:{placeholder?:ReactNode;compact?:boolean;centered?:boolean;searchable?:boolean;id?:string;value:string;disabled?:boolean;onChange:(event:{target:{value:string}})=>void;children:ReactNode;'aria-label'?:string}) {
  const {t}=useI18n();
  const [query,setQuery]=useState('');
  const search=useRef<HTMLInputElement>(null);
@@ -38,12 +38,13 @@ export function SettingsSelect({id,value,disabled,onChange,children,placeholder,
   setQuery('');
   const rect=trigger.current!.getBoundingClientRect(), below=innerHeight-rect.bottom-12, above=rect.top-12;
   const height=Math.min(300,choices.length*40+12+(searchable?58:0)),up=below<height&&above>below;
-  setPosition({left:Math.max(8,Math.min(rect.left,innerWidth-Math.max(rect.width,180)-8)),top:up?Math.max(8,rect.top-height-6):rect.bottom+6,width:Math.min(innerWidth-16,Math.max(rect.width,180)),maxHeight:Math.max(80,up?above:below)});
-  menu.current?.showPopover?.();setOpen(true);focusSelected();
+  const width=compact?Math.min(360,innerWidth-16):Math.min(innerWidth-16,Math.max(rect.width,180));
+  setPosition({left:Math.max(8,Math.min(rect.left,innerWidth-width-8)),top:up?Math.max(8,rect.top-height-6):rect.bottom+6,width,maxHeight:Math.max(80,up?above:below)});
+  menu.current?.showPopover?.();setOpen(true);
  };
  return <div className={`settings-select${centered?' settings-select-centered':''}`} data-select-open={open||undefined}>
   <button id={id} ref={trigger} className="settings-select-trigger" type="button" disabled={disabled} aria-label={ariaLabel} title={selected?.title} aria-haspopup="menu" aria-expanded={open} aria-controls={menuID} onClick={show} onKeyDown={event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();show();}}}><span className="settings-select-value">{columnSizes}<span className="settings-select-option-copy">{selected?.children??(value||placeholder)}</span>{selected?.['data-badge']&&<small className="settings-source-badge">{selected['data-badge']}</small>}</span><SettingsChevron open={open}/></button>
-  <div id={menuID} ref={menu} popover={nativePopover?"auto":undefined} hidden={!nativePopover&&!open} role="menu" aria-label={ariaLabel} aria-labelledby={ariaLabel?undefined:id} className={`settings-select-menu${centered?' settings-select-menu-centered':''}`} style={position} onToggle={()=>{const shown=menu.current?.matches(':popover-open')??false;setOpen(shown);if(shown)focusSelected();}} onKeyDown={event=>{
+  <div id={menuID} ref={menu} popover={nativePopover?"auto":undefined} hidden={!nativePopover&&!open} role="menu" aria-label={ariaLabel} aria-labelledby={ariaLabel?undefined:id} className={`settings-select-menu${centered?' settings-select-menu-centered':''}${compact?' settings-select-menu-compact':''}`} style={compact?{...position,width:'max-content',maxWidth:position.width}:position} onToggle={()=>{const shown=menu.current?.matches(':popover-open')??false;setOpen(shown);}} onKeyDown={event=>{
    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();return;}
    if(event.key==='Tab'){menu.current?.hidePopover?.();setOpen(false);return;}
    if(event.target===search.current&&!['ArrowDown','ArrowUp','Escape','Tab'].includes(event.key))return;

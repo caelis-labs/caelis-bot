@@ -27,11 +27,14 @@ recovery and original-receipt contracts.
   Unknown submissions retain their request IDs. Retry reads the draft/receipt;
   it does not call `Submit` again.
 - `context-navigation` uses the cancelable `settings-navigate` guard and checks
-  visible dialogs and `data-settings-dirty="true"` forms. The default HTML control
-  is a fixed top-right gear/close button without an extra toolbar row.
-  Only the macOS host supplies `chrome=native` and a standard AppKit titlebar
-  accessory. Web ignores that query flag and always supplies HTML controls.
-  Onboarding never exposes either navigation control. Its native entry points
+  visible dialogs and `data-settings-dirty="true"` forms. Chat places its gear
+  at the top right of the existing chat surface. Desktop opens/focuses one retained native
+  settings window without hiding chat; the native close button hides settings.
+  Web presents the same settings in a closable panel above retained chat, using
+  existing URL navigation, focus restoration and narrow-screen full-height layout.
+  Complete breadcrumbs project each subpage's existing route into one header;
+  dialogs and form steps are not invented navigation levels.
+  Onboarding never exposes either settings control. Its native entry points
   also route chat/settings/recall back to setup until introduction is resolved.
 - `loadConnections` publishes saved selection fields independently, then inspects
   runtime configuration in the background. Page entry does not activate or
@@ -55,12 +58,12 @@ with the localized title Screenshot / 截图, while the feature is enabled.
 The macOS installed menu updates its tagged item immediately; Windows replaces
 the tray menu after a committed preference change. Paste/pin internals, capture
 commands, saved F1/F3 shortcuts and permission checks remain unchanged.
-Windows retains the supported HTML title-right navigation; this change does not
-claim Windows native GUI acceptance.
+Windows uses the same top-right entry and independent native settings lifetime;
+cross-compilation and lifecycle contracts do not claim Windows GUI acceptance.
 
 Run `script/build_and_run.sh --settings-preview` for a separate AppKit/WKWebView
 fixture using synthetic transport, the production React surfaces and the
-production native titlebar accessory. Its menu supports slow/failed runtime
+native independent-window lifetime. Its menu supports slow/failed runtime
 reads, plugin installation, chat read failure/recovery, unknown send receipts,
 and navigation retention. It never starts a backend or accesses accounts.
 Save evidence writes snapshots and call counts to `.cache/settings-acceptance/`.
@@ -77,12 +80,14 @@ navigation of existing capabilities, not Bot tools, permissions or workflows.
 
 ## Web surface acceptance
 
-Web uses the same components and state, with fixed content-area gear/task icons
-and the shared close-settings control. It does not emulate AppKit attachment
+Web uses the same components and state, with the top-right gear and
+shared close-settings control. It does not emulate AppKit attachment
 APIs. The Web navigation adapter honors dialogs/dirty forms before changing a
-route; every entry also checks durable setup/introduction state. A retained,
-invisible chat keeps its layout dimensions so returning does not collapse scroll
-to the bottom. Its draft, staged files and composer DOM survive the switch.
+route; every entry also checks durable setup/introduction state. The chat remains
+mounted and measurable below the panel, inert to input until closing; its draft,
+staged files, scroll and ongoing reply survive. Each profile namespaces its
+browser session cookie because cookies are shared across ports on one hostname.
+Existing authenticated cookies migrate through the original profile's authority.
 
 Only `ChatFeedback` offers the human-readable feedback summary. Local settings
 and setup errors stay inline; fatal renderer recovery keeps bounded remount and

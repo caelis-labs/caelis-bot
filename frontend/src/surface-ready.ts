@@ -2,10 +2,10 @@ import { desktop } from './desktop';
 const mounted=new Set<string>();
 export function surfaceMounted(surface:string){mounted.add(surface);}
 let pending: {surface:string;token:number}|undefined;
-(window as unknown as {prepareSurface:(surface:string,token:number)=>void}).prepareSurface=(surface,token)=>{
+(window as unknown as {prepareSurface:(surface:string,token:number,section?:string)=>void}).prepareSurface=(surface,token,section)=>{
  pending={surface,token};
  const open=()=>{if(pending?.token!==token)return;if(!mounted.has(surface)){setTimeout(open,25);return;}
- window.dispatchEvent(new CustomEvent(surface==='chat'?'history-open':'settings-open',{detail:{preservePosition:true}}));};
+ window.dispatchEvent(new CustomEvent(surface==='chat'?'history-open':'settings-open',{detail:{preservePosition:true,section}}));};
  open();
 };
 export function surfaceReady(surface:string) {

@@ -731,24 +731,47 @@ func (s *Store) HasCardReference(in Inbound) bool {
 // An unknown /answer is conservatively private because its former field may
 // have been marked secret; this does not classify arbitrary prose as secret.
 func (s *Store) SecretPrompt(in Inbound) string {
+	id, _ := s.privateAnswer(in)
+	return id
+}
+
+// DisplayInput separates a native secret marker from conservative privacy.
+// Missing metadata must hide the value without claiming the field was secret.
+func (s *Store) DisplayInput(in Inbound, private bool) string {
+	id, secret := s.privateAnswer(in)
+	if secret {
+		return "已填写敏感字段"
+	}
+	if private || id != "" {
+		return "回答内容已隐藏"
+	}
+	return in.Text
+}
+
+func (s *Store) privateAnswer(in Inbound) (string, bool) {
 	parts := strings.Fields(in.Text)
 	if len(parts) >= 3 && parts[0] == "/answer" {
 		s.mu.Lock()
 		p, active := s.state.Prompts[parts[1]]
 		marked := s.state.SecretShortIDs[parts[1]]
+		q, async := s.state.AsyncQuestions[parts[1]]
+		knownAsync := async && q.ItemID != "" && q.Fingerprint != "" && q.Owner != "" && s.state.AsyncActive[q.ItemID] == q.Fingerprint && (in.expectedQuestionBinding == "" || in.expectedQuestionBinding == q.Fingerprint)
 		s.mu.Unlock()
-		if marked || !active || p.Secret && p.QuestionID != "" {
-			return parts[1]
+		if active && p.Secret && p.QuestionID != "" {
+			return parts[1], true
+		}
+		if marked || !knownAsync && (!active || p.QuestionID == "" || p.Schema == "") {
+			return parts[1], false
 		}
 	}
 	if IsCommand(in.Text) {
-		return ""
+		return "", false
 	}
 	b, _, ok := s.referencedPrompt(in)
 	if ok && b.Secret {
-		return b.ShortID
+		return b.ShortID, true
 	}
-	return ""
+	return "", false
 }
 
 // HandleReference handles only replies to a confirmed Bot card. Unknown
@@ -804,8 +827,8 @@ func (s *Store) HandleReference(ctx context.Context, in Inbound, snapshot api.Sn
 	return s.Handle(ctx, in, snapshot), true
 }
 
-// IsSecretCommand lets a transport keep a Runtime-marked secret answer out of
-// its ordinary persisted ingress ledger. It does not inspect arbitrary content.
+// IsSecretCommand keeps native secrets and answers with uncertain metadata out
+// of ordinary persisted ingress. It does not inspect arbitrary prose.
 func (s *Store) IsSecretCommand(value string) bool {
 	return s.SecretPrompt(Inbound{Text: value}) != ""
 }

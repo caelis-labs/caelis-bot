@@ -108,6 +108,7 @@ type RuntimeFlow struct {
 	Stage         string                 `json:"stage"`
 	Title         string                 `json:"title"`
 	Message       string                 `json:"message"`
+	Reason        string                 `json:"reason,omitempty"`
 	Installation  *RuntimeInstallation   `json:"installation"`
 	Authorization *RuntimeAuthorization  `json:"authorization"`
 	Launchers     []RuntimeConnectChoice `json:"launchers"`

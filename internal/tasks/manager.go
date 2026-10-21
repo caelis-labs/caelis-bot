@@ -682,20 +682,48 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 	}
 	return v, e
 }
+
+// captureMessage keeps this call's evidence separate from the task's older
+// display outcome. An arbitrary owner/transport error remains uncertain.
+func (m *Manager) captureMessage(id string, v api.Task, callErr error, reconciliation bool) (api.Task, error) {
+	outcome := "unknown"
+	var rejected *api.WorkMessageRejection
+	if !reconciliation && (v.ID == "" || v.ID == id) && errors.As(callErr, &rejected) {
+		outcome = "rejected"
+	} else if callErr == nil && v.ID == id && (v.Outcome == "accepted" || v.Outcome == "rejected") {
+		outcome = v.Outcome
+	}
+	out, err := m.capture(id, v, callErr)
+	out.Outcome = outcome
+	return out, err
+}
+
+func (m *Manager) rejectMessage(in api.TaskMessage, err error) (api.Task, error) {
+	m.mu.Lock()
+	r := m.state.Records[in.ID]
+	recorded := r != nil && slices.Contains(r.Requests, in.RequestID)
+	m.mu.Unlock()
+	if recorded {
+		// Refusing this reconciliation call says nothing about an earlier dispatch.
+		return api.Task{ID: in.ID, Outcome: "unknown"}, err
+	}
+	return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: err}
+}
+
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if !valid(in.RequestID, in.Prompt) {
-		return api.Task{}, errors.New(m.text("host.requiresRequestIdAndRequirements"))
+		return m.rejectMessage(in, errors.New(m.text("host.requiresRequestIdAndRequirements")))
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
+		return m.rejectMessage(in, errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	if err := m.refresh(); err != nil {
-		return api.Task{}, err
+		return m.rejectMessage(in, err)
 	}
 	if e := m.owned(in.ID); e != nil {
-		return api.Task{}, e
+		return m.rejectMessage(in, e)
 	}
 	m.mu.Lock()
 	current := m.state.Records[in.ID]
@@ -724,8 +752,8 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		m.markInflight(in.ID, true)
 		defer m.markInflight(in.ID, false)
 		v, err := m.work.SendWork(ctx, in)
-		v, err = m.capture(in.ID, v, err)
-		if err == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
+		v, err = m.captureMessage(in.ID, v, err, true)
+		if v.Outcome == "rejected" || err == nil && v.Outcome == "accepted" {
 			m.mu.Lock()
 			if current.RequestOutcomes == nil {
 				current.RequestOutcomes = map[string]string{}
@@ -735,14 +763,14 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			}
 			current.RequestOutcomes[in.RequestID] = v.Outcome
 			current.RequestFingerprints[in.RequestID] = hash(in.Prompt)
-			err = m.write()
+			err = errors.Join(err, m.write())
 			m.mu.Unlock()
 		}
 		return v, err
 	}
 	if status == "unknown" || status == "pending" {
 		m.mu.Unlock()
-		return api.Task{}, errors.New("original task turn or receipt unresolved; read the original task before continuing")
+		return m.rejectMessage(in, errors.New("original task turn or receipt unresolved; read the original task before continuing"))
 	}
 	restarting := terminal(status)
 	m.mu.Unlock()
@@ -751,13 +779,13 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		var err error
 		used, err = m.admissionUsage(ctx)
 		if err != nil {
-			return api.Task{}, err
+			return m.rejectMessage(in, err)
 		}
 	}
 	if restarting && used >= m.maximumRunning() {
 		replay, ok := m.work.(api.RecordedWorkMessage)
 		if !ok || !replay.WorkMessageRecorded(in) {
-			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
+			return m.rejectMessage(in, errors.New(m.text("host.taskCapacityFull")))
 		}
 	}
 	m.mu.Lock()
@@ -772,7 +800,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			r.Requests = r.Requests[:len(r.Requests)-1]
 			delete(r.RequestFingerprints, in.RequestID)
 			m.mu.Unlock()
-			return api.Task{}, e
+			return m.rejectMessage(in, e)
 		}
 	}
 	m.mu.Unlock()
@@ -780,14 +808,14 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	m.markInflight(in.ID, true)
 	defer m.markInflight(in.ID, false)
 	v, e := m.work.SendWork(ctx, in)
-	v, e = m.capture(in.ID, v, e)
-	if e == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
+	v, e = m.captureMessage(in.ID, v, e, false)
+	if v.Outcome == "rejected" || e == nil && v.Outcome == "accepted" {
 		m.mu.Lock()
 		if r.RequestOutcomes == nil {
 			r.RequestOutcomes = map[string]string{}
 		}
 		r.RequestOutcomes[in.RequestID] = v.Outcome
-		e = m.write()
+		e = errors.Join(e, m.write())
 		m.mu.Unlock()
 	}
 	return v, e

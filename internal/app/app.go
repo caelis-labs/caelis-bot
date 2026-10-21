@@ -274,20 +274,14 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 				return
 			}
 		}
-		body := in.Text
-		if app.textControl.SecretPrompt(in) != "" {
-			body = "已填写敏感字段"
-		}
+		body := app.textControl.DisplayInput(in, false)
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "accepted"}}})
 	})
 	recordInput := func(in textchannel.Inbound, secret bool) {
 		if in.ID == "" || app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}) != nil {
 			return
 		}
-		body := in.Text
-		if secret || app.textControl.SecretPrompt(in) != "" {
-			body = "已填写敏感字段"
-		}
+		body := app.textControl.DisplayInput(in, secret)
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "received"}}})
 	}
 	// Import only the previous visible window into the local IM transcript.

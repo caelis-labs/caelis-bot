@@ -6,7 +6,7 @@ export function canReturnToChat(setup:boolean, visible:boolean, modal:boolean, a
  return visible && !setup && !modal && allow();
 }
 export function settingsHasModal(root:ParentNode=document):boolean {
- return [...root.querySelectorAll<HTMLElement>('[role="dialog"],[role="alertdialog"],[data-select-open="true"],[data-settings-dirty="true"]')].some(node=>node.getClientRects().length>0);
+ return [...root.querySelectorAll<HTMLElement>('[role="dialog"]:not([data-settings-panel]),[role="alertdialog"],[data-select-open="true"],[data-settings-dirty="true"]')].some(node=>node.getClientRects().length>0);
 }
 export function requestChatReturn(setup:boolean,visible:boolean,open:()=>void) {
  if(canReturnToChat(setup,visible,settingsHasModal(),()=>window.dispatchEvent(new Event('settings-navigate',{cancelable:true}))))open();

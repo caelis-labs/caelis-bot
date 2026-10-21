@@ -676,7 +676,8 @@ void bot_apply(void *pointer, double x, double y, double scale, int visible) {
     if(!visible)host.lastContext=nil;
     [host placeX:x y:y scale:scale];
     if (visible) {
-        [NSApp unhideWithoutActivation];
+        // Layout/display recovery owns only the pet. App-wide unhide also
+        // raises background chat/settings windows, even without activation.
         [host showPetWithoutActivation];
     } else {  [host.pet orderOut:nil]; [host.bubble orderOut:nil]; }
     [host updateHit];

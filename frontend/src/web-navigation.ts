@@ -14,6 +14,10 @@ export function parseWebRoute(hash:string):WebNavigation{
  if(parts[0]==='task'&&/^[a-zA-Z0-9_-]{1,160}$/.test(parts[1]||''))return {view:'task',task:parts[1]};
  return {view:'chat'};
 }
+// Task bubbles are a view toggle, never a task lifecycle action.
+export function taskToggleRoute(current:WebNavigation,id:string):WebNavigation{
+ return current.view==='task'&&current.task===id?{view:'chat'}:{view:'task',task:id};
+}
 export function webRouteHash(route:WebNavigation){
  if(route.section==='setup')return '#/setup';
  if(route.view==='settings')return '#/settings/'+route.section;

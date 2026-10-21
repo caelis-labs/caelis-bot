@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {webRoutes} from '../frontend/src/web-routes.ts';
-import {createNavigationGuard,parseWebRoute,webRouteHash} from '../frontend/src/web-navigation.ts';
+import {createNavigationGuard,parseWebRoute,webRouteHash,taskToggleRoute} from '../frontend/src/web-navigation.ts';
 import {feedbackSummary,decodeDiagnostic} from '../frontend/src/feedback.ts';
 
 test('browser action paths match the explicit server allowlist',()=>{
@@ -54,4 +54,11 @@ test('feedback is a readable allowlist and cannot copy private diagnostic payloa
  assert.doesNotMatch(hostile,/https:|token=|secret|private/);
  assert.match(feedbackSummary({web:true,setup:true,report:{connection:'ready'}}),/对话：已连接/,'unfinished introduction must not claim the runtime is offline');
  assert.match(feedbackSummary({web:true}),/CaelisBot/,'API outage still has copyable feedback');
+});
+
+test('task bubble opens, toggles the same task closed and switches original task identity',()=>{
+ const open=taskToggleRoute({view:'chat'},'original-one');
+ assert.deepEqual(open,{view:'task',task:'original-one'});
+ assert.deepEqual(taskToggleRoute(open,'original-one'),{view:'chat'});
+ assert.deepEqual(taskToggleRoute(open,'original-two'),{view:'task',task:'original-two'});
 });

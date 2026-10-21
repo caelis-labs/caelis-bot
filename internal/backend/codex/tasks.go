@@ -425,7 +425,7 @@ func (s *Session) taskAdmission() error {
 }
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if !taskRequestValid(in.RequestID, in.Prompt) {
-		return api.Task{}, errors.New("需要稳定请求标识和任务要求")
+		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("需要稳定请求标识和任务要求")}
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
@@ -435,7 +435,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	t := s.binding.Tasks[in.ID]
 	if t == nil {
 		s.mu.Unlock()
-		return api.Task{}, errors.New("只能继续 Bot 创建的任务")
+		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("只能继续 Bot 创建的任务")}
 	}
 	if receipt, ok := t.Requests[in.RequestID]; ok {
 		v := s.taskView(t)
@@ -449,16 +449,16 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if s.binding.LostOwnerTasks[in.ID] {
 		v := s.taskView(t)
 		s.mu.Unlock()
-		return v, errors.New("原 owner 已关闭，不能向新连接重发或续接旧任务")
+		return v, &api.WorkMessageRejection{Cause: errors.New("原 owner 已关闭，不能向新连接重发或续接旧任务")}
 	}
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
-		return api.Task{}, err
+		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
 	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" || len(t.Requests) >= 100 {
 		v := t.View
 		s.mu.Unlock()
-		return v, errors.New("请先核对该任务；结果未知的操作不会重复发送")
+		return v, &api.WorkMessageRejection{Cause: errors.New("请先核对该任务；结果未知的操作不会重复发送")}
 	}
 	s.mu.Unlock()
 	return s.sendTask(ctx, t, in, true)
@@ -470,7 +470,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	wasActive := t.View.Status == "working"
 	if wasActive && run == "" {
 		s.mu.Unlock()
-		return api.Task{}, errors.New("运行回合尚未确认，请先读取任务")
+		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("运行回合尚未确认，请先读取任务")}
 	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
 	previousSuperseded := append([]string(nil), t.SupersededRuns...)
@@ -491,7 +491,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		delete(t.Requests, in.RequestID)
 		t.View, t.Run, t.Pending, t.SuppressReport, t.SupersededRuns = previousView, previousRun, previousPending, previousSuppression, previousSuperseded
 		s.mu.Unlock()
-		return api.Task{}, err
+		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
 	params := map[string]any{"threadId": t.Thread, "clientUserMessageId": in.RequestID}
 	// Provenance stays in the binding. The worker receives the actual assignment.
@@ -619,6 +619,9 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		err = saveErr
 	}
 	s.update()
+	if r.Outcome == "rejected" && err != nil {
+		err = &api.WorkMessageRejection{Cause: err}
+	}
 	return t.View, err
 }
 func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool) {

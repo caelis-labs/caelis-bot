@@ -374,11 +374,11 @@ func (w *localWorkers) ReadWorkConversation(ctx context.Context, id string) ([]a
 }
 func (w *localWorkers) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if err := w.WorkAdmission(ctx); err != nil {
-		return api.Task{}, err
+		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
 	owner, err := w.target(ctx, in.ID)
 	if err != nil {
-		return api.Task{}, err
+		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
 	return owner.SendWork(ctx, in)
 }

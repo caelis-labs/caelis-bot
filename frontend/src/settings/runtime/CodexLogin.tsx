@@ -3,8 +3,7 @@ import type {SetupRequest,SetupState} from '../../backend/contract';
 import {desktop,backend} from '../../desktop';
 import {useI18n} from '../../i18n';
 import {SetupButton} from '../../SetupLoading';
-import {CheckIcon} from '../../SettingsIcons';
-import {CopyIcon} from '@phosphor-icons/react/dist/csr/Copy';
+import {DeviceCode} from './DeviceCode';
 import type {MessageKey} from '../../i18n/catalogs';
 import {isWebSurface} from '../../transport';
 import './codex-login.css';
@@ -13,17 +12,16 @@ import './codex-login.css';
 // the service host. This component only reads, copies and opens the user challenge.
 export function CodexLogin({state,busy=false,error=false,onAction,host=desktop,open=backend}:{state:SetupState;busy?:boolean;error?:boolean;onAction:(action:string,fields?:Partial<SetupRequest>)=>unknown;host?:typeof desktop;open?:typeof backend}) {
  const {t}=useI18n();
- const [copied,setCopied]=useState(false),[keyForm,setKeyForm]=useState(false),[key,setKey]=useState(''),[localError,setLocalError]=useState<MessageKey|''>('');
+ const [keyForm,setKeyForm]=useState(false),[key,setKey]=useState(''),[localError,setLocalError]=useState<MessageKey|''>('');
  const login=state.login,status=login?.state||'',pending=state.loginPending;
- useEffect(()=>{setCopied(false);setLocalError('');setKey('');if(pending)setKeyForm(false)},[login?.id,pending]);
+ useEffect(()=>{setLocalError('');setKey('');if(pending)setKeyForm(false)},[login?.id,pending]);
  const perform=(action:string,fields?:Partial<SetupRequest>)=>{setLocalError('');void Promise.resolve(onAction(action,fields)).catch(()=>setLocalError('runtime.deviceActionFailed'))};
- const copy=()=>{if(!login?.userCode)return;void host('CopyText',login.userCode).then(()=>setCopied(true)).catch(()=>setLocalError('runtime.deviceCopyFailed'))};
  const launch=()=>{if(login?.verificationUrl!=='https://auth.openai.com/codex/device')return;void open('OpenMessageLink',login.verificationUrl).catch(()=>setLocalError('runtime.deviceOpenFailed'))};
  const message:Record<string,MessageKey>={unsupported:'runtime.deviceUnsupported',unavailable:'runtime.deviceUnavailable',failed:'runtime.deviceFailed',expired:'runtime.deviceExpired',cancelled:'runtime.deviceCancelled',interrupted:'runtime.deviceInterrupted',unknown:'runtime.deviceUnknown','other-session':'runtime.deviceOtherSession'};
  return <div className="codex-login">
   {pending&&status==='pending'&&login?.userCode?<>
    <p className="settings-note">{t('runtime.deviceEnterCode')}</p>
-   <div className="codex-user-code"><code>{login.userCode}</code><button type="button" aria-label={t(copied?'chat.feedbackCopied':'runtime.deviceCopyCode')} title={t(copied?'chat.feedbackCopied':'runtime.deviceCopyCode')} onClick={copy}>{copied?<CheckIcon size={18}/>:<CopyIcon size={18}/>}</button></div>
+   <DeviceCode key={login.id} code={login.userCode} host={host}/>
    <button type="button" className="primary" onClick={launch}>{t('runtime.deviceOpenVerification')}</button>
    <a className="codex-verification-url" href={login.verificationUrl} target="_blank" rel="noopener noreferrer">auth.openai.com/codex/device</a>
    <p className="settings-note" role="status">{t('runtime.deviceWaiting')}</p>

@@ -34,7 +34,8 @@ test('popover matches the composer width and never overlaps the input',()=>{
  assert.equal(menu.left,anchor.left);
  const narrow=attachmentMenuLayout({...anchor,left:15,top:90,bottom:152,width:270},{width:300,height:300},360);
  assert.ok(narrow.left>=12 && narrow.left+narrow.width<=288);
- assert.ok(narrow.height<=136);
+ assert.equal(narrow.height,70);
+ assert.ok(narrow.top+narrow.height<90);
  assert.ok(narrow.top>=12);
  const fileOnly=attachmentMenuLayout(anchor,{width:640,height:700},48);
  assert.equal(fileOnly.width,anchor.width);

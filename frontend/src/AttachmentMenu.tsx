@@ -25,10 +25,13 @@ export function AttachmentMenu({trigger,selected,onClose,onPick,onSelect}: {
   return()=>{alive=false;};
  },[locale]);
  useLayoutEffect(()=>{
-  const node=menu.current!;
+  const node=menu.current!,anchor=trigger.current?.closest('.compose-area');
   const position=()=>{
-   const rect=trigger.current?.closest('.capsule')?.getBoundingClientRect();
-   if(rect)setLayout(attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},Math.min(360,node.scrollHeight+2),Math.min(344,rect.width)));
+   const rect=anchor?.getBoundingClientRect();
+   if(rect){
+    const next=attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},Math.min(480,node.scrollHeight+2));
+    setLayout(previous=>previous&&Object.keys(next).every(key=>previous[key as keyof MenuLayout]===next[key as keyof MenuLayout])?previous:next);
+   }
   };
   const outside=(event:PointerEvent)=>{if(!node.contains(event.target as Node)&&!trigger.current?.contains(event.target as Node))close.current();};
   const key=(event:KeyboardEvent)=>{
@@ -45,13 +48,14 @@ export function AttachmentMenu({trigger,selected,onClose,onPick,onSelect}: {
   };
   const blur=()=>close.current(),taskExpanded=()=>close.current();
   window.addEventListener('resize',position);
+  window.addEventListener('scroll',position,true);
   window.addEventListener('pointerdown',outside,true);
   window.addEventListener('keydown',key,true);
   window.addEventListener('blur',blur);
   window.addEventListener('task-dock-expanded',taskExpanded);
-  const observer=new ResizeObserver(position);observer.observe(node);position();
+  const observer=new ResizeObserver(position);observer.observe(node);if(anchor)observer.observe(anchor);position();
   return()=>{
-   observer.disconnect();window.removeEventListener('resize',position);
+   observer.disconnect();window.removeEventListener('resize',position);window.removeEventListener('scroll',position,true);
    window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',key,true);
    window.removeEventListener('blur',blur);window.removeEventListener('task-dock-expanded',taskExpanded);
   };

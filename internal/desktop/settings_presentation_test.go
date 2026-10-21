@@ -14,8 +14,8 @@ func TestSettingsPresentationDoesNotReadServiceStateOnUIThread(t *testing.T) {
 				s.mu.Lock()
 				defer s.mu.Unlock()
 				present()
-			}, func(welcome bool, title string) {
-				if welcome != (section == "setup") || title == "" {
+			}, func(welcome bool, title, destination string) {
+				if welcome != (section == "setup") || title == "" || destination != section {
 					t.Fatalf("invalid presentation: %v %q", welcome, title)
 				}
 				shown = true
@@ -50,5 +50,24 @@ func TestOnboardingGuardsAllContextualEntryPoints(t *testing.T) {
 	s.OpenSettings()
 	if chats != 1 || s.SettingsSection() != "general" {
 		t.Fatal("completed introduction still blocked")
+	}
+}
+
+func TestRepeatedSettingsOpenOnlyFocusesExistingWindow(t *testing.T) {
+	s, _, _ := setup()
+	s.started = true
+	s.settingsSection = "runtime"
+	focused, opened := 0, 0
+	s.settingsVisible = func() bool { return true }
+	s.focusSettings = func() { focused++ }
+	s.openSettings = func() { opened++ }
+	s.OpenSettings()
+	s.OpenSettings()
+	if focused != 2 || opened != 0 || s.SettingsSection() != "runtime" {
+		t.Fatal(focused, opened, s.SettingsSection())
+	}
+	s.OpenRuntimeSettings()
+	if opened != 1 {
+		t.Fatal("explicit destination lost")
 	}
 }

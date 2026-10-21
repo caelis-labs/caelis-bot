@@ -9,16 +9,16 @@ const root=createRoot(document.getElementById('root')!);
 async function start(){
  const response=await fetch('/api/v1/bootstrap',{method:'POST',headers:{'X-Caelis-Request':'1'}});
  if(response.status===401){root.render(<Pair/>);return;}
- if(!response.ok){root.render(<ConnectRetry limited={response.status===429}/>);return;}
+ if(!response.ok){root.render(<ConnectRetry/>);return;}
  const bootstrap=await response.json() as WebBootstrap,client=createWebTransport(bootstrap);
  installTransport(client.transport);
  const {WebApp}=await import('./web-app');client.start();
  window.addEventListener('web-logged-out',()=>{client.close();location.reload()},{once:true});
  root.render(<WebApp client={client}/>);
 }
-function ConnectRetry({limited=false}:{limited?:boolean}){
+function ConnectRetry(){
  const [busy,setBusy]=useState(false);
- return <main className="web-pair"><h1>连接暂未完成</h1><p>{limited?'已连接的浏览器较多，请先在已连接的页面中继续。':'暂时无法连接 CaelisBot，请稍后重试。'}</p><button disabled={busy} onClick={()=>{setBusy(true);void start().catch(()=>root.render(<ConnectRetry/>)).finally(()=>setBusy(false));}}>{busy?'连接中…':'重试'}</button></main>;
+ return <main className="web-pair"><h1>连接暂未完成</h1><p>暂时无法连接 CaelisBot，请稍后重试。</p><button disabled={busy} onClick={()=>{setBusy(true);void start().catch(()=>root.render(<ConnectRetry/>)).finally(()=>setBusy(false));}}>{busy?'连接中…':'重试'}</button></main>;
 }
 function Pair(){
  const [code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');

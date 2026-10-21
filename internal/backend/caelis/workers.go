@@ -395,7 +395,14 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return projected, errors.New("original worker state mismatch")
 	}
 	if state.Run.Active == nil && !workerNativeActive(state) {
-		return projected, errors.New("original worker activity unconfirmed")
+		// active is optional in the native contract. A fresh terminal state
+		// from this exact owner also confirms inactivity, but says nothing
+		// about whether its transcript can be read successfully.
+		switch value(state.Run.Status) {
+		case "completed", "failed", "cancelled", "stopped", "interrupted":
+		default:
+			return projected, errors.New("original worker activity unconfirmed")
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -500,6 +507,12 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 		return s.workerViewLocked(previous), errors.Join(callErr, err)
 	}
 	s.bumpLocked()
+	// Only this newly submitted invocation reaches finishWorkerSubmission.
+	// Preserve explicit pre-dispatch/native refusal, not an older projection or
+	// a failed lookup of an unknown operation. Persistence must succeed first.
+	if callErr != nil && result.OperationId == previous.Submission.OperationID && (result.Outcome == "rejected" || result.Outcome == "conflicted") {
+		callErr = &api.WorkMessageRejection{Cause: callErr}
+	}
 	return s.workerViewLocked(w), callErr
 }
 

@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
 func workerHistoryFrames(w http.ResponseWriter, events []wire.Envelope, before string) {
@@ -65,6 +68,77 @@ func TestWorkerConversationRejectsUnreadableNativeHistory(t *testing.T) {
 	s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.SessionBinding{SessionId: "work"}}
 	if messages, err := s.ReadWorkConversation(t.Context(), "task"); err == nil || messages != nil {
 		t.Fatal("unreadable native history became empty success", messages, err)
+	}
+}
+
+// Core may omit the optional active flag on a terminal native run. Exercise
+// the manager's state read before history, not only the transcript reader.
+func TestTerminalWorkerConversationReadPath(t *testing.T) {
+	for _, unreadable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unreadable), func(t *testing.T) {
+			states, histories := 0, 0
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					t.Errorf("history read mutated the original owner: %s", r.Method)
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				switch r.URL.Path {
+				case "/api/control/v1/sessions/work/state":
+					states++
+					writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), TurnId: pointer("t2")}})
+				case "/api/control/v1/sessions/work/reconnect":
+					histories++
+					if unreadable {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					if r.URL.Query().Get("history_before") == "" {
+						// Native chunks have messageId but no final flag; the
+						// native lifecycle completes the final assistant message.
+						message := workerHistoryMessage("", "t2", "agent_message_chunk", "final answer", false)
+						var update map[string]any
+						_ = json.Unmarshal(*message.Update, &update)
+						update["messageId"] = "native-final"
+						body, _ := json.Marshal(update)
+						message.Update = pointer(json.RawMessage(body))
+						workerHistoryFrames(w, []wire.Envelope{message, {Kind: "caelis/lifecycle", TurnId: pointer("t2"), Lifecycle: &wire.LifecycleEvent{State: "completed"}}}, "older")
+					} else if r.URL.Query().Get("history_before") == "older" {
+						workerHistoryFrames(w, []wire.Envelope{workerHistoryMessage("u1", "t1", "user_message_chunk", "original question", true)}, "")
+					} else {
+						t.Error("unexpected history boundary")
+					}
+				default:
+					t.Errorf("read left original owner: %s", r.URL.Path)
+				}
+			})
+			s.state.Workers["task"] = worker{Native: true, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, Binding: wire.SessionBinding{SessionId: "work"}, PromptID: "original-prompt"}
+			root := t.TempDir()
+			m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", s, s, s.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := m.ReadTaskConversation(t.Context(), "task")
+			if unreadable {
+				if err == nil || first.Messages != nil || histories != 1 {
+					t.Fatal("completed state hid a real history failure", err, histories)
+				}
+				return
+			}
+			if err != nil || first.Status != "completed" || len(first.Messages) != 2 || first.Messages[1].Text != "final answer" {
+				t.Fatal("terminal original history was unreadable", err, len(first.Messages))
+			}
+			// Reopen the local coordinator and reconnect to the same native
+			// session: neither task nor message identities may be replaced.
+			m, err = tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", s, s, s.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := m.ReadTaskConversation(t.Context(), "task")
+			if err != nil || !reflect.DeepEqual(first, second) || states != 2 || histories != 4 || s.state.Workers["task"].PromptID != "original-prompt" || len(s.state.Workers) != 1 {
+				t.Fatal("read/reconnect changed original identities", err, states, histories)
+			}
+		})
 	}
 }
 

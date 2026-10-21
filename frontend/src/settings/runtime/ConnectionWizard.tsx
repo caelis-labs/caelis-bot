@@ -19,6 +19,7 @@ import { useI18n } from '../../i18n';
 import { SettingsChevron } from '../../SettingsIcons';
 import { SetupButton, SetupLoading } from '../../SetupLoading';
 import {isWebSurface} from '../../transport';
+import {DeviceCode} from './DeviceCode';
 
 function friendlyModel(name:string) {
  const id=name.includes('/')?name.slice(name.lastIndexOf('/')+1):name;
@@ -117,7 +118,11 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
    observe(seq, next);
   } catch {
    if (alive.current && seq === serial.current && !controller.signal.aborted) {
-    setFlow(current => !multipleModels && current?.stage === 'complete' ? current : ({ id: multipleModels ? '' : current?.id || '', revision: multipleModels ? '' : current?.revision || '', sequence: multipleModels ? 0 : current?.sequence || 0, stage: 'unknown', title: t('connections.unknownResultTitle'), message: t('connections.unknownResultMessage') }));
+    setFlow(current => {
+     if(!multipleModels&&current?.stage==='complete')return current;
+     if(action==='refresh'&&current)return {...current,observationUnavailable:true};
+     return { ...(!multipleModels?current:null), id: multipleModels ? '' : current?.id || '', revision: multipleModels ? '' : current?.revision || '', sequence: multipleModels ? 0 : current?.sequence || 0, stage: 'unknown', title: t('connections.unknownResultTitle'), message: t('connections.unknownResultMessage') };
+    });
    }
   } finally { if (alive.current && seq === serial.current) { working.current = false; setBusy(false); } }
  };
@@ -166,7 +171,8 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
  const open = async (url: string) => { if (!safeWebURL(url)) { setError(t('connections.invalidUrl')); return; } try { await client.openURL(url); } catch { setError(t('connections.cannotOpenBrowser')); } };
  const close = () => { setAPIKey(''); setCode(''); if (!flow) onClose(); else void cancel(); };
  const Surface = inline ? SettingsPage : SettingsDialog;
- const oauthPage = onboarding && flow?.stage === 'authorization';
+ const authorization=flow&&['authorization','unknown'].includes(flow.stage)?flow.authorization:undefined;
+ const oauthPage = onboarding && !!authorization;
  const completing=onboarding&&flow?.stage==='complete';
  const submitting=busy||completing&&!error;
  const keepAPIForm=onboarding&&kind==='api-key'&&!!flow&&['preparing','complete'].includes(flow.stage);
@@ -225,35 +231,27 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
    <fieldset disabled={busy} className="runtime-auth-methods"><legend>{t('connections.chooseAuthMethod')}</legend>{flow.methods?.map(m => <label key={m.id}><input type="radio" name="runtime-auth-method" value={m.id} checked={method === m.id} disabled={!m.available} onChange={() => setMethod(m.id)}/><span><strong>{m.name}</strong><small>{m.reason || m.description}</small></span></label>)}</fieldset>
    <div className="setup-end"><SetupButton className="primary" busy={onboarding&&busy} disabled={busy || !flow.methods?.some(m => m.id === method && m.available)} onClick={() => void run('authenticate', { method })}>{t('connections.continueAuth')}</SetupButton></div>
   </>}
-  {oauthPage && flow.authorization && <section className="onboarding-oauth" aria-labelledby="provider-oauth-title">
-   <img className="onboarding-oauth-app-icon" src={appIcon} alt="Caelis Bot"/>
-   <h1 id="provider-oauth-title">{t('connections.oauthTitle',{provider:choice?.id==='grok'?'Grok':'ChatGPT'})}</h1>
-   <p className="setup-lead" role="status">{t(expired?'connections.authExpired':'connections.oauthBrowserHint')}</p>
-   {flow.authorization.userCode && <div className="runtime-device-code"><span>{t('connections.deviceCode')}</span><code>{flow.authorization.userCode}</code></div>}
-   <div className="onboarding-oauth-actions"><button className="primary" disabled={expired || !safeWebURL(flow.authorization.url)} onClick={() => void open(flow.authorization!.url)}>{t('runtime.oauthBrowserAction')}</button></div>
-   <p className="onboarding-oauth-footnote">{t('runtime.oauthContinueHint')}</p>
-   {flow.authorization.inputLabel && <details className="oauth-manual"><summary>{t('connections.oauthManual')}</summary><form onSubmit={e=>{e.preventDefault();if(!expired&&flow.authorization?.canSubmit)void run('submit-code',{code});}}><label>{t('connections.oauthResponse')}<input type="password" autoComplete="off" spellCheck={false} value={code} disabled={busy||expired||!flow.authorization.canSubmit} onChange={e=>setCode(e.target.value)}/></label><SetupButton busy={busy} disabled={expired||!code.trim()||!flow.authorization.canSubmit}>{t('connections.submitAuthInfo')}</SetupButton></form></details>}
-   <SetupButton className="text-action oauth-refresh" busy={busy} onClick={()=>void run('refresh')}>{t('connections.checkAuthStatus')}</SetupButton>
+  {authorization && <section className={oauthPage?'onboarding-oauth':'runtime-authorization'} aria-label={t('connections.oauthTitle',{provider:choice?.id==='grok'?'Grok':'ChatGPT'})}>
+   {oauthPage&&<><img className="onboarding-oauth-app-icon" src={appIcon} alt="Caelis Bot"/><h1>{t('connections.oauthTitle',{provider:choice?.id==='grok'?'Grok':'ChatGPT'})}</h1></>}
+   <p className={oauthPage?'setup-lead':'settings-note'} role="status">{t(expired?'connections.authExpired':flow?.stage==='unknown'?'connections.authResultUnconfirmed':flow?.observationUnavailable?'connections.authObservationUnavailable':'connections.completeAuthInBrowser')}</p>
+   {!expired&&authorization.userCode&&<DeviceCode key={flow?.id} code={authorization.userCode}/>}
+   {!expired&&<div className="authorization-primary"><button className="primary" disabled={!safeWebURL(authorization.url)} onClick={()=>void open(authorization.url)}>{t('connections.openLoginPage')}</button>
+    <p className="runtime-url">{authorization.url}</p></div>}
+   {authorization.expiresAt&&!expired&&<p className="settings-note authorization-expiry">{t('connections.validUntil',{time:date(new Date(authorization.expiresAt),{hour:'numeric',minute:'2-digit',second:'2-digit'})})}</p>}
+   {authorization.inputLabel&&!expired&&flow?.stage==='authorization'&&<details className="oauth-manual"><summary>{t('connections.oauthManual')}</summary><form onSubmit={e=>{e.preventDefault();if(authorization.canSubmit)void run('submit-code',{code});}}><label>{t('connections.oauthResponse')}<input type="password" autoComplete="off" spellCheck={false} value={code} disabled={busy||!authorization.canSubmit} onChange={e=>setCode(e.target.value)}/></label><SetupButton busy={busy} disabled={busy||!code.trim()||!authorization.canSubmit}>{t('connections.submitAuthInfo')}</SetupButton></form></details>}
+   <div className="authorization-secondary"><SetupButton className="text-action" busy={busy} disabled={busy||canceling} onClick={()=>void run('refresh')}>{t('connections.checkAuthStatus')}</SetupButton>
+    {flow?.stage!=='unknown'&&<button className="text-action" disabled={canceling} onClick={()=>void cancel()}>{t(canceling?'connections.canceling':'connections.cancelConnection')}</button>}</div>
   </section>}
-  {!onboarding && flow?.stage === 'authorization' && flow.authorization && <>
-   <div className="runtime-authorization"><p>{expired ? t('connections.authExpired') : t('connections.completeAuthInBrowser')}</p>{flow.authorization.userCode && <div className="runtime-device-code"><span>{t('connections.deviceCode')}</span><code>{flow.authorization.userCode}</code></div>}
-    <button disabled={expired || !safeWebURL(flow.authorization.url)} onClick={() => void open(flow.authorization!.url)}>{t('connections.openLoginPage')}</button>
-    <p className="runtime-url">{flow.authorization.url}</p>{flow.authorization.expiresAt && <small>{t('connections.validUntil', { time: date(new Date(flow.authorization.expiresAt), { hour: 'numeric', minute: '2-digit', second: '2-digit' }) })}</small>}
-   </div>
-   {flow.authorization.inputLabel && <form onSubmit={e => { e.preventDefault(); if (!expired && flow.authorization?.canSubmit) void run('submit-code', { code }); }}><label>{flow.authorization.inputLabel}<input type="password" autoComplete="off" spellCheck={false} value={code} disabled={busy || expired || !flow.authorization.canSubmit} onChange={e => setCode(e.target.value)}/></label><div className="setup-end"><button disabled={busy || expired || !code.trim() || !flow.authorization.canSubmit}>{t('connections.submitAuthInfo')}</button></div></form>}
-   {!flow.authorization.inputLabel && <p className="settings-note" role="status">{t('connections.waitingRuntimeConfirmation')}</p>}
-   <button className="text-action" disabled={busy} onClick={() => void run('refresh')}>{t('connections.checkAuthStatus')}</button>
-  </>}
-  {showModels && <>{onboarding?<div className="provider-config-group"><label>{t('connections.selectModel')}<SettingsSelect centered={onboarding} searchable={(modelChoices?.length||0)>8} aria-label={t('connections.selectModel')} disabled={busy||completing} value={model} onChange={e=>setModel(e.target.value)}>{modelChoices?.map(m=><option key={m.id} value={m.id} title={m.id} data-description={modelDescription(m.description,m.id,m.name,friendlyModel(m.name||m.id))}>{friendlyModel(m.name||m.id)}</option>)}</SettingsSelect></label>{parameterControls}</div>:<fieldset className="provider-model-list provider-account-models" disabled={busy||completing}><legend>{t('connections.selectModel')}</legend><div className="provider-model-scroll">{modelChoices?.map(m=><label key={m.id}><input type="radio" name={modelListID} checked={model===m.id} onChange={()=>setModel(m.id)}/><span>{m.name}{!onboarding&&m.description&&<small>{m.description}</small>}</span></label>)}</div>{!modelChoices?.length&&<p role="status">{t('runtime.noModelsFound')}</p>}</fieldset>}<div className="setup-end"><SetupButton className="primary" busy={onboarding&&submitting} disabled={busy || !modelChoices?.some(m => m.id === model)} onClick={() => completing?void finish():void run('connect', { model })}>{t(onboarding?'settings.setupNext':'connections.connectModel')}</SetupButton></div></>}
+  {showModels && <>{onboarding?<div className="provider-config-group"><label>{t('connections.selectModel')}<SettingsSelect centered={onboarding} searchable={(modelChoices?.length||0)>8} aria-label={t('connections.selectModel')} disabled={busy||completing} value={model} onChange={e=>setModel(e.target.value)}>{modelChoices?.map(m=><option key={m.id} value={m.id} title={m.id} data-description={modelDescription(m.description,m.id,m.name,friendlyModel(m.name||m.id))}>{friendlyModel(m.name||m.id)}</option>)}</SettingsSelect></label>{parameterControls}</div>:<fieldset className="provider-model-list provider-account-models" disabled={busy||completing}><legend>{t('connections.selectModel')}</legend><div className="provider-model-scroll">{modelChoices?.map(m=><label key={m.id}><input type="radio" name={modelListID} checked={model===m.id} onChange={()=>setModel(m.id)}/><span><strong>{friendlyModel(m.name||m.id)}</strong>{m.description&&<small>{m.description}</small>}</span></label>)}</div>{!modelChoices?.length&&<p role="status">{t('runtime.noModelsFound')}</p>}</fieldset>}<div className="setup-end"><SetupButton className="primary" busy={onboarding&&submitting} disabled={busy || !modelChoices?.some(m => m.id === model)} onClick={() => completing?void finish():void run('connect', { model })}>{t(onboarding?'settings.setupNext':'connections.connectModel')}</SetupButton></div></>}
 
-  {flow && (!onboarding||flow.stage!=='complete') && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
-  {!onboarding&&flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? t('connections.canceling') : t('connections.cancelConnection')}</button>}
+  {flow && (!onboarding||flow.stage!=='complete') && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && !authorization && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
+  {!onboarding&&!authorization&&flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? t('connections.canceling') : t('connections.cancelConnection')}</button>}
   {!flow&&!loading&&(optionsFailed||gateway&&!!optionsFor&&!options.models.length)&&<div className="gateway-read-notice" role="status">
    <p>{t(optionsFailed?'connections.gatewayUnavailable':'connections.gatewayNoModels')}{isWebSurface()&&gateway&&localGateway&&<> {t('connections.gatewayServerAddress')}</>}</p>
    <button type="button" onClick={()=>setOptionsRefresh(n=>n+1)}>{t('settings.runtimeTryAgain')}</button>
   </div>}
   {catalogFailed&&<Recovery message={t('runtime.actionFailed')} onRetry={()=>setCatalogAttempt(v=>v+1)}/>}
   {error&&!catalogFailed&&<p className="settings-note" role="status">{t('runtime.actionFailed')}</p>}
-  {flow&&['failed','unknown'].includes(flow.stage)&&<p className="settings-note" role="status">{t(flow.stage==='unknown'?'connections.unknownResultMessage':'runtime.actionFailed')}</p>}
+  {flow&&!authorization&&['failed','unknown'].includes(flow.stage)&&<p className="settings-note" role="status">{t(flow.reason==='expired'?'connections.authExpired':flow.reason==='cancelled'?'connections.authCancelled':flow.stage==='unknown'?'connections.unknownResultMessage':'runtime.actionFailed')}</p>}
  </div></Surface>;
 }

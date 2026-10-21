@@ -2,9 +2,8 @@ import {useCodexInstallation} from './CodexInstallation';
 import {Recovery} from '../../SurfaceBoundary';
 import {ModelSelectionDelivery} from './model-selection';
 import {ProviderLogo} from './OnboardingProviders';
-import {createPortal} from 'react-dom';
-import {SettingsToolbarContext} from '../SettingsToolbar';
-import {useContext,useEffect,useMemo,useRef,useState} from 'react';
+import {useSettingsTrail,type SettingsCrumb} from '../SettingsToolbar';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import {useI18n} from '../../i18n';
 import type {ModelSelectionState,ModelOption,RuntimeSettings,RuntimeConfiguration,SetupState,SetupRequest,WorkExecutionSettings} from '../../backend/contract';
@@ -33,7 +32,6 @@ const emptyModel={model:'',effort:'',serviceTier:''};
 export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refreshKey?:number}){
  const {t}=useI18n();
  const name=(id:string)=>id==='caelis'?t('runtime.builtinOnboardingTitle'):'Codex';
- const toolbar=useContext(SettingsToolbarContext);
  const [route,setRoute]=useState<Route>({page:'home'}),[views,setViews]=useState<Partial<Record<ID,RuntimeView>>>({}),[failures,setFailures]=useState<Partial<Record<ID,string>>>({});
  const [selections,setSelections]=useState<ModelSelectionState[]>([]);
  const [bot,setBot]=useState<WorkExecutionSettings>(emptyModel),[worker,setWorker]=useState<WorkExecutionSettings>(emptyModel),[botID,setBotID]=useState(''),[workerID,setWorkerID]=useState('');
@@ -122,8 +120,15 @@ export function ConnectionsPage({active=true,refreshKey=0}:{active?:boolean;refr
  const summary=(scope:'conversation'|'work')=>{const required=scope==='conversation'?[0,1]:[2],selectionLoaded=required.every(i=>selectionFields.includes(i)),selectionFailed=required.some(i=>selectionErrors.includes(i));const v=modelValue(scope),found=models.find(m=>m.model===v.model),selected=selectionOverride(scope),runtime=selected?.runtime??(scope==='conversation'?botID:workerID),saved=selected?.selection??(scope==='conversation'?bot:worker);return <button className="runtime-model-summary" aria-busy={!selectionLoaded} onClick={event=>{anchor.current=event.currentTarget;setEditing(scope)}}><span><strong>{(!selectionLoaded&&!selected?t(selectionFailed?'settings.runtimeStatusFailed':'common.loading'):runtime==='conversation'?t('runtime.followConversationModel'):found?.name||saved.model||t(runtime?'runtime.default':'runtime.selectModel'))}</strong>{runtime==='codex'&&<small className="settings-source-badge">Codex</small>}{runtime&&runtime!=='conversation'&&views[runtime as ID]&&views[runtime as ID]!.state.state!=='ready'&&<small>{t('runtime.notConnected')}</small>}{selectionFailed&&<small role="alert">{t('settings.runtimeStatusFailed')}</small>}{selectionLoaded&&!runtime&&<small>{t('settings.connectionPrepareFirst')}</small>}{selected&&selected.state!=='applied'&&<small role="status">{t(selected.state==='saving'?'settings.modelSelectionSaving':selected.state==='recovering'?'settings.modelSelectionRecovering':'settings.modelSelectionPending')}</small>}</span><SettingsChevron/></button>};
  const stateText=(runtime:ID)=>failures[runtime]?t('settings.runtimeStatusFailed'):views[runtime]?`${t(setupStatusKey(views[runtime]!.state))}${refreshingIDs.includes(runtime)?' · '+t('settings.runtimeLastChecked'):''}`:t('runtime.detecting');
  const topError=<>{error&&<Recovery message={error}/>}{notice&&<p className="settings-note" role="status">{notice}</p>}</>;
+ const trail:SettingsCrumb[]=[{label:t('settings.connections'),open:()=>go({page:'home'})}];
+ if(route.page!=='home')trail.push({label:name(id),open:()=>go({page:'runtime',id})});
+ if(['providers','provider','connect'].includes(route.page))trail.push({label:t('runtime.modelConnections'),open:()=>go({page:'providers',id})});
+ if(route.page==='team')trail.push({label:t('runtime.teamSettings')});
+ if(route.page==='connect')trail.push({label:providerName(route.choice,route.choice)});
+ if(route.page==='provider')trail.push({label:config?.connections.find(g=>g.id===route.group)?.name||t('settings.connectionModels')});
+ const toolbar=useSettingsTrail(trail,active);
  return <section ref={root} className="connections-page">
-  {toolbar&&['runtime','team','providers','provider','connect'].includes(route.page)&&createPortal(<div className="settings-subpage-crumb"><button className="text-action" disabled={busy} onClick={()=>go({page:'home'})}>{t('settings.connections')}</button><span aria-hidden="true">/</span>{route.page==='runtime'?<h1>{name(id)}</h1>:<><button className="text-action" disabled={busy} onClick={()=>go({page:'runtime',id})}>{name(id)}</button><span aria-hidden="true">/</span>{route.page==='connect'?<><button className="text-action" disabled={busy} onClick={()=>go({page:'providers',id})}>{t('runtime.modelConnections')}</button><span aria-hidden="true">/</span><h1>{providerName(route.choice,route.choice)}</h1></>:<h1>{t(route.page==='team'?'runtime.teamSettings':'runtime.modelConnections')}</h1>}</>}</div>,toolbar)}
+
   {route.page==='home'?<>
    <SettingGroup title={t('settings.connectionBasics')}><SettingRow label={t('settings.connectionBotModel')}>{summary('conversation')}</SettingRow><SettingRow label={t('settings.connectionWorkModel')}>{summary('work')}</SettingRow></SettingGroup>
    <SettingGroup title={t('settings.connectionRuntimes')}>{(['caelis','codex'] as const).map(runtime=><div key={runtime}><button className="connection-navigation-row" onClick={()=>go({page:'runtime',id:runtime})}><span><strong>{name(runtime)}</strong><small>{t(runtime==='caelis'?'settings.connectionBuiltinHint':'settings.connectionCodexHint')}</small></span><span className="connection-navigation-value">{stateText(runtime)}<SettingsChevron/></span></button>{failures[runtime]&&<p className="settings-note" role="alert">{failures[runtime]} <button disabled={refreshingIDs.includes(runtime)} onClick={()=>void refresh(true,runtime)}>{t('settings.runtimeTryAgain')}</button></p>}</div>)}</SettingGroup>

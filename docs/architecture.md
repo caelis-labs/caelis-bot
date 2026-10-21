@@ -335,6 +335,15 @@ one shared answer/close state and its task source. Native approvals keep the
 seven-day short-reference policy above; it never approves or closes their request.
 Codex async questions have no native
 secret-field marker; the host cannot infer one from question prose.
+Known async answers use their ordinary visible input. A missing or stale field
+binding remains private, with a neutral hidden-content placeholder; only a real
+native secret marker may label an input as a filled secret field. Retained secret
+number tombstones continue to hide potentially stale values after number reuse.
+Worker answer outcomes belong to the exact message receipt, never the previous
+task's display status. An owner can explicitly prove a fresh message was not
+accepted; a failed lookup of an earlier dispatch remains unknown and cannot
+authorize replay. Expiry discovered at submission is committed and published
+before returning, only while the field has no dispatch claim.
 Independent Codex Workers persist their async question items under the original
 task binding. The host reports the pending question privately to the resident
 Bot, which reads it through `bot_interactions` and can answer on that original
@@ -910,10 +919,12 @@ acceptance. The pin, package and permissions evidence are in
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. Chat and settings use
-separate retained native windows and WebViews; only the requested contextual
-surface is presented. Native titlebar accessories dispatch navigation into their
-owning renderer, which checks onboarding, dialogs and unsaved forms. Returning
-preserves the mounted composer, draft, attachments and chat reading position.
+separate retained native windows and WebViews. The top-right settings
+entry opens or focuses the existing settings window without hiding chat. Native
+close hides only its own window. Renderer navigation checks onboarding, dialogs
+and unsaved forms; opening and closing settings preserve the mounted composer,
+draft, attachments and chat reading position. Web reuses those components in a
+same-page panel and retains its existing URL guard as the navigation authority.
 Native sheets remain attached to their originating window. Closing a window hides
 presentation without deciding requests or stopping work.
 

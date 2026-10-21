@@ -114,18 +114,12 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			requestID := fmt.Sprintf("worker-answer-%x", sum[:])
 			result, err := manager.SendTask(ctx, api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
-			if outcome == "" {
-				if err != nil && result.ID == "" {
-					// SendTask rejected before dispatch. The original question
-					// stays available for a later answer attempt.
-					outcome = "rejected"
-				} else {
-					outcome = "unknown"
-				}
+			if outcome != "accepted" && outcome != "rejected" {
+				outcome = "unknown"
 			}
 			message := ""
 			if err != nil {
-				message = err.Error()
+				message = "暂时无法提交到原任务。"
 			}
 			return api.Receipt{ID: in.ID, Outcome: outcome, Message: message}, err
 		}

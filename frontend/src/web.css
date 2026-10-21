@@ -1,8 +1,8 @@
 html,body,#root{min-width:320px;width:100%;height:100%;margin:0}
 body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
 .web-app{height:100dvh;display:flex;flex-direction:column;background:var(--caelis-window,#f6f6f8);color:var(--caelis-text,#222)}
-.web-tools{position:absolute;top:6px;right:14px;z-index:4;display:flex;gap:4px}.web-tools button{position:static;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:var(--panel);color:var(--muted)}.web-tools button:hover{background:var(--wash);color:var(--ink)}
-.web-chat{position:relative}.web-chat .chat-scroll{padding-top:34px}
+.web-tools{position:absolute;top:6px;right:48px;z-index:4;display:flex;gap:4px}.web-tools button{position:static;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:var(--panel);color:var(--muted)}.web-tools button:hover{background:var(--wash);color:var(--ink)}
+.web-chat{position:relative}
 .web-content{flex:1;min-height:0;position:relative;overflow:hidden}.web-content>[hidden]{display:none}
 /* Keep the retained chat viewport measurable while settings is visible, like
    the native retained window. A zero-height layout would erase scroll intent. */
@@ -30,32 +30,26 @@ body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
 }
 
 .web-workspace{display:grid;grid-template-columns:minmax(0,880px);justify-content:center;width:100%;height:100%;max-width:1440px;margin-inline:auto;position:relative}
-.web-workspace.has-tasks{grid-template-columns:minmax(0,1fr) minmax(340px,36%);gap:20px}
+.web-workspace.has-tasks{max-width:none;grid-template-columns:minmax(0,1fr) minmax(340px,44%)}
+.web-workspace.has-tasks .chat-content{max-width:960px}
+.web-workspace.has-tasks .history-surface footer{max-width:1004px}
 .web-workspace:not(.has-tasks)>.web-task-pane{display:none}
 .web-task-pane{min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--caelis-chat);color:var(--ink)}
-.web-task-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px 10px;flex:none}
-.web-task-heading h2{font-size:13px;font-weight:600;margin:0;color:var(--muted)}
-.web-task-close{display:none;border:0;background:transparent;color:var(--muted);width:32px;height:32px;place-items:center;border-radius:8px}
-.web-task-selection{padding:4px 22px 16px;border-bottom:1px solid var(--line)}
-.web-task-selection h3{font-size:16px;line-height:1.5;margin:0 0 8px;font-weight:600}
-.web-task-selection .settings-select{width:100%;max-width:none}
-.web-task-selection .settings-select-trigger{width:100%;font:inherit;font-size:15px;min-height:40px;text-align:left;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--caelis-raised);color:var(--ink);cursor:pointer}
-.web-task-selection .settings-select-trigger:hover{background:var(--caelis-hover)}
+.web-task-heading{display:flex;align-items:center;gap:12px;padding:12px 24px;flex:none;border-bottom:1px solid var(--line)}
+.web-task-heading h2{flex:1;min-width:0;font-size:16px;line-height:1.5;font-weight:600;margin:0;overflow-wrap:anywhere}
+.web-task-close{display:grid;flex:0 0 32px;border:0;background:transparent;color:var(--muted);width:32px;height:32px;place-items:center;border-radius:8px}
+.web-task-heading .settings-select{flex:1;min-width:0;max-width:none}
+.web-task-heading .settings-select-trigger{width:100%;font:inherit;font-size:16px;font-weight:600;min-height:32px;text-align:left;padding:4px 0;border:0;border-radius:6px;background:transparent;color:var(--ink);cursor:pointer}
+.web-task-heading .settings-select-trigger .settings-select-option-copy{white-space:normal;overflow-wrap:anywhere}
+.web-task-heading .settings-select-trigger:hover{background:var(--caelis-hover)}
 .web-task-pane button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.web-task-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:10px;font-size:11px;color:var(--muted)}
-.web-task-status{display:inline-flex;align-items:center;gap:5px}
-.web-task-status i{width:5px;height:5px;border-radius:50%;background:currentColor}
-.web-task-status.running,.web-task-status.working{color:var(--accent)}
-.web-task-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:8px 22px 28px}
-.web-task-message{font-size:14px;line-height:1.65;overflow-wrap:anywhere;margin:20px 0}
-.web-task-author{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:12px}
-.web-task-author .bot-avatar{width:28px;height:28px;flex-basis:28px}
-.web-task-request{color:var(--muted);font-size:13px}
-.web-task-request summary{cursor:pointer;font-size:12px;user-select:none;padding-block:4px}
-.web-task-request[open] summary{margin-bottom:8px}
+.web-task-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 24px 24px}
+.web-task-message{font-size:14px;line-height:1.75;overflow-wrap:anywhere;margin:24px auto;max-width:880px}
+.web-task-message.user{padding:12px 16px;border-radius:10px;background:var(--caelis-user-bubble)}
+.web-task-close:hover{background:var(--wash);color:var(--ink)}
 .web-task-notice{font-size:13px;line-height:1.6;color:var(--muted);margin-block:24px}
 .web-task-message .markdown-body>h3{font-size:15px}
-@media(min-width:1000px){.has-tasks .web-task-toggle{display:none}}
+
 @media(max-width:999px){
  .web-workspace,.web-workspace.has-tasks{display:block}
  .web-content>.web-workspace[hidden]{display:block}
@@ -65,7 +59,31 @@ body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
  .web-task-close{display:grid}
 }
 @media(max-width:440px){
- .web-task-heading{padding:12px 16px 8px}
- .web-task-selection{padding:4px 16px 12px}
+ .web-task-heading{padding:12px 16px}
  .web-task-scroll{padding:4px 16px 24px}
 }
+
+/* The existing settings route presents a retained panel above the live chat.
+   No popup or second configuration/navigation owner is involved. */
+.web-settings-layer{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:24px;background:#0005}
+.web-settings-layer[hidden]{display:none}
+.web-settings-panel{width:min(1180px,100%);height:min(900px,100%);min-width:0;overflow:hidden;border-radius:14px;box-shadow:0 16px 64px #0003;background:var(--caelis-window)}
+.web-settings-panel .settings-window{border-radius:inherit}
+.web-settings-panel .settings-toolbar{padding-right:64px;position:relative}
+.web-settings-panel .settings-navigation{right:16px;top:18px}
+@media(max-width:680px){.web-settings-layer{padding:0}.web-settings-panel{height:100%;width:100%;border-radius:0;box-shadow:none}.web-settings-panel .settings-toolbar{padding-right:54px}.web-settings-panel .settings-navigation{right:12px}}
+
+/* Task choices fit their content; attachment/plugin menus keep composer width. */
+.settings-select-menu-compact{min-width:180px;padding:4px;border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 20px #00000018}
+.settings-select-menu-compact .settings-select-options>button{min-height:34px;padding:6px 8px;font-size:13px;border:0;border-radius:6px;gap:8px}
+.settings-select-menu-compact .settings-select-options>button[aria-checked=true]{background:var(--wash);box-shadow:none}
+.settings-select-menu-compact .settings-select-options>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.web-task-title{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}
+.web-task-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.web-task-state{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;color:var(--muted)}
+.web-task-state.failed{color:var(--error)}
+.web-task-heading .web-task-state svg{transform:none}
+.task-spinner{width:13px;height:13px;border:1.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:activity-spin .9s linear infinite}
+@media(prefers-reduced-motion:reduce){.task-spinner{animation:quiet-progress 2.4s ease-in-out infinite}}
+.web-task-message{position:relative}
+.web-task-message+.web-task-message::before{content:'';position:absolute;left:0;right:0;top:-13px;border-top:1px solid color-mix(in srgb,var(--muted) 16%,transparent)}

@@ -1,4 +1,7 @@
 {
+  "closeTaskPanel": "Close task panel",
+  "taskResult": "Result",
+  "taskProgress": "Progress",
   "surfaceRetryTitle": "Couldn't complete this",
   "surfaceRestartTitle": "Couldn't display this content",
   "surfaceRetryNeeded": "Try again shortly. Copy feedback details if you need help.",
