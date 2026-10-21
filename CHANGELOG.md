@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0](https://github.com/caelis-labs/caelis-bot/compare/v0.17.1...v0.18.0) (2026-10-21)
+
+
+### Features
+
+* add shared headless Web surface and managed Linux distribution ([#208](https://github.com/caelis-labs/caelis-bot/issues/208)) ([c2117bd](https://github.com/caelis-labs/caelis-bot/commit/c2117bd8b52e926c52a4d8197227a9b429cfa870))
+* expose explicit shared Runtime experiment controls ([#212](https://github.com/caelis-labs/caelis-bot/issues/212)) ([e361726](https://github.com/caelis-labs/caelis-bot/commit/e3617260e76192b1da7b5bb6bd32810d92c1acc6))
+
+
+### Bug Fixes
+
+* bundle the verified Desktop World v0.1.2 plugin ([#211](https://github.com/caelis-labs/caelis-bot/issues/211)) ([92ea578](https://github.com/caelis-labs/caelis-bot/commit/92ea578686c43fbb43ae302c52e908f485e34237))
+* refine shared chat, setup, tasks and Web sessions ([#213](https://github.com/caelis-labs/caelis-bot/issues/213)) ([59db654](https://github.com/caelis-labs/caelis-bot/commit/59db65485119ef1d572232489a9d20c7f2605e40))
+
 ## [0.17.1](https://github.com/caelis-labs/caelis-bot/compare/v0.17.0...v0.17.1) (2026-10-19)
 
 
