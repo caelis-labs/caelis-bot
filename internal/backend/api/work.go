@@ -28,6 +28,14 @@ type WorkConversationReader interface {
 // even when no new execution slots remain. Adapters still check its exact intent.
 type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 
+// WorkMessageRejection proves this invocation did not accept the message, before
+// dispatch or by definitive native rejection. A failed receipt lookup must not
+// settle an earlier dispatch. Task status and missing receipts are not proof.
+type WorkMessageRejection struct{ Cause error }
+
+func (e *WorkMessageRejection) Error() string { return e.Cause.Error() }
+func (e *WorkMessageRejection) Unwrap() error { return e.Cause }
+
 type WorkStart struct {
 	TaskStart
 	ID, Workspace, Instructions string

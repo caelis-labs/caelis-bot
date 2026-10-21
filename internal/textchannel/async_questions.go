@@ -353,7 +353,10 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		s.mu.Unlock()
 		return s.reply(key, "这条问题卡片已失效，请使用最新卡片。")
 	}
-	if q.State == "expired" || q.State == "" && asyncExpired(q) {
+	if q.State == "" && asyncExpired(q) {
+		return s.expireAnswerLocked(id, key, q)
+	}
+	if q.State == "expired" {
 		s.mu.Unlock()
 		return s.reply(key, "问题编号已过期，请查看最新问题。")
 	}
@@ -409,6 +412,13 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 
 	s.mu.Lock()
 	current := s.state.AsyncQuestions[id]
+	if current.Fingerprint == q.Fingerprint && current.State == "" && asyncExpired(current) {
+		return s.expireAnswerLocked(id, key, current)
+	}
+	if current.Fingerprint == q.Fingerprint && current.State == "expired" {
+		s.mu.Unlock()
+		return s.reply(key, "问题编号已过期，请查看最新问题。")
+	}
 	if current.State != "" || current.Fingerprint != q.Fingerprint || asyncExpired(current) || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
 		s.mu.Unlock()
 		return s.reply(key, "问题已处理或已变化，请查看最新消息。")
@@ -432,6 +442,8 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 
 	s.mu.Lock()
 	current = s.state.AsyncQuestions[id]
+	previous := current
+	previousClosed, hadClosed := s.state.AsyncClosed[asyncKey(current)]
 	feedback := "回答投递结果待核对，不会自动重发。"
 	if err == nil && receipt.Outcome == "accepted" {
 		current.State = "answered"
@@ -445,26 +457,66 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	}
 	if current.State == "" && s.state.AsyncRetired[current.Fingerprint] {
 		current.State, current.Reason, current.ClosedAt = "superseded", "question_replaced", time.Now().Unix()
+		feedback = "问题已失效，未提供答案。"
+	} else if current.State == "" && asyncExpired(current) {
+		current.State, current.Reason, current.ClosedAt = "expired", "deadline", time.Now().Unix()
+		feedback = "问题编号已过期，请查看最新问题。"
 	}
 	s.state.AsyncQuestions[id] = current
-	if current.State == "answered" || s.state.AsyncRetired[current.Fingerprint] {
+	if current.State == "answered" || closedAsync(current.State) || s.state.AsyncRetired[current.Fingerprint] {
 		s.state.AsyncClosed[asyncKey(current)] = current
 	}
 	if saveErr := s.save(); saveErr != nil {
+		// The durable record still owns the original dispatch claim. Do not
+		// publish an uncommitted answer/closure or make it answerable again.
+		previous.State = "unknown"
+		s.state.AsyncQuestions[id] = previous
+		if hadClosed {
+			s.state.AsyncClosed[asyncKey(previous)] = previousClosed
+		} else {
+			delete(s.state.AsyncClosed, asyncKey(previous))
+		}
 		feedback = "回答投递后本地状态保存失败；请先核对 Bot 回复，不会自动重发。"
 	}
-	activeFingerprint := s.state.AsyncActive[q.ItemID]
-	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, activeFingerprint, q.WorkID != "")}
-	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, activeFingerprint) {
-		if q.WorkID != "" && !question.Presented {
-			continue
-		}
-		updated.QuestionCards = append(updated.QuestionCards, questionCard(question))
-	}
+	updated := s.asyncUpdateLocked(q)
 	observer := s.onAsyncUpdate
 	s.mu.Unlock()
 	if observer != nil {
 		observer(updated)
 	}
 	return s.reply(key, feedback)
+}
+
+func (s *Store) asyncUpdateLocked(q asyncQuestion) api.Item {
+	fingerprint := s.state.AsyncActive[q.ItemID]
+	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, fingerprint, q.WorkID != "")}
+	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, fingerprint) {
+		if q.WorkID == "" || question.Presented {
+			updated.QuestionCards = append(updated.QuestionCards, questionCard(question))
+		}
+	}
+	return updated
+}
+
+// The caller holds mu. Release it before publishing the durable closure, since
+// observers may read the same ledger. No dispatch claim exists for this field.
+func (s *Store) expireAnswerLocked(id, key string, q asyncQuestion) string {
+	old, had := s.state.AsyncClosed[asyncKey(q)]
+	s.closeAsyncLocked(id, q, "expired", "deadline")
+	if err := s.save(); err != nil {
+		s.state.AsyncQuestions[id] = q
+		if had {
+			s.state.AsyncClosed[asyncKey(q)] = old
+		} else {
+			delete(s.state.AsyncClosed, asyncKey(q))
+		}
+		s.mu.Unlock()
+		return s.reply(key, "本地记录不可用，回答未提交；请稍后再试。")
+	}
+	updated, observer := s.asyncUpdateLocked(q), s.onAsyncUpdate
+	s.mu.Unlock()
+	if observer != nil {
+		observer(updated)
+	}
+	return s.reply(key, "问题编号已过期，请查看最新问题。")
 }

@@ -335,6 +335,15 @@ one shared answer/close state and its task source. Native approvals keep the
 seven-day short-reference policy above; it never approves or closes their request.
 Codex async questions have no native
 secret-field marker; the host cannot infer one from question prose.
+Known async answers use their ordinary visible input. A missing or stale field
+binding remains private, with a neutral hidden-content placeholder; only a real
+native secret marker may label an input as a filled secret field. Retained secret
+number tombstones continue to hide potentially stale values after number reuse.
+Worker answer outcomes belong to the exact message receipt, never the previous
+task's display status. An owner can explicitly prove a fresh message was not
+accepted; a failed lookup of an earlier dispatch remains unknown and cannot
+authorize replay. Expiry discovered at submission is committed and published
+before returning, only while the field has no dispatch claim.
 Independent Codex Workers persist their async question items under the original
 task binding. The host reports the pending question privately to the resident
 Bot, which reads it through `bot_interactions` and can answer on that original
