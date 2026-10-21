@@ -49,6 +49,8 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           sha=$(git rev-parse "refs/tags/$TAG^{commit}")
           git merge-base --is-ancestor "$sha" origin/main
+          # Operational verification fixes must not move an immutable app tag.
+          cp script/verify-linux-build.mjs "$RUNNER_TEMP/verify-linux-build.mjs"
           git checkout --detach "$sha"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -71,7 +73,7 @@ jobs:
           export BOT_UPDATE_VERSION="${TAG#v}"
           export BOT_UPDATE_OUTPUT="$PWD/dist/linux-$BOT_UPDATE_ARCH"
           bash script/build-managed-headless.sh
-          node script/verify-linux-build.mjs "$BOT_UPDATE_OUTPUT" "$BOT_UPDATE_ARCH" "$SOURCE" "$BOT_UPDATE_VERSION"
+          node "$RUNNER_TEMP/verify-linux-build.mjs" "$BOT_UPDATE_OUTPUT" "$BOT_UPDATE_ARCH" "$SOURCE" "$BOT_UPDATE_VERSION"
           tar -czf "dist/unsigned-linux-$BOT_UPDATE_ARCH.tar.gz" -C "$BOT_UPDATE_OUTPUT" .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -87,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.sha }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

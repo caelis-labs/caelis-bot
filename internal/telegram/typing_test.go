@@ -223,6 +223,7 @@ func fakeActionChats(f *fakeClient) []int64 {
 type blockedActionClient struct {
 	*fakeClient
 	started chan struct{}
+	release chan struct{}
 }
 
 func (c *blockedActionClient) ChatAction(ctx context.Context, chat int64) error {
@@ -230,8 +231,24 @@ func (c *blockedActionClient) ChatAction(ctx context.Context, chat int64) error 
 	case c.started <- struct{}{}:
 	default:
 	}
-	<-ctx.Done()
+	// Hold the network fixture until the test releases it. A context timeout
+	// must not make an ingress blocked behind this call appear successful.
+	<-c.release
 	return ctx.Err()
+}
+
+func assertTypingIndependentIngress(t *testing.T, ingress func() bool) {
+	t.Helper()
+	done := make(chan bool, 1)
+	go func() { done <- ingress() }()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("ordinary ingress was not accepted")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ordinary ingress waited for the independently blocked typing path")
+	}
 }
 
 func TestSlowTypingCallDoesNotBlockMessageStopOrApproval(t *testing.T) {
@@ -250,24 +267,18 @@ func TestSlowTypingCallDoesNotBlockMessageStopOrApproval(t *testing.T) {
 		},
 	})
 	paired(b)
-	c := &blockedActionClient{fakeClient: f, started: make(chan struct{}, 1)}
+	c := &blockedActionClient{fakeClient: f, started: make(chan struct{}, 1), release: make(chan struct{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { defer close(done); b.typing(ctx, c) }()
-	defer func() { cancel(); <-done; b.recoveryWait.Wait() }()
+	defer func() { cancel(); close(c.release); <-done; b.recoveryWait.Wait() }()
 	select {
 	case <-c.started:
 	case <-time.After(time.Second):
 		t.Fatal("typing call did not start")
 	}
-	start := time.Now()
-	if !b.input(t.Context(), c, message(10, 10, 20, "/status")) || time.Since(start) > 500*time.Millisecond {
-		t.Fatal("slow typing blocked ordinary status message")
-	}
-	start = time.Now()
-	if !b.input(t.Context(), c, message(11, 10, 20, "/stop")) || time.Since(start) > 500*time.Millisecond {
-		t.Fatal("slow typing blocked stop ingress")
-	}
+	assertTypingIndependentIngress(t, func() bool { return b.input(t.Context(), c, message(10, 10, 20, "/status")) })
+	assertTypingIndependentIngress(t, func() bool { return b.input(t.Context(), c, message(11, 10, 20, "/stop")) })
 	select {
 	case <-stopped:
 	case <-time.After(time.Second):
@@ -278,13 +289,12 @@ func TestSlowTypingCallDoesNotBlockMessageStopOrApproval(t *testing.T) {
 	snapshot.Approvals = []api.Approval{approval}
 	current := snapshot
 	mu.Unlock()
-	start = time.Now()
-	b.mirror(t.Context(), c, current)
-	card := b.state.Messages["approval:"+approval.ID]
-	q := &tg.CallbackQuery{ID: "fixture-callback", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: card.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(approval, "accept")}
-	if !b.callback(t.Context(), c, q) || time.Since(start) > 500*time.Millisecond {
-		t.Fatal("slow typing blocked approval callback")
-	}
+	assertTypingIndependentIngress(t, func() bool {
+		b.mirror(t.Context(), c, current)
+		card := b.state.Messages["approval:"+approval.ID]
+		q := &tg.CallbackQuery{ID: "fixture-callback", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: card.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(approval, "accept")}
+		return b.callback(t.Context(), c, q)
+	})
 	select {
 	case <-decided:
 	case <-time.After(time.Second):
@@ -371,17 +381,16 @@ func TestTypingRateLimitDoesNotBlockStatusOrRetryTooEarly(t *testing.T) {
 	paired(b)
 	b.typingPoll, b.typingRenew = 5*time.Millisecond, 25*time.Millisecond
 	f.mu.Lock()
-	f.chatActionErr = &transportError{issue: "rate_limited", code: 429, retry: 1}
+	// Keep the cooldown longer than the ingress deadline. This verifies that
+	// ordinary work does not wait for retry_after, independent of disk latency.
+	f.chatActionErr = &transportError{issue: "rate_limited", code: 429, retry: 30}
 	f.mu.Unlock()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { defer close(done); b.typing(ctx, f) }()
 	defer func() { cancel(); <-done }()
 	waitFakeActions(t, f, 1)
-	start := time.Now()
-	if !b.input(t.Context(), f, message(1, 10, 20, "/status")) || time.Since(start) > 200*time.Millisecond {
-		t.Fatal("typing rate limit blocked Telegram status processing")
-	}
+	assertTypingIndependentIngress(t, func() bool { return b.input(t.Context(), f, message(1, 10, 20, "/status")) })
 	b.mu.Lock()
 	b.state.Enabled = false
 	b.mu.Unlock()
