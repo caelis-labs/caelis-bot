@@ -316,6 +316,9 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  const referenceLabel=(id:string)=>pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'));
  const setDraftValue=(text:string,composingNow=false,referenceIds=refs,positions:ReferencePosition[]=input.current?readComposer(input.current).referencePositions:[])=>{
   draft.current=text;
+  // Follow preedit without replacing WebKit's marked text or selection.
+  // Durable draft writes still wait for compositionend.
+  if(input.current)input.current.dataset.empty=String(!text&&referenceIds.length===0);
   if(input.current&&!composingNow)writeComposer(input.current,text,referenceIds,positions,referenceLabel);
   sizeEditor();
   if(composingNow)return;
@@ -515,13 +518,14 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    <div className="composer-editor" role="textbox" aria-multiline="true" aria-label={t('chat.composerLabel')} ref={input} contentEditable={loaded&&!busy} suppressContentEditableWarning spellCheck={false} autoCorrect="off" aria-disabled={!loaded||busy}
     onInput={e=>{const doc=readComposer(e.currentTarget);save(doc.text,doc.referenceIds);}}
     onBlur={e=>{selection.current=composerSelection(e.currentTarget)??selection.current;}}
-    onCompositionStart={()=>{composing.current=true;}}
-    onCompositionEnd={e=>{composing.current=false;const doc=readComposer(e.currentTarget);save(doc.text,doc.referenceIds);}}
+    onCompositionStart={e=>{composing.current=true;e.currentTarget.dataset.composing='true';}}
+    onCompositionUpdate={e=>{e.currentTarget.dataset.composing='true';}}
+    onCompositionEnd={e=>{composing.current=false;delete e.currentTarget.dataset.composing;const doc=readComposer(e.currentTarget);save(doc.text,doc.referenceIds);}}
     onCopy={e=>{if(copyComposer(e.currentTarget,e.clipboardData,false))e.preventDefault();}}
     onCut={e=>{if(copyComposer(e.currentTarget,e.clipboardData,true))e.preventDefault();}}
     onBeforeInput={e=>{if((e.nativeEvent as InputEvent).inputType?.startsWith('format'))e.preventDefault();}}
     onDrop={e=>{if(!e.dataTransfer.types.includes('Files')){e.preventDefault();pasteComposer(e.currentTarget,e.dataTransfer,pluginLabels);}}}
-    onPaste={e=>void paste(e)} onKeyDown={e=>{if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&!composing.current&&(e.key==='Backspace'||e.key==='Delete')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&deleteComposerReference(e.currentTarget,e.key==='Backspace')){e.preventDefault();return;}handleComposerKey(e.nativeEvent,send.current,primaryAction);}}
+    onPaste={e=>void paste(e)} onKeyDown={e=>{if(composing.current)return;if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&(e.key==='Backspace'||e.key==='Delete')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&deleteComposerReference(e.currentTarget,e.key==='Backspace')){e.preventDefault();return;}handleComposerKey(e.nativeEvent,send.current,primaryAction);}}
     data-placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
 
   {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
