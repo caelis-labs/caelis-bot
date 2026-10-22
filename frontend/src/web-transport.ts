@@ -116,7 +116,8 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'CopyDiagnostics':{const {copyFeedback}=await import('./feedback-client');await copyFeedback();return undefined as T;}
    case 'RestartSurface':location.reload();return undefined as T;
    case 'OpenReleasePage':openURL('https://github.com/caelis-labs/caelis-bot/releases');return undefined as T;
-   case 'OpenTelegramSetup':await navigation({view:'settings',section:'telegram'});return undefined as T;
+   // Telegram links are native browser anchors with the complete PairURL.
+   // OpenTelegramSetup is native-only, never a settings-navigation alias.
   }
   const result=await call<T>(key,args);
   if(key==='desktop.Plugins'||key==='desktop.PluginAction'){

@@ -326,6 +326,12 @@ summary { cursor:pointer; }
 .settings-window button.primary { background:var(--accent); color:var(--on-accent); border-color:transparent; }
 .settings-window button.text-action { border-color:transparent; background:transparent; padding-inline:0; color:var(--ink); }
 .settings-window button.link-action { color:var(--caelis-link); text-decoration:underline; text-underline-offset:2px; }
+.telegram-link-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.settings-window a.telegram-open { display:inline-flex; border:1px solid transparent; border-radius:var(--radius-control); padding:7px 11px; font-size:12px; }
+.settings-window a.telegram-open.primary { background:var(--accent); color:var(--on-accent); text-decoration:none; }
+.settings-window a.telegram-open.primary:hover { background:var(--caelis-action-hover); }
+.telegram-copy-fallback { display:grid; gap:8px; margin-block:12px; }
+.telegram-copy-fallback input { width:100%; min-width:0; box-sizing:border-box; }
 .settings-window select,.runtime-path input { min-width:0; max-width:100%; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:12px; }
 .settings-window select { width:200px; text-overflow:ellipsis; }
 .settings-window input.settings-switch { appearance:none; flex:none; position:relative; width:32px; height:20px; border:1px solid var(--line); border-radius:12px; background:var(--wash); margin:0; cursor:pointer; }

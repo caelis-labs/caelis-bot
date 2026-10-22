@@ -506,7 +506,7 @@
   "telegramConnect": "连接",
   "telegramTokenPrivacy": "仅保存在这台设备上。请勿分享令牌。",
   "telegramResume": "恢复连接",
-  "telegramPairStep": "点击下方打开 @{bot}，然后在 Telegram 点击「开始」。",
+  "telegramPairStep": "使用下方配对链接打开 @{bot}，然后在 Telegram 点击「开始」。",
   "telegramOpenBot": "在 Telegram 打开",
   "telegramPairWaiting": "点击「开始」后，回到这里确认自己的账号。只有确认过的私人聊天才能向 Caelis Bot 发消息。配对链接有效期为 15 分钟。",
   "telegramConfirmAccount": "{account} 是你的 Telegram 账号吗？",
@@ -527,7 +527,7 @@
   "telegramIssue_blocked": "请在 Telegram 取消屏蔽此 Bot，然后重新连接。",
   "telegramIssue_unavailable": "Telegram 设置暂不可用，请重新启动 Caelis Bot 后重试。",
   "telegramIssue_setup_failed": "未能完成配置，请重试。",
-  "telegramIssue_open_failed": "无法打开 Telegram，请在 Telegram 中手动打开机器人。",
+  "telegramIssue_open_failed": "无法打开 Telegram。配对时请复制完整配对链接，在浏览器中打开。",
   "telegramIssue_pairing_failed": "无法生成配对链接，请重新连接。",
   "telegramIssue_pairing_expired": "配对链接已过期，请重新连接获取新链接。",
   "telegramIssue_delivery_uncertain": "一条消息的发送结果暂不确定。系统不会自动重复发送，请在 Telegram 和 Mac 中查看。",
@@ -757,5 +757,9 @@
   "experimentalChanged": "设置已被其他客户端修改，请核对后再试。",
   "experimentalFailed": "未能确认保存结果，请重新检查。",
   "experimentalRejected": "未保存，请重新检查后重试。",
-  "openSettingsFailed": "暂时无法打开设置，请重试。"
+  "openSettingsFailed": "暂时无法打开设置，请重试。",
+  "telegramCopyPairLink": "复制完整配对链接",
+  "telegramPairLink": "完整配对链接",
+  "telegramCopyManually": "复制未完成，请选中并复制上方完整链接，在浏览器中打开。",
+  "telegramPairLinkHelp": "如果未打开 Telegram，请复制完整配对链接到浏览器。仅搜索机器人后点击「开始」无法配对。请勿分享此私密链接。"
 }

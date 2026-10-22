@@ -673,3 +673,15 @@ collector support. Current model-facing examples live in Bot-core's
 ## Headless / Web development
 
 `make build-headless` builds shared browser assets and a CGO-free Linux binary. Run `dist/headless/caelisbot serve --data-dir /absolute/private/profile`; keep this profile separate from any running desktop App. The default is loopback with no local pairing step. Container/VM forwarding, private-network pairing, the optional loopback relay, and systemd examples are documented in [headless-web.md](headless-web.md). Test evidence distinguishes live Linux/browser behavior from synthetic model/Worker adapters in [headless-web-acceptance.md](headless-web-acceptance.md). `webfixture` is an explicit test-only build tag and is not part of a normal build.
+
+Telegram browser links can be checked without a Bot account: start
+`node script/telegram-link-preview.mjs` with the project Node environment, open
+its `/acceptance` URL in a fresh Playwright session, then run
+`playwright-cli run-code --filename=script/telegram-link-browser-check.mjs`.
+The fixture uses production Web HTTP and default desktop transports with synthetic
+status/clipboard/opener adapters. Telegram destinations are intercepted locally;
+no Telegram network request or real pairing is performed. `?baseline=1` checks
+the former navigation-only failure against `BOT_TELEGRAM_BASELINE=75fa9243`.
+Pairing protocol, expiry and explicit confirmation are covered by the Go pairing
+tests; the browser checks DTO status polling and confirmation separately. These
+fixtures do not prove delivery through a live Telegram poller or SSH tunnel.

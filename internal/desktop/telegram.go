@@ -41,11 +41,14 @@ func (s *Service) ForgetTelegram() (telegram.Status, error) {
 	return s.telegram.Forget()
 }
 func (s *Service) OpenTelegramSetup(pair bool) error {
+	return openTelegramSetup(s.TelegramStatus(), pair, s.openExternalURL)
+}
+
+func openTelegramSetup(status telegram.Status, pair bool, open func(string) error) error {
 	url := "https://t.me/BotFather"
 	if pair {
-		status := s.TelegramStatus()
 		url = status.PairURL
-		if url == "" && status.Bot != "" {
+		if url == "" && status.Paired && status.Bot != "" {
 			url = "https://t.me/" + status.Bot
 		}
 		if url == "" {
@@ -53,8 +56,8 @@ func (s *Service) OpenTelegramSetup(pair bool) error {
 		}
 	}
 	// Native app links go through the existing bounded opener, without a token.
-	if s.openExternalURL == nil {
+	if open == nil {
 		return errors.New("unavailable")
 	}
-	return s.openExternalURL(url)
+	return open(url)
 }

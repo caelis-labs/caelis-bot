@@ -843,20 +843,24 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	}
 	b.mu.Lock()
 	chat, owner, bot := b.state.ChatID, b.state.UserID, b.state.BotID
-	nonce := b.nonce
-	expires := b.expires
-	b.mu.Unlock()
 	if chat == 0 {
-		if nonce != "" && time.Now().Before(expires) && m.Text == "/start "+nonce {
-			b.mu.Lock()
-			if b.candidate == nil || b.candidate.From.ID == m.From.ID {
-				b.candidate = m
-			}
-			b.mu.Unlock()
-			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("Confirm this account in Caelis Bot on your Mac to finish connecting.", "请在 Mac 的 Caelis Bot 中确认这是你的账号，即可完成连接。")), nil)
+		// Validate and bind under one lock: a renewed/consumed nonce must not
+		// accept an update validated against the previous pairing attempt.
+		accepted := b.nonce != "" && time.Now().Before(b.expires) && m.Text == "/start "+b.nonce && (b.candidate == nil || b.candidate.From.ID == m.From.ID)
+		if accepted {
+			b.candidate = m
+		}
+		b.mu.Unlock()
+		if accepted {
+			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("Return to Caelis Bot settings and confirm this account to finish connecting.", "请回到 Caelis Bot 设置，确认这是你的账号，即可完成连接。")), nil)
+		} else if m.Text == "/start" || strings.HasPrefix(m.Text, "/start ") {
+			// Same guidance for absent, wrong and expired payloads. Never echo
+			// a received payload or disclose the current private pairing link.
+			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("To connect, use the complete pairing link from Caelis Bot settings, then tap Start. Searching for the Bot and tapping Start alone cannot pair your account. If the link has expired, get a new one in settings.", "请使用 Caelis Bot 设置中的完整配对链接打开，再点击「开始」。仅搜索机器人后点击「开始」无法配对；链接过期时，请在设置中获取新链接。")), nil)
 		}
 		return true, false
 	}
+	b.mu.Unlock()
 	if m.Chat.ID != chat || m.From.ID != owner {
 		return true, false
 	}
