@@ -92,7 +92,7 @@ export function Bubble() {
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
      {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
-     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={()=>presentationWarning('bubble_action_failed')} animate={visible&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={()=>presentationWarning('bubble_action_failed')} animate={visible&&output.status==='inProgress'&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
      {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>

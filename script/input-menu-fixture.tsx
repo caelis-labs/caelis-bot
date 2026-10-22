@@ -1,5 +1,6 @@
 import {createRoot} from 'react-dom/client';
 import {useEffect,useState} from 'react';
+import {StreamingFixture} from './completed-stream-fixture';
 import {I18nProvider} from '../frontend/src/i18n';
 import {ContextWindow} from '../frontend/src/ContextWindow';
 import {ConnectionWizard} from '../frontend/src/settings/runtime/ConnectionWizard';
@@ -12,7 +13,7 @@ if(!import.meta.env.DEV)throw Error('Development fixture only');
 const w=window as any;
 const params=new URLSearchParams(location.search),view=params.get('view')||'chat';
 if(params.has('fallback'))for(const method of ['showPopover','hidePopover','togglePopover'])Object.defineProperty(HTMLElement.prototype,method,{value:undefined,configurable:true});
-document.body.dataset.surface=view==='chat'?'context':'settings';
+document.body.dataset.surface=view==='chat'||view==='streaming'?'context':'settings';
 const root=createRoot(document.getElementById('root')!);
 const bridge={read:async()=>({preference:'zh-CN' as const,locale:'zh-CN' as const,revision:1}),save:async()=>({preference:'zh-CN' as const,locale:'zh-CN' as const,revision:1}),subscribe:()=>()=>{}};
 const models:ModelOption[]=['deepseek-flash','deepseek-v4-pro'].map((model,i)=>({model,name:i?'DeepSeek v4-pro':'DeepSeek flash',efforts:['none','low','high','max'],defaultEffort:'high',serviceTiers:[],default:!i,imageInput:false,description:''}));
@@ -23,7 +24,7 @@ function SettingsFixture(){
  useEffect(()=>setMounted(true),[]);
  return <main className="settings-window setup-window">{view==='onboarding'?<div className="setup-page"><div className="setup-flow"><ConnectionWizard inline onboarding initialChoice="deepseek" client={client} onClose={()=>closed++} onConnected={async()=>{mutations++}}/></div></div>:mounted&&<ModelPicker title="选择模型" models={models} value={{model:models[0].model,effort:'high',serviceTier:''}} onSave={async()=>{mutations++}} onClose={()=>closed++}/>}</main>;
 }
-root.render(<I18nProvider bridge={bridge}>{view==='chat'?<ContextWindow/>:<SettingsFixture/>}</I18nProvider>);
+root.render(<I18nProvider bridge={bridge}>{view==='streaming'?<StreamingFixture/>:view==='chat'?<ContextWindow/>:<SettingsFixture/>}</I18nProvider>);
 const delay=(ms=0)=>new Promise(r=>setTimeout(r,ms));
 const check=(ok:unknown,message:string)=>{if(!ok)throw Error(message)};
 const wait=async(test:()=>boolean)=>{const end=Date.now()+6000;while(!test()){if(Date.now()>end)throw Error('fixture timeout');await delay(20)}};

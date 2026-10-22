@@ -18,11 +18,7 @@ export class TextReveal {
   this.target = text;
   // History, corrections, reduced motion and hidden surfaces never replay text.
   if (immediate || !animate || !append) {
-   this.displayed = text;
-   this.ends = [];
-   this.count = 0;
-   this.credit = 0;
-   this.last = now;
+   this.flush(now);
    return;
   }
   // Appends can change the last grapheme (a combining mark, ZWJ sequence or
@@ -46,9 +42,18 @@ export class TextReveal {
   }
   this.count = Math.min(this.ends.length, low + 1);
   this.displayed = text.slice(0, this.count ? this.ends[this.count-1] : 0);
-  // Keep the fractional character budget across deltas and completion. Starting
+  // Keep the fractional character budget across in-progress deltas. Starting
   // a new deadline on every snapshot causes bursts, pauses and lost progress.
   if (!pending) this.credit = 0;
+  this.last = now;
+ }
+ // Visibility/focus recovery and terminal rendering consume only received text.
+ // Keep the target/animation mode, so a later live delta can still be paced.
+ flush(now: number) {
+  this.displayed = this.target;
+  this.ends = [];
+  this.count = 0;
+  this.credit = 0;
   this.last = now;
  }
  value(now: number): string {

@@ -9,6 +9,7 @@
 @property NSArray *cases;
 @property NSUInteger index;
 @property BOOL autorun;
+@property BOOL lifecyclePending;
 @end
 @implementation InputMenuPreview
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
@@ -20,7 +21,7 @@
  for(NSUInteger i=0;i<titles.count;i++){NSMenuItem *command=[menu addItemWithTitle:titles[i] action:@selector(command:) keyEquivalent:i==0?@"s":i==4?@"t":i==5?@"q":@""];command.tag=i;command.target=self;}
  NSMenuItem *editItem=[main addItemWithTitle:@"Edit" action:nil keyEquivalent:@""];NSMenu *edit=[NSMenu new];editItem.submenu=edit;
  [edit addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];[edit addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];[edit addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];[edit addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];[edit addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];NSApp.mainMenu=main;
- NSMutableArray *cases=[NSMutableArray arrayWithObject:@{ @"view":@"chat",@"width":@760,@"fallback":@NO }];
+ NSMutableArray *cases=[NSMutableArray arrayWithObjects:@{ @"view":@"chat",@"width":@760,@"fallback":@NO },@{ @"view":@"streaming",@"width":@760,@"fallback":@NO },nil];
  for(NSNumber *width in @[@1040,@390])for(NSString *view in @[@"onboarding",@"settings"])for(NSNumber *fallback in @[@NO,@YES])[cases addObject:@{@"view":view,@"width":width,@"fallback":fallback}];self.cases=cases;
  [self load:@"chat" fallback:NO];[self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
 }
@@ -32,22 +33,37 @@
  [self load:@[@"",@"chat",@"onboarding",@"settings"][item.tag] fallback:NO];
 }
 - (void)next {
- if(self.index>=self.cases.count){self.autorun=NO;[self load:@"chat" fallback:NO];return;}
+ if(self.index>=self.cases.count){self.autorun=NO;self.lifecyclePending=YES;[self.window setContentSize:NSMakeSize(760,760)];[self load:@"streaming" fallback:NO];return;}
  NSDictionary *test=self.cases[self.index];[self.window setContentSize:NSMakeSize([test[@"width"] doubleValue],760)];[self load:test[@"view"] fallback:[test[@"fallback"] boolValue]];
 }
 - (void)webView:(WKWebView *)web didFinishNavigation:(WKNavigation *)navigation {
+ if(self.lifecyclePending){self.lifecyclePending=NO;[self nativeStreamingLifecycle];return;}
  if(!self.autorun)return;
  NSDictionary *test=self.cases[self.index];NSString *name=[NSString stringWithFormat:@"%@-%@-%@",test[@"view"],test[@"width"],[test[@"fallback"] boolValue]?@"fallback":@"popover"];
- NSString *function=[test[@"view"] isEqual:@"chat"]?@"runCompositionRegression":@"runMenuRegression";
+ NSString *function=[test[@"view"] isEqual:@"streaming"]?@"runStreamingRegression":[test[@"view"] isEqual:@"chat"]?@"runCompositionRegression":@"runMenuRegression";
  NSString *script=[NSString stringWithFormat:@"try { for(let i=0;i<300&&!window.uiFixtureReady;i++)await new Promise(r=>setTimeout(r,20)); return await window.%@(); } catch(error) { return {ok:false,error:String(error),stack:error.stack}; }",function];
  [web callAsyncJavaScript:script arguments:@{} inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id result,NSError *error){
   NSDictionary *record=@{@"case":test,@"ok":@(!error&&[result isKindOfClass:NSDictionary.class]&&[result[@"ok"] boolValue]),@"result":result?:@{},@"error":error.userInfo.description?:@""};
   NSData *data=[NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingPrettyPrinted error:nil];[data writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES];
-  [web evaluateJavaScript:@"if(document.querySelector('.composer-editor'))window.showCompositionPreview();else document.querySelector('.settings-select-trigger')?.click()" completionHandler:^(id value,NSError *err){[self capture:name completion:^{self.index++;[self next];}];}];
+  [web evaluateJavaScript:@"if(new URLSearchParams(location.search).get('view')!=='streaming'){if(document.querySelector('.composer-editor'))window.showCompositionPreview();else document.querySelector('.settings-select-trigger')?.click()}" completionHandler:^(id value,NSError *err){[self capture:name completion:^{self.index++;[self next];}];}];
+ }];
+}
+- (void)nativeStreamingLifecycle {
+ NSString *prepare=@"for(let i=0;i<300&&!window.uiFixtureReady;i++)await new Promise(r=>setTimeout(r,20)); return await window.prepareNativeStreaming()";
+ [self.web callAsyncJavaScript:prepare arguments:@{} inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id before,NSError *error){
+  [self.window orderOut:nil];
+  [self.web callAsyncJavaScript:@"return await window.completeNativeStreaming()" arguments:@{} inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id hidden,NSError *hiddenError){
+   [self.window makeKeyAndOrderFront:nil];
+   [self.web callAsyncJavaScript:@"for(let i=0;i<300&&document.hidden;i++)await new Promise(r=>setTimeout(r,20));return window.readNativeStreaming()" arguments:@{} inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id after,NSError *afterError){
+    NSDictionary *record=@{@"ok":@(!error&&!hiddenError&&!afterError&&[after[@"ok"] boolValue]),@"before":before?:@{},@"hiddenCompletion":hidden?:@{},@"after":after?:@{},@"error":(error?:hiddenError?:afterError).userInfo.description?:@""};
+    NSData *data=[NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingPrettyPrinted error:nil];[data writeToFile:[self.evidence stringByAppendingPathComponent:@"native-window-streaming.json"] atomically:YES];
+    [self capture:@"native-window-streaming" completion:nil];
+   }];
+  }];
  }];
 }
 - (void)capture:(NSString *)name completion:(void (^)(void))done {
- [self.web evaluateJavaScript:@"JSON.stringify({nativePopover:typeof HTMLElement.prototype.showPopover==='function',state:window.fixtureUIState?.(),events:window.recordedInputEvents})" completionHandler:^(id value,NSError *error){if(value)[value writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@"-state.json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];}];
+ [self.web evaluateJavaScript:@"JSON.stringify({nativePopover:typeof HTMLElement.prototype.showPopover==='function',state:window.fixtureUIState?.(),streaming:window.streamingResult,events:window.recordedInputEvents})" completionHandler:^(id value,NSError *error){if(value)[value writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@"-state.json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];}];
  [self.web takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image,NSError *error){if(image){NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];[[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".png"]] atomically:YES];}if(done)done();}];
 }
 - (BOOL)windowShouldClose:(NSWindow *)sender { [NSApp terminate:nil];return YES; }

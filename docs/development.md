@@ -211,6 +211,20 @@ pointer/keyboard selection, search, dismissal and retained form/effort state.
 for failure comparison. Synthetic composition events are not a real OS input method:
 record actual marked-text/candidate behavior separately when real IME input is available.
 
+Completed-message rendering is covered by the same native input/menu preview's
+`streaming` case and `native-window-streaming.json`. The latter hides its own
+NSWindow, completes a synthetic reply while hidden, then restores the window;
+it records the actual WebKit visibility/focus events rather than assuming them.
+For Chromium, open `/acceptance?view=streaming` on that fixture server and run
+`playwright-cli run-code --filename=script/completed-stream-browser-check.mjs`
+in a fresh browser session. This checks production chat/Bubble and Worker views,
+controlled rAF suspension, same-text/final-append completion, visibility/focus,
+remount/history recovery and cancelled-frame races, then the actual `/web.html`
+HTTP transport, tab switching and history reload. Backend data is synthetic;
+manual monitor/Space switching and live provider traffic remain separate evidence.
+Only `inProgress` assistant text is paced. Completed, incomplete and recovered
+unproven text render immediately; completion never waits for a display frame.
+
 The chat preview also offers thinking/search/read, concurrent stream+tool and completion controls.
 “头像回归” runs the mounted production portrait player through these states and approval, verifies
 moving pixels/static history/visible activity labels, and asserts that the waiting row disappears

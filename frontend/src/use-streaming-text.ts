@@ -8,25 +8,39 @@ export function useStreamingText(text: string, animate: boolean) {
   reveal.current = new TextReveal();
   reveal.current.update(text, animate, performance.now(), immediate);
  }
+ const frame=useRef(0);
  const [shown,setShown] = useState(() => reveal.current!.value(performance.now()));
  useEffect(() => {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const sync = () => setImmediate(document.hidden || reduced.matches);
+  const flush = () => {
+   cancelAnimationFrame(frame.current);
+   const state=reveal.current!;
+   state.flush(performance.now());
+   setShown(state.value(performance.now()));
+  };
+  const sync = () => { const direct=document.hidden || reduced.matches;if(direct)flush();setImmediate(direct); };
+  // Native WebKit can suspend frames without changing document.hidden. Resume
+  // from the latest received prefix instead of spending a wall-clock backlog.
+  const resume = () => {flush();sync();};
   sync();
   reduced.addEventListener('change', sync);
-  document.addEventListener('visibilitychange', sync);
-  return () => { reduced.removeEventListener('change', sync); document.removeEventListener('visibilitychange', sync); };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('focus',resume);window.addEventListener('pageshow',resume);
+  return () => { reduced.removeEventListener('change', sync); document.removeEventListener('visibilitychange', resume);window.removeEventListener('focus',resume);window.removeEventListener('pageshow',resume); };
  }, []);
  useLayoutEffect(() => {
   const state = reveal.current!;
   state.update(text, animate, performance.now(), immediate);
-  let frame = 0;
+  let active=true;
   const paint = (now: number) => {
+   if(!active)return;
    setShown(state.value(now));
-   if (state.pending) frame = requestAnimationFrame(paint);
+   if (state.pending) frame.current = requestAnimationFrame(paint);
   };
   paint(performance.now());
-  return () => cancelAnimationFrame(frame);
+  return () => {active=false;cancelAnimationFrame(frame.current);};
  }, [text, animate, immediate]);
- return shown;
+ // Terminal/history text is complete in this render, before any layout effect
+ // or resumed frame can run. The effect also clears the old reveal queue.
+ return !animate||immediate?text:shown;
 }

@@ -28,7 +28,7 @@ test('450ms snapshots keep a continuous character budget instead of racing each 
  assert.equal(frames(reveal,5400,9000).at(-1),text);
 });
 
-test('large provider and final chunks remain paced, with exact final Markdown',()=>{
+test('large in-progress provider chunks remain paced, with exact received Markdown',()=>{
  const reveal=new TextReveal(),first='开头正文。';
  reveal.update(first,true,0);frames(reveal,0,200);
  const final=first+'内容'.repeat(300)+'\n\n| 名称 | 状态 |\n| --- | --- |\n| 测试 | 完成 |';
@@ -108,4 +108,24 @@ test('the first visible reply contains a whole grapheme without dumping a chunk'
  assert.equal(reveal.value(0),'👩🏽‍💻');assert.ok(reveal.pending);
  const counts=frames(reveal,0,500).map(text=>Array.from(new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)).length);
  for(let i=1;i<counts.length;i++)assert.ok(counts[i]>=counts[i-1]&&counts[i]-counts[i-1]<=2);
+});
+
+for(const append of [false,true])test(`completion drains a suspended reveal without a frame, final append=${append}`,()=>{
+ const reveal=new TextReveal(),prefix='👩🏽‍💻 e\u0301 🇨🇳 '+'received '.repeat(100);
+ reveal.update(prefix,true,0);assert.ok(reveal.pending);
+ const final=append?prefix+' final\n\n```go\nfmt.Println("done")\n```':prefix;
+ reveal.update(final,false,10000);
+ assert.equal(reveal.value(10000),final);assert.equal(reveal.pending,false);
+ assert.equal(reveal.value(10001),final);
+ const remounted=new TextReveal();remounted.update(final,false,0);
+ assert.equal(remounted.value(0),final);assert.equal(remounted.pending,false);
+});
+test('focus catch-up consumes the received prefix and later live deltas still advance monotonically',()=>{
+ const reveal=new TextReveal(),prefix='中'.repeat(200);
+ reveal.update(prefix,true,0);reveal.flush(10000);
+ assert.equal(reveal.value(10000),prefix);assert.equal(reveal.pending,false);
+ reveal.update(prefix+'文'.repeat(200),true,10001);
+ const values=frames(reveal,10001,11000);for(const value of values)assert.ok(value.startsWith(prefix));
+ assert.ok(reveal.pending);reveal.update(prefix+'文'.repeat(200)+'完',false,11001);
+ assert.equal(reveal.value(11001),prefix+'文'.repeat(200)+'完');assert.equal(reveal.pending,false);
 });

@@ -36,8 +36,8 @@ export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming' | 'reco
 // provide it, so a Worker decision cannot preempt the resident reply.
 export function belongsToTurn(value: {turnKey?: string}, turn: string) { return !value.turnKey || value.turnKey === turn; }
 
-// Track arrivals separately from execution state. A reply may already be
-// completed on its first poll; opening/recovering history must not replay it.
+// Only observed in-progress replies may accrue a reveal backlog. Completion
+// removes the identity immediately, including replies first seen after finishing.
 export function liveReplyIDs(previous: Snapshot | null, next: Snapshot, live: ReadonlySet<string>, latestOnly=false): Set<string> {
  const result = new Set<string>();
  if (!previous || previous.connection !== 'ready' || next.connection !== 'ready') return result;
@@ -48,7 +48,7 @@ export function liveReplyIDs(previous: Snapshot | null, next: Snapshot, live: Re
  const anchor = tail ? next.items.findIndex(item => item.id === tail.id ||
   tail.kind === 'user' && !!tail.requestId && item.kind === 'user' && item.requestId === tail.requestId) : -1;
  for (const [index,item] of next.items.entries()) {
-  if (item.kind !== 'assistant') continue;
+  if (item.kind !== 'assistant' || item.status !== 'inProgress' || incompleteAssistant(item,next)) continue;
   const old = before.get(item.id);
   // Pet snapshots intentionally retain only the latest item of each kind.
   const appended = !old && (latestOnly || !tail || anchor >= 0 && index > anchor);
