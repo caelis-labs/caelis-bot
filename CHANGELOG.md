@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.2](https://github.com/caelis-labs/caelis-bot/compare/v0.18.1...v0.18.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **chat:** preserve IME input, model menu layering, and completed reply display ([d4912bd](https://github.com/caelis-labs/caelis-bot/commit/d4912bd3016333f58891b79e7f3a8bf78f0a47a4))
+* **telegram:** preserve complete Web pairing links and bound Start guidance ([24266f3](https://github.com/caelis-labs/caelis-bot/commit/24266f305ecd1822891a8d56be5f16a5d77d29f5))
+
 ## [0.18.1](https://github.com/caelis-labs/caelis-bot/compare/v0.18.0...v0.18.1) (2026-10-21)
 
 
