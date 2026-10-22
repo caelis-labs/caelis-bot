@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	pairingFeedbackInterval     = time.Second
+	// Leave control ingress time between slow hints from different strangers.
+	pairingFeedbackInterval     = 5 * time.Second
 	pairingFeedbackChatInterval = 30 * time.Second
 	pairingFeedbackTimeout      = time.Second
 )

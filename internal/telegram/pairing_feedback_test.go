@@ -168,7 +168,7 @@ func TestPollingSlowStartFeedbackCannotHoldCandidateBehindBurst(t *testing.T) {
 	b.mu.Unlock()
 	updates := make([]tg.Update, 12)
 	for i := range updates {
-		updates[i] = message(i+1, 10, 20, "/start")
+		updates[i] = message(i+1, int64(i+100), int64(i+200), "/start")
 	}
 	updates = append(updates, message(13, 10, 20, "/start "+nonce))
 	f.updates <- updates
