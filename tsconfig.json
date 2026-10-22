@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["frontend/src", "vite.config.ts", "script/reduced-motion-fixture.tsx", "script/input-menu-fixture.tsx", "script/completed-stream-fixture.tsx"]
+  "include": ["frontend/src", "vite.config.ts", "script/reduced-motion-fixture.tsx", "script/input-menu-fixture.tsx", "script/completed-stream-fixture.tsx", "script/telegram-link-fixture.tsx"]
 }

@@ -1,9 +1,26 @@
 import {useEffect,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {desktop} from './desktop';
+import {isWebSurface} from './transport';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
-import {telegramPhase,type TelegramStatus} from './telegram-state';
+import {telegramPhase,telegramURL,type TelegramStatus} from './telegram-state';
+
+function TelegramLink({url,pairing=false,primary=true,busy,label,nativeOpen}:{url:string;pairing?:boolean;primary?:boolean;busy:boolean;label:string;nativeOpen:()=>void}){
+ const {t}=useI18n(),[copy,setCopy]=useState<{url:string;failed:boolean}|null>(null);
+ const copied=copy?.url===url&&!copy.failed,failed=copy?.url===url&&copy.failed;
+ const copyLink=async()=>{try{await desktop('CopyText',url);setCopy({url,failed:false});}catch{setCopy({url,failed:true});}};
+ return <>
+  <div className="telegram-link-actions">
+   {isWebSurface()?(url&&!busy?<a className={`telegram-open ${primary?'primary':'link-action'}`} href={url} target="_blank" rel="noopener noreferrer">{label}</a>:<button type="button" className={primary?'primary':'text-action link-action'} disabled>{label}</button>):<button type="button" className={primary?'primary':'text-action link-action'} disabled={busy} onClick={nativeOpen}>{label}</button>}
+   {pairing&&url&&<button type="button" disabled={busy} onClick={()=>void copyLink()}>{t('settings.telegramCopyPairLink')}</button>}
+  </div>
+  {pairing&&<p className="settings-description">{t('settings.telegramPairLinkHelp')}</p>}
+  {copied&&<p role="status">{t('chat.copied')}</p>}
+  {failed&&<label className="telegram-copy-fallback">{t('settings.telegramPairLink')}<input aria-label={t('settings.telegramPairLink')} readOnly value={url} autoFocus onFocus={event=>event.currentTarget.select()}/><span role="status">{t('settings.telegramCopyManually')}</span></label>}
+  {isWebSurface()&&!url&&<p role="alert">{t('settings.telegramIssue_open_failed')}</p>}
+ </>;
+}
 
 const issues=new Set(['invalid_token','network','occupied','webhook','credential','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy','approval_unavailable']);
 function issueKey(issue:string):MessageKey {return `settings.telegramIssue_${issues.has(issue)?issue:'setup_failed'}` as MessageKey;}
@@ -46,7 +63,7 @@ export function TelegramSettings({active=true}:{active?:boolean}={}){
    <h3>{t('settings.telegramChooseBot')}</h3>
    <div className="telegram-route" role="group" aria-label={t('settings.telegramChooseBot')}><button type="button" aria-pressed={route==='new'} onClick={()=>setRoute('new')}>{t('settings.telegramNewBot')}</button><button type="button" aria-pressed={route==='existing'} onClick={()=>setRoute('existing')}>{t('settings.telegramExistingBot')}</button></div>
    {route==='new'?<p>{t('settings.telegramCreateSimple')}</p>:<p>{t('settings.telegramExisting')}</p>}
-   <button type="button" className="text-action link-action" onClick={()=>void open(false)}>{t('settings.telegramBotFather')}</button>
+   <TelegramLink url={telegramURL(status,false)} primary={false} busy={busy} label={t('settings.telegramBotFather')} nativeOpen={()=>void open(false)}/>
   </div>}
   {showToken&&<div className="telegram-step"><h3>{t('settings.telegramTokenStep')}</h3>
    <label htmlFor="telegram-token">{t('settings.telegramToken')}</label>
@@ -55,9 +72,9 @@ export function TelegramSettings({active=true}:{active?:boolean}={}){
    <p className="settings-description">{t('settings.telegramTokenPrivacy')}</p>
    <button type="button" className="primary" disabled={busy||!hasToken} onClick={()=>void act('ConnectTelegram',token,issue==='webhook')}>{t(issue==='webhook'?'settings.telegramTakeOver':'settings.telegramConnect')}</button>
   </div>}
-  {phase==='pairing'&&<div className="telegram-step"><h3>{t('settings.telegramPairHeading')}</h3><p>{t('settings.telegramPairStep',{bot:status?.bot??''})}</p><button type="button" className="primary" disabled={busy} onClick={()=>void open(true)}>{t('settings.telegramOpenBot')}</button><p className="settings-description">{t('settings.telegramPairWaiting')}</p><button type="button" className="text-action" disabled={busy} onClick={()=>void act('ConnectTelegram','',false)}>{t('settings.telegramNewPairLink')}</button></div>}
+  {phase==='pairing'&&<div className="telegram-step"><h3>{t('settings.telegramPairHeading')}</h3><p>{t('settings.telegramPairStep',{bot:status?.bot??''})}</p><TelegramLink url={telegramURL(status,true)} pairing busy={busy} label={t('settings.telegramOpenBot')} nativeOpen={()=>void open(true)}/><p className="settings-description">{t('settings.telegramPairWaiting')}</p><button type="button" className="text-action" disabled={busy} onClick={()=>void act('ConnectTelegram','',false)}>{t('settings.telegramNewPairLink')}</button></div>}
   {phase==='candidate'&&<div className="telegram-step"><h3>{t('settings.telegramConfirmHeading')}</h3><p>{t('settings.telegramConfirmAccount',{account:status?.candidate??''})}</p><button type="button" className="primary" disabled={busy} onClick={()=>void act('ConfirmTelegram')}>{t('settings.telegramConfirm')}</button><p className="settings-description">{t('settings.telegramConfirmHelp')}</p></div>}
-  {phase==='connected'&&<div className="telegram-step"><h3>@{status?.bot}</h3><p>{t('settings.telegramOwner',{account:status?.owner??''})}</p><button type="button" className="primary" disabled={busy} onClick={()=>void open(true)}>{t('settings.telegramOpenBot')}</button><p className="settings-description">{t('settings.telegramStayOnline')}</p></div>}
+  {phase==='connected'&&<div className="telegram-step"><h3>@{status?.bot}</h3><p>{t('settings.telegramOwner',{account:status?.owner??''})}</p><TelegramLink url={telegramURL(status,true)} busy={busy} label={t('settings.telegramOpenBot')} nativeOpen={()=>void open(true)}/><p className="settings-description">{t('settings.telegramStayOnline')}</p></div>}
   {phase==='paused'&&<div className="telegram-step"><h3>@{status?.bot}</h3><p>{t('settings.telegramPausedHelp')}</p><button type="button" className="primary" disabled={busy} onClick={()=>void act('ConnectTelegram','',false)}>{t('settings.telegramResume')}</button></div>}
   {issue&&issue!=='invalid_token'&&<div className="telegram-notice" role="alert"><p>{t(issueKey(issue))}</p>
    {(phase==='error'||phase==='reconnecting')&&!showToken&&<button type="button" className="primary" disabled={busy} onClick={()=>phase==='reconnecting'||issue==='unavailable'?void refresh():void act('ConnectTelegram','',false)}>{t(phase==='reconnecting'||issue==='unavailable'?'settings.telegramCheckAgain':'settings.telegramRetry')}</button>}

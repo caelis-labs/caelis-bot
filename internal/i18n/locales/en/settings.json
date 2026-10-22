@@ -507,7 +507,7 @@
   "telegramConnect": "Connect",
   "telegramTokenPrivacy": "Saved only on this device. Keep the token private.",
   "telegramResume": "Resume connection",
-  "telegramPairStep": "Open @{bot} below, then tap Start in Telegram.",
+  "telegramPairStep": "Use the pairing link below to open @{bot}, then tap Start in Telegram.",
   "telegramOpenBot": "Open in Telegram",
   "telegramPairWaiting": "After tapping Start, return here to confirm your account. Only your confirmed private chat can send messages to Caelis Bot. The pairing link expires after 15 minutes.",
   "telegramConfirmAccount": "Is {account} your Telegram account?",
@@ -528,7 +528,7 @@
   "telegramIssue_blocked": "Unblock the Bot in Telegram, then connect again.",
   "telegramIssue_unavailable": "Telegram setup is unavailable. Restart Caelis Bot and try again.",
   "telegramIssue_setup_failed": "Could not finish setup. Try again.",
-  "telegramIssue_open_failed": "Could not open Telegram. Open the Bot from Telegram manually.",
+  "telegramIssue_open_failed": "Could not open Telegram. To pair, copy the complete pairing link and open it in your browser.",
   "telegramIssue_pairing_failed": "Could not create a pairing link. Try connecting again.",
   "telegramIssue_pairing_expired": "The pairing link has expired. Try connecting again to get a new link.",
   "telegramIssue_delivery_uncertain": "A message delivery could not be confirmed. It will not be duplicated automatically; check Telegram and your Mac.",
@@ -758,5 +758,9 @@
   "experimentalChanged": "Another client changed these settings. Review them before trying again.",
   "experimentalFailed": "Could not confirm the save. Check again.",
   "experimentalRejected": "Not saved. Check the current settings before trying again.",
-  "openSettingsFailed": "Could not open settings. Try again."
+  "openSettingsFailed": "Could not open settings. Try again.",
+  "telegramCopyPairLink": "Copy complete pairing link",
+  "telegramPairLink": "Complete pairing link",
+  "telegramCopyManually": "Copy did not complete. Select and copy the full link above, then open it in your browser.",
+  "telegramPairLinkHelp": "If Telegram does not open, copy the complete pairing link into your browser. Searching for the Bot and tapping Start alone cannot pair your account. Keep this private link to yourself."
 }

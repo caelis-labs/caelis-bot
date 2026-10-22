@@ -243,6 +243,12 @@ execution authority. Approval claims remain durable-before-dispatch; their origi
 cards converge to submitted, uncertain or terminal state. Reconnect completion and
 failure have explicit feedback. An unavailable Runtime keeps original messages
 queued for admission after recovery. A quit/sleeping Mac still cannot receive them.
+Unpaired Start hints and candidate acknowledgements share the normal output
+`retry_after` cooldown. They allow one attempt per five seconds overall and one per
+chat per 30 seconds, with 32 fixed in-memory slots and a one-second send deadline.
+Suppressed or uncertain hints are consumed without automatic replay. Nonce
+validation and candidate binding precede feedback admission; confirmation remains
+an explicit action in settings even when no Telegram hint can be sent.
 
 Caelis display recovery requests one recent Turn, preserving its exact cursor and
 command evidence. Stream and Worker failures retry independently of the resident

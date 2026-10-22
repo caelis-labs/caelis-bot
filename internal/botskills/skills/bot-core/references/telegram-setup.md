@@ -19,8 +19,13 @@ stores it in its private local credential directory. Never claim setup succeeded
    add a short personal suffix and try again.
 4. BotFather gives an API token. Ask the user to copy it directly into the Bot Token
    field in Caelis Bot settings and click Connect. They should not send it to you.
-5. Click Open in Telegram and tap Start in the Bot chat. Return to Caelis Bot and
-   confirm the displayed Telegram account is theirs. This completes pairing.
+5. Use Open in Telegram on the pairing page, then tap Start in that chat. The
+   complete link carries a short-lived pairing payload; searching for the Bot and
+   tapping Start alone cannot identify this pairing attempt. If opening fails, use
+   Copy complete pairing link and open it in the user's browser. Keep the full link
+   private: never ask them to paste it into conversation, logs, or tool arguments.
+   Return to Caelis Bot settings and explicitly confirm the displayed account is
+   theirs. Receiving Start is not authorization by itself.
 
 Give one short step at a time when the user needs help. Use the app's Open BotFather
 and Open in Telegram buttons where possible; the user does not need a server,
@@ -59,6 +64,11 @@ click Try connecting again; do not keep reconnecting competing clients.
   until it reconnects.
 - If the pairing link expires, click Try connecting again. Only the account
   confirmed on the Mac is allowed to send work to the assistant.
+- An ordinary, wrong or expired `/start` cannot create a pairing candidate. Do not
+  offer a plain Bot URL or manual username search as a pairing substitute. If the
+  complete link still leaves the page waiting, distinguish link expiry, channel
+  receive/polling issues and a stale status view; the waiting screen alone proves
+  none of these. Preserve the original attempt instead of repeatedly renewing it.
 - Distinguish Not set up, Connecting, Waiting for pairing, Confirm your account,
   Connected, Paused, Reconnecting and Needs attention. A waiting screen or a
   successful status read is not pairing confirmation. Follow the single action
