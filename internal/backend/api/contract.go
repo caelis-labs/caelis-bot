@@ -223,6 +223,9 @@ type ApprovalResolution struct {
 }
 
 type Approval struct {
+	// NativeID preserves the native identity when a host uses a source-scoped
+	// presentation reference. Never accepted from renderer JSON as authority.
+	NativeID string `json:"-"`
 	// Presentation keys never participate in approval identity or decisions.
 	TitleKey  string `json:"titleKey"`
 	NoticeKey string `json:"noticeKey"`

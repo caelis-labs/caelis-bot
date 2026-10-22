@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -111,6 +112,14 @@ func (m *Manager) ReadTaskConversation(ctx context.Context, id string) (api.Task
 	}
 	if messages == nil {
 		messages = []api.TaskConversationMessage{}
+	}
+	messages = slices.Clone(messages)
+	for i := range messages {
+		messages[i].Artifacts = slices.Clone(messages[i].Artifacts)
+		for j := range messages[i].Artifacts {
+			a := &messages[i].Artifacts[j]
+			a.ID = api.TaskArtifactID(id, a.ID)
+		}
 	}
 	return api.TaskConversation{Status: view.Status, Messages: messages}, nil
 }

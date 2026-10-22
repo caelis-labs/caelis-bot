@@ -34,6 +34,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
+			out.Approvals[i].NativeID = snapshot.Approvals[i].NativeID
 		}
 		return out
 	}
@@ -158,7 +159,13 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			_ = json.Unmarshal(raw, &p)
 			summary := p.ToolCall.Title
 			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
-			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
+			if len(p.ToolCall.RawInput) == 0 || len(p.Options) == 0 {
+				// Keep an unfamiliar native request opaque and inspectable. A
+				// missing supported shape is never an automatic approval or a
+				// reason to discard its original permission payload.
+				details, _ = json.MarshalIndent(a.Permission, "", "  ")
+			}
+			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), NativeID: a.RequestId, Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
 			} else if sid != "" {

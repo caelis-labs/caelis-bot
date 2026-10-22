@@ -49,20 +49,29 @@ func (w *localWorkers) RetainedApprovalState() ([]api.Approval, uint64) {
 func (w *localWorkers) DecideRetainedApproval(ctx context.Context, d api.Decision) (bool, error) {
 	w.mu.Lock()
 	var target approvalObserver
+	taskID := ""
+	sources := []approvalObserver{}
+	if source, ok := w.resident.(approvalObserver); ok {
+		sources = append(sources, source)
+	}
 	for id, owner := range w.owners {
 		if id == w.active {
 			continue
 		}
 		if source, ok := owner.(approvalObserver); ok {
-			for _, v := range source.Snapshot().Approvals {
-				if v.Owner == "task" && v.ID == d.ID {
-					if target != nil {
-						w.mu.Unlock()
-						return true, errors.New("ambiguous original approval owner")
-					}
-					target = source
-					break
+			sources = append(sources, source)
+		}
+	}
+	for _, source := range sources {
+		for _, v := range source.Snapshot().Approvals {
+			if v.Owner == "task" && v.ID == d.ID {
+				if target != nil {
+					w.mu.Unlock()
+					return true, errors.New("ambiguous original approval owner")
 				}
+				target = source
+				taskID = v.TaskID
+				break
 			}
 		}
 	}
@@ -70,13 +79,16 @@ func (w *localWorkers) DecideRetainedApproval(ctx context.Context, d api.Decisio
 	if target == nil {
 		return false, nil
 	}
+	if owner, ok := target.(api.WorkDecider); ok && taskID != "" {
+		return true, owner.DecideWork(ctx, api.WorkDecision{TaskID: taskID, RequestID: api.WorkDecisionRequestID(taskID, d), Decision: d})
+	}
 	return true, target.Decide(ctx, d)
 }
 
 func (a *Application) allApprovalSnapshot() api.Snapshot {
 	v := a.currentEngine().Snapshot()
 	if a.localWork != nil {
-		v.Approvals = append(v.Approvals, a.localWork.RetainedApprovals()...)
+		v.Approvals = append(v.Approvals, a.retainedWorkerApprovals()...)
 	}
 	return v
 }

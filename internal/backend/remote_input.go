@@ -60,6 +60,9 @@ func ObserveSubmissions(s *Service, observer func(api.Submission, []api.InputFil
 // ResolveRemoteArtifact keeps export restricted to artifacts already owned by
 // the backend. A Telegram identifier cannot be turned into an arbitrary path.
 func ResolveRemoteArtifact(s *Service, id string) (string, error) {
+	if path, ok, err := s.taskArtifact(id); ok {
+		return path, err
+	}
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if resolver, ok := s.currentEngine().(api.ArtifactResolver); ok && !s.restarting && !s.setupRequired {

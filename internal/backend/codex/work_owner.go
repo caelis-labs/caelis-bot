@@ -22,6 +22,7 @@ func NewWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 		return nil, errors.New("resident bindings cannot become a worker owner")
 	}
 	s.workerOnly = true
+	s.resetProjection() // Restore task-owned subscriptions after loading the binding.
 	return &WorkOwner{s}, nil
 }
 
@@ -33,6 +34,7 @@ func NewRetainedWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 	}
 	s := NewSession(opts)
 	s.workerOnly = true
+	s.resetProjection() // Restore task-owned subscriptions after loading the binding.
 	return &WorkOwner{s}, s.loadErr
 }
 func (w *WorkOwner) Close(ctx context.Context) error { return w.engine.Close(ctx) }
@@ -107,4 +109,26 @@ func (w *WorkOwner) Models(ctx context.Context) ([]api.ModelOption, error) {
 
 func (w *WorkOwner) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
 	return w.engine.RuntimeDefault(ctx)
+}
+
+func (w *WorkOwner) WorkCapabilities(ctx context.Context, id string) (api.WorkCapabilities, error) {
+	return w.engine.WorkCapabilities(ctx, id)
+}
+func (w *WorkOwner) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
+	return w.engine.ObserveWork(ctx, id)
+}
+func (w *WorkOwner) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
+	return w.engine.StopWorkRequest(ctx, in)
+}
+func (w *WorkOwner) DecideWork(ctx context.Context, in api.WorkDecision) error {
+	return w.engine.DecideWork(ctx, in)
+}
+func (w *WorkOwner) WorkApprovalURL(ctx context.Context, task, id string) (string, error) {
+	return w.engine.WorkApprovalURL(ctx, task, id)
+}
+func (w *WorkOwner) ReadWorkOperation(ctx context.Context, q api.WorkOperationQuery) (api.WorkOperation, error) {
+	return w.engine.ReadWorkOperation(ctx, q)
+}
+func (w *WorkOwner) ReadWorkFile(ctx context.Context, task, id string) (api.WorkFileContent, error) {
+	return w.engine.ReadWorkFile(ctx, task, id)
 }

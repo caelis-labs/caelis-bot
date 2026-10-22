@@ -13,6 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"maps"
 	"os"
 	"path/filepath"
@@ -23,11 +24,12 @@ import (
 )
 
 type profile struct {
-	View     api.Machine `json:"view"`
-	Key      string      `json:"key"`
-	Root     string      `json:"root"`
-	Helper   string      `json:"helper"`
-	Identity string      `json:"identity"`
+	Peer     workerpeer.Connection `json:"peer,omitempty"`
+	View     api.Machine           `json:"view"`
+	Key      string                `json:"key"`
+	Root     string                `json:"root"`
+	Helper   string                `json:"helper"`
+	Identity string                `json:"identity"`
 }
 type disk struct {
 	Version   int                `json:"version"`
@@ -49,7 +51,8 @@ type Service struct {
 	state         disk
 	secrets       map[string]string
 	cache         map[string][]api.WorkState
-	cacheRevision map[string]uint64 // guarded by mu; fences late observations
+	cacheRevision map[string]uint64              // guarded by mu; fences late observations
+	observations  map[string]api.WorkObservation // guarded by cacheMu
 	local         api.WorkRuntime
 	artifact      func(string) ([]byte, error)
 }
@@ -269,6 +272,9 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 }
 func fmtPort(v int) string { return strings.TrimSpace(strconv.Itoa(v)) }
 func (s *Service) call(ctx context.Context, p profile, r remotework.Request) (remotework.Response, error) {
+	if p.View.ConnectionType == "bot" {
+		return s.peerCall(ctx, p, r)
+	}
 	if s.request != nil {
 		return s.request(ctx, p, r)
 	}
@@ -424,8 +430,13 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 			return errors.New("machine_has_tasks")
 		}
 	}
-	if err := s.secretStore.Delete(id); err != nil {
-		return err
+	if p := s.state.Profiles[id]; p.View.ConnectionType == "bot" {
+		_, _ = workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "unpair"})
+	}
+	if s.state.Profiles[id].View.ConnectionType != "bot" {
+		if err := s.secretStore.Delete(id); err != nil {
+			return err
+		}
 	}
 	old := s.state
 	s.state.Profiles = maps.Clone(old.Profiles)

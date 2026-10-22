@@ -19,7 +19,8 @@ func TestWorkerAsyncQuestionReachesGuardianAndAnswersOriginalWork(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.localWork, a.tasks = pool, manager
+	wireTestWorkers(t, a, pool)
+	a.tasks = manager
 	work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "worker-start-123", Title: "问问题", Prompt: "请提问", Workspace: root})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestChangedWorkerQuestionGenerationGetsNewPrivateNotice(t *testing.T) {
 	a, root := fixtureApp(t, e, Host{})
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
-	a.localWork = pool
+	wireTestWorkers(t, a, pool)
 	item := api.Item{ID: "worker-question:changed", TurnKey: "worker-turn", Kind: "assistant", AsyncCallID: "native-call", AsyncQuestions: []api.AsyncQuestion{{Title: "选择", Options: []string{"甲", "乙"}}}}
 	owner.states["work-one"] = api.WorkState{Task: api.Task{ID: "work-one", Title: "任务"}, AsyncQuestions: []api.Item{item}}
 	a.observeWorkerQuestions(t.Context())
@@ -80,7 +81,8 @@ func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.localWork, a.tasks = pool, manager
+	wireTestWorkers(t, a, pool)
+	a.tasks = manager
 	work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "worker-start-456", Title: "问问题", Prompt: "请提问", Workspace: root})
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +109,7 @@ func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
-	a.localWork = workPool(root, "codex", map[string]*workerFixture{"codex": owner})
+	wireTestWorkers(t, a, workPool(root, "codex", map[string]*workerFixture{"codex": owner}))
 	item := api.Item{ID: "worker-question:presented", TurnKey: "run", Kind: "assistant", AsyncCallID: "native-original", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"One", "Two"}}}}
 	owner.states["work"] = api.WorkState{Runtime: "codex", Task: api.Task{ID: "work", Title: "Source task", Status: "working"}, AsyncQuestions: []api.Item{item}}
 	a.observeWorkerQuestions(t.Context())

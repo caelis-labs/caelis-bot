@@ -48,6 +48,8 @@ type Service struct {
 	capture                captureState
 	permissionGuide        permissionGuide
 	featureGuide           permissionGuide
+	workerTaskView         func(context.Context, string) (bool, error)
+	workerTaskSelection    string
 	taskPreferences        func() tasks.Preferences
 	saveTaskPreferences    func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices        func() []taskterminal.Choice

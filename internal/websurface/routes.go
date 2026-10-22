@@ -5,6 +5,14 @@ package websurface
 func (s *Server) registerActions() {
 	b, d := s.services.Backend, s.services.Surface
 	for _, entry := range []action{
+		{Path: "/api/v1/tasks/worker-list", Function: b.WorkerTasks, Read: true},
+		{Path: "/api/v1/tasks/worker-conversation", Function: b.WorkerTaskConversation, Read: true},
+		{Path: "/api/v1/tasks/worker-observation", Function: b.WorkerTaskObservation, Read: true},
+		{Path: "/api/v1/machines/connect-bot", Function: b.ConnectBot},
+		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},
+		{Path: "/api/v1/machines/set-worker-sharing", Function: b.SetWorkerSharing},
+		{Path: "/api/v1/machines/create-worker-pairing", Function: b.CreateWorkerPairing},
+		{Path: "/api/v1/machines/revoke-worker-peer", Function: b.RevokeWorkerPeer},
 		{Path: "/api/v1/diagnostics/read", Function: b.DiagnosticReport, Read: true},
 		{Path: "/api/v1/conversation/snapshot", Function: b.Snapshot, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/pet-snapshot", Function: b.PetSnapshot, Read: true, Composer: false},

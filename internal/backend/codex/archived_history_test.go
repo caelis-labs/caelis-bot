@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestArchivedWorkerHistoryReadsOriginalPagesWithoutAdoptingOwner(t *testing.
 					first = got.Messages
 				} else {
 					for i, message := range first {
-						if message != got.Messages[i] {
+						if !reflect.DeepEqual(message, got.Messages[i]) {
 							t.Fatal("repeat read changed original message identities")
 						}
 					}

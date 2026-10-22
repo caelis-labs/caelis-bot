@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"context"
+	"errors"
 	"log"
 	"path/filepath"
 
@@ -49,6 +51,30 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		return nil, err
 	}
 	back := core.Backend
+	s.workerTaskView = func(ctx context.Context, id string) (bool, error) {
+		owned := false
+		for _, task := range back.WorkerTasks() {
+			if task.ID == id {
+				owned = true
+				if task.Machine != "" {
+					for _, machine := range back.Machines() {
+						if machine.ID == task.Machine && machine.ConnectionType != "bot" {
+							return false, nil
+						}
+					}
+				}
+				break
+			}
+		}
+		if !owned {
+			return true, errors.New("worker_view_unavailable")
+		}
+		s.mu.Lock()
+		s.workerTaskSelection = id
+		s.mu.Unlock()
+		s.OpenHistory()
+		return true, nil
+	}
 	s.resolveArtifact = func(id string) (string, error) { return backend.ResolveRemoteArtifact(back, id) }
 	s.telegram = core.Telegram
 	s.weixin = core.Weixin

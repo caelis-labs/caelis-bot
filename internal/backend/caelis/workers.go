@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ type workerStart struct {
 	Profile       wire.SessionProfile `json:"profile"`
 	Prompt        string              `json:"prompt"`
 	Authorization string              `json:"authorization"`
+	Files         []workerInput       `json:"files,omitempty"`
 }
 
 // The latest outbound prompt owns the Worker generation until its original
@@ -34,6 +36,7 @@ type workerSubmission struct {
 	Steering       bool     `json:"steering,omitempty"`
 }
 type worker struct {
+	HostStart   *workIntent         `json:"hostStart,omitempty"`
 	Native      bool                `json:"native,omitempty"`
 	Binding     wire.SessionBinding `json:"binding"`
 	Task        api.Task            `json:"task"`
@@ -64,15 +67,16 @@ func (s *Session) WorkStates() []api.WorkState {
 	out := []api.WorkState{}
 	for _, w := range s.state.Workers {
 		v := s.workerViewLocked(w)
-		key := ""
+		key, stopKey := "", ""
 		if p := s.state.Views[w.Binding.SessionId]; p != nil {
 			key = observedTurn(p)
+			stopKey = workStopExecutionKey(p.State)
 		}
 		activity := w.Activity
 		if !s.connected {
 			activity = ""
 		}
-		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
+		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopExecutionKey: stopKey, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
 	}
 	return out
 }
@@ -186,6 +190,16 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if in.ID == "" || in.RequestID == "" || !filepath.IsAbs(in.Workspace) {
 		return api.Task{}, errors.New("工作配置无效")
 	}
+	inputs, e := readWorkerInputs(in.Files)
+	if e != nil {
+		return api.Task{}, e
+	}
+	digests := workerInputDigests(inputs)
+	if len(in.FileDigests) != 0 && !slices.Equal(in.FileDigests, digests) {
+		return api.Task{}, errors.New("Worker input digest differs")
+	}
+	in.FileDigests = digests
+	hostIntent := &workIntent{in.ID, in.RequestID, "start", api.WorkFingerprint(in)}
 	s.step.Lock()
 	defer s.step.Unlock()
 	fp := digest([]byte(in.Title + "\x00" + in.Prompt))[:32]
@@ -200,7 +214,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	s.mu.Unlock()
 	if exists {
-		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace {
+		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace || old.HostStart != nil && *old.HostStart != *hostIntent || old.HostStart == nil && len(inputs) != 0 {
 			return api.Task{}, errors.New("任务请求冲突")
 		}
 		s.mu.Lock()
@@ -218,7 +232,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 	}
 	profile := wire.SessionProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
+	w := worker{HostStart: hostIntent, Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId, Files: inputs}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
 	e = s.saveLocked()
@@ -240,6 +254,9 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error) {
 	if w.Start == nil {
 		return w.Task, nil
+	}
+	if w.HostStart != nil {
+		ctx = context.WithValue(ctx, workIntentKey{}, w.HostStart)
 	}
 	s.mu.Lock()
 	c := s.client
@@ -288,15 +305,18 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	}
 	sid := w.Binding.SessionId
 	var result wire.CommandResult
-	var e error
+	parts, e := s.encodeWorkerInputs(ctx, sid, w.PromptID, w.Start.Files)
+	if e != nil {
+		return w.Task, e
+	}
 	if w.Native {
-		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, Input: &w.Start.Prompt})
+		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, Input: &w.Start.Prompt, ContentParts: parts})
 	} else {
 		grant, grantErr := s.createGrant(ctx, sid, "work-"+w.Task.ID, w.Start.Authorization)
 		if grantErr != nil {
 			return w.Task, grantErr
 		}
-		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &grant.Id, Input: &w.Start.Prompt})
+		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &grant.Id, Input: &w.Start.Prompt, ContentParts: parts})
 	}
 	w.Task.Outcome = productOutcome(result.Outcome)
 	if succeeded(result.Outcome) {
@@ -521,6 +541,16 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if e != nil {
 		return api.Task{}, e
 	}
+	inputs, e := readWorkerInputs(in.Files)
+	if e != nil {
+		return api.Task{}, e
+	}
+	digests := workerInputDigests(inputs)
+	if len(in.FileDigests) != 0 && !slices.Equal(in.FileDigests, digests) {
+		return api.Task{}, errors.New("Worker input digest differs")
+	}
+	in.FileDigests = digests
+	ctx = withWorkIntent(ctx, in.ID, in.RequestID, "send", api.WorkFingerprint(in))
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
@@ -537,7 +567,11 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	sid := w.Binding.SessionId
 	if retry && w.PromptID == op && w.Native {
-		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, nil, busy)
+		parts, encodeErr := s.encodeWorkerInputs(ctx, sid, op, inputs)
+		if encodeErr != nil {
+			return projected, encodeErr
+		}
+		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, parts, busy)
 		projected.Outcome = productOutcome(res.Outcome)
 		if res.Outcome == "unknown" && err == nil {
 			err = errors.New("original request receipt remains unknown")
@@ -550,12 +584,16 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if retry {
 		return projected, errors.New("original request receipt already exists; read the exact request before continuing")
 	}
+	parts, e := s.encodeWorkerInputs(ctx, sid, op, inputs)
+	if e != nil {
+		return projected, e
+	}
 	if w.Native || s.isSteeringRetry(op) || busy && !retry {
 		w, e = s.beginWorkerSubmission(w, op, busy)
 		if e != nil {
 			return projected, e
 		}
-		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, nil, busy)
+		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, parts, busy)
 		return s.finishWorkerSubmission(w, res, err)
 	}
 	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), call.Source.OperationId)
@@ -566,7 +604,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if e != nil {
 		return projected, e
 	}
-	res, e := s.command(ctx, op, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &op, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &g.Id, Input: &in.Prompt})
+	res, e := s.command(ctx, op, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &op, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &g.Id, Input: &in.Prompt, ContentParts: parts})
 	return s.finishWorkerSubmission(w, res, e)
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {

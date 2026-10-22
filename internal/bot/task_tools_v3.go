@@ -108,19 +108,28 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	bounded, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	var task api.Task
-	if taskID == "" {
-		task, err = provider.StartTask(bounded, api.TaskStart{RequestID: requestID, Prompt: str(q, "prompt"), Title: str(q, "title"), Workspace: str(q, "workspace"), Machine: machine, LocalRuntime: machine == ""})
-	} else {
-		task, err = provider.SendTask(bounded, api.TaskMessage{ID: taskID, RequestID: requestID, Prompt: str(q, "prompt")})
+	var attachments []api.TaskFileReference
+	if raw, ok := q["attachments"]; ok {
+		b, _ := json.Marshal(raw)
+		if json.Unmarshal(b, &attachments) != nil {
+			return compactError("invalid_attachments", errors.New("invalid Worker file references"))
+		}
 	}
+	if taskID == "" {
+		task, err = provider.StartTask(bounded, api.TaskStart{RequestID: requestID, Prompt: str(q, "prompt"), Title: str(q, "title"), Workspace: str(q, "workspace"), Machine: machine, LocalRuntime: machine == "", Attachments: attachments})
+	} else {
+		task, err = provider.SendTask(bounded, api.TaskMessage{ID: taskID, RequestID: requestID, Prompt: str(q, "prompt"), Attachments: attachments})
+	}
+	data := taskReceipt(task)
+	data["requestId"] = requestID
 	if err != nil || task.Status == "unknown" || task.Outcome == "unknown" || task.Outcome == "rejected" || task.Outcome == "conflicted" {
 		code, message := "unconfirmed", "The original Worker submission is not confirmed. The Host retained its original receipt and will not replay it with a new ID."
 		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
 			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
 		}
-		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": taskReceipt(task), "error": map[string]string{"code": code, "message": message}}, true)
+		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message}}, true)
 	}
-	return compactValue(map[string]any{"ok": true, "data": taskReceipt(task)}, false)
+	return compactValue(map[string]any{"ok": true, "data": data}, false)
 }
 
 func taskEnvironments(provider api.TaskProvider, localStatus string) []map[string]string {
@@ -244,6 +253,40 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 			messages[i].Text = collapsedTaskText(messages[i].Text)
 		}
 		return compactValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "messages": messages}}, false)
+	case "observe":
+		p, ok := provider.(api.TaskObserver)
+		if !ok {
+			return compactError("unavailable", errors.New("Worker observation unavailable"))
+		}
+		v, err := p.ObserveTask(bounded, str(q, "task"))
+		if err != nil {
+			return compactError("original_owner_unavailable", err)
+		}
+		return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"task": v.State.Task, "items": v.Items, "revision": v.Revision}})
+	case "reconcile":
+		p, ok := provider.(api.TaskOperationReader)
+		if !ok {
+			return compactError("unavailable", api.ErrWorkOperationUnsupported)
+		}
+		v, err := p.ReconcileTaskRequest(bounded, str(q, "task"), str(q, "requestId"))
+		if err != nil {
+			return compactError("original_operation_unavailable", err)
+		}
+		return compactValue(map[string]any{"ok": true, "data": v}, false)
+	case "file":
+		p, ok := provider.(api.TaskFileReader)
+		if !ok {
+			return compactError("unavailable", errors.New("Worker files unavailable"))
+		}
+		id, ref := str(q, "task"), str(q, "file")
+		v, err := p.ReadTaskFile(bounded, id, ref)
+		if err != nil {
+			return compactError("native_file_unavailable", err)
+		}
+		if native, ok := api.ParseTaskArtifactID(ref); ok {
+			ref = native.ID
+		}
+		return compactValue(map[string]any{"ok": true, "data": map[string]any{"artifact": api.Artifact{ID: api.TaskArtifactID(id, ref), Name: v.Name}, "bytes": len(v.Data)}}, false)
 	case "stop":
 		task, err := provider.StopTask(bounded, str(q, "task"))
 		if err != nil {

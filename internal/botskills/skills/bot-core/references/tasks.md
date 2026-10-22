@@ -285,3 +285,41 @@ replacement. The host closes its unanswered questions on the original stop or
 terminal fact. A new task or ordinary follow-up does not implicitly replace an
 old task. See [Interactions](interactions.md) for concise question presentation
 and the shared answer/close lifecycle.
+
+## Use a paired Bot environment
+
+A paired Bot is another execution environment in the existing `environments`
+list. Select it only when the user directs remote work. The initiating Bot owns
+all task presentation, completion notices, questions, user approvals and results.
+The target Bot executes an isolated Worker using its own configured runtime,
+account and Worker model; its chat and ordinary task list never adopt the work.
+Do not install a helper, configure SSH/Tailscale, change the target's models or
+try to delegate again from that Worker. Network reachability is not pairing.
+
+Creation freezes the actual native execution binding. Continue, stop, observe,
+read and retrieve files through the same task handle, including after an outage
+or application/runtime change. An unavailable original owner stays unavailable;
+never create a local replacement or change the task's environment to recover it.
+
+`bot_tasks` `observe` reads a bounded current native output snapshot. `read`
+reads the original completed history; completed status does not prove that
+history is currently readable. `reconcile` takes the original task and the
+`requestId` returned by delegation to query its original intent digest and native
+receipt. `unknown` means keep waiting/checking that receipt, never submit again
+with a new invocation, owner or request ID. A late stop is fenced to the native
+execution target that was observed when it was issued.
+
+For explicit attachments, `bot_delegate.attachments` accepts `{taskId,id}`
+references to artifacts of an owned Worker, or `{id}` for an available artifact
+of this Bot's current conversation. Only those referenced bytes are transferred;
+local paths are never interpreted as paths on another machine. Read task message
+artifacts, then use `bot_tasks` `file` with the original task/file reference to
+make a checked result available locally. This is not directory synchronization.
+
+Pending forms, secrets, opaque requests and URL challenges use the same original
+user interaction path as local work. Never claim success because a card was
+shown, a link opened, or a decision was sent. Some native protocols have fewer
+interaction kinds: report an unsupported kind or unreachable remote URL as
+blocked. A loopback URL on the target is not automatically a URL on this machine.
+Lost native approval response channels remain unknown after restart; only a
+fresh native request from the original owner can restore a decidable handle.

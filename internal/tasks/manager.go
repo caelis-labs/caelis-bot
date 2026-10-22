@@ -24,30 +24,31 @@ import (
 )
 
 type record struct {
-	Requests            []string          `json:"requests,omitempty"`
-	ConfirmedRequests   map[string]bool   `json:"confirmedRequests,omitempty"`
-	RequestOutcomes     map[string]string `json:"requestOutcomes,omitempty"`
-	RequestFingerprints map[string]string `json:"requestFingerprints,omitempty"`
-	RetiredExecutions   []string          `json:"retiredExecutions,omitempty"`
-	PreviousReports     []reportReceipt   `json:"previousReports,omitempty"`
-	Runtime             string            `json:"runtime,omitempty"`
-	Sequence            int64             `json:"sequence,omitempty"`
-	CreatedAt           int64             `json:"createdAt,omitempty"`
-	Locked              bool              `json:"locked,omitempty"`
-	CompletedAt         int64             `json:"completedAt,omitempty"`
-	ActiveAt            int64             `json:"activeAt,omitempty"`
-	Pinned              *bool             `json:"pinned,omitempty"`
-	OriginalPrompt      string            `json:"originalPrompt,omitempty"`
-	View                api.Task          `json:"view"`
-	Provider            string            `json:"provider"`
-	Fingerprint         string            `json:"fingerprint,omitempty"`
-	Execution           string            `json:"execution,omitempty"`
-	ReportID            string            `json:"reportId,omitempty"`
-	ReportState         string            `json:"reportState,omitempty"`
-	StopResolution      string            `json:"stopResolution,omitempty"`
-	UnknownSince        int64             `json:"unknownSince,omitempty"`
-	UnknownNotice       string            `json:"unknownNotice,omitempty"`
-	Activity            string            `json:"-"`
+	Operations          map[string]api.WorkOperationQuery `json:"operations,omitempty"`
+	Requests            []string                          `json:"requests,omitempty"`
+	ConfirmedRequests   map[string]bool                   `json:"confirmedRequests,omitempty"`
+	RequestOutcomes     map[string]string                 `json:"requestOutcomes,omitempty"`
+	RequestFingerprints map[string]string                 `json:"requestFingerprints,omitempty"`
+	RetiredExecutions   []string                          `json:"retiredExecutions,omitempty"`
+	PreviousReports     []reportReceipt                   `json:"previousReports,omitempty"`
+	Runtime             string                            `json:"runtime,omitempty"`
+	Sequence            int64                             `json:"sequence,omitempty"`
+	CreatedAt           int64                             `json:"createdAt,omitempty"`
+	Locked              bool                              `json:"locked,omitempty"`
+	CompletedAt         int64                             `json:"completedAt,omitempty"`
+	ActiveAt            int64                             `json:"activeAt,omitempty"`
+	Pinned              *bool                             `json:"pinned,omitempty"`
+	OriginalPrompt      string                            `json:"originalPrompt,omitempty"`
+	View                api.Task                          `json:"view"`
+	Provider            string                            `json:"provider"`
+	Fingerprint         string                            `json:"fingerprint,omitempty"`
+	Execution           string                            `json:"execution,omitempty"`
+	ReportID            string                            `json:"reportId,omitempty"`
+	ReportState         string                            `json:"reportState,omitempty"`
+	StopResolution      string                            `json:"stopResolution,omitempty"`
+	UnknownSince        int64                             `json:"unknownSince,omitempty"`
+	UnknownNotice       string                            `json:"unknownNotice,omitempty"`
+	Activity            string                            `json:"-"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -62,6 +63,7 @@ type state struct {
 
 type Manager struct {
 	quarantined          map[string]*record
+	inputResolver        func(context.Context, string) (api.WorkFileContent, error)
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
@@ -444,6 +446,14 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	if !valid(in.RequestID, in.Prompt) || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
+	in.Files, err = m.inputFiles(ctx, in.Attachments, in.Files)
+	if err != nil {
+		return api.Task{}, err
+	}
+	in.FileDigests, err = api.WorkInputDigests(in.Files)
+	if err != nil {
+		return api.Task{}, err
+	}
 	in.Title = taskDisplayTitle(in.Title, in.Prompt)
 	m.op.Lock()
 	defer m.op.Unlock()
@@ -463,6 +473,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		if in.Machine != "" {
 			fp = hash(in.Title, in.Prompt, in.Workspace, in.Machine)
 		}
+	}
+	if len(in.FileDigests) > 0 || len(in.Attachments) > 0 {
+		fp = hash(fp, api.WorkFingerprint(in.FileDigests), api.WorkFingerprint(in.Attachments))
 	}
 	m.mu.Lock()
 	if _, ok := m.work.(api.WorkRouter); ok && in.Machine == "" {
@@ -531,6 +544,12 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		if err != nil {
 			return api.Task{}, err
 		}
+		if router, ok := m.work.(api.WorkRouter); ok {
+			runtime, err = router.BindWork(ctx, in, id, "")
+			if err != nil {
+				return api.Task{}, err
+			}
+		}
 	} else if in.Workspace != "" {
 		var err error
 		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
@@ -538,9 +557,12 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 			return api.Task{}, err
 		}
 	}
+	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
+	nativeIntent := nativeStart
+	nativeIntent.Machine = ""
 	m.mu.Lock()
 	pinned := true
-	r := &record{Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r := &record{Operations: map[string]api.WorkOperationQuery{in.RequestID: {TaskID: id, RequestID: in.RequestID, Kind: "start", Fingerprint: api.WorkFingerprint(nativeIntent)}}, Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
@@ -570,7 +592,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)
-	v, e := m.work.StartWork(ctx, api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions})
+	v, e := m.work.StartWork(ctx, nativeStart)
 	result, captureErr := m.capture(id, v, e)
 	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
 		visible := result
@@ -711,6 +733,15 @@ func (m *Manager) rejectMessage(in api.TaskMessage, err error) (api.Task, error)
 }
 
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	var fileErr error
+	in.Files, fileErr = m.inputFiles(ctx, in.Attachments, in.Files)
+	if fileErr != nil {
+		return m.rejectMessage(in, fileErr)
+	}
+	in.FileDigests, fileErr = api.WorkInputDigests(in.Files)
+	if fileErr != nil {
+		return m.rejectMessage(in, fileErr)
+	}
 	if !valid(in.RequestID, in.Prompt) {
 		return m.rejectMessage(in, errors.New(m.text("host.requiresRequestIdAndRequirements")))
 	}
@@ -734,12 +765,37 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		outcome := current.RequestOutcomes[in.RequestID]
 		fingerprint, known := current.RequestFingerprints[in.RequestID]
 		m.mu.Unlock()
-		if known && fingerprint != hash(in.Prompt) {
+		if known && fingerprint != messageFingerprint(in) {
 			return prior, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		if known && outcome != "" && outcome != "unknown" {
 			prior.Outcome = outcome
 			return prior, nil
+		}
+		if native, ok := m.work.(api.WorkOperationReader); ok {
+			m.mu.Lock()
+			query, has := current.Operations[in.RequestID]
+			m.mu.Unlock()
+			if has {
+				receipt, readErr := native.ReadWorkOperation(ctx, query)
+				if readErr == nil {
+					prior.Outcome = receipt.Outcome
+					if receipt.Outcome == "accepted" || receipt.Outcome == "rejected" {
+						m.mu.Lock()
+						if current.RequestOutcomes == nil {
+							current.RequestOutcomes = map[string]string{}
+						}
+						current.RequestOutcomes[in.RequestID] = receipt.Outcome
+						readErr = m.write()
+						m.mu.Unlock()
+					}
+					return prior, readErr
+				}
+				if !errors.Is(readErr, api.ErrWorkOperationUnsupported) {
+					prior.Outcome = "unknown"
+					return prior, readErr
+				}
+			}
 		}
 		// Older ledgers contain only a boolean confirmation, which cannot
 		// distinguish acceptance from rejection. Reconcile the original native
@@ -762,7 +818,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 				current.RequestFingerprints = map[string]string{}
 			}
 			current.RequestOutcomes[in.RequestID] = v.Outcome
-			current.RequestFingerprints[in.RequestID] = hash(in.Prompt)
+			current.RequestFingerprints[in.RequestID] = messageFingerprint(in)
+			if current.Operations == nil {
+				current.Operations = map[string]api.WorkOperationQuery{}
+			}
+			current.Operations[in.RequestID] = api.WorkOperationQuery{TaskID: in.ID, RequestID: in.RequestID, Kind: "send", Fingerprint: api.WorkFingerprint(in)}
 			err = errors.Join(err, m.write())
 			m.mu.Unlock()
 		}
@@ -795,7 +855,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		if r.RequestFingerprints == nil {
 			r.RequestFingerprints = map[string]string{}
 		}
-		r.RequestFingerprints[in.RequestID] = hash(in.Prompt)
+		r.RequestFingerprints[in.RequestID] = messageFingerprint(in)
+		if r.Operations == nil {
+			r.Operations = map[string]api.WorkOperationQuery{}
+		}
+		r.Operations[in.RequestID] = api.WorkOperationQuery{TaskID: in.ID, RequestID: in.RequestID, Kind: "send", Fingerprint: api.WorkFingerprint(in)}
 		if e := m.write(); e != nil {
 			r.Requests = r.Requests[:len(r.Requests)-1]
 			delete(r.RequestFingerprints, in.RequestID)
@@ -863,7 +927,7 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 		if err := m.owned(id); err != nil {
 			return api.Task{}, err
 		}
-		v, err := m.work.StopWork(ctx, id)
+		v, err := m.stopWork(ctx, id)
 		return m.capture(id, v, err)
 	}
 	m.op.Lock()
@@ -871,7 +935,7 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 	if e := m.owned(id); e != nil {
 		return api.Task{}, e
 	}
-	v, e := m.work.StopWork(ctx, id)
+	v, e := m.stopWork(ctx, id)
 	return m.capture(id, v, e)
 }
 

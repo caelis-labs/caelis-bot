@@ -54,6 +54,7 @@ type Host struct {
 type Application struct {
 	modelSelections     *modelSelections
 	localWork           *localWorkers
+	peer                *peerHost
 	machines            *machines.Service
 	taskPreferences     *tasks.PreferencesStore
 	setup               *runtimeSetup
@@ -236,6 +237,9 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
+	if err = app.configureWorkerPeer(); err != nil {
+		return nil, err
+	}
 	app.textControl, err = textchannel.Open(root, app.Backend.Decide)
 	if err != nil {
 		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
@@ -516,6 +520,7 @@ func (a *Application) startRuntime() error {
 		}
 	}
 	manager.SetLocale(a.locale)
+	a.configureTaskFiles(manager)
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
@@ -761,7 +766,7 @@ func (a *Application) startRuntime() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
-			snapshot.Approvals = append(snapshot.Approvals, a.localWork.RetainedApprovals()...)
+			snapshot.Approvals = append(snapshot.Approvals, a.retainedWorkerApprovals()...)
 			a.observeWorkerApprovalNotice(ctx, snapshot)
 			if err := a.textControl.Reconcile(snapshot); err != nil && a.host.ReportError != nil {
 				a.host.ReportError(err)
@@ -851,6 +856,7 @@ func (a *Application) Close() error {
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
+		a.closeErr = errors.Join(a.closeErr, a.closeWorkerPeer())
 		if a.startupCancel != nil {
 			a.startupCancel()
 		}

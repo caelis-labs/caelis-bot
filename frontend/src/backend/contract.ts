@@ -49,6 +49,12 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
+export interface BotConnectionInput {
+  id: string;
+  name: string;
+  address: string;
+  code: string;
+}
 export interface BotInitialization {
   requestId?: string;
   prompt?: string;
@@ -127,6 +133,8 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
+  connectionType?: string;
+  peerId?: string;
   id: string;
   name: string;
   address: string;
@@ -530,6 +538,27 @@ export interface Submission {
   referenceIds: Array<string>;
   quoted?: QuotedMessage | null;
 }
+export interface Task {
+  createdAt?: string;
+  machineName?: string;
+  machine?: string;
+  id: string;
+  title: string;
+  workspace: string;
+  status: string;
+  outcome?: string;
+  result?: string;
+}
+export interface TaskConversation {
+  status: string;
+  messages: Array<TaskConversationMessage>;
+}
+export interface TaskConversationMessage {
+  id: string;
+  role: string;
+  text: string;
+  artifacts?: Array<Artifact>;
+}
 export interface TaskPresentation {
   id?: string;
   title: string;
@@ -539,4 +568,17 @@ export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
+}
+export interface WorkerSharing {
+  enabled: boolean;
+  address: string;
+  peer: string;
+  code?: string;
+  expiresAt?: number;
+  sources: Array<string>;
+}
+export interface WorkerTaskObservation {
+  task: Task;
+  items: Array<Item>;
+  revision: string;
 }

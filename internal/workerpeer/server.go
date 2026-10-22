@@ -1,0 +1,645 @@
+package workerpeer
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
+)
+
+type Owner interface {
+	api.WorkRuntime
+	Connect(context.Context) error
+	Close(context.Context) error
+}
+
+// Factory reads B's own runtime/model settings. runtime is empty only for a new
+// binding or readiness check. Caller identity comes exclusively from auth.
+type Factory func(context.Context, string, string, string) (Owner, string, *api.WorkExecutionSettings, error)
+type authenticatedGrant struct{ Peer, Hash string }
+type authenticatedGrantKey struct{}
+
+type grant struct {
+	Peer    string `json:"peer"`
+	Hash    string `json:"hash"`
+	Revoked bool   `json:"revoked,omitempty"`
+}
+type registry struct {
+	Version  int                          `json:"version"`
+	Identity string                       `json:"identity"`
+	Enabled  bool                         `json:"enabled"`
+	Grants   map[string]grant             `json:"grants"`
+	Bindings map[string]map[string]string `json:"bindings"` // source/task -> frozen runtime
+}
+type Server struct {
+	mu      sync.Mutex
+	root    string
+	state   registry
+	factory Factory
+	owners  map[string]Owner
+	code    string
+	expires time.Time
+}
+type Sharing struct {
+	Enabled   bool     `json:"enabled"`
+	Address   string   `json:"address"`
+	Peer      string   `json:"peer"`
+	Code      string   `json:"code,omitempty"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"`
+	Sources   []string `json:"sources"`
+}
+
+func Open(root string, factory Factory) (*Server, error) {
+	s := &Server{root: root, factory: factory, owners: map[string]Owner{}, state: registry{Version: 1, Identity: rand.Text(), Grants: map[string]grant{}, Bindings: map[string]map[string]string{}}}
+	b, err := os.ReadFile(filepath.Join(root, "peers.json"))
+	if err == nil {
+		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 1 || s.state.Identity == "" || s.state.Grants == nil || s.state.Bindings == nil {
+			return nil, errors.New("peer_registry_invalid")
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err = os.MkdirAll(root, 0700); err != nil {
+		return nil, err
+	}
+	if err = s.save(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+func (s *Server) save() error { return localstate.Write(filepath.Join(s.root, "peers.json"), s.state) }
+func (s *Server) Status() Sharing {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v := Sharing{Enabled: s.state.Enabled, Peer: s.state.Identity, Sources: []string{}}
+	for peer, g := range s.state.Grants {
+		if g.Hash != "" && !g.Revoked {
+			v.Sources = append(v.Sources, peer)
+		}
+	}
+	return v
+}
+func (s *Server) Enable(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.state.Enabled
+	s.state.Enabled = enabled
+	s.code = ""
+	if err := s.save(); err != nil {
+		s.state.Enabled = old
+		return err
+	}
+	return nil
+}
+func (s *Server) Pairing(ctx context.Context) (Sharing, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.Enabled {
+		return Sharing{}, errors.New("worker_sharing_disabled")
+	}
+	owner, _, _, err := s.factory(ctx, "readiness", "", filepath.Join(s.root, "readiness"))
+	if err != nil {
+		return Sharing{}, err
+	}
+	if err = owner.Connect(ctx); err != nil {
+		return Sharing{}, err
+	}
+	if err = owner.WorkAdmission(ctx); err != nil {
+		return Sharing{}, err
+	}
+	s.code = rand.Text()
+	s.expires = time.Now().Add(5 * time.Minute)
+	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
+}
+func (s *Server) Revoke(peer string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, ok := s.state.Grants[peer]
+	if !ok {
+		return errors.New("peer_unknown")
+	}
+	if len(s.state.Bindings[peer]) == 0 {
+		delete(s.state.Grants, peer)
+	} else {
+		revoked := old
+		revoked.Revoked = true
+		s.state.Grants[peer] = revoked
+	}
+	if err := s.save(); err != nil {
+		s.state.Grants[peer] = old
+		return err
+	}
+	return nil
+}
+func tokenHash(v string) string    { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
+func sourceDir(peer string) string { return tokenHash(peer) }
+func validID(id string) bool {
+	if len(id) < 1 || len(id) > 160 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+func (s *Server) owner(ctx context.Context, peer, id, runtime string, newBinding bool) (Owner, *api.WorkExecutionSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	proof, ok := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
+	current, valid := s.state.Grants[peer]
+	if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer || !s.state.Enabled {
+		return nil, nil, errors.New("peer_authorization_revoked")
+	}
+	routes := s.state.Bindings[peer]
+	if routes == nil {
+		routes = map[string]string{}
+	}
+	bound, exists := routes[id]
+	if !exists && !newBinding {
+		return nil, nil, errors.New("worker_not_owned")
+	}
+	if exists {
+		if runtime != "" && runtime != bound {
+			return nil, nil, errors.New("worker_owner_conflict")
+		}
+		runtime = bound
+	} else {
+		runtime = ""
+	}
+	root := filepath.Join(s.root, "sources", sourceDir(peer))
+	candidate, selected, work, err := s.factory(ctx, peer, runtime, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	if selected != "codex" && selected != "caelis" {
+		return nil, nil, errors.New("worker_runtime_unavailable")
+	}
+	if exists && selected != bound {
+		return nil, nil, errors.New("original_worker_owner_unavailable")
+	}
+	key := peer + "\x00" + selected
+	owner := s.owners[key]
+	if owner == nil {
+		owner = candidate
+		s.owners[key] = owner
+	}
+	if !exists {
+		routes[id] = selected
+		s.state.Bindings[peer] = routes
+		if err = s.save(); err != nil {
+			delete(routes, id)
+			return nil, nil, err
+		}
+	}
+	return owner, work, nil
+}
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	// The peer endpoint never accepts browser cookies or loopback trust. A browser
+	// Origin cannot become an authenticated host-to-host request through SSH.
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "peer_browser_origin_denied", http.StatusForbidden)
+		return
+	}
+	if r.URL.Path == Prefix+"pair" {
+		s.pair(w, r)
+		return
+	}
+	s.mu.Lock()
+	enabled := s.state.Enabled
+	identity := s.state.Identity
+	peer := ""
+	header := r.Header.Get("Authorization")
+	if strings.HasPrefix(header, "Bearer ") {
+		hash := tokenHash(strings.TrimPrefix(header, "Bearer "))
+		for _, g := range s.state.Grants {
+			if !g.Revoked && g.Hash == hash {
+				peer = g.Peer
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+	if !enabled || peer == "" {
+		http.Error(w, "peer_authentication_required", http.StatusUnauthorized)
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), authenticatedGrantKey{}, authenticatedGrant{Peer: peer, Hash: tokenHash(strings.TrimPrefix(header, "Bearer "))}))
+	if r.URL.Path == Prefix+"events" {
+		s.events(w, r, peer)
+		return
+	}
+	if r.Method != "POST" || r.URL.Path != Prefix+"call" {
+		http.NotFound(w, r)
+		return
+	}
+	var in Request
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 230<<20)).Decode(&in); err != nil {
+		http.Error(w, "invalid_worker_request", 400)
+		return
+	}
+	out := Response{Contract: api.WorkerContract, Peer: identity}
+	if in.Contract != api.WorkerContract {
+		out.Error = "worker_contract_incompatible"
+	} else {
+		out = s.dispatch(r.Context(), peer, in)
+		out.Contract, out.Peer = api.WorkerContract, identity
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method", 405)
+		return
+	}
+	var in PairRequest
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || !validID(in.Peer) || len(in.Token) < 40 || len(in.Token) > 128 || !validID(in.Token) {
+		http.Error(w, "invalid_peer", 400)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.Enabled || s.code == "" || time.Now().After(s.expires) || tokenHash(in.Code) != tokenHash(s.code) {
+		http.Error(w, "pairing_code_invalid_or_expired", 403)
+		return
+	}
+	if existing, exists := s.state.Grants[in.Peer]; exists {
+		if existing.Hash == "" || tokenHash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) != existing.Hash {
+			http.Error(w, "original_peer_proof_required", 403)
+			return
+		}
+	} else if len(s.state.Bindings[in.Peer]) > 0 {
+		http.Error(w, "original_peer_revoked", 403)
+		return
+	}
+	owner, _, _, err := s.factory(r.Context(), in.Peer, "", filepath.Join(s.root, "sources", sourceDir(in.Peer)))
+	if err == nil {
+		err = owner.Connect(r.Context())
+	}
+	if err == nil {
+		err = owner.WorkAdmission(r.Context())
+	}
+	var caps api.WorkCapabilities
+	if err == nil {
+		p, ok := owner.(api.WorkCapabilityProvider)
+		if !ok {
+			err = errors.New("worker_contract_unavailable")
+		} else {
+			caps, err = p.WorkCapabilities(r.Context(), "")
+		}
+	}
+	if err == nil && !Compatible(caps) {
+		err = errors.New("worker_contract_incompatible")
+	}
+	if err != nil {
+		http.Error(w, "worker_not_ready: "+err.Error(), 409)
+		return
+	}
+	token := in.Token
+	old, exists := s.state.Grants[in.Peer]
+	if exists {
+		token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	s.state.Grants[in.Peer] = grant{Peer: in.Peer, Hash: tokenHash(token)}
+	if err = s.save(); err != nil {
+		if exists {
+			s.state.Grants[in.Peer] = old
+		} else {
+			delete(s.state.Grants, in.Peer)
+		}
+		http.Error(w, "pairing_not_saved", 500)
+		return
+	}
+	s.code = ""
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(PairResult{Connection: Connection{Peer: s.state.Identity, Token: token}, Capabilities: caps})
+}
+func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Response) {
+	fail := func(err error) Response {
+		out.Error = err.Error()
+		var message *api.WorkMessageRejection
+		var decision *api.DecisionValidationError
+		var decisionValue api.DecisionValidationError
+		out.Rejected = errors.As(err, &message) || errors.As(err, &decision) || errors.As(err, &decisionValue)
+		return out
+	}
+	if in.Action == "unpair" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		proof, ok := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
+		current, valid := s.state.Grants[peer]
+		if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer || !s.state.Enabled {
+			return fail(errors.New("peer_authorization_revoked"))
+		}
+		if len(s.state.Bindings[peer]) > 0 {
+			return fail(errors.New("peer_has_worker_bindings"))
+		}
+		old := s.state.Grants[peer]
+		delete(s.state.Grants, peer)
+		if err := s.save(); err != nil {
+			s.state.Grants[peer] = old
+			return fail(err)
+		}
+		return
+	}
+	if in.Action == "info" {
+		owner, _, _, err := s.factory(ctx, peer, "", filepath.Join(s.root, "sources", sourceDir(peer)))
+		if err != nil {
+			return fail(err)
+		}
+		if err = owner.Connect(ctx); err != nil {
+			return fail(err)
+		}
+		p, ok := owner.(api.WorkCapabilityProvider)
+		if !ok {
+			return fail(errors.New("worker_contract_unavailable"))
+		}
+		out.Capabilities, err = p.WorkCapabilities(ctx, "")
+		if err != nil {
+			return fail(err)
+		}
+		return
+	}
+	if in.Action == "states" {
+		s.mu.Lock()
+		ids := []string{}
+		for id := range s.state.Bindings[peer] {
+			ids = append(ids, id)
+		}
+		s.mu.Unlock()
+		for _, id := range ids {
+			owner, _, err := s.owner(ctx, peer, id, "", false)
+			if err != nil {
+				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}, Activity: api.WorkActivityOwnerUnavailable}))
+				continue
+			}
+			connectErr := owner.Connect(ctx)
+			found := false
+			for _, state := range owner.WorkStates() {
+				if state.Task.ID == id {
+					found = true
+					if connectErr != nil {
+						state.Activity = api.WorkActivityOwnerUnavailable
+						if state.Task.Status != "completed" && state.Task.Status != "failed" && state.Task.Status != "interrupted" && state.Task.Status != "cancelled" {
+							state.Task.Status = "unknown"
+						}
+					}
+					out.States = append(out.States, encodeState(state))
+				}
+			}
+			if !found {
+				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}, Activity: api.WorkActivityOwnerUnavailable}))
+			}
+		}
+		return
+	}
+	id := in.ID
+	switch in.Action {
+	case "start":
+		id = in.Start.ID
+	case "send":
+		id = in.Message.ID
+	case "stop":
+		id = in.Stop.ID
+	case "decision":
+		id = in.Decision.TaskID
+	case "operation":
+		id = in.Query.TaskID
+	case "closure":
+		id = in.Closure.WorkID
+	}
+	if !validID(id) {
+		return fail(errors.New("invalid_worker_id"))
+	}
+	owner, work, err := s.owner(ctx, peer, id, in.Runtime, in.Action == "prepare" || in.Action == "start")
+	if err != nil {
+		return fail(err)
+	}
+	if err = owner.Connect(ctx); err != nil {
+		return fail(err)
+	}
+	if in.Action == "prepare" {
+		workspace := in.Start.TaskStart.Workspace
+		if workspace == "" {
+			workspace = filepath.Join(s.root, "sources", sourceDir(peer), "tasks", id)
+		}
+		if !filepath.IsAbs(workspace) {
+			return fail(errors.New("worker_workspace_not_absolute"))
+		}
+		if err = os.MkdirAll(workspace, 0700); err != nil {
+			return fail(err)
+		}
+		out.Task = api.Task{ID: id, Workspace: workspace}
+		if p, ok := owner.(api.WorkCapabilityProvider); ok {
+			out.Capabilities, err = p.WorkCapabilities(ctx, "")
+			if err != nil {
+				return fail(err)
+			}
+		}
+		return
+	}
+	if in.Action != "start" && in.Action != "admission" {
+		p, ok := owner.(api.WorkCapabilityProvider)
+		if !ok {
+			return fail(errors.New("original_worker_contract_unsupported"))
+		}
+		caps, err := p.WorkCapabilities(ctx, id)
+		if err != nil {
+			return fail(err)
+		}
+		if !Compatible(caps) {
+			return fail(errors.New("original_worker_contract_incompatible"))
+		}
+	}
+	if in.Action == "start" || in.Action == "send" {
+		files, err := s.stage(peer, id, in.Files)
+		if err != nil {
+			return fail(err)
+		}
+		if in.Action == "start" {
+			in.Start.Files = files
+			in.Start.Machine = ""
+			in.Start.ExecutionOverride = work
+		} else {
+			in.Message.Files = files
+		}
+	}
+	switch in.Action {
+	case "start":
+		out.Task, err = owner.StartWork(ctx, in.Start)
+	case "read":
+		out.Task, err = owner.ReadWork(ctx, id)
+	case "send":
+		out.Task, err = owner.SendWork(ctx, in.Message)
+	case "stop":
+		p, ok := owner.(api.WorkStopper)
+		if !ok {
+			return fail(errors.New("worker_guarded_stop_unsupported"))
+		}
+		out.Task, err = p.StopWorkRequest(ctx, in.Stop)
+	case "observe":
+		p, ok := owner.(api.WorkObserver)
+		if !ok {
+			return fail(errors.New("worker_observe_unsupported"))
+		}
+		var v api.WorkObservation
+		v, err = p.ObserveWork(ctx, id)
+		out.Observation = encodeObservation(v)
+	case "admission":
+		p, ok := owner.(api.WorkCapabilityProvider)
+		if !ok {
+			return fail(errors.New("worker_contract_unsupported"))
+		}
+		if err = owner.WorkAdmission(ctx); err == nil {
+			out.Capabilities, err = p.WorkCapabilities(ctx, "")
+		}
+	case "capabilities":
+		p, ok := owner.(api.WorkCapabilityProvider)
+		if !ok {
+			return fail(errors.New("worker_contract_unsupported"))
+		}
+		out.Capabilities, err = p.WorkCapabilities(ctx, id)
+	case "messages":
+		p, ok := owner.(api.WorkConversationReader)
+		if !ok {
+			return fail(errors.New("worker_history_unsupported"))
+		}
+		out.Messages, err = p.ReadWorkConversation(ctx, id)
+	case "decision":
+		p, ok := owner.(api.WorkDecider)
+		if !ok {
+			return fail(errors.New("worker_interactions_unsupported"))
+		}
+		err = p.DecideWork(ctx, in.Decision)
+	case "url":
+		p, ok := owner.(api.WorkDecider)
+		if !ok {
+			return fail(errors.New("worker_url_unsupported"))
+		}
+		out.URL, err = p.WorkApprovalURL(ctx, id, in.Ref)
+	case "operation":
+		p, ok := owner.(api.WorkOperationReader)
+		if !ok {
+			return fail(errors.New("worker_reconcile_unsupported"))
+		}
+		out.Operation, err = p.ReadWorkOperation(ctx, in.Query)
+	case "file":
+		p, ok := owner.(api.WorkFileReader)
+		if !ok {
+			return fail(errors.New("worker_files_unsupported"))
+		}
+		out.File, err = p.ReadWorkFile(ctx, id, in.Ref)
+	case "closure":
+		p, ok := owner.(api.QuestionClosureReceiver)
+		if !ok {
+			return fail(errors.New("worker_closure_unsupported"))
+		}
+		err = p.ReceiveQuestionClosure(ctx, in.Closure)
+	default:
+		err = errors.New("worker_operation_unsupported")
+	}
+	if err != nil {
+		return fail(err)
+	}
+	return
+}
+func (s *Server) stage(peer, id string, files []api.WorkFileContent) ([]api.InputFile, error) {
+	if len(files) > 8 {
+		return nil, errors.New("too_many_worker_files")
+	}
+	out := []api.InputFile{}
+	for _, file := range files {
+		if file.Name == "" || file.Name != filepath.Base(file.Name) || strings.ContainsAny(file.Name, "/\\\x00") || len(file.Data) > api.MaxWorkFileBytes {
+			return nil, errors.New("invalid_worker_file")
+		}
+		dir := filepath.Join(s.root, "sources", sourceDir(peer), "inputs", id, tokenHash(file.Name+"\x00"+tokenHash(string(file.Data))))
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dir, file.Name)
+		if err := os.WriteFile(path, file.Data, 0600); err != nil {
+			return nil, err
+		}
+		out = append(out, api.InputFile{Name: file.Name, Path: path})
+	}
+	return out, nil
+}
+func (s *Server) events(w http.ResponseWriter, r *http.Request, peer string) {
+	id := r.URL.Query().Get("id")
+	if r.Method != "GET" || !validID(id) {
+		http.Error(w, "invalid_worker", 400)
+		return
+	}
+	if _, _, err := s.owner(r.Context(), peer, id, "", false); err != nil {
+		http.Error(w, "worker_not_owned", 403)
+		return
+	}
+	f, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "stream_unavailable", 500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Accel-Buffering", "no")
+	last := ""
+	tick := time.NewTicker(300 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		s.mu.Lock()
+		g, valid := s.state.Grants[peer]
+		enabled := s.state.Enabled
+		s.mu.Unlock()
+		if !valid || g.Revoked || g.Hash != tokenHash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) || !enabled {
+			return
+		}
+		v := s.dispatch(r.Context(), peer, Request{Action: "observe", ID: id})
+		v.Contract = api.WorkerContract
+		s.mu.Lock()
+		v.Peer = s.state.Identity
+		s.mu.Unlock()
+		b, _ := json.Marshal(v)
+		hash := tokenHash(string(b))
+		if hash != last {
+			if _, err := fmt.Fprintf(w, "event: worker\ndata: %s\n\n", b); err != nil {
+				return
+			}
+			f.Flush()
+			last = hash
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+func (s *Server) Close(ctx context.Context) error {
+	s.mu.Lock()
+	owners := s.owners
+	s.owners = map[string]Owner{}
+	s.mu.Unlock()
+	var err error
+	for _, owner := range owners {
+		if d, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			err = errors.Join(err, d.DetachForUpdate(ctx))
+		} else {
+			err = errors.Join(err, owner.Close(ctx))
+		}
+	}
+	return err
+}

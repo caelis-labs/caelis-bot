@@ -26,6 +26,11 @@ import (
 type Service struct {
 	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
+	workerSharing               api.WorkerSharingController
+	workerInteractions          any
+	workerFiles                 api.TaskFileReader
+	workerView                  api.WorkerTaskViewer
+	workerFileRoot              string
 	machines                    api.MachineController
 	admission                   sync.RWMutex
 	recoveryMu                  sync.Mutex
@@ -274,7 +279,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
-	if owner, ok := s.localWorkers.(interface {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalState() ([]api.Approval, uint64)
 	}); ok {
 		approvals, revision := owner.RetainedApprovalState()
@@ -422,7 +427,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 		if questionRevision != nil {
 			combined += questionRevision()
 		}
-		if owner, ok := s.localWorkers.(interface {
+		if owner, ok := s.workerInteractionOwner().(interface {
 			RetainedApprovalState() ([]api.Approval, uint64)
 		}); ok {
 			_, workerRevision := owner.RetainedApprovalState()
@@ -799,7 +804,7 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	return s.currentEngine().Interrupt(ctx)
 }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error {
-	if owner, ok := s.localWorkers.(interface {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		DecideRetainedApproval(context.Context, api.Decision) (bool, error)
 	}); ok {
 		if handled, err := owner.DecideRetainedApproval(ctx, d); handled {
@@ -826,6 +831,12 @@ func (s *Service) CancelLogin(ctx context.Context) error {
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
+	if path, ok, err := s.taskArtifact(id); ok {
+		if err != nil {
+			return err
+		}
+		return s.reveal(path)
+	}
 	resolver, ok := s.currentEngine().(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
@@ -837,7 +848,7 @@ func (s *Service) RevealArtifact(id string) error {
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
-	if owner, ok := s.localWorkers.(interface {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalURL(string) (string, bool, error)
 	}); ok {
 		if url, handled, err := owner.RetainedApprovalURL(id); handled {

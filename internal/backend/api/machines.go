@@ -16,6 +16,8 @@ type MachineInput struct {
 	TrustFingerprint string `json:"trustFingerprint"`
 }
 type Machine struct {
+	ConnectionType string                 `json:"connectionType,omitempty"`
+	PeerID         string                 `json:"peerId,omitempty"`
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	Address        string                 `json:"address"`
@@ -37,6 +39,16 @@ type Machine struct {
 	Configuration  *RuntimeConfiguration  `json:"configuration,omitempty"`
 	AdvancedIssue  string                 `json:"advancedIssue"`
 }
+
+type BotConnectionInput struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Code    string `json:"code"`
+}
+type BotConnectionController interface {
+	ConnectBot(context.Context, BotConnectionInput) (Machine, error)
+}
 type MachineModel struct {
 	ID        string                `json:"id"`
 	Selection WorkExecutionSettings `json:"selection"`
@@ -55,4 +67,19 @@ type MachineController interface {
 	MachineTerminal(context.Context, string) (TerminalTarget, error)
 	ReadMachineAdvanced(context.Context, string) (Machine, error)
 	RemoveMachine(context.Context, string) error
+}
+
+type WorkerSharing struct {
+	Enabled   bool     `json:"enabled"`
+	Address   string   `json:"address"`
+	Peer      string   `json:"peer"`
+	Code      string   `json:"code,omitempty"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"`
+	Sources   []string `json:"sources"`
+}
+type WorkerSharingController interface {
+	WorkerSharing() WorkerSharing
+	SetWorkerSharing(bool) (WorkerSharing, error)
+	CreateWorkerPairing(context.Context) (WorkerSharing, error)
+	RevokeWorkerPeer(string) error
 }

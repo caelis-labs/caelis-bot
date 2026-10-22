@@ -19,12 +19,18 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
+	Owner             string                         `json:"owner,omitempty"`
+	Build             string                         `json:"build,omitempty"`
+	StartRequest      string                         `json:"startRequest,omitempty"`
+	StartIntent       string                         `json:"startIntent,omitempty"`
 	OriginalPrompt    string                         `json:"originalPrompt,omitempty"`
 	Execution         *api.WorkExecutionSettings     `json:"execution,omitempty"`
 	ModelProvider     string                         `json:"modelProvider,omitempty"`
 	View              api.Task                       `json:"view"`
 	Thread            string                         `json:"thread"`
 	Run               string                         `json:"run"`
+	Artifacts         map[string]string              `json:"workArtifacts,omitempty"`
+	ApprovalEvidence  []workerApprovalEvidence       `json:"approvalEvidence,omitempty"`
 	AsyncQuestions    map[string]workerAsyncQuestion `json:"asyncQuestions,omitempty"`
 	CompletedMessages map[string]bool                `json:"completedMessages,omitempty"` // exact native turn/item completion receipts
 	// Native turn IDs displaced by a later, durably recorded continuation. Keep
@@ -76,13 +82,17 @@ func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) 
 }
 
 type taskReceipt struct {
-	Fingerprint     string `json:"fingerprint"`
-	Outcome         string `json:"outcome"`
-	PriorStatus     string `json:"priorStatus,omitempty"`
-	PriorRun        string `json:"priorRun,omitempty"`
-	PriorResult     string `json:"priorResult,omitempty"`
-	PriorSuppressed bool   `json:"priorSuppressed,omitempty"`
-	Phase           string `json:"phase,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	IntentFingerprint string `json:"intentFingerprint,omitempty"`
+	ExecutionKey      string `json:"executionKey,omitempty"`
+	ControlTarget     string `json:"controlTarget,omitempty"`
+	Fingerprint       string `json:"fingerprint"`
+	Outcome           string `json:"outcome"`
+	PriorStatus       string `json:"priorStatus,omitempty"`
+	PriorRun          string `json:"priorRun,omitempty"`
+	PriorResult       string `json:"priorResult,omitempty"`
+	PriorSuppressed   bool   `json:"priorSuppressed,omitempty"`
+	Phase             string `json:"phase,omitempty"`
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -152,6 +162,9 @@ func (s *Session) hasConversationPrompt() bool {
 func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.workStatesLocked()
+}
+func (s *Session) workStatesLocked() []api.WorkState {
 	out := []api.WorkState{}
 	for id, t := range s.binding.Tasks {
 		v := s.taskView(t)
@@ -168,7 +181,7 @@ func (s *Session) WorkStates() []api.WorkState {
 				resolution = t.StopPendingStatus
 			}
 		}
-		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
@@ -243,9 +256,20 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
+	digests, err := api.WorkInputDigests(in.Files)
+	if err != nil {
+		return api.Task{}, err
+	}
+	if in.FileDigests != nil && !slices.Equal(in.FileDigests, digests) {
+		return api.Task{}, errors.New("Worker attachment intent changed")
+	}
+	in.FileDigests = digests
 	id, fingerprint := in.ID, opaque(in.Title, in.Prompt)
 	if in.TaskStart.Workspace != "" {
 		fingerprint = opaque(in.Title, in.Prompt, in.TaskStart.Workspace)
+	}
+	if len(digests) > 0 {
+		fingerprint = opaque(fingerprint, api.WorkFingerprint(digests))
 	}
 	if !validWorkID(id) || !filepath.IsAbs(in.Workspace) || strings.TrimSpace(in.Instructions) == "" {
 		return api.Task{}, errors.New("工作需要宿主分配的目录与角色")
@@ -253,7 +277,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	s.mu.Lock()
 	if t := s.binding.Tasks[id]; t != nil {
 		v := t.View
-		same := t.Fingerprint == fingerprint && t.View.Workspace == in.Workspace
+		same := t.Fingerprint == fingerprint && t.View.Workspace == in.Workspace && (t.StartIntent == "" || t.StartIntent == api.WorkFingerprint(in))
 		s.mu.Unlock()
 		if !same {
 			return v, errors.New("同一请求标识不能用于不同任务")
@@ -270,7 +294,6 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	s.mu.Unlock()
 	var execution api.WorkExecutionSettings
-	var err error
 	if in.ExecutionOverride != nil {
 		execution = *in.ExecutionOverride
 	} else {
@@ -289,12 +312,13 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return api.Task{}, errors.New("当前运行中的工作连接过多，请等待已完成任务释放资源后重试")
 	}
 	workspace := in.Workspace
-	t := &taskRecord{View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fingerprint, Source: s.binding.DelegationText, Requests: map[string]taskReceipt{}, Instructions: in.Instructions, Execution: &execution}
+	t := &taskRecord{View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}, Owner: s.workOwnerLocked(), Build: s.workBuildLocked(), StartRequest: in.RequestID, StartIntent: api.WorkFingerprint(in), Fingerprint: fingerprint, Source: s.binding.DelegationText, Requests: map[string]taskReceipt{}, Instructions: in.Instructions, Execution: &execution}
 	if s.binding.Tasks == nil {
 		s.binding.Tasks = map[string]*taskRecord{}
 	}
 	s.binding.Tasks[id] = t
 	t.OriginalPrompt = in.Prompt
+	t.Requests[in.RequestID] = taskReceipt{Kind: "start", IntentFingerprint: t.StartIntent, Outcome: "unknown", Phase: "creating"}
 	if err := s.save(); err != nil {
 		delete(s.binding.Tasks, id)
 		s.mu.Unlock()
@@ -319,6 +343,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		if definiteTaskRejection(err) {
 			t.View.Status = "failed"
 			t.View.Outcome = "rejected"
+			r := t.Requests[in.RequestID]
+			r.Outcome = "rejected"
+			r.Phase = "settled"
+			t.Requests[in.RequestID] = r
 		}
 		_ = s.save()
 		v := t.View
@@ -338,7 +366,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return v, err
 	}
 	s.mu.Unlock()
-	return s.sendTask(ctx, t, api.TaskMessage{ID: id, RequestID: in.RequestID, Prompt: in.Prompt}, false)
+	return s.sendTask(ctx, t, api.TaskMessage{ID: id, RequestID: in.RequestID, Prompt: in.Prompt, Files: in.Files, FileDigests: in.FileDigests}, false)
 }
 
 func withinBotWorkspace(bot, worker string) bool {
@@ -406,6 +434,11 @@ func (s *Session) taskRejected(t *taskRecord, err error) (api.Task, error) {
 	defer s.mu.Unlock()
 	t.View.Status = "failed"
 	t.View.Outcome = "rejected"
+	if r, ok := t.Requests[t.StartRequest]; ok {
+		r.Outcome = "rejected"
+		r.Phase = "settled"
+		t.Requests[t.StartRequest] = r
+	}
 	_ = s.save()
 	return t.View, err
 }
@@ -424,6 +457,14 @@ func (s *Session) taskAdmission() error {
 	return nil
 }
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	digests, err := api.WorkInputDigests(in.Files)
+	if err != nil {
+		return api.Task{}, &api.WorkMessageRejection{Cause: err}
+	}
+	if in.FileDigests != nil && !slices.Equal(in.FileDigests, digests) {
+		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("Worker attachment intent changed")}
+	}
+	in.FileDigests = digests
 	if !taskRequestValid(in.RequestID, in.Prompt) {
 		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("需要稳定请求标识和任务要求")}
 	}
@@ -441,7 +482,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		v := s.taskView(t)
 		v.Outcome = receipt.Outcome
 		s.mu.Unlock()
-		if receipt.Fingerprint != opaque(in.Prompt) {
+		if receipt.Fingerprint != workMessageFingerprint(in) || receipt.IntentFingerprint != "" && receipt.Kind == "send" && receipt.IntentFingerprint != api.WorkFingerprint(in) {
 			return v, errors.New("请求标识已用于其他内容")
 		}
 		return v, nil
@@ -474,7 +515,11 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
 	previousSuperseded := append([]string(nil), t.SupersededRuns...)
-	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
+	kind, intent := "send", api.WorkFingerprint(in)
+	if in.RequestID == t.StartRequest {
+		kind, intent = "start", t.StartIntent
+	}
+	t.Requests[in.RequestID] = taskReceipt{Kind: kind, IntentFingerprint: intent, Fingerprint: workMessageFingerprint(in), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
 	t.Pending = in.RequestID
 	t.Activity = "" // New dispatch invalidates preceding idle capacity evidence.
 	t.SuppressReport = false
@@ -495,8 +540,19 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	}
 	params := map[string]any{"threadId": t.Thread, "clientUserMessageId": in.RequestID}
 	// Provenance stays in the binding. The worker receives the actual assignment.
-	params["input"] = []nativeInput{{Type: "text", Text: s.questionClosureContextLocked(t.Thread) + in.Prompt, TextElements: []any{}}}
+	text := s.questionClosureContextLocked(t.Thread) + in.Prompt
 	s.mu.Unlock()
+	input, inputErr := s.prepareInput(api.Submission{Text: text}, in.Files, nil)
+	if inputErr != nil {
+		return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: "turn/start", OutcomeUnknown: false, Cause: inputErr})
+	}
+	if after, e := api.WorkInputDigests(in.Files); e != nil || !slices.Equal(after, in.FileDigests) {
+		if e == nil {
+			e = errors.New("Worker attachment changed while staging")
+		}
+		return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: "turn/start", OutcomeUnknown: false, Cause: e})
+	}
+	params["input"] = input
 	// Reattach an owned, idle thread after reconnect. This never imports App tasks.
 	if resume && !wasActive {
 		p := s.workerParams(t.View.Workspace, t.Instructions, t)
@@ -633,6 +689,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		return
 	}
 	for _, item := range turn.Items {
+		s.observeWorkItemLocked(t, turn.ID, item, terminal(turn.Status))
 		changed = s.recordWorkerAsync(t, turn.ID, item) || changed
 		if item.Type == "userMessage" {
 			if item.ClientID == t.StopPendingRequest && t.StopPendingTurn != turn.ID {
@@ -813,7 +870,31 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 }
 
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
+	return s.stopWork(ctx, id, nil)
+}
+func (s *Session) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
+	return s.stopWork(ctx, in.ID, &in)
+}
+func (s *Session) stopWork(ctx context.Context, id string, guarded *api.WorkStop) (api.Task, error) {
+	capacityReceipt := false
 	s.mu.Lock()
+	if guarded != nil {
+		t := s.binding.Tasks[id]
+		if t == nil {
+			s.mu.Unlock()
+			return api.Task{}, errors.New("unknown Worker binding")
+		}
+		if done, err := s.originalOperationLocked(t, guarded.RequestID, "stop", api.WorkFingerprint(*guarded)); done || err != nil {
+			v := s.taskView(t)
+			s.mu.Unlock()
+			return v, err
+		}
+		if guarded.ExecutionKey == "" || guarded.ExecutionKey != s.workExecutionKeyLocked(t) {
+			v := s.taskView(t)
+			s.mu.Unlock()
+			return v, errors.New("original Worker execution generation changed")
+		}
+	}
 	cancelledCapacity := false
 	if t := s.binding.Tasks[id]; t != nil && !s.binding.LostOwnerTasks[id] && s.capacityThread == t.Thread && s.capacityCancel != nil {
 		if s.capacityDispatchStarted && s.capacityRequest != "" {
@@ -830,6 +911,20 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 				return v, err
 			}
 		}
+		if guarded != nil {
+			outcome := "accepted"
+			if s.capacityDispatchStarted {
+				outcome = "unknown"
+			}
+			t.Requests[guarded.RequestID] = taskReceipt{Kind: "stop", IntentFingerprint: api.WorkFingerprint(*guarded), ExecutionKey: guarded.ExecutionKey, ControlTarget: s.capacityRequest, Outcome: outcome, Phase: "capacity"}
+			if err := s.save(); err != nil {
+				delete(t.Requests, guarded.RequestID)
+				v := s.taskView(t)
+				s.mu.Unlock()
+				return v, err
+			}
+			capacityReceipt = true
+		}
 		s.capacityCancel()
 		cancelledCapacity = true
 	}
@@ -841,6 +936,27 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	s.mu.Lock()
 	t := s.binding.Tasks[id]
 	c := s.client
+	if guarded != nil && t != nil {
+		if capacityReceipt {
+			r := s.reconcileControlReceiptLocked(t, guarded.RequestID)
+			v := s.taskView(t)
+			s.mu.Unlock()
+			if r.Outcome == "accepted" {
+				return v, nil
+			}
+			return v, errors.New("original capacity stop outcome unknown; reconcile without replay")
+		}
+		if done, err := s.originalOperationLocked(t, guarded.RequestID, "stop", api.WorkFingerprint(*guarded)); done || err != nil {
+			v := s.taskView(t)
+			s.mu.Unlock()
+			return v, err
+		}
+		if guarded.ExecutionKey == "" || guarded.ExecutionKey != s.workExecutionKeyLocked(t) {
+			v := s.taskView(t)
+			s.mu.Unlock()
+			return v, errors.New("original Worker execution generation changed")
+		}
+	}
 	if t == nil {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能停止 Bot 创建的任务")
@@ -877,10 +993,33 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 		}
 		return v, errors.New("没有已确认的运行回合，请先读取任务")
 	}
+	if guarded != nil {
+		t.Requests[guarded.RequestID] = taskReceipt{Kind: "stop", IntentFingerprint: api.WorkFingerprint(*guarded), ExecutionKey: guarded.ExecutionKey, Outcome: "unknown", Phase: "dispatching"}
+		if err := s.save(); err != nil {
+			delete(t.Requests, guarded.RequestID)
+			v := s.taskView(t)
+			s.mu.Unlock()
+			return v, err
+		}
+	}
 	s.mu.Unlock()
 	err := callDecode(ctx, c, "turn/interrupt", map[string]any{"threadId": t.Thread, "turnId": run}, &struct{}{})
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if guarded != nil {
+		r := t.Requests[guarded.RequestID]
+		if err == nil {
+			r.Outcome = "accepted"
+			r.Phase = "settled"
+		} else if definiteTaskRejection(err) {
+			r.Outcome = "rejected"
+			r.Phase = "settled"
+		}
+		t.Requests[guarded.RequestID] = r
+		if saveErr := s.save(); saveErr != nil {
+			err = saveErr
+		}
+	}
 	return s.taskView(t), err
 }
 

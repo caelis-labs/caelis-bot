@@ -135,6 +135,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   close(){stream?.close();document.removeEventListener('paste',onPaste,true);window.removeEventListener('popstate',restoreNavigation);window.removeEventListener('hashchange',restoreNavigation);},
   async taskList(){return (await request('/api/v1/tasks/list',{args:[]})).value;},
   async taskConversation(id:string){return (await request('/api/v1/tasks/conversation',{args:[id]})).value;},
+  async taskObservation(id:string){return (await request('/api/v1/tasks/worker-observation',{args:[id]})).value;},
  };
 }
 export type WebClient=ReturnType<typeof createWebTransport>;

@@ -1,5 +1,13 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.WorkerTasks":{"path":"/api/v1/tasks/worker-list","read":true},
+ "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
+ "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
+ "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
+ "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
+ "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
+ "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},
+ "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
  "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},
  "backend.DiagnosticReport":{"path":"/api/v1/diagnostics/read","read":true},

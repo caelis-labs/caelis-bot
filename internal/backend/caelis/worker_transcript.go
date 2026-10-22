@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -40,6 +42,9 @@ func (p *workerTranscript) finish(turn string) {
 }
 
 func (p *workerTranscript) apply(e wire.Envelope) error {
+	if e.SessionId != nil && value(e.SessionId) != p.session {
+		return errors.New("native Worker history belongs to another Session")
+	}
 	if value(e.Scope) != "" && value(e.Scope) != "main" || value(e.ApprovalRequestId) != "" {
 		return nil
 	}
@@ -54,9 +59,33 @@ func (p *workerTranscript) apply(e wire.Envelope) error {
 		Kind      string          `json:"sessionUpdate"`
 		MessageID string          `json:"messageId"`
 		Content   json.RawMessage `json:"content"`
+		Name      string          `json:"name"`
+		Status    string          `json:"status"`
+		RawOutput json.RawMessage `json:"rawOutput"`
 	}
 	if err := json.Unmarshal(*e.Update, &update); err != nil {
 		return errors.New("native Worker message update is invalid")
+	}
+	if update.Kind == "tool_call_update" && update.Name == "PublishArtifact" && update.Status == "completed" {
+		var raw struct {
+			Result string `json:"result"`
+		}
+		var output struct {
+			Resource wire.SessionResource `json:"resource"`
+		}
+		if json.Unmarshal(update.RawOutput, &raw) == nil && json.Unmarshal([]byte(raw.Result), &output) == nil && output.Resource.SessionId == p.session && output.Resource.Id != "" {
+			id := "resource:" + p.session + ":" + output.Resource.Id
+			if _, exists := p.index[id]; !exists {
+				name := filepath.Base(strings.ReplaceAll(output.Resource.Name, "\\", "/"))
+				if name == "." || name == ".." || name == "" {
+					name = "artifact"
+				}
+				p.index[id] = len(p.items)
+				p.items = append(p.items, api.TaskConversationMessage{ID: id, Role: "assistant", Artifacts: []api.Artifact{{ID: id, Name: name}}})
+				p.complete[id] = true
+			}
+		}
+		return nil
 	}
 	if update.Kind == "agent_thought_chunk" || update.Kind == "tool_call" {
 		p.finish(turn)

@@ -64,20 +64,26 @@ type Task struct {
 	Result      string `json:"result,omitempty"`
 }
 type TaskStart struct {
-	Machine string `json:"machine,omitempty"`
+	Attachments []TaskFileReference `json:"attachments,omitempty"`
+	Machine     string              `json:"machine,omitempty"`
 	// LocalRuntime pins the model-facing "local" choice to the Runtime
 	// currently hosting the Bot. Legacy native entry points keep their saved
 	// user-configured default; this is never accepted from tool JSON.
-	LocalRuntime bool   `json:"-"`
-	RequestID    string `json:"requestId"`
-	Title        string `json:"title"`
-	Prompt       string `json:"prompt"`
-	Workspace    string `json:"workspace,omitempty"`
+	LocalRuntime bool        `json:"-"`
+	RequestID    string      `json:"requestId"`
+	Title        string      `json:"title"`
+	Prompt       string      `json:"prompt"`
+	Workspace    string      `json:"workspace,omitempty"`
+	Files        []InputFile `json:"-"`
+	FileDigests  []string    `json:"fileDigests,omitempty"`
 }
 type TaskMessage struct {
-	ID        string `json:"id"`
-	RequestID string `json:"requestId"`
-	Prompt    string `json:"prompt"`
+	Attachments []TaskFileReference `json:"attachments,omitempty"`
+	ID          string              `json:"id"`
+	RequestID   string              `json:"requestId"`
+	Prompt      string              `json:"prompt"`
+	Files       []InputFile         `json:"-"`
+	FileDigests []string            `json:"fileDigests,omitempty"`
 }
 
 // TaskReporter delivers a finite completion notification to the secretary. It
@@ -101,9 +107,10 @@ type TaskConversation struct {
 	Messages []TaskConversationMessage `json:"messages"`
 }
 type TaskConversationMessage struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
-	Text string `json:"text"`
+	ID        string     `json:"id"`
+	Role      string     `json:"role"`
+	Text      string     `json:"text"`
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
 // TaskHistoryCatalog is the model-facing, creation-time ordered view of all

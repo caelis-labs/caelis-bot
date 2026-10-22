@@ -16,6 +16,11 @@ func (s *Service) TaskMachines() []api.TaskMachine {
 	defer s.mu.Unlock()
 	out := []api.TaskMachine{}
 	for _, p := range s.state.Profiles {
+		// New product delegation uses Bot peers. Legacy helper profiles remain
+		// addressable only through already retained task bindings and setup repair.
+		if p.View.ConnectionType != "bot" {
+			continue
+		}
 		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: p.View.State == "ready"})
 	}
 	return out
@@ -64,6 +69,16 @@ func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id st
 	r, e := s.call(ctx, p, remotework.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
 	if e != nil {
 		return "", errors.Join(e, s.releasePreparationLocked(id))
+	}
+	if p.View.ConnectionType == "bot" && len(r.Available) == 1 {
+		selected := r.Available[0]
+		if selected != "codex" && selected != "caelis" {
+			return "", errors.New("original_task_runtime_unavailable")
+		}
+		s.state.Runtimes[id] = selected
+		if err := s.save(); err != nil {
+			return "", err
+		}
 	}
 	return r.Task.Workspace, nil
 }
@@ -317,6 +332,7 @@ func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, 
 // Poll native facts, never a model. Observation cancellation leaves target owners
 // alive; reconnecting reads the same durable bindings and never resends a turn.
 func (s *Service) Observe(ctx context.Context) {
+	go s.peerStreams(ctx)
 	type observation struct {
 		budget   sharedruntime.ObservationBudget
 		revision uint64
