@@ -95,6 +95,7 @@ type Bridge struct {
 	newClient           func(string) (client, error)
 	secrets             secretstore.Store
 	retryUntil          time.Time
+	pairingFeedback     pairingFeedbackBudget
 	closed              bool
 	updating            bool
 	baselineReady       bool
@@ -852,11 +853,11 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 		b.mu.Unlock()
 		if accepted {
-			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("Return to Caelis Bot settings and confirm this account to finish connecting.", "请回到 Caelis Bot 设置，确认这是你的账号，即可完成连接。")), nil)
+			b.sendPairingFeedback(ctx, c, m.Chat.ID, b.text("Return to Caelis Bot settings and confirm this account to finish connecting.", "请回到 Caelis Bot 设置，确认这是你的账号，即可完成连接。"))
 		} else if m.Text == "/start" || strings.HasPrefix(m.Text, "/start ") {
 			// Same guidance for absent, wrong and expired payloads. Never echo
 			// a received payload or disclose the current private pairing link.
-			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("To connect, use the complete pairing link from Caelis Bot settings, then tap Start. Searching for the Bot and tapping Start alone cannot pair your account. If the link has expired, get a new one in settings.", "请使用 Caelis Bot 设置中的完整配对链接打开，再点击「开始」。仅搜索机器人后点击「开始」无法配对；链接过期时，请在设置中获取新链接。")), nil)
+			b.sendPairingFeedback(ctx, c, m.Chat.ID, b.text("To connect, use the complete pairing link from Caelis Bot settings, then tap Start. Searching for the Bot and tapping Start alone cannot pair your account. If the link has expired, get a new one in settings.", "请使用 Caelis Bot 设置中的完整配对链接打开，再点击「开始」。仅搜索机器人后点击「开始」无法配对；链接过期时，请在设置中获取新链接。"))
 		}
 		return true, false
 	}
@@ -2164,8 +2165,7 @@ func (b *Bridge) sendRenderedTextPriority(ctx context.Context, c client, key str
 			b.issue = issueOf(e)
 			var transport *transportError
 			classified := errors.As(e, &transport)
-			if classified && transport.code == 429 {
-				b.retryUntil = time.Now().Add(time.Duration(max(transport.retry, 1)) * time.Second)
+			if b.outputRateLimitedLocked(e) {
 				if record.IDs[part] < 0 {
 					record.IDs[part] = 0
 				}
@@ -2226,11 +2226,9 @@ func (b *Bridge) sendFile(ctx context.Context, c client, key, path string) {
 	b.mu.Lock()
 	if e != nil {
 		b.issue = "file_delivery_uncertain"
-		var transport *transportError
-		if errors.As(e, &transport) && transport.code == 429 {
+		if b.outputRateLimitedLocked(e) {
 			delete(b.state.Messages, key)
 			b.issue = "rate_limited"
-			b.retryUntil = time.Now().Add(time.Duration(max(transport.retry, 1)) * time.Second)
 		}
 	} else {
 		b.state.Messages[key] = delivery{Skip: true}

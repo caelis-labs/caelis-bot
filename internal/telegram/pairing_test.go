@@ -151,7 +151,13 @@ func TestSyntheticPollerDistinguishesOrdinaryStartAndRenewedPairLink(t *testing.
 	}
 	renewed, _ := url.Parse(second.PairURL)
 	f.updates <- []tg.Update{message(2, 10, 20, "/start "+initial.Query().Get("start"))}
-	wait(func() bool { f.mu.Lock(); defer f.mu.Unlock(); return len(f.texts) >= 2 })
+	// The old payload must be consumed without binding, even when its repeated
+	// guidance is throttled. A reply is not an ingress acknowledgement.
+	wait(func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return b.state.Offset == 3 && len(b.state.Ingress) == 0
+	})
 	if b.Status().Candidate != "" {
 		t.Fatal("old attempt matched a renewed pairing")
 	}
