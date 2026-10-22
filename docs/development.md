@@ -195,6 +195,36 @@ loading the Bot store/model. Observe physical focus/hit regions and light/dark a
 acceptance. Avoid logging credentials or full private conversations. Generated `.cache` logs are local evidence,
 not public reproducibility prerequisites.
 
+Input and model-menu regressions use `script/build_and_run.sh --input-menu-preview`.
+This opens a new disposable native WebKit fixture; it does not start the daily or Dev Bot.
+Set `BOT_INPUT_MENU_AUTORUN=1` for the composition/draft/reference and model-menu
+hit-test matrix; results and screenshots go to `output/playwright/input-menu-native/`.
+For browser acceptance, run `node script/input-menu-preview.mjs`, open its loopback
+`/acceptance` URL in an isolated Playwright session, then run
+`playwright-cli run-code --filename=script/input-menu-browser-check.mjs`.
+The fixture mounts the production Composer, onboarding ConnectionWizard and settings
+ModelPicker at wide/narrow sizes, with and without native Popover support. It checks
+composition events, preedit DOM/caret preservation, commit/cancel/delete-to-empty,
+IME Enter fencing, exact draft text/plugin offsets, menu `elementFromPoint` coverage,
+pointer/keyboard selection, search, dismissal and retained form/effort state.
+`BOT_INPUT_MENU_BASELINE=<commit>` serves those three UI sources from Git read-only
+for failure comparison. Synthetic composition events are not a real OS input method:
+record actual marked-text/candidate behavior separately when real IME input is available.
+
+Completed-message rendering is covered by the same native input/menu preview's
+`streaming` case and `native-window-streaming.json`. The latter hides its own
+NSWindow, completes a synthetic reply while hidden, then restores the window;
+it records the actual WebKit visibility/focus events rather than assuming them.
+For Chromium, open `/acceptance?view=streaming` on that fixture server and run
+`playwright-cli run-code --filename=script/completed-stream-browser-check.mjs`
+in a fresh browser session. This checks production chat/Bubble and Worker views,
+controlled rAF suspension, same-text/final-append completion, visibility/focus,
+remount/history recovery and cancelled-frame races, then the actual `/web.html`
+HTTP transport, tab switching and history reload. Backend data is synthetic;
+manual monitor/Space switching and live provider traffic remain separate evidence.
+Only `inProgress` assistant text is paced. Completed, incomplete and recovered
+unproven text render immediately; completion never waits for a display frame.
+
 The chat preview also offers thinking/search/read, concurrent stream+tool and completion controls.
 “头像回归” runs the mounted production portrait player through these states and approval, verifies
 moving pixels/static history/visible activity labels, and asserts that the waiting row disappears

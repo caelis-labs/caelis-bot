@@ -122,8 +122,13 @@ test('Codex confirms its selected model before activation without repeating inst
  assert.equal(activated,false);
 });
 
-test('selector placeholders stay in the trigger, while real empty and unavailable choices remain in the menu',async()=>{
+test('selector placeholders stay in the trigger, while real empty and unavailable choices remain in the menu',async context=>{
  globalThis.HTMLElement ??= class HTMLElement {};
+ // SSR cannot open the fallback portal. Inspect the native-popover markup;
+ // input-menu-fixture exercises both mounted paths, hit testing and keyboard.
+ const previous=globalThis.HTMLElement.prototype.showPopover;
+ globalThis.HTMLElement.prototype.showPopover=()=>{};
+ context.after(()=>{if(previous)globalThis.HTMLElement.prototype.showPopover=previous;else delete globalThis.HTMLElement.prototype.showPopover;});
  const {SettingsSelect}=await server.ssrLoadModule('/src/SettingsSelect.tsx');
  const option=(value,label,props={})=>React.createElement('option',{value,...props},label);
  const render=children=>renderToStaticMarkup(React.createElement(SettingsSelect,{value:'',placeholder:'Choose model',onChange:()=>{}},children));

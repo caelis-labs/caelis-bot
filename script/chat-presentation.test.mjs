@@ -24,7 +24,8 @@ test('a prior partial is marked incomplete after its turn, while later completed
  assert.equal(incompleteAssistant({...partial,turnKey:'current'},running),false);
  assert.equal(incompleteAssistant({...partial,kind:'activity'},done),false);
  assert.equal(activeReplyID(done),null);
- assert.deepEqual([...liveReplyIDs(running,{...running,items:[partial,following]},new Set())],['partial','following']);
+ assert.deepEqual([...liveReplyIDs(running,{...running,items:[partial,following]},new Set(['partial','following']))],[]);
+ assert.deepEqual([...liveReplyIDs(running,{...running,items:[{...partial,turnKey:'current'},following]},new Set())],['partial']);
 });
 
 test('empty running input stops; text or attachments switch back to send without changing capability', () => {
@@ -130,15 +131,15 @@ test('the local outbox starts thinking before Runtime polling and yields to auth
 });
 
 
-test('new completed replies animate even when no in-progress snapshot was observed',()=>{
+test('new completed replies are immediate even when no in-progress snapshot was observed',()=>{
  const history={...running,phase:'completed',currentTurn:'',items:[{id:'old',kind:'assistant',text:'历史',status:'completed'}]};
  const answer={id:'new',kind:'assistant',turnKey:'new-turn',text:'在两次轮询之间完成的新回复',status:'completed'};
  const next={...history,items:[...history.items,answer]};
  assert.deepEqual([...liveReplyIDs(null,history,new Set())],[]);
  const live=liveReplyIDs(history,next,new Set());
- assert.deepEqual([...live],['new']);
+ assert.deepEqual([...live],[]);
  assert.equal(activeReplyID(next),null);
- assert.deepEqual([...liveReplyIDs(next,next,live)],['new']);
+ assert.deepEqual([...liveReplyIDs(next,next,new Set(['new']))],[]);
 });
 
 test('initial/reopened/recovered history and prepended pages do not replay',()=>{
@@ -150,11 +151,11 @@ test('initial/reopened/recovered history and prepended pages do not replay',()=>
  assert.equal(liveReplyIDs(snapshot,{...snapshot,items:[{...item,id:'replacement'}]},new Set()).size,0);
 });
 
-test('empty started items and extensions stay live across final status and cleared turn',()=>{
+test('empty started items and extensions stay live only until final status',()=>{
  const item={id:'answer',kind:'assistant',turnKey:'current',text:'',status:'inProgress'};
  const started={...running,items:[item]};
  const completed={...running,phase:'completed',currentTurn:'',items:[{...item,text:'完整回复',status:'completed'}]};
- assert.deepEqual([...liveReplyIDs(started,completed,new Set())],['answer']);
+ assert.deepEqual([...liveReplyIDs(started,completed,new Set(['answer']))],[]);
  const initial={...started,items:[{...item,text:'已有部分'}]};
  const extended={...started,items:[{...item,text:'已有部分，加上增量'}]};
  assert.deepEqual([...liveReplyIDs(initial,extended,new Set())],['answer']);
@@ -167,16 +168,17 @@ test('empty started items and extensions stay live across final status and clear
 test('bounded pet snapshots may replace their previous tail with a new completed reply',()=>{
  const previous={...running,items:[{id:'old',kind:'assistant',text:'旧回复',status:'completed'}]};
  const next={...previous,phase:'completed',items:[{id:'new',kind:'assistant',text:'新回复',status:'completed'}]};
- assert.deepEqual([...liveReplyIDs(previous,next,new Set(),true)],['new']);
+ assert.deepEqual([...liveReplyIDs(previous,next,new Set(['new']),true)],[]);
+ assert.deepEqual([...liveReplyIDs(previous,{...next,phase:'working',items:[{...next.items[0],status:'inProgress'}]},new Set(),true)],['new']);
  assert.equal(liveReplyIDs(null,next,new Set(),true).size,0);
 });
 
-test('a completed reply after an accepted outbox replacement is still a live arrival',()=>{
+test('an accepted outbox replacement cannot animate a completed reply',()=>{
  const pending={id:'outgoing:request',requestId:'request',kind:'user',text:'你好',status:'sending'};
  const previous={...running,items:[pending]};
  const next={...running,phase:'completed',currentTurn:'',items:[{...pending,id:'native',status:'completed'},
   {id:'reply',kind:'assistant',text:'你好！',status:'completed'}]};
- assert.deepEqual([...liveReplyIDs(previous,next,new Set())],['reply']);
+ assert.deepEqual([...liveReplyIDs(previous,next,new Set())],[]);
  // Identical prose from a different request cannot establish this boundary.
  assert.equal(liveReplyIDs(previous,{...next,items:[{...next.items[0],requestId:'other'},next.items[1]]},new Set()).size,0);
 });

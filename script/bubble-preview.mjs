@@ -79,13 +79,12 @@ window.fixtureBubbleReplay=async()=>{
   window.fixtureSet('completed');
   const text='已经完成的说明文字不应在审批后重新打字。'.repeat(8);
   const item=snapshot.items[0];item.id='overlay-'+(++revision);item.text=text;
-  await wait('completed reply still animates',()=>visible()&&body().textContent.length>0&&text.startsWith(body().textContent)&&body().textContent!==text);
   await wait('reply fully revealed',()=>visible()&&body().textContent===text);
-  for(const overlay of ['approval','review','notice','message']){
+  // Current Bubble overlays are approvals and native notices. Review records
+  // and raw transport messages no longer replace assistant content.
+  for(const overlay of ['approval','notice']){
    if(overlay==='approval')snapshot.approvals=[{id:'overlay-approval',title:'允许读取所选文件？',status:'pending',action:'cat README.md',target:'README.md',details:'',questions:[],choices:[]}];
-   if(overlay==='review')snapshot.reviews=[{id:'overlay-review',status:'completed',action:'',rationale:''}];
    if(overlay==='notice')window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'合成通知',pending:true}}));
-   if(overlay==='message')snapshot.message='合成连接提示';
    await wait(overlay+' shown',()=>!visible());
    snapshot.approvals=[];snapshot.reviews=[];snapshot.message='';
    if(overlay==='notice')window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'',pending:false}}));
@@ -93,17 +92,19 @@ window.fixtureBubbleReplay=async()=>{
    samples.push({overlay,text:body().textContent});
    if(body().textContent!==text)throw Error(overlay+' replayed a fully revealed reply');
   }
-  // Completion does not drain a queued tail, and a temporary overlay must not
-  // restart or flush that tail either.
-  item.text=text+'完成后的末尾仍然逐字出现。'.repeat(30);
+  // A genuine in-progress tail survives an overlay. Its completion must drain
+  // all received text immediately, rather than keep pacing a terminal message.
+  item.status='inProgress';snapshot.phase='working';snapshot.currentTurn=item.turnKey;
+  item.text=text+'生成中的末尾保持增量显示。'.repeat(30);
   await wait('queued tail',()=>visible()&&body().textContent.length>text.length&&body().textContent!==item.text);
   const before=body().textContent;
-  snapshot.message='合成连接提示';
+  window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'合成通知',pending:true}}));
   await wait('tail overlay',()=>!visible());
-  snapshot.message='';
+  window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'',pending:false}}));
   await wait('tail restored',visible);
   if(!body().textContent.startsWith(before)||body().textContent===item.text)throw Error('overlay restarted or flushed queued tail');
-  await wait('tail complete',()=>body().textContent===item.text);
+  item.status='completed';snapshot.phase='completed';snapshot.currentTurn='';
+  await wait('terminal tail complete',()=>body().textContent===item.text);
   return window.fixtureReplayResult={ok:true,overlays:samples.map(s=>s.overlay),tailLength:item.text.length};
  }catch(error){return window.fixtureReplayResult={ok:false,error:String(error),samples};}
 };
@@ -374,7 +375,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='Appearance')return {revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'};
  if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
- if(method==='PetSnapshot'||method==='Snapshot'||method==='ComposerSnapshot')return {...snapshot,revision:++revision};
+ if(method==='PetSnapshot'||method==='Snapshot'||method==='ComposerSnapshot')return structuredClone({...snapshot,revision:++revision});
  if(method==='ChatSnapshot'){
   const value=structuredClone({...snapshot,revision:sendMode?revision:++revision});
   if(sendMode==='accepted'&&sendCount&&!staleHeld){staleHeld=true;await delay(1200);}

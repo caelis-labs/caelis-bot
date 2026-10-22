@@ -347,7 +347,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-select-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:38px; text-align:left; }
 .settings-select-trigger>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .settings-select-trigger svg { flex:none; }
-.settings-select-menu { position:fixed; inset:auto; margin:0; padding:5px; box-sizing:border-box; overflow:auto; background:var(--caelis-raised,var(--surface)); color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 36px #0004; }
+.settings-select-menu { position:fixed; z-index:110; inset:auto; margin:0; padding:5px; box-sizing:border-box; overflow:auto; background:var(--caelis-raised,var(--surface)); color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 36px #0004; }
 .settings-select-menu:popover-open { display:block; }
 .settings-select-menu button { display:flex; justify-content:space-between; gap:18px; width:100%; min-height:40px; border:0; border-radius:6px; padding:8px 12px; background:transparent; color:var(--ink); text-align:left; }
 .settings-select-menu button:hover,.settings-select-menu button:focus-visible { background:var(--caelis-selected); outline:none; }
@@ -473,7 +473,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-flow .permission-toggle { flex-direction:row; }
 .settings-window .setup-flow .bot-introduction label { margin:0 0 20px; font-size:13px; }
 .settings-window .setup-flow .bot-introduction .settings-note { margin:0; font-size:12px; line-height:1.6; }
-.settings-window .onboarding-connection { width:520px; padding:24px; }
+.settings-window .onboarding-connection { width:min(520px,100%); padding:24px; }
 .settings-window .onboarding-connection .runtime-dialog-heading { margin-bottom:18px; }
 .settings-window .onboarding-connection > .text-action { margin:0 0 12px; padding-left:0; font-size:12px; }
 .settings-window .onboarding-connection > label { margin:12px 0; }
@@ -841,7 +841,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .history-surface .compose-area { flex:1; min-width:0; overflow:hidden; display:grid; grid-template-columns:30px minmax(0,1fr) 30px; align-items:end; column-gap:10px; padding:10px 12px; }
 .composer-scroll { grid-column:2; grid-row:1; min-width:0; align-self:center; max-height:min(40vh,320px); max-height:min(40dvh,320px); overflow-y:auto; overscroll-behavior:contain; padding:0; }
 .composer-editor { display:block; width:100%; min-height:27px; outline:none; white-space:pre-wrap; overflow-wrap:anywhere; padding:0; font-size:14px; line-height:24px; }
-.composer-editor[data-empty=true]::before { content:attr(data-placeholder); color:var(--muted); pointer-events:none; }
+.composer-editor[data-empty=true]:not([data-composing=true])::before { content:attr(data-placeholder); color:var(--muted); pointer-events:none; }
 .composer-reference { display:inline-flex; align-items:baseline; gap:4px; max-width:100%; margin-right:3px; color:var(--accent); font-weight:500; vertical-align:baseline; white-space:nowrap; border-radius:3px; }
 .composer-reference-name { max-width:24ch; overflow:hidden; text-overflow:ellipsis; }
 .composer-reference-icon { font-size:12px; }
