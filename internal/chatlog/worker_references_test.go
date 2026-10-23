@@ -98,3 +98,15 @@ func TestWorkerReferencesRemainIncompleteBeforeLoadAndAfterDamage(t *testing.T) 
 		t.Fatal("damaged history authorized attachment retirement", refs, err)
 	}
 }
+
+func TestWorkerReferenceReadOnlyDatabaseURI(t *testing.T) {
+	for _, c := range []struct{ path, want string }{
+		{`C:\Users\Synthetic User\chat.sqlite`, "file:///C:/Users/Synthetic%20User/chat.sqlite?mode=ro"},
+		{"D:/isolated/中文/chat.sqlite", "file:///D:/isolated/%E4%B8%AD%E6%96%87/chat.sqlite?mode=ro"},
+		{"/isolated/name?#%.sqlite", "file:///isolated/name%3F%23%25.sqlite?mode=ro"},
+	} {
+		if got := referenceDatabaseURI(c.path); got != c.want {
+			t.Errorf("read-only URI %q: got %q want %q", c.path, got, c.want)
+		}
+	}
+}

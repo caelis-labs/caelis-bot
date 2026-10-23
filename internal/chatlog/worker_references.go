@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"net/url"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
@@ -60,8 +62,7 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 	if !l.loaded || l.issue != nil {
 		return finish(l.issue)
 	}
-	u := url.URL{Scheme: "file", Path: l.path, RawQuery: "mode=ro"}
-	db, err := sql.Open("sqlite", u.String())
+	db, err := sql.Open("sqlite", referenceDatabaseURI(l.path))
 	if err != nil {
 		return finish(err)
 	}
@@ -106,4 +107,16 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 	}
 	out.Complete = err == nil
 	return finish(err)
+}
+
+func referenceDatabaseURI(path string) string {
+	// SQLite URI filenames require /C:/... rather than a drive-letter authority.
+	// Preserve mode=ro; a read-only transaction must not create a missing DB.
+	if len(path) >= 3 && path[1] == ':' && (path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z') {
+		path = "/" + strings.ReplaceAll(path, `\`, "/")
+	} else {
+		path = filepath.ToSlash(path)
+	}
+	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}
+	return u.String()
 }
