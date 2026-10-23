@@ -262,18 +262,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	enabled := s.state.Enabled
 	identity := s.state.Identity
 	peer := ""
+	revoked := false
 	header := r.Header.Get("Authorization")
 	if strings.HasPrefix(header, "Bearer ") {
 		hash := tokenHash(strings.TrimPrefix(header, "Bearer "))
 		for _, g := range s.state.Grants {
-			if !g.Revoked && g.Hash == hash {
+			if g.Hash == hash {
+				revoked = g.Revoked
 				peer = g.Peer
 				break
 			}
 		}
 	}
 	s.mu.Unlock()
-	if !enabled || peer == "" {
+	if peer != "" && revoked {
+		http.Error(w, "peer_authorization_revoked", http.StatusForbidden)
+		return
+	}
+	if !enabled {
+		http.Error(w, "worker_sharing_disabled", http.StatusForbidden)
+		return
+	}
+	if peer == "" {
 		http.Error(w, "peer_authentication_required", http.StatusUnauthorized)
 		return
 	}
@@ -318,8 +328,16 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.state.Enabled || s.code == "" || time.Now().After(s.expires) || tokenHash(in.Code) != tokenHash(s.code) {
-		http.Error(w, "pairing_code_invalid_or_expired", 403)
+	if !s.state.Enabled {
+		http.Error(w, "worker_sharing_disabled", 403)
+		return
+	}
+	if s.code != "" && time.Now().After(s.expires) {
+		http.Error(w, "pairing_code_expired", 403)
+		return
+	}
+	if s.code == "" || tokenHash(in.Code) != tokenHash(s.code) {
+		http.Error(w, "pairing_code_invalid", 403)
 		return
 	}
 	if existing, exists := s.state.Grants[in.Peer]; exists {
@@ -418,7 +436,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	if in.Action == "info" || in.Action == "recover" {
 		owner, _, _, err := s.factory(ctx, peer, "", filepath.Join(s.root, "sources", sourceDir(peer)))
 		if err != nil {
-			return fail(err)
+			return fail(fmt.Errorf("worker_not_ready: %w", err))
 		}
 		if in.Action == "recover" {
 			err = recoverNewWork(ctx, owner)
@@ -426,7 +444,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			err = owner.Connect(ctx)
 		}
 		if err != nil {
-			return fail(err)
+			return fail(fmt.Errorf("worker_not_ready: %w", err))
 		}
 		p, ok := owner.(api.WorkCapabilityProvider)
 		if !ok {
@@ -435,6 +453,11 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		out.Capabilities, err = p.WorkCapabilities(ctx, "")
 		if err != nil {
 			return fail(err)
+		}
+		if in.Action == "info" {
+			if err = owner.WorkAdmission(ctx); err != nil {
+				return fail(fmt.Errorf("worker_not_ready: %w", err))
+			}
 		}
 		return
 	}

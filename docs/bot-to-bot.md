@@ -76,9 +76,9 @@ another's requests, history or files.
    SSH forwarding and Tailscale are not managed or discovered by Bot.
 3. A checks actual native capabilities/readiness, persists its private credential
    before sending the pairing write, and pins B's stable instance identity. A lost
-   response is reconciled with that original credential. Editing a connection
-   preserves its source and requires a fresh B code plus original proof; it cannot
-   adopt another source's retained work.
+   response is reconciled with that original credential. Renaming is local and works offline. An address change checks the same pinned
+   peer with its original proof, without another code. Revoked access requires a
+   fresh B code plus the original proof; a new profile cannot take over retained work.
 4. B can revoke a source or disable sharing. Authorization is mandatory even on
    loopback. Revocation terminates subsequent calls/SSE without approving pending
    requests or cancelling native execution. A fresh code plus original credential
@@ -102,9 +102,14 @@ port, persists the successful address in `WorkerPeers/listener.json`, and reuses
 it on restart; a conflicting retained port fails visibly at sharing setup rather
 than silently moving an existing endpoint. Headless mounts the peer handler on
 its existing listener before browser middleware. Existing browser origin/CSRF,
-9317 policy, launcher, tunnel and fallback behavior are unchanged. The copied
-address is the target-local listener; users substitute their externally reachable
-forwarded address on A.
+9317 policy, launcher, tunnel and fallback behavior are unchanged. B settings show the actual listener separately from the address A should use.
+The desktop listener can explicitly bind a reachable IP/interface; wildcard binds
+require a concrete published address. Headless keeps its existing HTTP listener: use
+its external `--listen` startup option to change that bind, then publish the address
+in settings. Bot does not create SSH forwards, Tailscale configuration or TLS. A
+checks the supplied entry against the paired identity and current Worker admission.
+Changing a desktop listener binds and saves the new endpoint before closing the old;
+a conflict preserves the old listener. Published addresses and successful ports persist.
 
 Native owners detach through the existing owner lifecycle when the App closes.
 Codex retains its original native socket and ordinary reconnect refuses replacement
@@ -190,3 +195,19 @@ previous same-protocol/different-`messages` capability failure motivates explici
 owner capabilities; no migration, takeover or helper-management expansion is
 included. No discovery, scheduler, cluster, forwarding, Notebook/database sync,
 remote install, A-owned B configuration or general file sync is implemented.
+
+## Connection maintenance
+
+Connection checks distinguish unreachable endpoints, expired/invalid codes, disabled
+sharing, revoked access, missing original proof, incompatible contracts and a Worker
+that needs setup on B. UI guidance names the target; raw native errors and credentials
+are not shown. Explicit checks and a bounded 30-second Bot-profile health check update
+freshness, including profiles with no tasks. New delegation requires fresh readiness;
+old task identity/capacity never follows that health cache.
+
+Removing a Bot connection with retained tasks archives it for new delegation, while
+keeping the sole original proof and task routes. It remains visible as retained-tasks
+only with Check / restore. Reauthorization on that original connection restores the
+same task owners; no internal JSON editing or new execution is needed. Removal,
+revocation and sharing-off never mean stop or approve. Connections without dispatched
+work are removed only after B confirms unpair; an uncertain response retains proof.

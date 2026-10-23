@@ -26,6 +26,46 @@ func Address(address string) (string, error) {
 func transport() *http.Client {
 	return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("peer_redirect_denied") }}
 }
+
+// Connection diagnostics use only fixed protocol codes. HTTP and native error
+// bodies can contain paths or arbitrary private text.
+func peerError(code string) error {
+	switch strings.TrimSpace(code) {
+	case "pairing_code_expired", "pairing_code_invalid", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "peer_has_worker_bindings", "worker_not_owned", "worker_operation_unsupported", "remote_native_url_not_reachable":
+		return errors.New(strings.TrimSpace(code))
+	case "pairing_code_invalid_or_expired":
+		return errors.New("pairing_code_invalid")
+	case "original_peer_revoked":
+		return errors.New("original_peer_proof_required")
+	case "worker_contract_incompatible", "worker_contract_unavailable", "original_worker_contract_incompatible", "bot_worker_contract_incompatible":
+		return errors.New("bot_worker_contract_incompatible")
+	}
+	if code == "worker_not_ready" || strings.HasPrefix(code, "worker_not_ready:") {
+		cause := strings.TrimSpace(strings.TrimPrefix(code, "worker_not_ready:"))
+		if cause == "worker_contract_incompatible" || cause == "worker_contract_unavailable" {
+			return errors.New("bot_worker_contract_incompatible")
+		}
+		return errors.New("worker_not_ready")
+	}
+	return errors.New("worker_operation_failed")
+}
+func responseError(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	classified := peerError(strings.TrimSpace(string(body)))
+	if classified.Error() != "worker_operation_failed" {
+		return classified
+	}
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return errors.New("peer_authentication_required")
+	case http.StatusConflict:
+		return errors.New("worker_not_ready")
+	case http.StatusNotFound, http.StatusBadRequest, http.StatusForbidden:
+		return errors.New("bot_worker_contract_incompatible")
+	default:
+		return errors.New("bot_peer_unreachable")
+	}
+}
 func Pair(ctx context.Context, address, code, peer string, oldToken ...string) (PairResult, error) {
 	proof := ""
 	if len(oldToken) > 0 {
@@ -53,18 +93,18 @@ func PairNamed(ctx context.Context, address, code, peer, name, proof string) (Pa
 	}
 	resp, err := transport().Do(req)
 	if err != nil {
-		return PairResult{}, err
+		return PairResult{}, errors.New("bot_peer_unreachable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return PairResult{}, errors.New("bot_pairing_failed: " + resp.Status)
+		return PairResult{}, responseError(resp)
 	}
 	var out PairResult
 	if err = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
-		return out, err
+		return out, errors.New("bot_worker_contract_incompatible")
 	}
 	out.Address = address
-	if out.Peer == "" || out.Token == "" || !Compatible(out.Capabilities) {
+	if out.Peer == "" || out.Token != token || !Compatible(out.Capabilities) {
 		return PairResult{}, errors.New("bot_worker_contract_incompatible")
 	}
 	return out, nil
@@ -110,18 +150,18 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := transport().Do(req)
 	if err != nil {
-		return Response{}, err
+		return Response{}, errors.New("bot_peer_unreachable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return Response{}, errors.New("bot_peer_unavailable: " + resp.Status)
+		return Response{}, responseError(resp)
 	}
 	var out Response
 	if err = json.NewDecoder(io.LimitReader(resp.Body, 230<<20)).Decode(&out); err != nil {
-		return out, err
+		return out, errors.New("bot_worker_contract_incompatible")
 	}
-	err = check(c, out)
-	if err != nil && out.Rejected {
+	err = check(c, out, in.Action)
+	if err != nil && out.Rejected && out.Contract == api.WorkerContract && (c.Peer == "" || c.Peer == out.Peer) {
 		if in.Action == "send" {
 			err = &api.WorkMessageRejection{Cause: err}
 		} else if in.Action == "decision" {
@@ -130,7 +170,7 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 	}
 	return out, err
 }
-func check(c Connection, out Response) error {
+func check(c Connection, out Response, action string) error {
 	if out.Contract != api.WorkerContract {
 		return errors.New("bot_worker_contract_incompatible")
 	}
@@ -138,6 +178,11 @@ func check(c Connection, out Response) error {
 		return errors.New("bot_peer_identity_changed")
 	}
 	if out.Error != "" {
+		if action == "info" || action == "recover" {
+			return peerError(out.Error)
+		}
+		// Original task-operation errors and Rejected remain adapter semantics,
+		// rather than being reclassified as connection/readiness evidence.
 		return errors.New(out.Error)
 	}
 	return nil
@@ -167,11 +212,11 @@ func Watch(ctx context.Context, c Connection, id string, observe func(api.WorkOb
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	resp, err := transport().Do(req)
 	if err != nil {
-		return err
+		return errors.New("bot_peer_unreachable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return errors.New("worker_observation_unavailable")
+		return responseError(resp)
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64<<10), 16<<20)
@@ -184,13 +229,13 @@ func Watch(ctx context.Context, c Connection, id string, observe func(api.WorkOb
 		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &out) != nil {
 			return errors.New("worker_observation_invalid")
 		}
-		if err = check(c, out); err != nil {
+		if err = check(c, out, "observe"); err != nil {
 			return err
 		}
 		observe(decodeObservation(out.Observation))
 	}
 	if err = scanner.Err(); err != nil {
-		return err
+		return errors.New("bot_peer_unreachable")
 	}
 	return io.EOF
 }

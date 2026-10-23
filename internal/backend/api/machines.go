@@ -16,6 +16,8 @@ type MachineInput struct {
 	TrustFingerprint string `json:"trustFingerprint"`
 }
 type Machine struct {
+	CheckedAt      int64                  `json:"checkedAt,omitempty"`
+	Archived       bool                   `json:"archived,omitempty"`
 	ConnectionType string                 `json:"connectionType,omitempty"`
 	PeerID         string                 `json:"peerId,omitempty"`
 	ID             string                 `json:"id"`
@@ -41,10 +43,11 @@ type Machine struct {
 }
 
 type BotConnectionInput struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Code    string `json:"code"`
+	Reconnect bool   `json:"reconnect,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	Code      string `json:"code"`
 }
 type BotConnectionController interface {
 	ConnectBot(context.Context, BotConnectionInput) (Machine, error)
@@ -80,10 +83,20 @@ type WorkerPeerSource struct {
 type WorkerSharing struct {
 	Enabled   bool               `json:"enabled"`
 	Address   string             `json:"address"`
+	Listen    string             `json:"listen"`
+	Listening bool               `json:"listening"`
+	Managed   bool               `json:"managed"`
 	Peer      string             `json:"peer"`
 	Code      string             `json:"code,omitempty"`
 	ExpiresAt int64              `json:"expiresAt,omitempty"`
 	Sources   []WorkerPeerSource `json:"sources"`
+}
+type WorkerSharingInput struct {
+	Listen  string `json:"listen"`
+	Address string `json:"address"`
+}
+type WorkerSharingEndpoint interface {
+	SetWorkerEndpoint(WorkerSharingInput) (WorkerSharing, error)
 }
 type WorkerSharingRecovery interface {
 	RecoverWorkerSharing(context.Context) (WorkerSharing, error)

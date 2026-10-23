@@ -6,6 +6,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
  "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
  "backend.RecoverWorkerSharing":{"path":"/api/v1/machines/recover-worker-sharing","read":false},
+ "backend.SaveWorkerSharing":{"path":"/api/v1/machines/save-worker-sharing","read":false},
  "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
  "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
  "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},

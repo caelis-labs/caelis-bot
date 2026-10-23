@@ -19,18 +19,39 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 )
 
-func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (api.Machine, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.loadErr != nil {
-		return api.Machine{}, s.loadErr
+// Connection configuration is the generation fence for network results. Health
+// timestamps and worker defaults may change without changing this route/proof.
+func sameBotConfiguration(a, b profile) bool {
+	return a.Peer == b.Peer && a.View.ID == b.View.ID && a.View.Name == b.View.Name && a.View.Address == b.View.Address && a.View.Archived == b.View.Archived
+}
+func botCheckResult(p profile, out workerpeer.Response, err error) profile {
+	p.View.CheckedAt = time.Now().UnixMilli()
+	p.View.State, p.View.Issue = "offline", ""
+	if err != nil {
+		p.View.Issue = err.Error()
+		if p.View.Issue == "worker_not_ready" {
+			p.View.State = "setup"
+		}
+		return p
 	}
-	if len(strings.TrimSpace(in.Name)) > 80 {
+	p.View.State = "ready"
+	p.View.Runtime, p.View.Available = out.Capabilities.Runtime, []string{out.Capabilities.Runtime}
+	p.Peer.Peer, p.Identity, p.View.PeerID = out.Peer, out.Peer, out.Peer
+	return p
+}
+func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (api.Machine, error) {
+	name := strings.TrimSpace(in.Name)
+	if len(name) > 80 {
 		return api.Machine{}, errors.New("invalid_name")
 	}
 	address, err := workerpeer.Address(in.Address)
 	if err != nil {
 		return api.Machine{}, err
+	}
+	s.mu.Lock()
+	if s.loadErr != nil {
+		s.mu.Unlock()
+		return api.Machine{}, s.loadErr
 	}
 	id := in.ID
 	if id == "" {
@@ -46,81 +67,197 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 	}
 	old, exists := s.state.Profiles[id]
 	if exists && old.View.ConnectionType != "bot" {
+		s.mu.Unlock()
 		return old.View, errors.New("machine_connection_type_conflict")
+	}
+	if name == "" {
+		name = address
+		if exists {
+			name = old.View.Name
+		}
+	}
+	// A rename is local even while B is unavailable or the connection archived.
+	// Explicit reconnect (or re-adding an archived address) performs validation.
+	reconnect := in.Reconnect || exists && old.View.Archived && in.ID == ""
+	if exists && old.Peer.Address == address && strings.TrimSpace(in.Code) == "" && !reconnect {
+		next := old
+		next.View.Name = name
+		s.state.Profiles[id] = next
+		if err = s.save(); err != nil {
+			s.state.Profiles[id] = old
+		}
+		s.mu.Unlock()
+		return next.View, err
 	}
 	pending := old
 	if !exists {
-		pending.View = api.Machine{ID: id, ConnectionType: "bot", Name: in.Name, Address: address, State: "offline"}
+		pending.View = api.Machine{ID: id, ConnectionType: "bot", Name: name, Address: address, State: "offline"}
 		pending.Peer = workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}
 	}
-	// Persist the exact credential before pairing. If the response disappears,
-	// the next attempt can read that original grant without minting a new source.
 	if pending.Peer.Token == "" {
-		return old.View, errors.New("original_peer_credential_unavailable")
+		s.mu.Unlock()
+		return old.View, errors.New("original_peer_proof_required")
 	}
+	// Persist the original proof before a potentially uncertain pairing write.
 	if !exists {
 		s.state.Profiles[id] = pending
 		if err = s.save(); err != nil {
 			delete(s.state.Profiles, id)
+			s.mu.Unlock()
 			return api.Machine{}, err
 		}
 	}
+	profileID := s.state.ProfileID
+	s.mu.Unlock()
+	checkCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	result := workerpeer.PairResult{}
-	if pending.Peer.Peer == "" {
-		probe := pending.Peer
-		probe.Address = address
-		if observed, readErr := workerpeer.Call(ctx, probe, workerpeer.Request{Action: "info"}); readErr == nil && workerpeer.Compatible(observed.Capabilities) {
+	probe := pending.Peer
+	probe.Address = address
+	// Existing credentials can repair a changed reachable address, and recover
+	// a lost pairing response, without using another one-time code.
+	if strings.TrimSpace(in.Code) == "" || pending.Peer.Peer == "" {
+		observed, readErr := workerpeer.Call(checkCtx, probe, workerpeer.Request{Action: "info"})
+		if readErr == nil && !workerpeer.Compatible(observed.Capabilities) {
+			readErr = errors.New("bot_worker_contract_incompatible")
+		}
+		if readErr == nil {
 			result = workerpeer.PairResult{Connection: workerpeer.Connection{Address: address, Peer: observed.Peer, Token: probe.Token}, Capabilities: observed.Capabilities}
+		} else if strings.TrimSpace(in.Code) == "" {
+			err = readErr
 		}
 	}
-	if result.Peer == "" {
-		name, _ := os.Hostname()
-		if len(name) > 80 || strings.ContainsAny(name, "\r\n\t") {
-			name = ""
+	if result.Peer == "" && err == nil {
+		sourceName, _ := os.Hostname()
+		if len(sourceName) > 80 || strings.ContainsAny(sourceName, "\r\n\t") {
+			sourceName = ""
 		}
-		result, err = workerpeer.PairNamed(ctx, address, in.Code, s.state.ProfileID, name, pending.Peer.Token)
-		if err != nil {
-			return pending.View, err
-		}
+		result, err = workerpeer.PairNamed(checkCtx, address, in.Code, profileID, sourceName, pending.Peer.Token)
 	}
-	if exists && old.Peer.Peer != "" && old.Peer.Peer != result.Peer {
-		return old.View, errors.New("target_identity_changed")
+	if err == nil && pending.Peer.Peer != "" && pending.Peer.Peer != result.Peer {
+		err = errors.New("bot_peer_identity_changed")
 	}
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		name = in.Address
-	}
-	p := profile{Peer: result.Connection, Identity: result.Peer, View: api.Machine{ID: id, ConnectionType: "bot", PeerID: result.Peer, Name: name, Address: result.Address, Runtime: result.Capabilities.Runtime, Available: []string{result.Capabilities.Runtime}, State: "ready"}}
-	s.state.Profiles[id] = p
-	if err = s.save(); err != nil {
-		if exists {
-			s.state.Profiles[id] = old
-		} else {
-			delete(s.state.Profiles, id)
-		}
-		return api.Machine{}, err
-	}
-	return p.View, nil
-}
-func (s *Service) RecoverBotWork(ctx context.Context, id string) (api.Machine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	current, ok := s.state.Profiles[id]
+	if !ok || !sameBotConfiguration(current, pending) {
+		return current.View, errors.New("bot_connection_changed")
+	}
+	next := botCheckResult(current, workerpeer.Response{Peer: result.Peer, Capabilities: result.Capabilities}, err)
+	if err == nil {
+		next.Peer, next.Identity = result.Connection, result.Peer
+		next.View.Name, next.View.Address, next.View.Archived = name, address, false
+	}
+	s.state.Profiles[id] = next
+	if saveErr := s.save(); saveErr != nil {
+		s.state.Profiles[id] = current
+		return current.View, saveErr
+	}
+	if err == nil {
+		s.renewBotObservationsLocked(id)
+	}
+	return next.View, err
+}
+func (s *Service) inspectBot(ctx context.Context, id string, recoverWork, renewObservations bool) (api.Machine, error) {
+	s.mu.Lock()
 	p, ok := s.state.Profiles[id]
 	if !ok || p.View.ConnectionType != "bot" {
+		s.mu.Unlock()
 		return api.Machine{}, errors.New("bot_connection_unknown")
 	}
-	out, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "recover"})
-	if err != nil {
-		return p.View, err
+	s.mu.Unlock()
+	checkCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	action := "info"
+	if recoverWork {
+		action = "recover"
 	}
-	if !workerpeer.Compatible(out.Capabilities) {
-		return p.View, errors.New("bot_worker_contract_incompatible")
+	var out workerpeer.Response
+	var err error
+	if p.Peer.Token == "" {
+		err = errors.New("original_peer_proof_required")
+	} else {
+		out, err = workerpeer.Call(checkCtx, p.Peer, workerpeer.Request{Action: action})
+		if err == nil && !workerpeer.Compatible(out.Capabilities) {
+			err = errors.New("bot_worker_contract_incompatible")
+		}
 	}
-	p.View.State, p.View.Issue = "ready", ""
-	p.View.Runtime = out.Capabilities.Runtime
-	p.View.Available = []string{out.Capabilities.Runtime}
-	s.state.Profiles[id] = p
-	return p.View, s.save()
+	if ctx.Err() != nil {
+		return p.View, ctx.Err()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.state.Profiles[id]
+	if !exists || !sameBotConfiguration(current, p) {
+		return current.View, nil // A stale check cannot overwrite a repaired route.
+	}
+	next := botCheckResult(current, out, err)
+	s.state.Profiles[id] = next
+	if saveErr := s.save(); saveErr != nil {
+		s.state.Profiles[id] = current
+		return current.View, saveErr
+	}
+	if err == nil && renewObservations {
+		s.renewBotObservationsLocked(id)
+	}
+	if recoverWork {
+		return next.View, err
+	}
+	return next.View, nil
+}
+func (s *Service) renewBotObservationsLocked(id string) {
+	seen := map[string]bool{}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	for task, machine := range s.state.Routes {
+		if machine == id && !s.state.Reservations[task] {
+			key := id + "\x00" + s.state.Runtimes[task]
+			if !seen[key] {
+				s.cacheRevision[key]++
+				seen[key] = true
+			}
+		}
+	}
+}
+func (s *Service) RecoverBotWork(ctx context.Context, id string) (api.Machine, error) {
+	return s.inspectBot(ctx, id, true, true)
+}
+
+// Empty connections need freshness too. This bounded read-only check has its
+// own cadence and never holds the route lock during network or native readiness.
+func (s *Service) observeBotProfiles(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		s.mu.Lock()
+		ids := []string{}
+		for id, p := range s.state.Profiles {
+			if p.View.ConnectionType == "bot" && (p.View.CheckedAt == 0 || time.Since(time.UnixMilli(p.View.CheckedAt)) >= 30*time.Second) {
+				ids = append(ids, id)
+			}
+		}
+		s.mu.Unlock()
+		var checks sync.WaitGroup
+		limit := make(chan struct{}, 4)
+		for _, id := range ids {
+			select {
+			case limit <- struct{}{}:
+			case <-ctx.Done():
+				checks.Wait()
+				return
+			}
+			checks.Go(func() {
+				defer func() { <-limit }()
+				_, _ = s.inspectBot(ctx, id, false, false)
+			})
+		}
+		checks.Wait()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 func (s *Service) peerCall(ctx context.Context, p profile, in remotework.Request) (remotework.Response, error) {
 	action := in.Action

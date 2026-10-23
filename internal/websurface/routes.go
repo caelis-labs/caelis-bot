@@ -11,6 +11,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/machines/connect-bot", Function: b.ConnectBot},
 		{Path: "/api/v1/machines/recover-bot-work", Function: b.RecoverBotWork},
 		{Path: "/api/v1/machines/recover-worker-sharing", Function: b.RecoverWorkerSharing},
+		{Path: "/api/v1/machines/save-worker-sharing", Function: b.SaveWorkerSharing},
 		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},
 		{Path: "/api/v1/machines/set-worker-sharing", Function: b.SetWorkerSharing},
 		{Path: "/api/v1/machines/create-worker-pairing", Function: b.CreateWorkerPairing},

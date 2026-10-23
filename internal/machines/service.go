@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type profile struct {
@@ -305,6 +306,10 @@ func first(a, b string) string {
 }
 func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.Machine, error) {
 	s.mu.Lock()
+	if p := s.state.Profiles[id]; p.View.ConnectionType == "bot" {
+		s.mu.Unlock()
+		return s.inspectBot(ctx, id, false, true)
+	}
 	defer s.mu.Unlock()
 	// With several runtimes and no selection, inspectLocked only returns the
 	// cached profile; that is not fresh evidence for any observation budget.
@@ -424,30 +429,66 @@ func (s *Service) MachineTerminal(ctx context.Context, id string) (api.TerminalT
 }
 func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	p, exists := s.state.Profiles[id]
+	if !exists {
+		s.mu.Unlock()
+		return errors.New("machine_unknown")
+	}
+	hasTasks := false
 	for task, route := range s.state.Routes {
 		if route == id && !s.state.Reservations[task] {
+			hasTasks = true
+		}
+	}
+	if hasTasks {
+		if p.View.ConnectionType != "bot" {
+			s.mu.Unlock()
 			return errors.New("machine_has_tasks")
 		}
+		// Product removal hides this target from new delegation, not its task
+		// ownership. Keep the only original proof and every retained route.
+		next := p
+		next.View.Archived = true
+		s.state.Profiles[id] = next
+		err := s.save()
+		if err != nil {
+			s.state.Profiles[id] = p
+		}
+		s.mu.Unlock()
+		return err
 	}
-	if p := s.state.Profiles[id]; p.View.ConnectionType == "bot" {
-		if _, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "unpair"}); err != nil {
+	if p.View.ConnectionType == "bot" {
+		s.mu.Unlock()
+		checkCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		_, err := workerpeer.Call(checkCtx, p.Peer, workerpeer.Request{Action: "unpair"})
+		cancel()
+		if err != nil {
 			return errors.Join(errors.New("peer_unpair_unconfirmed"), err)
 		}
-	}
-	if s.state.Profiles[id].View.ConnectionType != "bot" {
-		if err := s.secretStore.Delete(id); err != nil {
-			return err
+		s.mu.Lock()
+		current, ok := s.state.Profiles[id]
+		if !ok || !sameBotConfiguration(current, p) {
+			s.mu.Unlock()
+			return errors.New("peer_unpair_unconfirmed")
 		}
+		for task, route := range s.state.Routes {
+			if route == id && !s.state.Reservations[task] {
+				s.mu.Unlock()
+				return errors.New("peer_unpair_unconfirmed")
+			}
+		}
+	} else if err := s.secretStore.Delete(id); err != nil {
+		s.mu.Unlock()
+		return err
 	}
+	defer s.mu.Unlock()
 	old := s.state
 	s.state.Profiles = maps.Clone(old.Profiles)
 	s.state.Routes = maps.Clone(old.Routes)
 	s.state.Runtimes = maps.Clone(old.Runtimes)
 	s.state.Reservations = maps.Clone(old.Reservations)
 	delete(s.state.Profiles, id)
-	// An interrupted pre-dispatch reservation must not make an otherwise empty
-	// machine undeletable after restart. No remote Worker exists for these IDs.
+	// Confirmed unpair releases only undispatched preparation bindings.
 	for task, route := range s.state.Routes {
 		if route == id {
 			delete(s.state.Routes, task)

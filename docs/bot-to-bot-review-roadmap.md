@@ -22,7 +22,7 @@ The PR stays draft. A owns product tasks/interactions; native adapters own execu
 | Stage | Required exit | Status |
 | --- | --- | --- |
 | M0 | F1–F8 reproductions pass after fixes; local and remote create/continue/stop/approvals/files/history do not regress. Unknown work reserves capacity. Long approval history cannot prevent control. Owner loss and unreadable history remain distinct facts. | Defects fixed and account-free regression gates pass; real-installation parity remains M4 |
-| M1 | B shows actual listener and checked reachable address for A; external network prerequisites are actionable. Accurate unreachable/expired/revoked/incompatible/not-ready guidance names the machine to repair. Rename without pairing, address repair restarts original subscriptions, empty profiles have freshness, revoke is not stop, delete/reauthorize preserves recovery proof. | Open |
+| M1 | B shows actual listener and checked reachable address for A; external network prerequisites are actionable. Accurate unreachable/expired/revoked/incompatible/not-ready guidance names the machine to repair. Rename without pairing, address repair restarts original subscriptions, empty profiles have freshness, revoke is not stop, delete/reauthorize preserves recovery proof. | Implemented and focused/race fixtures pass; native product UX remains M4 |
 | M2 | A's uploaded CSV/PDF/image bytes and original names reach B on create and continue; same-name/count/size boundaries hold. A Agent can read/verify output; user can preview/save; retrieved copies work offline and identify cached versus refreshed bytes. Output survives realtime-to-history transitions and history-read failure. | Open |
 | M3 | Ordinary/sensitive/native-option/opaque/URL interactions close through A and B's original native receipt/continued execution. Check current public Core contract first; missing kinds are explicit minimal upstream dependencies, not private protocol extensions. Network reconnect, App restart and native exit have separate recovery paths; lost requests stay unknown, new work has a bounded explicit recovery route. | Open |
 | M4 | Representative real installations: macOS A→Linux headless B with real runtime/account/model, macOS A→macOS desktop B, Web A approval/files/output; supported Windows roles need actual artifacts. Bind evidence to SHA/platform/runtime build and visible outcomes. | Not run; real account/model/deployment/system-restart authorization required |
@@ -98,3 +98,24 @@ focused native Codex receipt/recovery and App-factory race tests. macOS
 compilation passed. Full packaging, release dependency staging, real accounts,
 real cross-machine execution and native GUI acceptance were not run. The build
 checks reuse existing dependencies and download no release payloads.
+
+### M1 connection-maintenance batch
+
+M0 predecessor: `7e42ddfe194355a14ce67eddc77ff5dca25139c4` (all F1–F8 fixes).
+
+- Separate actual B listener and published A address. Desktop supports an explicitly
+  configured reachable bind, with bind-before-replace and conflict preservation;
+  headless only publishes an address and retains its existing listener. Tests cover
+  port persistence/reopen and mandatory authentication after replacing the listener.
+- A renames offline; address repair authenticates the original peer without another
+  code. Fixed connection diagnostics avoid exposing arbitrary HTTP/native bodies.
+  Empty profiles have bounded readiness and timestamped freshness checks.
+- Removal with retained tasks archives the environment for new delegation and keeps
+  original proof/routes. The existing panel restores it, including after revocation
+  with a fresh code. No new device manager, task transfer or execution authority.
+
+Focused/race fixtures: `TestWorkerEndpoint*`, `TestHeadlessWorkerEndpoint*`,
+`TestWorkerListener*`; `internal/machines/peer_m1_test.go` and
+`internal/workerpeer/client_m1_test.go`. TypeScript and bilingual catalogs pass.
+This is account-free listener/HTTP/native-adapter fixture evidence, not real
+cross-machine, packaged desktop or browser GUI acceptance. M4 remains open.

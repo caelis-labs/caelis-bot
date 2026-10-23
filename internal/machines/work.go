@@ -18,12 +18,16 @@ func (s *Service) TaskMachines() []api.TaskMachine {
 	for _, p := range s.state.Profiles {
 		// New product delegation uses Bot peers. Legacy helper profiles remain
 		// addressable only through already retained task bindings and setup repair.
-		if p.View.ConnectionType != "bot" {
+		if p.View.ConnectionType != "bot" || p.View.Archived {
 			continue
 		}
-		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: p.View.State == "ready"})
+		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: botProfileReady(p.View)})
 	}
 	return out
+}
+func botProfileReady(v api.Machine) bool {
+	age := time.Since(time.UnixMilli(v.CheckedAt))
+	return v.State == "ready" && !v.Archived && v.CheckedAt > 0 && age >= 0 && age <= 60*time.Second
 }
 func (s *Service) WorkAdmission(ctx context.Context) error { return s.local.WorkAdmission(ctx) }
 func (s *Service) WorkStates() []api.WorkState {
@@ -333,6 +337,7 @@ func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, 
 // alive; reconnecting reads the same durable bindings and never resends a turn.
 func (s *Service) Observe(ctx context.Context) {
 	go s.peerStreams(ctx)
+	go s.observeBotProfiles(ctx)
 	type observation struct {
 		budget   sharedruntime.ObservationBudget
 		revision uint64

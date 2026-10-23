@@ -50,6 +50,7 @@ export interface AttachmentStorage {
   notice: string;
 }
 export interface BotConnectionInput {
+  reconnect?: boolean;
   id: string;
   name: string;
   address: string;
@@ -133,6 +134,8 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
+  checkedAt?: number;
+  archived?: boolean;
   connectionType?: string;
   peerId?: string;
   id: string;
@@ -577,10 +580,17 @@ export interface WorkerPeerSource {
 export interface WorkerSharing {
   enabled: boolean;
   address: string;
+  listen: string;
+  listening: boolean;
+  managed: boolean;
   peer: string;
   code?: string;
   expiresAt?: number;
   sources: Array<WorkerPeerSource>;
+}
+export interface WorkerSharingInput {
+  listen: string;
+  address: string;
 }
 export interface WorkerTaskObservation {
   task: Task;

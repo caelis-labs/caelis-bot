@@ -68,3 +68,10 @@ func (s *Service) RecoverWorkerSharing() (api.WorkerSharing, error) {
 	defer cancel()
 	return p.RecoverWorkerSharing(ctx)
 }
+func (s *Service) SaveWorkerSharing(in api.WorkerSharingInput) (api.WorkerSharing, error) {
+	p, ok := s.workerSharing.(api.WorkerSharingEndpoint)
+	if !ok {
+		return api.WorkerSharing{}, errors.New("worker_listener_configuration_unavailable")
+	}
+	return p.SetWorkerEndpoint(in)
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,12 +20,15 @@ import (
 )
 
 type peerHost struct {
-	mu      sync.Mutex
-	server  *workerpeer.Server
-	http    *http.Server
-	address string
-	mounted bool
-	owners  map[string]workerpeer.Owner
+	mu               sync.Mutex
+	server           *workerpeer.Server
+	http             *http.Server
+	address          string
+	mounted          bool
+	owners           map[string]workerpeer.Owner
+	listen           string
+	configuration    peerListenerConfig
+	configurationErr error
 }
 
 // Keep the native owner available even when Connect fails. Ordinary reads must
@@ -74,6 +76,7 @@ func (w *foreignCodexOwner) RecoverNewWork(ctx context.Context) error {
 
 func (a *Application) configureWorkerPeer() error {
 	p := &peerHost{owners: map[string]workerpeer.Owner{}}
+	p.configuration, p.configurationErr = readPeerListener(filepath.Join(a.root, "WorkerPeers", "listener.json"))
 	a.peer = p
 	server, err := workerpeer.Open(filepath.Join(a.root, "WorkerPeers"), a.openForeignWorker)
 	if err != nil {
@@ -172,6 +175,7 @@ func (a *Application) WorkerPeerHandler(next http.Handler, address string) http.
 	a.peer.mu.Lock()
 	a.peer.mounted = true
 	a.peer.address = address
+	a.peer.listen = strings.TrimPrefix(address, "http://")
 	a.peer.mu.Unlock()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, workerpeer.Prefix) {
@@ -190,40 +194,10 @@ func (a *Application) startWorkerPeer() error {
 	if a.peer.mounted || a.peer.http != nil {
 		return nil
 	}
-	// Desktop has no existing web listener. Keep one App-owned loopback listener;
-	// retain its successful port across restarts. No global browser port policy.
-	listen := "127.0.0.1:0"
-	var saved struct {
-		Listen string `json:"listen"`
+	if a.peer.configurationErr != nil {
+		return a.peer.configurationErr
 	}
-	path := filepath.Join(a.root, "WorkerPeers", "listener.json")
-	if b, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(b, &saved) != nil || saved.Listen == "" {
-			return errors.New("worker_listener_invalid")
-		}
-		listen = saved.Listen
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	ln, err := net.Listen("tcp", listen)
-	if err != nil {
-		return err
-	}
-	if err = localstate.Write(path, struct {
-		Listen string `json:"listen"`
-	}{ln.Addr().String()}); err != nil {
-		ln.Close()
-		return err
-	}
-	a.peer.address = "http://" + ln.Addr().String()
-	a.peer.http = &http.Server{Handler: a.peer.server, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
-	go func() {
-		err := a.peer.http.Serve(ln)
-		if err != nil && !errors.Is(err, http.ErrServerClosed) && a.host.ReportError != nil {
-			a.host.ReportError(err)
-		}
-	}()
-	return nil
+	return a.replacePeerListenerLocked(a.peer.configuration)
 }
 func (a *Application) WorkerSharing() api.WorkerSharing {
 	if a.peer == nil {
@@ -232,8 +206,16 @@ func (a *Application) WorkerSharing() api.WorkerSharing {
 	v := a.peer.server.Status()
 	a.peer.mu.Lock()
 	address := a.peer.address
+	if a.peer.configuration.Address != "" {
+		address = a.peer.configuration.Address
+	}
+	listen := a.peer.listen
+	if listen == "" {
+		listen = a.peer.configuration.Listen
+	}
+	listening, managed := a.peer.http != nil || a.peer.mounted, a.peer.mounted
 	a.peer.mu.Unlock()
-	return api.WorkerSharing{Enabled: v.Enabled, Address: address, Peer: v.Peer, Sources: v.Sources}
+	return api.WorkerSharing{Enabled: v.Enabled, Address: address, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources}
 }
 func (a *Application) SetWorkerSharing(enabled bool) (api.WorkerSharing, error) {
 	if err := a.peer.server.Enable(enabled); err != nil {

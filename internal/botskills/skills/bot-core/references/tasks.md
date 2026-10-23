@@ -309,6 +309,13 @@ prepares future work; old tasks and uncertain receipts retain their original
 owner. It is not a way to resume, transfer or approve an old task. A temporary
 network error does not prove owner loss and must not free its capacity.
 
+Connection readiness is timestamped; a stale or unavailable environment is not
+permission to select a substitute. The user can rename a connection offline,
+check a repaired address against the same Bot, or restore a retained-tasks-only
+connection in Settings. Revoked access needs a fresh code from that same Bot and
+the original saved proof. Removing that environment from new delegation does
+not stop its retained tasks or resolve their approvals.
+
 `bot_tasks` `observe` reads a bounded current native output snapshot. `read`
 reads the original completed history; completed status does not prove that
 history is currently readable. `reconcile` takes the original task and the
