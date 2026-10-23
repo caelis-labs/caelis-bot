@@ -44,3 +44,8 @@ smoke-caelis-live:
 .PHONY: build-headless
 build-headless:
 	./script/build-headless.sh
+
+# Opt-in real App/HTTP/React acceptance using a synthetic native Runtime.
+.PHONY: e2e-worker-peer
+e2e-worker-peer:
+	bash script/e2e-worker-peer.sh

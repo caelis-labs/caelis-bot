@@ -169,3 +169,25 @@ func (s *Session) recoverNewWork(ctx context.Context) error {
 	_, err = s.recoverUnavailableOwner(ctx, true)
 	return err
 }
+
+// The caller holds op and has confirmed terminal native work, completed scoped
+// cleanup, and closed this App-owned server. This is the intentional Stop path,
+// not permission to replace an unavailable owner during an ordinary read.
+func (s *Session) recoverStoppedPrivateOwner(ctx context.Context) (bool, error) {
+	s.mu.Lock()
+	if !s.binding.OwnerProcess.valid() {
+		s.mu.Unlock()
+		return false, nil
+	} // Nonprocess test/legacy clients keep their existing path.
+	life, err := s.reconcilePrivateOwnerLocked()
+	if err != nil || life != ownerGone {
+		s.mu.Unlock()
+		if err == nil {
+			err = errors.New("stopped native owner exit is not confirmed; original receipts retained")
+		}
+		return true, err
+	}
+	s.retainedOwner = nil // Only the proven exited, intentionally closed process.
+	s.mu.Unlock()
+	return s.recoverUnavailableOwner(ctx, false)
+}

@@ -42,21 +42,23 @@ type disk struct {
 	Reservations map[string]bool `json:"reservations,omitempty"`
 }
 type Service struct {
-	loadErr       error
-	request       func(context.Context, profile, remotework.Request) (remotework.Response, error)
-	mu            sync.Mutex
-	secretMu      sync.RWMutex
-	secretStore   secretstore.Store
-	cacheMu       sync.RWMutex
-	root          string
-	state         disk
-	secrets       map[string]string
-	cache         map[string][]api.WorkState
-	cacheRevision map[string]uint64              // guarded by mu; fences late observations
-	observations  map[string]api.WorkObservation // guarded by cacheMu
-	observationAt map[string]time.Time           // successful current snapshots; not execution state
-	local         api.WorkRuntime
-	artifact      func(string) ([]byte, error)
+	peerApprovalFingerprint string // cacheMu; presentation change evidence only
+	peerApprovalRevision    uint64 // cacheMu; monotonic, never native execution state
+	loadErr                 error
+	request                 func(context.Context, profile, remotework.Request) (remotework.Response, error)
+	mu                      sync.Mutex
+	secretMu                sync.RWMutex
+	secretStore             secretstore.Store
+	cacheMu                 sync.RWMutex
+	root                    string
+	state                   disk
+	secrets                 map[string]string
+	cache                   map[string][]api.WorkState
+	cacheRevision           map[string]uint64              // guarded by mu; fences late observations
+	observations            map[string]api.WorkObservation // guarded by cacheMu
+	observationAt           map[string]time.Time           // successful current snapshots; not execution state
+	local                   api.WorkRuntime
+	artifact                func(string) ([]byte, error)
 }
 
 func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, error)) (*Service, error) {

@@ -570,25 +570,29 @@ func (s *Service) RetainedApprovalState() ([]api.Approval, uint64) {
 	}); ok {
 		out, revision = p.RetainedApprovalState()
 	}
-	s.cacheMu.RLock()
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
 	owned := map[string]bool{}
 	for _, states := range s.cache {
 		for _, state := range states {
 			owned[state.Task.ID] = true
 		}
 	}
-	defer s.cacheMu.RUnlock()
+	remote := []api.Approval{}
 	for id, v := range s.observations {
 		if owned[id] {
-			out = append(out, v.Approvals...)
-			var part uint64
-			for _, b := range []byte(id + v.Revision) {
-				part = part*31 + uint64(b)
-			}
-			revision += part
+			remote = append(remote, v.Approvals...)
 		}
 	}
-	return out, revision
+	slices.SortFunc(remote, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
+	fingerprint := api.WorkFingerprint(remote)
+	if fingerprint != s.peerApprovalFingerprint {
+		s.peerApprovalFingerprint = fingerprint
+		s.peerApprovalRevision++
+	}
+	// Renderer observations require a monotonic revision. A native content hash
+	// identifies changes but its numeric value can decrease or exceed JS precision.
+	return append(out, remote...), revision + s.peerApprovalRevision
 }
 func (s *Service) DecideRetainedApproval(ctx context.Context, d api.Decision) (bool, error) {
 	if ref, ok := unscopedRef("worker-approval:", d.ID); ok {

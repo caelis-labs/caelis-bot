@@ -1414,6 +1414,9 @@ func (s *Session) Interrupt(ctx context.Context) error {
 			if c.toolCleanupError() != nil {
 				return s.connectionError("任务已中断，但工具清理未能确认，请重新连接核对", c.toolCleanupError())
 			}
+			if recovered, err := s.recoverStoppedPrivateOwner(ctx); recovered {
+				return err
+			}
 			if err := s.connect(ctx); err != nil {
 				return err
 			}
