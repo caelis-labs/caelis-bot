@@ -27,22 +27,29 @@ func transport() *http.Client {
 	return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("peer_redirect_denied") }}
 }
 func Pair(ctx context.Context, address, code, peer string, oldToken ...string) (PairResult, error) {
+	proof := ""
+	if len(oldToken) > 0 {
+		proof = oldToken[0]
+	}
+	return PairNamed(ctx, address, code, peer, "", proof)
+}
+func PairNamed(ctx context.Context, address, code, peer, name, proof string) (PairResult, error) {
 	address, err := Address(address)
 	if err != nil {
 		return PairResult{}, err
 	}
 	token := rand.Text() + rand.Text()
-	if len(oldToken) > 0 && oldToken[0] != "" {
-		token = oldToken[0]
+	if proof != "" {
+		token = proof
 	}
-	b, _ := json.Marshal(PairRequest{Code: code, Peer: peer, Token: token})
+	b, _ := json.Marshal(PairRequest{Code: code, Peer: peer, Name: name, Token: token})
 	req, err := http.NewRequestWithContext(ctx, "POST", address+Prefix+"pair", bytes.NewReader(b))
 	if err != nil {
 		return PairResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if len(oldToken) > 0 && oldToken[0] != "" {
-		req.Header.Set("Authorization", "Bearer "+oldToken[0])
+	if proof != "" {
+		req.Header.Set("Authorization", "Bearer "+proof)
 	}
 	resp, err := transport().Do(req)
 	if err != nil {

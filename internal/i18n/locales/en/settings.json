@@ -780,7 +780,7 @@
   "botCopied": "Copied",
   "botPairingExpired": "This code has expired. Generate new pairing info.",
   "botConnectedSources": "Connected Bots",
-  "botConnectedSource": "Connected Bot {number}",
+  "botConnectedSource": "Paired Bot",
   "botRevoke": "Revoke access",
   "botRePairNote": "Generate a fresh code on the same Bot to change this connection. Existing tasks keep their original environment.",
   "botReadFailed": "Bot connections are unavailable. Refresh this page to check again.",
@@ -791,5 +791,7 @@
   "botWorkerNotReady": "Set up the local Worker before sharing this work environment.",
   "botCopyFailed": "Could not copy. Select and copy the address and code above.",
   "botLegacyConnections": "Previous SSH connections",
-  "botLegacyNote": "Keep the original connection for existing work. Use a Bot connection for new work."
+  "botLegacyNote": "Keep the original connection for existing work. Use a Bot connection for new work.",
+  "botRecoverNewWork": "Prepare new work",
+  "botRecoverNote": "If the original Worker process has exited, prepare a new one. Existing tasks and uncertain results keep their original owner. This does not approve, restart or transfer them."
 }

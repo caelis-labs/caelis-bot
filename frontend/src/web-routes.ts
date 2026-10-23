@@ -4,6 +4,8 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
  "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
  "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
+ "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
+ "backend.RecoverWorkerSharing":{"path":"/api/v1/machines/recover-worker-sharing","read":false},
  "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
  "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
  "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},
@@ -15,6 +17,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "path": "/api/v1/conversation/snapshot",
   "read": true
  },
+ "backend.ApprovalURL":{"path":"/api/v1/conversation/approval-url","read":true},
  "backend.PetSnapshot": {
   "path": "/api/v1/conversation/pet-snapshot",
   "read": true

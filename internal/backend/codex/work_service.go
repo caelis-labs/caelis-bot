@@ -178,11 +178,14 @@ func (s *Session) originalOperationLocked(t *taskRecord, id, kind, digest string
 		if r.Outcome == "accepted" {
 			return true, nil
 		}
+		if r.Outcome == "rejected" && kind == "decision" {
+			return true, api.DecisionValidationError{Message: "原决定未发送，请核对该请求当前提供的选项"}
+		}
 		return true, fmt.Errorf("original operation outcome: %s; reconcile without replay", r.Outcome)
 	}
-	if len(t.Requests) >= 256 {
-		return false, errors.New("Worker receipt capacity reached")
-	}
+	// Control traffic has no lifetime admission quota. Each entry is already a
+	// minimal ID/intent digest/outcome, without answer text. Keep it so even old
+	// or uncertain effects cannot be replayed, while history can never block stop.
 	return false, nil
 }
 
@@ -206,8 +209,14 @@ func (s *Session) DecideWork(ctx context.Context, in api.WorkDecision) error {
 	}
 	p := s.prompts[in.Decision.ID]
 	if p == nil || p.thread != t.Thread || p.view.TaskID != in.TaskID || p.view.Status != "pending" {
+		t.Requests[in.RequestID] = taskReceipt{Kind: "decision", IntentFingerprint: digest, Outcome: "rejected", Phase: "settled"}
+		if err := s.save(); err != nil {
+			delete(t.Requests, in.RequestID)
+			s.mu.Unlock()
+			return err
+		}
 		s.mu.Unlock()
-		return errors.New("original pending Worker request unavailable")
+		return api.DecisionValidationError{Message: "original pending Worker request unavailable"}
 	}
 	t.Requests[in.RequestID] = taskReceipt{Kind: "decision", IntentFingerprint: digest, Outcome: "unknown", Phase: "dispatching"}
 	if err := s.save(); err != nil {

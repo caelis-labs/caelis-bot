@@ -107,6 +107,7 @@ type PairRequest struct {
 	Token string `json:"token"`
 	Code  string `json:"code"`
 	Peer  string `json:"peer"`
+	Name  string `json:"name,omitempty"`
 }
 type PairResult struct {
 	Connection

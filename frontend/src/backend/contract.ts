@@ -569,13 +569,18 @@ export interface WorkExecutionSettings {
   effort: string;
   serviceTier: string;
 }
+export interface WorkerPeerSource {
+  id: string;
+  name: string;
+  pairedAt: number;
+}
 export interface WorkerSharing {
   enabled: boolean;
   address: string;
   peer: string;
   code?: string;
   expiresAt?: number;
-  sources: Array<string>;
+  sources: Array<WorkerPeerSource>;
 }
 export interface WorkerTaskObservation {
   task: Task;

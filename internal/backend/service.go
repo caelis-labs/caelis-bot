@@ -847,22 +847,26 @@ func (s *Service) RevealArtifact(id string) error {
 	}
 	return s.reveal(p)
 }
-func (s *Service) OpenApprovalURL(id string) error {
+
+// ApprovalURL reads the original native request through its retained Worker
+// owner or current resident adapter. Renderer snapshot URLs are display data,
+// never navigation authority; browser and desktop use this same checked path.
+func (s *Service) ApprovalURL(id string) (string, error) {
 	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalURL(string) (string, bool, error)
 	}); ok {
 		if url, handled, err := owner.RetainedApprovalURL(id); handled {
-			if err != nil {
-				return err
-			}
-			return s.openURL(url)
+			return url, err
 		}
 	}
 	navigator, ok := s.currentEngine().(api.ApprovalNavigator)
 	if !ok {
-		return errors.New("当前后端不支持打开外部审批")
+		return "", errors.New("当前后端不支持打开外部审批")
 	}
-	u, err := navigator.ApprovalURL(id)
+	return navigator.ApprovalURL(id)
+}
+func (s *Service) OpenApprovalURL(id string) error {
+	u, err := s.ApprovalURL(id)
 	if err != nil {
 		return err
 	}

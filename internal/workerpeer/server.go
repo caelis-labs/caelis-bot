@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -32,16 +34,19 @@ type authenticatedGrant struct{ Peer, Hash string }
 type authenticatedGrantKey struct{}
 
 type grant struct {
-	Peer    string `json:"peer"`
-	Hash    string `json:"hash"`
-	Revoked bool   `json:"revoked,omitempty"`
+	Peer     string `json:"peer"`
+	Hash     string `json:"hash"`
+	Revoked  bool   `json:"revoked,omitempty"`
+	Name     string `json:"name,omitempty"`
+	PairedAt int64  `json:"pairedAt,omitempty"`
 }
 type registry struct {
-	Version  int                          `json:"version"`
-	Identity string                       `json:"identity"`
-	Enabled  bool                         `json:"enabled"`
-	Grants   map[string]grant             `json:"grants"`
-	Bindings map[string]map[string]string `json:"bindings"` // source/task -> frozen runtime
+	Version      int                          `json:"version"`
+	Identity     string                       `json:"identity"`
+	Enabled      bool                         `json:"enabled"`
+	Grants       map[string]grant             `json:"grants"`
+	Bindings     map[string]map[string]string `json:"bindings"`               // source/task -> frozen runtime
+	Preparations map[string]map[string]bool   `json:"preparations,omitempty"` // no native start attempted
 }
 type Server struct {
 	mu      sync.Mutex
@@ -53,12 +58,12 @@ type Server struct {
 	expires time.Time
 }
 type Sharing struct {
-	Enabled   bool     `json:"enabled"`
-	Address   string   `json:"address"`
-	Peer      string   `json:"peer"`
-	Code      string   `json:"code,omitempty"`
-	ExpiresAt int64    `json:"expiresAt,omitempty"`
-	Sources   []string `json:"sources"`
+	Enabled   bool                   `json:"enabled"`
+	Address   string                 `json:"address"`
+	Peer      string                 `json:"peer"`
+	Code      string                 `json:"code,omitempty"`
+	ExpiresAt int64                  `json:"expiresAt,omitempty"`
+	Sources   []api.WorkerPeerSource `json:"sources"`
 }
 
 func Open(root string, factory Factory) (*Server, error) {
@@ -74,6 +79,9 @@ func Open(root string, factory Factory) (*Server, error) {
 	if err = os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
+	if s.state.Preparations == nil {
+		s.state.Preparations = map[string]map[string]bool{}
+	}
 	if err = s.save(); err != nil {
 		return nil, err
 	}
@@ -83,12 +91,13 @@ func (s *Server) save() error { return localstate.Write(filepath.Join(s.root, "p
 func (s *Server) Status() Sharing {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v := Sharing{Enabled: s.state.Enabled, Peer: s.state.Identity, Sources: []string{}}
+	v := Sharing{Enabled: s.state.Enabled, Peer: s.state.Identity, Sources: []api.WorkerPeerSource{}}
 	for peer, g := range s.state.Grants {
 		if g.Hash != "" && !g.Revoked {
-			v.Sources = append(v.Sources, peer)
+			v.Sources = append(v.Sources, api.WorkerPeerSource{ID: peer, Name: g.Name, PairedAt: g.PairedAt})
 		}
 	}
+	slices.SortFunc(v.Sources, func(a, b api.WorkerPeerSource) int { return strings.Compare(a.ID, b.ID) })
 	return v
 }
 func (s *Server) Enable(enabled bool) error {
@@ -122,6 +131,31 @@ func (s *Server) Pairing(ctx context.Context) (Sharing, error) {
 	s.code = rand.Text()
 	s.expires = time.Now().Add(5 * time.Minute)
 	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
+}
+
+// Explicit recovery prepares new work only. The adapter alone can verify that
+// an original native process is gone and preserve its old task receipts.
+func recoverNewWork(ctx context.Context, owner Owner) error {
+	if p, ok := owner.(interface{ RecoverNewWork(context.Context) error }); ok {
+		if err := p.RecoverNewWork(ctx); err != nil {
+			return err
+		}
+	} else if err := owner.Connect(ctx); err != nil {
+		return err
+	}
+	return owner.WorkAdmission(ctx)
+}
+func (s *Server) RecoverReadiness(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.Enabled {
+		return errors.New("worker_sharing_disabled")
+	}
+	owner, _, _, err := s.factory(ctx, "readiness", "", filepath.Join(s.root, "readiness"))
+	if err != nil {
+		return err
+	}
+	return recoverNewWork(ctx, owner)
 }
 func (s *Server) Revoke(peer string) error {
 	s.mu.Lock()
@@ -200,8 +234,13 @@ func (s *Server) owner(ctx context.Context, peer, id, runtime string, newBinding
 	if !exists {
 		routes[id] = selected
 		s.state.Bindings[peer] = routes
+		if s.state.Preparations[peer] == nil {
+			s.state.Preparations[peer] = map[string]bool{}
+		}
+		s.state.Preparations[peer][id] = true
 		if err = s.save(); err != nil {
 			delete(routes, id)
+			delete(s.state.Preparations[peer], id)
 			return nil, nil, err
 		}
 	}
@@ -272,6 +311,11 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid_peer", 400)
 		return
 	}
+	in.Name = strings.TrimSpace(in.Name)
+	if len(in.Name) > 80 || strings.ContainsFunc(in.Name, unicode.IsControl) {
+		http.Error(w, "invalid_peer_name", 400)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.state.Enabled || s.code == "" || time.Now().After(s.expires) || tokenHash(in.Code) != tokenHash(s.code) {
@@ -315,7 +359,15 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	if exists {
 		token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	}
-	s.state.Grants[in.Peer] = grant{Peer: in.Peer, Hash: tokenHash(token)}
+	pairedAt := old.PairedAt
+	if pairedAt == 0 {
+		pairedAt = time.Now().UnixMilli()
+	}
+	name := in.Name
+	if name == "" {
+		name = old.Name
+	}
+	s.state.Grants[in.Peer] = grant{Peer: in.Peer, Hash: tokenHash(token), Name: name, PairedAt: pairedAt}
 	if err = s.save(); err != nil {
 		if exists {
 			s.state.Grants[in.Peer] = old
@@ -346,23 +398,34 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer || !s.state.Enabled {
 			return fail(errors.New("peer_authorization_revoked"))
 		}
-		if len(s.state.Bindings[peer]) > 0 {
-			return fail(errors.New("peer_has_worker_bindings"))
+		for id := range s.state.Bindings[peer] {
+			if !s.state.Preparations[peer][id] {
+				return fail(errors.New("peer_has_worker_bindings"))
+			}
 		}
 		old := s.state.Grants[peer]
+		bindings, preparations := s.state.Bindings[peer], s.state.Preparations[peer]
 		delete(s.state.Grants, peer)
+		delete(s.state.Bindings, peer)
+		delete(s.state.Preparations, peer)
 		if err := s.save(); err != nil {
 			s.state.Grants[peer] = old
+			s.state.Bindings[peer], s.state.Preparations[peer] = bindings, preparations
 			return fail(err)
 		}
 		return
 	}
-	if in.Action == "info" {
+	if in.Action == "info" || in.Action == "recover" {
 		owner, _, _, err := s.factory(ctx, peer, "", filepath.Join(s.root, "sources", sourceDir(peer)))
 		if err != nil {
 			return fail(err)
 		}
-		if err = owner.Connect(ctx); err != nil {
+		if in.Action == "recover" {
+			err = recoverNewWork(ctx, owner)
+		} else {
+			err = owner.Connect(ctx)
+		}
+		if err != nil {
 			return fail(err)
 		}
 		p, ok := owner.(api.WorkCapabilityProvider)
@@ -385,7 +448,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		for _, id := range ids {
 			owner, _, err := s.owner(ctx, peer, id, "", false)
 			if err != nil {
-				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}, Activity: api.WorkActivityOwnerUnavailable}))
+				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}}))
 				continue
 			}
 			connectErr := owner.Connect(ctx)
@@ -394,7 +457,9 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 				if state.Task.ID == id {
 					found = true
 					if connectErr != nil {
-						state.Activity = api.WorkActivityOwnerUnavailable
+						if state.Activity != api.WorkActivityOwnerUnavailable {
+							state.Activity = ""
+						}
 						if state.Task.Status != "completed" && state.Task.Status != "failed" && state.Task.Status != "interrupted" && state.Task.Status != "cancelled" {
 							state.Task.Status = "unknown"
 						}
@@ -403,7 +468,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 				}
 			}
 			if !found {
-				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}, Activity: api.WorkActivityOwnerUnavailable}))
+				out.States = append(out.States, encodeState(api.WorkState{Task: api.Task{ID: id, Status: "unknown"}}))
 			}
 		}
 		return
@@ -425,6 +490,20 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	}
 	if !validID(id) {
 		return fail(errors.New("invalid_worker_id"))
+	}
+	if in.Action == "release_preparation" {
+		if err := s.releasePreparation(peer, id); err != nil {
+			return fail(err)
+		}
+		return
+	}
+	// Preparation validation must precede durable binding admission. A bad
+	// workspace cannot create an execution owner or strand pairing credentials.
+	if in.Action == "prepare" {
+		workspace := in.Start.TaskStart.Workspace
+		if workspace != "" && !filepath.IsAbs(workspace) {
+			return fail(errors.New("worker_workspace_not_absolute"))
+		}
 	}
 	owner, work, err := s.owner(ctx, peer, id, in.Runtime, in.Action == "prepare" || in.Action == "start")
 	if err != nil {
@@ -481,6 +560,25 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	}
 	switch in.Action {
 	case "start":
+		// Crossing the native boundary can have an unknown effect. Only this fence
+		// converts a removable preparation into a retained execution binding.
+		s.mu.Lock()
+		proof, authenticated := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
+		grant, granted := s.state.Grants[peer]
+		if !authenticated || !granted || grant.Revoked || !s.state.Enabled || grant.Hash != proof.Hash || proof.Peer != peer || s.state.Bindings[peer][id] == "" {
+			s.mu.Unlock()
+			return fail(errors.New("peer_authorization_revoked"))
+		}
+		wasPrepared := s.state.Preparations[peer][id]
+		delete(s.state.Preparations[peer], id)
+		if saveErr := s.save(); saveErr != nil {
+			if wasPrepared {
+				s.state.Preparations[peer][id] = true
+			}
+			s.mu.Unlock()
+			return fail(saveErr)
+		}
+		s.mu.Unlock()
 		out.Task, err = owner.StartWork(ctx, in.Start)
 	case "read":
 		out.Task, err = owner.ReadWork(ctx, id)
@@ -578,6 +676,23 @@ func (s *Server) stage(peer, id string, files []api.WorkFileContent) ([]api.Inpu
 		out = append(out, api.InputFile{Name: file.Name, Path: path})
 	}
 	return out, nil
+}
+
+func (s *Server) releasePreparation(peer, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.Preparations[peer][id] {
+		return nil
+	}
+	runtime := s.state.Bindings[peer][id]
+	delete(s.state.Preparations[peer], id)
+	delete(s.state.Bindings[peer], id)
+	if err := s.save(); err != nil {
+		s.state.Preparations[peer][id] = true
+		s.state.Bindings[peer][id] = runtime
+		return err
+	}
+	return nil
 }
 func (s *Server) events(w http.ResponseWriter, r *http.Request, peer string) {
 	id := r.URL.Query().Get("id")

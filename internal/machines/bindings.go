@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
+	"time"
 )
 
 func (s *Service) OwnsWork(runtime string) bool {
@@ -78,6 +80,15 @@ func (s *Service) releasePreparationLocked(id string) error {
 		return nil
 	}
 	machine, runtime := s.state.Routes[id], s.state.Runtimes[id]
+	if p := s.state.Profiles[machine]; p.View.ConnectionType == "bot" {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		// A release is safe only for the target's still-undispatched reservation.
+		// Failure retains the sole proof and route for an explicit later repair.
+		if _, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "release_preparation", ID: id, Runtime: runtime}); err != nil {
+			return err
+		}
+	}
 	delete(s.state.Routes, id)
 	delete(s.state.Runtimes, id)
 	delete(s.state.Reservations, id)

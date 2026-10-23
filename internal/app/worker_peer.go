@@ -29,6 +29,49 @@ type peerHost struct {
 	owners  map[string]workerpeer.Owner
 }
 
+// Keep the native owner available even when Connect fails. Ordinary reads must
+// retain its original identity; only the explicit native recovery action can
+// replace a verified exited private process for new work.
+type foreignCodexOwner struct {
+	*codex.WorkOwner
+	mu            sync.Mutex
+	endpointPath  string
+	savedEndpoint string
+}
+
+func (w *foreignCodexOwner) saveEndpoint() error {
+	ep, err := w.NativeEndpoint()
+	if err != nil {
+		return err
+	}
+	if ep == w.savedEndpoint {
+		return nil
+	}
+	if err = localstate.Write(w.endpointPath, struct {
+		Endpoint string `json:"endpoint"`
+	}{ep}); err != nil {
+		return err
+	}
+	w.savedEndpoint = ep
+	return nil
+}
+func (w *foreignCodexOwner) Connect(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.WorkOwner.Connect(ctx); err != nil {
+		return err
+	}
+	return w.saveEndpoint()
+}
+func (w *foreignCodexOwner) RecoverNewWork(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.WorkOwner.RecoverNewWork(ctx); err != nil {
+		return err
+	}
+	return w.saveEndpoint()
+}
+
 func (a *Application) configureWorkerPeer() error {
 	p := &peerHost{owners: map[string]workerpeer.Owner{}}
 	a.peer = p
@@ -110,19 +153,7 @@ func (a *Application) openForeignWorker(ctx context.Context, source, runtime, ro
 		if e != nil {
 			return nil, "", nil, e
 		}
-		if e = native.Connect(ctx); e != nil {
-			return nil, "", nil, e
-		}
-		ep, e := native.NativeEndpoint()
-		if e != nil {
-			return nil, "", nil, e
-		}
-		if e = localstate.Write(endpointPath, struct {
-			Endpoint string `json:"endpoint"`
-		}{ep}); e != nil {
-			return nil, "", nil, e
-		}
-		owner = native
+		owner = &foreignCodexOwner{WorkOwner: native, endpointPath: endpointPath, savedEndpoint: endpoint.Endpoint}
 	case "caelis":
 		owner, err = caelis.NewWorkOwner(caelis.Options{Diagnostics: a.host.Diagnostics, Directory: private, Settings: settings, WorkExecution: work, WorkSourceIdentity: source})
 	default:
@@ -222,6 +253,10 @@ func (a *Application) CreateWorkerPairing(ctx context.Context) (api.WorkerSharin
 	return out, err
 }
 func (a *Application) RevokeWorkerPeer(peer string) error { return a.peer.server.Revoke(peer) }
+func (a *Application) RecoverWorkerSharing(ctx context.Context) (api.WorkerSharing, error) {
+	err := a.peer.server.RecoverReadiness(ctx)
+	return a.WorkerSharing(), err
+}
 func (a *Application) closeWorkerPeer() error {
 	if a.peer == nil {
 		return nil

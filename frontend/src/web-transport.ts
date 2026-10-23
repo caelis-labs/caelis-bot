@@ -3,7 +3,7 @@ import {createWebOperations} from './web-operations';
 import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
-import type {ChatUpdate,Snapshot} from './backend/contract';
+import type {ChatUpdate} from './backend/contract';
 import {createNavigationGuard,parseWebRoute,webRouteHash,taskToggleRoute,type WebNavigation} from './web-navigation';
 import {settingsHasModal} from './context-navigation';
 export type {WebNavigation} from './web-navigation';
@@ -83,7 +83,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   if(service==='backend'){
    if(method==='ChatSnapshot'&&cached){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1];return (same?{changed:false}:cached) as T;}
    if(method==='OpenMessageLink'){openURL(String(args[0]));return undefined as T;}
-   if(method==='OpenApprovalURL'){const state=await call<Snapshot>('backend.Snapshot',[]),approval=state.approvals.find(a=>a.id===args[0]&&a.status!=='resolved');if(!approval?.url)throw new Error('该链接已不可用');openURL(approval.url);return undefined as T;}
+   if(method==='OpenApprovalURL'){openURL(await call<string>('backend.ApprovalURL',[args[0]]));return undefined as T;}
   }
   if(service==='desktop')switch(method){
    case 'ManagedUpdateRead':return await managedUpdates.read() as T;

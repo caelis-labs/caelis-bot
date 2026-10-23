@@ -447,12 +447,12 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision) error {
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {
 		s.mu.Unlock()
-		return errors.New("这项请求已失效或已处理")
+		return api.DecisionValidationError{Message: "这项请求已失效或已处理"}
 	}
 	result, offered := p.choices[d.Choice]
 	if !offered {
 		s.mu.Unlock()
-		return errors.New("请选择当前请求提供的选项")
+		return api.DecisionValidationError{Message: "请选择当前请求提供的选项"}
 	}
 	var err error
 	if d.Choice == "answer" {

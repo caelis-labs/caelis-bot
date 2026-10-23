@@ -779,7 +779,7 @@
   "botCopied": "已复制",
   "botPairingExpired": "配对码已过期，请重新生成。",
   "botConnectedSources": "已授权的 Bot",
-  "botConnectedSource": "已授权的 Bot {number}",
+  "botConnectedSource": "已配对的 Bot",
   "botRevoke": "撤销授权",
   "botRePairNote": "修改连接时，请在原 Bot 上生成新的配对码。已有任务仍保留原工作环境。",
   "botReadFailed": "暂时无法读取 Bot 连接，请重新打开此页核对。",
@@ -790,5 +790,7 @@
   "botWorkerNotReady": "请先完成本机 Worker 设置，再共享此工作环境。",
   "botCopyFailed": "复制未完成，请手动选择并复制上方地址和配对码。",
   "botLegacyConnections": "原 SSH 连接",
-  "botLegacyNote": "已有任务保留原连接；新任务请添加 Bot 连接。"
+  "botLegacyNote": "已有任务保留原连接；新任务请添加 Bot 连接。",
+  "botRecoverNewWork": "恢复新任务准备",
+  "botRecoverNote": "原 Worker 进程退出后可准备新的执行进程。已有任务和未确认结果仍归原 owner，不会批准、重启或转移。"
 }

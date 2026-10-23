@@ -1,10 +1,10 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useState} from 'react';
 import type {Item, TaskConversation, WorkerTaskObservation} from './backend/contract';
 import {ArtifactLink} from './ArtifactLink';
 import {MessageContent} from './MessageContent';
 import {useI18n} from './i18n';
+import {createWorkerOutputReader,workerTerminal as terminal} from './worker-output-read';
 
-const terminal=new Set(['completed','failed','cancelled','interrupted','stopped']);
 const retain=<T,>(old:Record<string,T>,id:string,value:T)=>Object.fromEntries([...Object.entries(old).filter(([key])=>key!==id).slice(-4),[id,value]]);
 
 // Both surfaces read the original Manager route. A failed history read does not
@@ -12,44 +12,23 @@ const retain=<T,>(old:Record<string,T>,id:string,value:T)=>Object.fromEntries([.
 export function useWorkerOutput(id:string,active:boolean,readHistory:(id:string)=>Promise<TaskConversation>,readObservation:(id:string)=>Promise<WorkerTaskObservation>,statusHint?:string){
  const [histories,setHistories]=useState<Record<string,TaskConversation>>({}),[observations,setObservations]=useState<Record<string,WorkerTaskObservation>>({});
  const [historyFailed,setHistoryFailed]=useState(false),[observationFailed,setObservationFailed]=useState(false),[attempt,setAttempt]=useState(0);
- const status=useRef('');
  useEffect(()=>{
   if(!active||!id)return;
-  let live=true,reading=false,historySettled=false,lastHistory=0,completedRevision='';
-  status.current='';setHistoryFailed(false);setObservationFailed(false);
-  const read=async()=>{
-   if(reading)return;reading=true;
-   const historyDue=!historySettled&&Date.now()-lastHistory>=2500;
-   if(historyDue)lastHistory=Date.now();
-   const [observed,history]=await Promise.allSettled([readObservation(id),historyDue?readHistory(id):Promise.resolve(undefined)]);
-   if(live){
-    if(observed.status==='fulfilled'){
-     const next=observed.value;
-     const completed=JSON.stringify(next.items.filter(item=>item.status==='completed').map(item=>[item.id,item.text,item.artifacts]));
-     if(completedRevision&&completedRevision!==completed)historySettled=false;
-     completedRevision=completed;
-     if(status.current&&status.current!==next.task.status)historySettled=false;
-     status.current=next.task.status;
-     setObservations(old=>retain(old,id,next));setObservationFailed(false);
-    }else setObservationFailed(true);
-    if(historyDue){
-     if(history.status==='fulfilled'&&history.value){setHistories(old=>retain(old,id,history.value!));setHistoryFailed(false);historySettled=terminal.has(history.value.status)&&(!status.current||terminal.has(status.current));}
-     else setHistoryFailed(true);
-    }
-   }
-   reading=false;
-  };
-  void read();const timer=window.setInterval(()=>void read(),1000);
-  return()=>{live=false;window.clearInterval(timer);};
+  setHistoryFailed(false);setObservationFailed(false);
+  const reader=createWorkerOutputReader({id,readHistory,readObservation,
+   observation:next=>setObservations(old=>retain(old,id,next)),history:next=>setHistories(old=>retain(old,id,next)),
+   observationFailed:setObservationFailed,historyFailed:setHistoryFailed});
+  void reader.read();const timer=window.setInterval(()=>void reader.read(),1000);
+  return()=>{reader.close();window.clearInterval(timer);};
  },[id,active,readHistory,readObservation,statusHint,attempt]);
  return {conversation:histories[id],observation:observations[id],historyFailed,observationFailed,retry:()=>setAttempt(value=>value+1)};
 }
 
 export function WorkerOutput({conversation,items=[],historyFailed,observationFailed,report,onRetry}:{conversation?:TaskConversation;items?:Item[];historyFailed:boolean;observationFailed:boolean;report:(message:string)=>void;onRetry:()=>void}){
  const {t}=useI18n();
- const messages=conversation?.messages.filter(message=>message.role==='user'||message.role==='assistant')??[];
+ const messages=(Array.isArray(conversation?.messages)?conversation.messages:[]).filter(message=>message.role==='user'||message.role==='assistant');
  const shownFiles=new Set(messages.flatMap(message=>(message.artifacts??[]).map(file=>file.id)));
- const live=items.flatMap(item=>{
+ const live=(Array.isArray(items)?items:[]).flatMap(item=>{
   const artifacts=(item.artifacts??[]).filter(file=>!shownFiles.has(file.id));
   artifacts.forEach(file=>shownFiles.add(file.id));
   const text=!['completed','resolved'].includes(item.status)&&['assistant','activity','tool'].includes(item.kind)?item.text:'';

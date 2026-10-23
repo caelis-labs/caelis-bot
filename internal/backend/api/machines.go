@@ -49,6 +49,9 @@ type BotConnectionInput struct {
 type BotConnectionController interface {
 	ConnectBot(context.Context, BotConnectionInput) (Machine, error)
 }
+type BotWorkRecovery interface {
+	RecoverBotWork(context.Context, string) (Machine, error)
+}
 type MachineModel struct {
 	ID        string                `json:"id"`
 	Selection WorkExecutionSettings `json:"selection"`
@@ -69,13 +72,21 @@ type MachineController interface {
 	RemoveMachine(context.Context, string) error
 }
 
+type WorkerPeerSource struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	PairedAt int64  `json:"pairedAt"`
+}
 type WorkerSharing struct {
-	Enabled   bool     `json:"enabled"`
-	Address   string   `json:"address"`
-	Peer      string   `json:"peer"`
-	Code      string   `json:"code,omitempty"`
-	ExpiresAt int64    `json:"expiresAt,omitempty"`
-	Sources   []string `json:"sources"`
+	Enabled   bool               `json:"enabled"`
+	Address   string             `json:"address"`
+	Peer      string             `json:"peer"`
+	Code      string             `json:"code,omitempty"`
+	ExpiresAt int64              `json:"expiresAt,omitempty"`
+	Sources   []WorkerPeerSource `json:"sources"`
+}
+type WorkerSharingRecovery interface {
+	RecoverWorkerSharing(context.Context) (WorkerSharing, error)
 }
 type WorkerSharingController interface {
 	WorkerSharing() WorkerSharing

@@ -431,7 +431,9 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 		}
 	}
 	if p := s.state.Profiles[id]; p.View.ConnectionType == "bot" {
-		_, _ = workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "unpair"})
+		if _, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "unpair"}); err != nil {
+			return errors.Join(errors.New("peer_unpair_unconfirmed"), err)
+		}
 	}
 	if s.state.Profiles[id].View.ConnectionType != "bot" {
 		if err := s.secretStore.Delete(id); err != nil {

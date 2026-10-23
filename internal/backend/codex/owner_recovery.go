@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
@@ -20,6 +21,12 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 		return true, err
 	}
 	defer s.op.Unlock()
+	return s.recoverUnavailableOwner(ctx, false)
+}
+
+// The caller holds op. Worker-only explicit recovery shares the native archive
+// contract with resident recovery; it does not migrate any existing task.
+func (s *Session) recoverUnavailableOwner(ctx context.Context, newWork bool) (bool, error) {
 	s.mu.Lock()
 	if !s.binding.OwnerUnavailable && !s.binding.OwnerClosing {
 		s.mu.Unlock()
@@ -87,6 +94,15 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 		s.mu.Unlock()
 		return true, err
 	}
+	if newWork {
+		// The host may have explicitly pinned the private endpoint it recorded
+		// before admission. Only this verified, archived process permits clearing
+		// that stale startup hint. Shared endpoints never enter this branch.
+		if old.OwnerProcess.valid() && s.opts.Socket == strings.TrimPrefix(old.OwnerEndpoint, "unix://") {
+			s.opts.Socket, s.opts.RequiredSocket = "", false
+		}
+		s.resetProjection()
+	}
 	s.ownerUnavailableVerified = false
 	s.state.ConnectionIssue = ""
 	s.state.Phase = "idle"
@@ -94,4 +110,62 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 	s.update()
 	s.mu.Unlock()
 	return true, s.connect(ctx)
+}
+
+func (s *Session) recoverNewWork(ctx context.Context) error {
+	ctx, cancel := s.operation(ctx, 30*time.Second)
+	defer cancel()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
+	defer s.op.Unlock()
+	s.mu.Lock()
+	if !s.workerOnly || s.closed || s.closing || s.loadErr != nil {
+		s.mu.Unlock()
+		return errors.New("original Worker recovery state unavailable")
+	}
+	if !s.binding.OwnerProcess.valid() {
+		// No private process proof means ordinary shared-server reconnect only.
+		// A failed endpoint or unreadable PID must never authorize replacement.
+		privateUnknown := s.binding.OwnerClosing || s.binding.OwnerUnavailable || s.retainedOwner != nil && !s.retainedOwner.UsesSharedServer()
+		s.mu.Unlock()
+		if privateUnknown {
+			return errors.New("original Worker process identity unavailable")
+		}
+		return s.connect(ctx)
+	}
+	life, err := s.reconcilePrivateOwnerLocked()
+	if err != nil || life != ownerGone {
+		s.update()
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		return s.connect(ctx) // Exact original private process is still alive.
+	}
+	s.mu.Unlock()
+	// Capture native pending IDs before the old event projection is detached.
+	if err := s.prepareDetachLocked(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	old, retained := s.client, s.retainedOwner
+	s.client, s.retainedOwner = nil, nil
+	s.epoch++ // Old listeners and child reads cannot publish into the new owner.
+	s.reconnectSeq++
+	if s.reconnectCancel != nil {
+		s.reconnectCancel()
+	}
+	s.reconnectActive, s.reconnectCancel = false, nil
+	s.state.Connection = "offline"
+	s.update()
+	s.mu.Unlock()
+	if old != nil {
+		old.detachForReconnect()
+	}
+	if retained != nil && retained != old {
+		retained.detachForReconnect()
+	}
+	_, err = s.recoverUnavailableOwner(ctx, true)
+	return err
 }

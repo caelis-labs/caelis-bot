@@ -24,5 +24,8 @@ func (s *Service) WorkerTaskObservation(ctx context.Context, id string) (api.Wor
 		return api.WorkerTaskObservation{}, errors.New("worker_view_unavailable")
 	}
 	v, err := s.workerView.ObserveTask(ctx, id)
+	if v.Items == nil {
+		v.Items = []api.Item{}
+	}
 	return api.WorkerTaskObservation{Task: v.State.Task, Items: v.Items, Revision: v.Revision}, err
 }

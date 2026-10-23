@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -73,7 +74,11 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 		}
 	}
 	if result.Peer == "" {
-		result, err = workerpeer.Pair(ctx, address, in.Code, s.state.ProfileID, pending.Peer.Token)
+		name, _ := os.Hostname()
+		if len(name) > 80 || strings.ContainsAny(name, "\r\n\t") {
+			name = ""
+		}
+		result, err = workerpeer.PairNamed(ctx, address, in.Code, s.state.ProfileID, name, pending.Peer.Token)
 		if err != nil {
 			return pending.View, err
 		}
@@ -96,6 +101,26 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 		return api.Machine{}, err
 	}
 	return p.View, nil
+}
+func (s *Service) RecoverBotWork(ctx context.Context, id string) (api.Machine, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.state.Profiles[id]
+	if !ok || p.View.ConnectionType != "bot" {
+		return api.Machine{}, errors.New("bot_connection_unknown")
+	}
+	out, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "recover"})
+	if err != nil {
+		return p.View, err
+	}
+	if !workerpeer.Compatible(out.Capabilities) {
+		return p.View, errors.New("bot_worker_contract_incompatible")
+	}
+	p.View.State, p.View.Issue = "ready", ""
+	p.View.Runtime = out.Capabilities.Runtime
+	p.View.Available = []string{out.Capabilities.Runtime}
+	s.state.Profiles[id] = p
+	return p.View, s.save()
 }
 func (s *Service) peerCall(ctx context.Context, p profile, in remotework.Request) (remotework.Response, error) {
 	action := in.Action
@@ -135,10 +160,6 @@ func (s *Service) peerCall(ctx context.Context, p profile, in remotework.Request
 	for _, state := range out.States {
 		v := workerpeer.DecodeState(state)
 		result.States = append(result.States, scopeState(v))
-		observation, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "observe", ID: v.Task.ID, Runtime: in.Runtime})
-		if err == nil {
-			s.storeObservation(v.Task.ID, workerpeer.DecodeObservation(observation.Observation), p.View)
-		}
 	}
 	return result, nil
 }
@@ -224,9 +245,14 @@ func (s *Service) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 		return api.WorkObservation{}, errors.New("original_worker_contract_incompatible")
 	}
 	s.mu.Lock()
-	view := s.state.Profiles[s.state.Routes[id]].View
-	s.mu.Unlock()
+	p := s.state.Profiles[s.state.Routes[id]]
+	if p.Peer != c || s.state.Runtimes[id] != runtime {
+		s.mu.Unlock()
+		return api.WorkObservation{}, errors.New("peer_connection_changed")
+	}
+	view := p.View
 	s.storeObservation(id, v, view)
+	s.mu.Unlock()
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 	return s.observations[id], nil
@@ -419,14 +445,20 @@ func (s *Service) RetainedApprovalURL(id string) (string, bool, error) {
 
 // peerStreams uses the same bounded native observation contract as local owners.
 // Each reconnect reads a fresh snapshot; it never dispatches a task or decision.
+type peerSubscription struct {
+	cancel     context.CancelFunc
+	connection workerpeer.Connection
+	runtime    string
+}
+
 func (s *Service) peerStreams(ctx context.Context) {
 	var streams sync.WaitGroup
-	running := map[string]context.CancelFunc{}
+	running := map[string]peerSubscription{}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	defer func() {
-		for _, cancel := range running {
-			cancel()
+		for _, stream := range running {
+			stream.cancel()
 		}
 		streams.Wait()
 	}()
@@ -447,63 +479,38 @@ func (s *Service) peerStreams(ctx context.Context) {
 			}
 		}
 		s.mu.Unlock()
-		for id, cancel := range running {
-			if _, ok := targets[id]; !ok {
-				cancel()
+		for id, stream := range running {
+			target, ok := targets[id]
+			if !ok || target.Peer != stream.connection || runtimes[id] != stream.runtime {
+				stream.cancel()
 				delete(running, id)
 			}
 		}
 		for id, p := range targets {
+			if _, exists := running[id]; exists {
+				continue
+			}
 			if len(running) >= 16 {
 				break
 			}
-			if running[id] != nil {
-				continue
-			}
 			streamCtx, cancel := context.WithCancel(ctx)
-			running[id] = cancel
 			runtime := runtimes[id]
+			running[id] = peerSubscription{cancel: cancel, connection: p.Peer, runtime: runtime}
 			streams.Add(1)
 			go func() {
 				defer streams.Done()
 				for streamCtx.Err() == nil {
-					err := workerpeer.Watch(streamCtx, p.Peer, id, func(v api.WorkObservation) {
-						if !workerpeer.Compatible(v.Owner) {
-							return
-						}
-						s.mu.Lock()
-						current, ok := s.state.Profiles[s.state.Routes[id]]
-						same := ok && current.Peer == p.Peer && s.state.Runtimes[id] == runtime
-						s.mu.Unlock()
-						if !same {
-							return
-						}
-						s.storeObservation(id, v, p.View)
-						state := scopeState(v.State)
-						state.Runtime = runtime
-						state.Task.Machine = p.View.ID
-						state.Task.MachineName = p.View.Name
-						s.cacheMu.Lock()
-						key := p.View.ID + "\x00" + runtime
-						found := false
-						for i := range s.cache[key] {
-							if s.cache[key][i].Task.ID == id {
-								s.cache[key][i] = state
-								found = true
-								break
-							}
-						}
-						if !found {
-							s.cache[key] = append(s.cache[key], state)
-						}
-						s.cacheRevision[key]++
-						s.cacheMu.Unlock()
-					})
+					err := workerpeer.Watch(streamCtx, p.Peer, id, func(v api.WorkObservation) { s.applyPeerObservation(id, p, runtime, v) })
 					if streamCtx.Err() != nil {
 						return
 					}
 					if err != nil {
-						s.invalidateActivity(p.View.ID, runtime)
+						s.mu.Lock()
+						current, ok := s.state.Profiles[s.state.Routes[id]]
+						if ok && current.Peer == p.Peer && s.state.Runtimes[id] == runtime {
+							s.invalidateActivity(p.View.ID, runtime)
+						}
+						s.mu.Unlock()
 					}
 					select {
 					case <-streamCtx.Done():
@@ -514,6 +521,37 @@ func (s *Service) peerStreams(ctx context.Context) {
 			}()
 		}
 	}
+}
+
+// Configuration equality is the subscription generation. Hold the route lock
+// through cache application: both stale success and stale error are fenced.
+func (s *Service) applyPeerObservation(id string, p profile, runtime string, v api.WorkObservation) {
+	if !workerpeer.Compatible(v.Owner) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.state.Profiles[s.state.Routes[id]]
+	if !ok || current.Peer != p.Peer || s.state.Runtimes[id] != runtime {
+		return
+	}
+	s.storeObservation(id, v, current.View)
+	state := scopeState(v.State)
+	state.Runtime = runtime
+	state.Task.Machine = current.View.ID
+	state.Task.MachineName = current.View.Name
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	key := current.View.ID + "\x00" + runtime
+	for i := range s.cache[key] {
+		if s.cache[key][i].Task.ID == id {
+			s.cache[key][i] = state
+			s.cacheRevision[key]++
+			return
+		}
+	}
+	s.cache[key] = append(s.cache[key], state)
+	s.cacheRevision[key]++
 }
 
 // Completed history stays on demand. A bounded number of live subscriptions

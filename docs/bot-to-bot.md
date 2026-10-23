@@ -1,6 +1,8 @@
 # Bot-to-Bot Workers
 
 This implements the Worker connection in [#217](https://github.com/caelis-labs/caelis-bot/issues/217).
+The implementation remains a Draft; the [review and completion gates](bot-to-bot-review-roadmap.md)
+track independently reproduced defects and the remaining product/acceptance gaps.
 It adds a `bot` machine profile, not another task manager. Local remains the
 default. Choose an environment only when creating work; continuation, stop,
 history, files and decisions retain the original machine and native owner.
@@ -82,6 +84,12 @@ another's requests, history or files.
    requests or cancelling native execution. A fresh code plus original credential
    is required to explicitly restore a source with retained work.
 
+B labels each grant with A's supplied machine name, a short source identity and
+pairing time, sorted by stable source ID. Display metadata never grants access.
+Failed preparation has not crossed the native start boundary and can be released;
+dispatched or uncertain work keeps its binding. A never discards its sole pairing
+proof when B has not confirmed removal.
+
 Peer endpoints are `/worker/v1/pair`, `/worker/v1/call` and
 `/worker/v1/events`. They do not accept browser cookie/loopback exemptions; a
 browser Origin is rejected, and redirects never forward the peer credential.
@@ -99,7 +107,13 @@ address is the target-local listener; users substitute their externally reachabl
 forwarded address on A.
 
 Native owners detach through the existing owner lifecycle when the App closes.
-Codex retains its original native socket and refuses replacement if it disappears.
+Codex retains its original native socket and ordinary reconnect refuses replacement
+if it disappears. “Prepare new work” is an explicit action on A's connection and
+B's sharing setup (including an empty readiness owner). The native adapter checks
+the original private PID and birth identity; only a confirmed exited process permits
+archiving original bindings/receipts and preparing a new native owner. An alive or
+unverified process is not replaced. This never moves or resubmits old tasks. Shared
+daemon reconnect remains separate, with no new shared-profile process.
 Inbound execution bindings, including readiness-created owners, are not imported
 into B's resident runtime. This does not introduce another shared-profile daemon.
 
@@ -122,6 +136,16 @@ into B's resident runtime. This does not introduce another shared-profile daemon
   log. A keeps at most 16 live subscriptions; regular state polling covers the
   rest. Completed history stays on demand. Reconnect reads current state and
   pending requests, then native history as needed. It never replays a write.
+- Subscriptions bind the full connection and original runtime. Address/token
+  changes cancel and replace them; both stale successes and stale errors are
+  discarded. A transient Connect error removes fresh activity evidence and
+  reserves unknown capacity. Only the native adapter can confirm owner loss.
+- Control receipts keep their original IDs/digests and unknown outcomes. Approval
+  history does not consume the existing Codex prompt quota or prevent guarded
+  stop; an exact pre-dispatch rejection is not reported as an unknown write.
+- Desktop and Web ask the same host reader to validate the original pending
+  request before opening its URL. A snapshot URL alone is not authority. This
+  entry-point fix does not make a B-local loopback challenge reachable from A.
 - Completed execution, readable native history and question closure are separate
   facts. A history-read failure preserves cached content and a read failure state.
   A vanished native response channel becomes unknown audit evidence, never an

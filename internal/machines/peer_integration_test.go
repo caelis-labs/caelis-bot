@@ -42,6 +42,7 @@ func (f *dualPeerLocal) SendWork(context.Context, api.TaskMessage) (api.Task, er
 }
 
 type dualPeerNative struct {
+	connectFailure       atomic.Bool
 	mu                   sync.Mutex
 	source, runtime      string
 	states               map[string]api.WorkState
@@ -55,7 +56,12 @@ type dualPeerNative struct {
 func newDualNative(source, runtime string) *dualPeerNative {
 	return &dualPeerNative{source: source, runtime: runtime, states: map[string]api.WorkState{}, receipts: map[string]api.WorkOperation{}, input: map[string][]byte{}}
 }
-func (*dualPeerNative) Connect(context.Context) error       { return nil }
+func (f *dualPeerNative) Connect(context.Context) error {
+	if f.connectFailure.Load() {
+		return errors.New("temporary_native_handshake_failure")
+	}
+	return nil
+}
 func (*dualPeerNative) Close(context.Context) error         { return nil }
 func (*dualPeerNative) WorkAdmission(context.Context) error { return nil }
 func (f *dualPeerNative) WorkStates() []api.WorkState {

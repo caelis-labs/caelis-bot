@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -22,6 +23,15 @@ func NewWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 		return nil, errors.New("resident bindings cannot become a worker owner")
 	}
 	s.workerOnly = true
+	// If explicit recovery durably archived a private owner but preparing its
+	// replacement failed, the host's endpoint cache may still name that old
+	// socket. The original archive is proof to ignore only that stale hint.
+	if s.binding.OwnerEndpoint == "" && len(s.binding.LostOwners) > 0 {
+		old := s.binding.LostOwners[len(s.binding.LostOwners)-1]
+		if old.Process.valid() && s.opts.Socket == strings.TrimPrefix(old.Endpoint, "unix://") {
+			s.opts.Socket, s.opts.RequiredSocket = "", false
+		}
+	}
 	s.resetProjection() // Restore task-owned subscriptions after loading the binding.
 	return &WorkOwner{s}, nil
 }
@@ -57,6 +67,11 @@ func (w *WorkOwner) SetModel(ctx context.Context, v api.WorkExecutionSettings, p
 }
 
 func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
+
+// RecoverNewWork is an explicit host action. It prepares new work only after
+// verifying the original private process has exited and preserving its tasks
+// and uncertain receipts under the existing lost-owner archive.
+func (w *WorkOwner) RecoverNewWork(ctx context.Context) error { return w.engine.recoverNewWork(ctx) }
 
 // ConnectedForStop lets the local owner router reach StopWork's pre-lock
 // cancellation without first waiting for Connect on the active Turn lock.

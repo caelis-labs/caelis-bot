@@ -95,6 +95,20 @@ type taskReceipt struct {
 	Phase             string `json:"phase,omitempty"`
 }
 
+// Keep the existing Bot prompt-admission bound independent of native control
+// traffic. Legacy receipts predate Kind and count conservatively as prompts.
+// Decisions and stops retain their original ID/digest/outcome in Requests, but
+// their history must not prevent a user from continuing or stopping this task.
+func promptReceiptCount(t *taskRecord) int {
+	n := 0
+	for _, r := range t.Requests {
+		if r.Kind == "" || r.Kind == "start" || r.Kind == "send" {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,7 +183,7 @@ func (s *Session) workStatesLocked() []api.WorkState {
 	for id, t := range s.binding.Tasks {
 		v := s.taskView(t)
 		activity := t.Activity
-		if s.binding.LostOwnerTasks[id] {
+		if s.binding.LostOwnerTasks[id] || s.binding.OwnerUnavailable && s.ownerUnavailableVerified {
 			activity = api.WorkActivityOwnerUnavailable
 		} else if s.state.Connection != "ready" {
 			activity = ""
@@ -496,7 +510,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
-	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" || len(t.Requests) >= 100 {
+	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" || promptReceiptCount(t) >= 100 {
 		v := t.View
 		s.mu.Unlock()
 		return v, &api.WorkMessageRejection{Cause: errors.New("请先核对该任务；结果未知的操作不会重复发送")}

@@ -258,8 +258,10 @@ is open; a preview is not a substitute for native conversation history.
 Use `bot_tasks` environments for the stable key, name and connection status.
 Require a connected target and the user's direction before selecting a remote
 environment. The task retains its original environment and native Runtime.
-For questions, approvals or login in remote work, guide the user to the
-original client. Do not copy credentials or configure accounts on their behalf.
+For a paired Bot, questions, approvals and results return to this Bot's existing
+user interaction path. Do not send the user to the target Bot to approve work.
+Retained legacy helper tasks keep their original client/reading path. Do not copy
+credentials or configure accounts on the user's behalf.
 An uncertain remote outcome remains on its original task; another environment
 is not a retry path.
 
@@ -300,6 +302,12 @@ Creation freezes the actual native execution binding. Continue, stop, observe,
 read and retrieve files through the same task handle, including after an outage
 or application/runtime change. An unavailable original owner stays unavailable;
 never create a local replacement or change the task's environment to recover it.
+
+If the original private Worker process has verifiably exited, the user can use
+Settings > Other Bots > the original connection > Prepare new work. This only
+prepares future work; old tasks and uncertain receipts retain their original
+owner. It is not a way to resume, transfer or approve an old task. A temporary
+network error does not prove owner loss and must not free its capacity.
 
 `bot_tasks` `observe` reads a bounded current native output snapshot. `read`
 reads the original completed history; completed status does not prove that
