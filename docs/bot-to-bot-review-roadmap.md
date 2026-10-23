@@ -207,3 +207,19 @@ headless and Windows amd64 CGO-free using existing dependencies. Full `make buil
 packaging/runtime staging was not run: it can fetch release payloads and is not
 needed to establish the changed Worker contracts. Cross-compilation does not
 replace Windows/native GUI or installation acceptance.
+
+### Windows CI follow-up
+
+M2/partial-M3 batch: `107f0c3b9ed6b194934863c77f1c4c2b492e160a`.
+Its exact local check/smoke/direct builds and remote macOS/Linux checks passed.
+Windows exposed a real validation gap in the retained same-size/same-mtime path
+replacement test: Go's Windows Lstat defers the file ID lookup until SameFile,
+so two path snapshots can resolve to the replacement object. The pre-read identity
+now comes from an actual file handle (`File.Stat`), closed before the digest read;
+the post-read path must still identify that original object. The original test is
+unchanged, not skipped or weakened. Native dispatch remains authoritative.
+
+This is a scoped input validation correction. Source basis:
+[Windows Lstat](https://go.dev/src/os/stat_windows.go),
+[lazy file ID / SameFile](https://go.dev/src/os/types_windows.go).
+The final head's Windows CI must pass before claiming native platform coverage.

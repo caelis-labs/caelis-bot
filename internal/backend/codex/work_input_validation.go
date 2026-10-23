@@ -25,8 +25,20 @@ func (*Session) ValidateWorkFiles(ctx context.Context, _ string, files []api.Inp
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		before, err := os.Lstat(file.Path)
-		if err != nil || !before.Mode().IsRegular() || before.Size() > api.MaxWorkFileBytes {
+		entry, err := os.Lstat(file.Path)
+		if err != nil || !entry.Mode().IsRegular() || entry.Size() > api.MaxWorkFileBytes {
+			return errors.New("worker_file_unavailable_or_too_large")
+		}
+		// Capture identity from an actual handle before reading. Windows Lstat
+		// can defer its file ID lookup until SameFile; after a rename that would
+		// resolve both old and new snapshots through the replacement path.
+		f, err := os.Open(file.Path)
+		if err != nil {
+			return errors.New("worker_file_unavailable_or_too_large")
+		}
+		before, statErr := f.Stat()
+		closeErr := f.Close()
+		if statErr != nil || closeErr != nil || !before.Mode().IsRegular() || before.Size() > api.MaxWorkFileBytes {
 			return errors.New("worker_file_unavailable_or_too_large")
 		}
 		// Use the same bounded byte reader used to bind a native operation's
