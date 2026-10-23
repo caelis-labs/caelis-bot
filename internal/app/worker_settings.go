@@ -116,6 +116,56 @@ func (w *localWorkers) InspectLocalWorker(ctx context.Context, runtime string) (
 	}
 	return v, nil
 }
+
+// Pairing inspects the configured local Worker. It neither selects a different
+// runtime/model nor creates a separate, empty foreign execution owner.
+func (w *localWorkers) workerReadiness(ctx context.Context) error {
+	if err := lockwait.Lock(ctx, &w.settingsMu); err != nil {
+		return err
+	}
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	runtime, active, resident, loadErr := w.defaultRuntime, w.active, w.resident, w.loadErr
+	w.mu.Unlock()
+	if loadErr != nil {
+		return loadErr
+	}
+	selected := runtime
+	if selected == "conversation" {
+		selected = active
+	}
+	v, err := w.inspect(ctx, selected)
+	if err != nil {
+		return err
+	}
+	if !v.Ready {
+		return errors.New("worker_not_ready")
+	}
+	execution := v.Work
+	if runtime == "conversation" {
+		provider, ok := resident.(interface {
+			ConversationExecution(context.Context) (api.WorkExecutionSettings, error)
+		})
+		if !ok {
+			return errors.New("worker_not_ready")
+		}
+		execution, err = provider.ConversationExecution(ctx)
+		if err != nil {
+			return err
+		}
+	} else if execution.Model == "" && v.RuntimeDefault != nil {
+		execution = *v.RuntimeDefault
+	}
+	if err := api.ValidateWorkExecution(execution, v.Models); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.defaultRuntime != runtime || w.active != active {
+		return errors.New("worker_configuration_changed")
+	}
+	return nil
+}
 func (w *localWorkers) SaveLocalWorkerModel(ctx context.Context, value api.WorkExecutionSettings) (api.LocalWorkerSettings, error) {
 	w.settingsMu.Lock()
 	defer w.settingsMu.Unlock()

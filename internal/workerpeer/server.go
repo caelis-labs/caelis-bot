@@ -53,6 +53,7 @@ type Server struct {
 	root    string
 	state   registry
 	factory Factory
+	ready   func(context.Context) error
 	owners  map[string]Owner
 	code    string
 	expires time.Time
@@ -88,6 +89,27 @@ func Open(root string, factory Factory) (*Server, error) {
 	return s, nil
 }
 func (s *Server) save() error { return localstate.Write(filepath.Join(s.root, "peers.json"), s.state) }
+
+// ConfigureReadiness reuses the host's configured local Worker inspection. Code
+// generation never creates a separate, empty foreign execution owner.
+func (s *Server) ConfigureReadiness(check func(context.Context) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ready = check
+}
+
+func (s *Server) checkReadiness(ctx context.Context) error {
+	s.mu.Lock()
+	enabled, ready := s.state.Enabled, s.ready
+	s.mu.Unlock()
+	if !enabled {
+		return errors.New("worker_sharing_disabled")
+	}
+	if ready != nil {
+		return ready(ctx)
+	}
+	return ctx.Err()
+}
 func (s *Server) Status() Sharing {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,20 +135,13 @@ func (s *Server) Enable(enabled bool) error {
 	return nil
 }
 func (s *Server) Pairing(ctx context.Context) (Sharing, error) {
+	if err := s.checkReadiness(ctx); err != nil {
+		return Sharing{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.state.Enabled {
 		return Sharing{}, errors.New("worker_sharing_disabled")
-	}
-	owner, _, _, err := s.factory(ctx, "readiness", "", filepath.Join(s.root, "readiness"))
-	if err != nil {
-		return Sharing{}, err
-	}
-	if err = owner.Connect(ctx); err != nil {
-		return Sharing{}, err
-	}
-	if err = owner.WorkAdmission(ctx); err != nil {
-		return Sharing{}, err
 	}
 	s.code = rand.Text()
 	s.expires = time.Now().Add(5 * time.Minute)
@@ -146,16 +161,7 @@ func recoverNewWork(ctx context.Context, owner Owner) error {
 	return owner.WorkAdmission(ctx)
 }
 func (s *Server) RecoverReadiness(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.state.Enabled {
-		return errors.New("worker_sharing_disabled")
-	}
-	owner, _, _, err := s.factory(ctx, "readiness", "", filepath.Join(s.root, "readiness"))
-	if err != nil {
-		return err
-	}
-	return recoverNewWork(ctx, owner)
+	return s.checkReadiness(ctx)
 }
 func (s *Server) Revoke(peer string) error {
 	s.mu.Lock()
@@ -354,10 +360,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	owner, _, _, err := s.factory(r.Context(), in.Peer, "", filepath.Join(s.root, "sources", sourceDir(in.Peer)))
 	if err == nil {
-		err = owner.Connect(r.Context())
-	}
-	if err == nil {
-		err = owner.WorkAdmission(r.Context())
+		err = recoverNewWork(r.Context(), owner)
 	}
 	var caps api.WorkCapabilities
 	if err == nil {
@@ -535,7 +538,12 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	if err != nil {
 		return fail(err)
 	}
-	if err = owner.Connect(ctx); err != nil {
+	if in.Action == "prepare" {
+		err = recoverNewWork(ctx, owner)
+	} else {
+		err = owner.Connect(ctx)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if in.Action == "validate_files" {

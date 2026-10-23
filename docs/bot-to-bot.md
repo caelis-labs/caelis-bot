@@ -259,3 +259,18 @@ network. A shorter caller deadline and cancellation still win. Only authenticate
 peer request bodies receive this allowance; browser trust and deadlines stay as
 configured. A timeout after dispatch remains unknown and reconciles its original
 operation; it never authorizes replacement work or an automatic upload replay.
+
+## Pairing readiness and new work
+
+Generating a pairing code checks the configured local Worker and model within
+the caller's budget. It does not select a runtime/model or create a separate
+foreign readiness owner. Authenticated pairing and new-work preparation create
+or reconnect only that source's isolated execution owner. The native adapter may
+archive a confirmed exited private owner before preparing new work; ordinary
+reads never authorize replacement, and old tasks, native request IDs and unknown
+receipts stay bound to their original execution.
+
+Connection rows show the environment name and availability. Listener/published
+address and diagnostic freshness live in details. A saved unavailable connection
+has one relevant restore action; editing its address or pairing code uses the
+normal save/connect path. Restore never stops old work or approves a request.

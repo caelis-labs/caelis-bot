@@ -83,6 +83,7 @@ func (a *Application) configureWorkerPeer() error {
 		return err
 	}
 	p.server = server
+	server.ConfigureReadiness(a.localWork.workerReadiness)
 	a.Backend.ConfigureWorkerSharing(a)
 	a.Backend.ConfigureWorkerInteractions(a.machines)
 	return nil

@@ -96,3 +96,15 @@ func TestBotUnknownFirstPairingRetainsAndReconcilesOriginalProof(t *testing.T) {
 		t.Fatal("unknown pairing not reconciled with original proof", err)
 	}
 }
+
+func TestBotInvalidAddressIsRejectedBeforeCreatingPairingProfile(t *testing.T) {
+	s, err := Open(t.TempDir(), &dualPeerLocal{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ConnectBot(t.Context(), api.BotConnectionInput{Address: "http://127.0.0.1:9317/unsupported-path", Code: "fixture-code"})
+	var rejected *api.ActionRejectedError
+	if !errors.As(err, &rejected) || rejected.Code != "invalid_bot_address" || len(s.state.Profiles) != 0 {
+		t.Fatal("correctable address refusal became an uncertain profile", err)
+	}
+}

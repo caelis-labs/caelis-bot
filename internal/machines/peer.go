@@ -46,7 +46,7 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 	}
 	address, err := workerpeer.Address(in.Address)
 	if err != nil {
-		return api.Machine{}, err
+		return api.Machine{}, &api.ActionRejectedError{Code: "invalid_bot_address"}
 	}
 	s.mu.Lock()
 	if s.loadErr != nil {
