@@ -143,6 +143,26 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 	if !ok || !sameBotConfiguration(current, pending) {
 		return current.View, errors.New("bot_connection_changed")
 	}
+	if !exists && err != nil && current.Peer.Peer == "" {
+		var rejected *api.ActionRejectedError
+		if errors.As(err, &rejected) {
+			bound := false
+			for _, machine := range s.state.Routes {
+				bound = bound || machine == id
+			}
+			if !bound {
+				// A first, definitively refused grant has no original authority
+				// to unpair. Never take this path for a lost/uncertain response or
+				// a pre-existing profile, whose sole proof must remain recoverable.
+				delete(s.state.Profiles, id)
+				if saveErr := s.save(); saveErr != nil {
+					s.state.Profiles[id] = current
+					return current.View, errors.Join(err, saveErr)
+				}
+				return current.View, err
+			}
+		}
+	}
 	next := botCheckResult(current, workerpeer.Response{Peer: result.Peer, Capabilities: result.Capabilities}, err)
 	if err == nil {
 		next.Peer, next.Identity = result.Connection, result.Peer
