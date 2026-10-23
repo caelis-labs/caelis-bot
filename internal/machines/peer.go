@@ -499,11 +499,11 @@ func (s *Service) WorkApprovalURL(ctx context.Context, id, request string) (stri
 	if err == nil {
 		u, parseErr := url.Parse(out.URL)
 		if parseErr != nil {
-			return "", errors.New("remote_native_url_invalid")
+			return "", &api.ActionRejectedError{Code: "remote_native_url_invalid"}
 		}
 		ip := net.ParseIP(u.Hostname())
 		if strings.EqualFold(u.Hostname(), "localhost") || strings.HasSuffix(strings.ToLower(u.Hostname()), ".localhost") || (ip != nil && (ip.IsLoopback() || ip.IsUnspecified())) {
-			return "", errors.New("remote_native_url_not_reachable")
+			return "", &api.ActionRejectedError{Code: "remote_native_url_not_reachable"}
 		}
 	}
 	return out.URL, err

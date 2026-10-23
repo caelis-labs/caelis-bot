@@ -100,7 +100,18 @@ func (s *Server) register(a action) {
 		if a.Read || a.Local {
 			value, e := invoke(api.WithSetupAccess(r.Context(), "web:"+sessionID(r)), in.Args)
 			if e != nil {
-				fail(w, 503, "read_unavailable")
+				code := "read_unavailable"
+				// A refused navigation is neither a vanished native request nor
+				// an execution effect. Publish only these fixed owner-certified
+				// reasons, never the URL or arbitrary adapter diagnostics.
+				var rejected *api.ActionRejectedError
+				if a.Path == "/api/v1/conversation/approval-url" && errors.As(e, &rejected) {
+					switch rejected.Code {
+					case "remote_native_url_not_reachable", "remote_native_url_invalid":
+						code = rejected.Code
+					}
+				}
+				fail(w, 503, code)
 				return
 			}
 			jsonOut(w, 200, map[string]any{"value": value})

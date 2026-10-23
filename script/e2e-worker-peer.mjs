@@ -8,6 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {deflateSync} from 'node:zlib';
 import {faultRelay} from './worker-peer-e2e-relay.mjs';
+import {urlContractJourney,host} from './worker-peer-url-contract.mjs';
 
 const repo=resolve(import.meta.dirname,'..');
 const {chromium}=await import(pathToFileURL(resolve(process.env.WORKER_PEER_PLAYWRIGHT_MODULE)).href);
@@ -48,8 +49,8 @@ try{
  const A=await launch('A'),B=await launch('B');relay=await faultRelay(B.url);
  browser=await chromium.launch({executablePath:process.env.WORKER_PEER_CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
  const context=await browser.newContext({acceptDownloads:true,viewport:{width:1280,height:1000}});
- // Separate browser profiles model A and B on different machines. Cookies are
- // scoped to host, not port; sharing one 127.0.0.1 cookie jar corrupts isolation.
+ // Separate browser profiles model A and B on different machines. The product
+ // additionally namespaces its authentication cookie by data directory.
  const bContext=await browser.newContext({viewport:{width:1280,height:1000}});
  const a=await context.newPage(),b=await bContext.newPage();
  const errors=[];for(const page of [a,b])page.on('pageerror',e=>errors.push(e.message));
@@ -57,6 +58,9 @@ try{
  await a.locator('[contenteditable="true"]').first().waitFor({state:'visible',timeout:30000});
  await b.locator('[contenteditable="true"]').first().waitFor({state:'visible',timeout:30000});
  evidence.steps.push('Production A/B headless apps and actual React chat ready; only isolated fixture configuration seeded');
+ // Pairing requires an already-ready local Worker. A visible composer alone
+ // does not prove the native handshake has finished. These are safe reads.
+ for(const page of [a,b])await until('configured resident native ready',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');return r.status===200&&r.body.value.connection==='ready';});
  // Further steps drive visible controls, not substitute product HTTP responses.
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');debugPage=a;debugB=b;
  const sharing=b.getByRole('checkbox',{name:'允许其他 Bot 使用此工作环境'});
@@ -76,6 +80,10 @@ try{
  evidence.steps.push('Real Web ConnectBot wrong code rejected; correction paired same browser successfully');
  await shot(a,'A-paired');
  await a.goto(A.url+'/#chat');
+ if(process.argv.includes('--url-contract')) {
+  await urlContractJourney({a,b,A,B,context,send,nativeStates,until,shot,evidence,relay});
+  assert.deepEqual(errors,[],'React page errors');
+ } else {
  const csv=Buffer.from('name,value\nsource,7\n');
  const pdf=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
  const files=[{name:'quarterly-report.csv',mimeType:'text/csv',buffer:csv},{name:'fixture.pdf',mimeType:'application/pdf',buffer:pdf}];
@@ -174,6 +182,7 @@ try{
  evidence.gates.uploadUIStop='real UI/native/MCP/HTTP cancellation and original unknown reconciliation passed';
  assert.deepEqual(errors,[],'React page errors');
  evidence.result='vertical journey passed';
+ }
 } catch(error){evidence.result='failed';evidence.error=error.stack;if(debugB)await writeFile(join(artifacts,'B-visible-errors.json'),JSON.stringify(await debugB.locator('[role=alert],.inline-error').allTextContents()));if(debugPage){const snapshot=await debugPage.evaluate(async()=>{const r=await fetch('/api/v1/bootstrap',{method:'POST',headers:{'X-Caelis-Request':'1'}});const b=await r.json();return await (await fetch('/api/v1/conversation/snapshot',{method:'POST',headers:{'Content-Type':'application/json','X-Caelis-Request':'1','X-CSRF-Token':b.csrf},body:JSON.stringify({args:[]})})).json();}).catch(e=>({error:e.message}));await writeFile(join(artifacts,'failure-snapshot.json'),JSON.stringify(snapshot,null,2));await shot(debugPage,'failure').catch(()=>{});await writeFile(join(artifacts,'failure-dom.txt'),await debugPage.locator('body').innerText()).catch(()=>{});}throw error;}
 finally{
  if(relay)evidence.transportFaults=relay.effects;

@@ -96,3 +96,7 @@ form/marked-sensitive/URL application journeys and real Codex/Caelis accounts,
 macOS→Linux, macOS desktop lifecycle, same-SHA candidate hardware acceptance and
 final independent review remain separate gates. Passing this command alone does
 not make the Draft ready to merge or release.
+
+The opt-in [URL contract probe](worker-peer-url-contract.md) adds a real local
+positive control and an A/B regression reproduction. Its pass result preserves
+the remote URL blocking gate; it does not count as remote challenge acceptance.

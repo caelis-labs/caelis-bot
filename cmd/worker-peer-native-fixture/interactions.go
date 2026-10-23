@@ -35,7 +35,9 @@ var challengeHTML = template.Must(template.New("challenge").Parse(`<!doctype htm
 func (s *nativeServer) challenge(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Keep same-origin browser form POSTs attributable to this challenge.
+	// no-referrer serializes their Origin as null in Chromium.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	if r.Host != strings.TrimPrefix(s.urlBase, "http://") {
 		http.Error(w, "fixture native Host mismatch", 403)
 		return

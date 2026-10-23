@@ -348,3 +348,65 @@ func TestProductionResidentStopRecoversOnlyAfterOwnedNativeExit(t *testing.T) {
 		t.Fatal("original owner/receipt lost or silently rebound", after)
 	}
 }
+
+func TestNativeURLRevokesOnOriginalDeclineCancelOrInterrupt(t *testing.T) {
+	for _, ending := range []string{"decline", "cancel", "interrupt"} {
+		t.Run(ending, func(t *testing.T) {
+			s, c := fixturePair(t)
+			thread := c.thread()
+			turn := c.start(thread, "original-url-lifetime", "url")
+			request := c.await(func(m nativeMessage) bool { return m.Method == "mcpServer/elicitation/request" })
+			var params struct{ URL string }
+			if err := json.Unmarshal(request.Params, &params); err != nil {
+				t.Fatal(err)
+			}
+			var id string
+			_ = json.Unmarshal(request.ID, &id)
+			s.mu.Lock()
+			nonce := s.state.Pending[id].Nonce
+			s.mu.Unlock()
+			origin, err := url.Parse(params.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			post := func(target, nonce, source string) int {
+				r, err := http.NewRequest(http.MethodPost, target, strings.NewReader(url.Values{"nonce": {nonce}}.Encode()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Header.Set("Origin", source)
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				response, err := http.DefaultClient.Do(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = io.Copy(io.Discard, response.Body)
+				response.Body.Close()
+				return response.StatusCode
+			}
+			base := origin.Scheme + "://" + origin.Host
+			if post(params.URL, nonce, "http://unrelated.invalid") != 403 || post(params.URL, nonce+"-wrong", base) != 403 || post(params.URL+"-other-request", nonce, base) != 410 {
+				t.Fatal("challenge escaped original request/origin/nonce")
+			}
+			if ending == "interrupt" {
+				if reply := c.call("turn/interrupt", map[string]any{"threadId": thread, "turnId": turn}); reply.Error != nil {
+					t.Fatal(reply.Error)
+				}
+			} else {
+				_ = c.encode.Encode(nativeMessage{ID: request.ID, Result: raw(map[string]string{"action": ending})})
+			}
+			c.await(func(m nativeMessage) bool { return m.Method == "turn/completed" })
+			if post(params.URL, nonce, base) != 410 {
+				t.Fatal("ended original challenge remained writable")
+			}
+			_ = c.encode.Encode(nativeMessage{ID: request.ID, Result: raw(map[string]string{"action": "accept"})})
+			// A real subsequent RPC is an ordering barrier for the late reply.
+			c.call("thread/turns/list", map[string]any{"threadId": thread, "sortDirection": "asc", "itemsView": "full", "limit": 20})
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.state.Effects["interaction:"+id] != 0 || s.state.Effects["challenge-post:"+id] != 0 || s.state.Effects["csv:"+thread+":"+turn] != 0 {
+				t.Fatal("late decision revived ended original challenge", s.state.Effects)
+			}
+		})
+	}
+}
