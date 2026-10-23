@@ -133,6 +133,7 @@ type Service struct {
 	presentationWarnings   map[string]bool
 	saveDiagnosticPath     func() (string, error)
 	resolveArtifact        func(string) (string, error)
+	resolveArtifactCopy    func(string) (api.TaskFileCopy, error)
 	openArtifactFile       func(string) error
 	saveArtifactPath       func(string) (string, error)
 	exportMu               sync.Mutex

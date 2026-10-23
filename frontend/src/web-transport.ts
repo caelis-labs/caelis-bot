@@ -1,5 +1,5 @@
 import {createCSRFFetch} from './web-csrf';
-import {createWebOperations} from './web-operations';
+import {createWebOperations,safeWebRejectionDetail} from './web-operations';
 import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
@@ -45,13 +45,20 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
  window.addEventListener('popstate',restoreNavigation);
  window.addEventListener('hashchange',restoreNavigation);
- class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice)}}
+ class HTTPFailure extends Error{
+  readonly detail?:string;
+  constructor(readonly code:string,readonly status:number,detail?:unknown){
+   const safe=code==='operation_rejected'?safeWebRejectionDetail(detail):undefined;
+   super(safe??(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice));
+   this.detail=safe;
+  }
+ }
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
   try{
   const response=await sessionFetch(path,{signal:abort.signal,method:'POST',headers:headers(),body:JSON.stringify(body)});
   const result=await response.json();
-  if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}
+  if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status,result.detail);}
   return result;
   }finally{clearTimeout(timer)}
  };
@@ -59,7 +66,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   const response=await fetch(path,{signal:AbortSignal.timeout(8000)});const result=await response.json();
   if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}return result;
  }});
- const invoke=createWebOperations({storage:sessionStorage,identity,post:request,failure:code=>new HTTPFailure(code,409),receipt:async(id)=>{
+ const invoke=createWebOperations({storage:sessionStorage,identity,post:request,failure:(code,detail)=>new HTTPFailure(code,409,detail),receipt:async(id)=>{
   const response=await fetch('/api/v1/operations/'+id,{signal:AbortSignal.timeout(8000)});
   if(!response.ok)throw new HTTPFailure('operation_unconfirmed',response.status);
   return await response.json();

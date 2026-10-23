@@ -76,7 +76,7 @@ func Pair(ctx context.Context, address, code, peer string, oldToken ...string) (
 func PairNamed(ctx context.Context, address, code, peer, name, proof string) (PairResult, error) {
 	address, err := Address(address)
 	if err != nil {
-		return PairResult{}, err
+		return PairResult{}, &api.ActionRejectedError{Code: "invalid_bot_address"}
 	}
 	token := rand.Text() + rand.Text()
 	if proof != "" {
@@ -97,6 +97,24 @@ func PairNamed(ctx context.Context, address, code, peer, name, proof string) (Pa
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		// These fixed replies are emitted before the server writes any grant.
+		// Network loss, ambiguous HTTP failures and successful-but-unreadable
+		// responses remain uncertain and retain the original pairing proof.
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4097))
+		if readErr != nil || len(body) > 4096 {
+			return PairResult{}, errors.New("bot_peer_unreachable")
+		}
+		raw := strings.TrimSpace(string(body))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			switch raw {
+			case "pairing_code_expired", "pairing_code_invalid", "original_peer_proof_required", "original_peer_revoked", "worker_sharing_disabled":
+				return PairResult{}, &api.ActionRejectedError{Code: peerError(raw).Error()}
+			}
+			if raw == "worker_not_ready" || strings.HasPrefix(raw, "worker_not_ready:") {
+				return PairResult{}, &api.ActionRejectedError{Code: peerError(raw).Error()}
+			}
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(body))
 		return PairResult{}, responseError(resp)
 	}
 	var out PairResult

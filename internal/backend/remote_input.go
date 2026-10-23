@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -65,13 +66,21 @@ func ObserveSubmissions(s *Service, observer func(api.Submission, []api.InputFil
 // ResolveRemoteArtifact keeps export restricted to artifacts already owned by
 // the backend. A Telegram identifier cannot be turned into an arbitrary path.
 func ResolveRemoteArtifact(s *Service, id string) (string, error) {
-	if path, ok, err := s.taskArtifact(id); ok {
-		return path, err
+	value, err := ResolveRemoteArtifactCopy(s, id)
+	return value.Path, err
+}
+
+// ResolveRemoteArtifactCopy keeps the verified native name beside the owned
+// local bytes. It is host-only; TaskFileCopy.Path is never serialized to clients.
+func ResolveRemoteArtifactCopy(s *Service, id string) (api.TaskFileCopy, error) {
+	if value, ok, err := s.taskArtifactCopy(id); ok {
+		return value, err
 	}
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if resolver, ok := s.currentEngine().(api.ArtifactResolver); ok && !s.restarting && !s.setupRequired {
-		return resolver.Artifact(id)
+		path, err := resolver.Artifact(id)
+		return api.TaskFileCopy{ID: id, Name: filepath.Base(path), Path: path}, err
 	}
-	return "", errors.New("artifact unavailable")
+	return api.TaskFileCopy{}, errors.New("artifact unavailable")
 }

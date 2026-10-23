@@ -79,5 +79,18 @@ func (s *Service) SaveWorkerSharing(in api.WorkerSharingInput) (api.WorkerSharin
 	if !ok {
 		return api.WorkerSharing{}, errors.New("worker_listener_configuration_unavailable")
 	}
-	return p.SetWorkerEndpoint(in)
+	value, err := p.SetWorkerEndpoint(in)
+	if err != nil {
+		var rejected *api.ActionRejectedError
+		if errors.As(err, &rejected) {
+			return value, err
+		}
+		// These fixed App errors are emitted only before bind or persistence.
+		// Bind/save failures can have uncertain effects and stay unclassified.
+		switch err.Error() {
+		case "worker_listener_invalid", "worker_reachable_address_required", "invalid_bot_address", "worker_listener_managed_headless":
+			return value, &api.ActionRejectedError{Code: err.Error()}
+		}
+	}
+	return value, err
 }

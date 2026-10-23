@@ -22,5 +22,6 @@ func NewWebFixture(root string, engine api.Engine) (*backend.Service, *Service, 
 		return nil, nil, err
 	}
 	s.resolveArtifact = func(id string) (string, error) { return backend.ResolveRemoteArtifact(b, id) }
+	s.resolveArtifactCopy = func(id string) (api.TaskFileCopy, error) { return backend.ResolveRemoteArtifactCopy(b, id) }
 	return b, s, nil
 }

@@ -52,7 +52,10 @@ func (s *Server) archiveDB() (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS retired (id TEXT PRIMARY KEY, digest TEXT NOT NULL, owner TEXT NOT NULL, error TEXT NOT NULL) WITHOUT ROWID`)
+	_, err = db.Exec(`PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS retired (id TEXT PRIMARY KEY, digest TEXT NOT NULL, owner TEXT NOT NULL, error TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '') WITHOUT ROWID`)
+	if err == nil {
+		err = addArchiveDetail(db)
+	}
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -60,6 +63,30 @@ func (s *Server) archiveDB() (*sql.DB, error) {
 	s.retired = db
 	return db, nil
 }
+
+func addArchiveDetail(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(retired)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			break
+		}
+		found = found || name == "detail"
+	}
+	err = errors.Join(err, rows.Err(), rows.Close())
+	if err != nil || found {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE retired ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
 func (s *Server) lookupOperation(id string) (operation, bool, error) {
 	if op, ok := s.operations[id]; ok {
 		op, err := s.reconcileOperation(id, op)
@@ -70,7 +97,7 @@ func (s *Server) lookupOperation(id string) (operation, bool, error) {
 		return operation{}, false, err
 	}
 	op := operation{State: "complete"}
-	err = db.QueryRow(`SELECT digest, owner, error FROM retired WHERE id = ?`, digest(id)).Scan(&op.Digest, &op.Owner, &op.Error)
+	err = db.QueryRow(`SELECT digest, owner, error, detail FROM retired WHERE id = ?`, digest(id)).Scan(&op.Digest, &op.Owner, &op.Error, &op.Detail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return operation{}, false, nil
 	}
@@ -142,7 +169,7 @@ func (s *Server) compactOperations() error {
 		if code == "" {
 			code = "operation_retired"
 		}
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO retired(id,digest,owner,error) VALUES(?,?,?,?)`, digest(id), op.Digest, op.Owner, code); err != nil {
+		if _, err = tx.Exec(`INSERT OR IGNORE INTO retired(id,digest,owner,error,detail) VALUES(?,?,?,?,?)`, digest(id), op.Digest, op.Owner, code, operationDetail(op)); err != nil {
 			return err
 		}
 	}

@@ -23,6 +23,7 @@ func (s *Server) reconcileOperation(id string, op operation) (operation, error) 
 	next := op
 	next.Value, _ = json.Marshal(receipt)
 	next.Error = ""
+	next.Detail = ""
 	s.operations[id] = next
 	if err := s.saveOperations(); err != nil {
 		s.operations[id] = op

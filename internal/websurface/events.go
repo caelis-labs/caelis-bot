@@ -118,5 +118,9 @@ func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "operation_unavailable")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"state": v.State, "value": v.Value, "error": v.Error})
+	body := map[string]any{"state": v.State, "value": v.Value, "error": v.Error}
+	if detail := operationDetail(v); detail != "" {
+		body["detail"] = detail
+	}
+	jsonOut(w, 200, body)
 }

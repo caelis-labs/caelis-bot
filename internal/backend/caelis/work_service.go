@@ -90,13 +90,13 @@ func (s *Session) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 		projected := []api.Item{}
 		dedicated := v.WorkerOutput != nil && v.WorkerOutput.Session == w.Binding.SessionId
 		if dedicated {
-			v.WorkerOutput.bound()
+			v.WorkerOutput.observeItems(v.Items)
 			projected = v.WorkerOutput.current()
 		}
 		for _, item := range v.Items {
 			// The resident projection groups text by Turn. Only the dedicated
 			// Worker segmenter can prove a one-message native history identity.
-			if dedicated && (item.Kind == "assistant" || item.Kind == "user") && item.AsyncCallID == "" && len(item.AsyncQuestions) == 0 {
+			if dedicated && plainWorkerOutput(item) {
 				continue
 			}
 			item.Text = workSnapshotTail(item.Text, 128<<10)
@@ -105,6 +105,9 @@ func (s *Session) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 			copy.AsyncCallID = item.AsyncCallID
 			copy.AsyncQuestions = clone(item.AsyncQuestions)
 			projected = append(projected, copy)
+		}
+		if dedicated {
+			v.WorkerOutput.sortItems(projected)
 		}
 		used := 0
 		for i := len(projected) - 1; i >= 0 && len(out.Items) < 200; i-- {

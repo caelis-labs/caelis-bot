@@ -18,6 +18,7 @@ type operation struct {
 	State  string          `json:"state"`
 	Value  json.RawMessage `json:"value,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	Detail string          `json:"detail,omitempty"`
 	At     int64           `json:"at"`
 	Native *nativeReceipt  `json:"native,omitempty"`
 }
@@ -130,7 +131,7 @@ func (s *Server) register(a action) {
 				return
 			}
 			if old.Error != "" {
-				fail(w, 409, old.Error)
+				operationFailure(w, 409, old)
 				return
 			}
 			jsonOut(w, 200, map[string]any{"value": old.Value})
@@ -189,6 +190,7 @@ func (s *Server) register(a action) {
 			var rejected *api.ActionRejectedError
 			if errors.As(e, &rejected) {
 				record.Error = "operation_rejected"
+				record.Detail = safeRejectionDetail(rejected.Code)
 			}
 			var blocked *api.SetupBlockedError
 			if errors.As(e, &blocked) && (blocked.Code == "runtime_recovery_required" || blocked.Code == "runtime_not_ready") {
@@ -203,7 +205,7 @@ func (s *Server) register(a action) {
 		}
 		s.mu.Unlock()
 		if e != nil && persistErr == nil {
-			fail(w, 409, record.Error)
+			operationFailure(w, 409, record)
 			return
 		}
 		if persistErr != nil {
@@ -213,6 +215,32 @@ func (s *Server) register(a action) {
 		jsonOut(w, 200, map[string]any{"value": value})
 	})
 }
+
+// A detail is fixed presentation for an owner-certified pre-dispatch refusal.
+// Error text and remote response bodies are never a source of Web diagnostics.
+func safeRejectionDetail(code string) string {
+	switch code {
+	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless":
+		return code
+	}
+	return ""
+}
+
+func operationDetail(op operation) string {
+	if op.Error == "operation_rejected" {
+		return safeRejectionDetail(op.Detail)
+	}
+	return ""
+}
+
+func operationFailure(w http.ResponseWriter, status int, op operation) {
+	body := map[string]string{"error": op.Error}
+	if detail := operationDetail(op); detail != "" {
+		body["detail"] = detail
+	}
+	jsonOut(w, status, body)
+}
+
 func (s *Server) saveOperations() error {
 	return s.compactOperations()
 }
