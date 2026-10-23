@@ -147,3 +147,13 @@ func (w *WorkOwner) ReadWorkOperation(ctx context.Context, q api.WorkOperationQu
 func (w *WorkOwner) ReadWorkFile(ctx context.Context, task, id string) (api.WorkFileContent, error) {
 	return w.engine.ReadWorkFile(ctx, task, id)
 }
+
+func (w *WorkOwner) ReadWorkURL(ctx context.Context, task, id string) (api.WorkURLPage, error) {
+	return w.engine.ReadWorkURL(ctx, task, id)
+}
+func (w *WorkOwner) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmission) (api.WorkOperation, error) {
+	return w.engine.SubmitWorkURL(ctx, in)
+}
+func (w *WorkOwner) ReadWorkURLSubmission(ctx context.Context, task, id, request string) (api.WorkOperation, error) {
+	return w.engine.ReadWorkURLSubmission(ctx, task, id, request)
+}

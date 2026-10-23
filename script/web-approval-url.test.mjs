@@ -46,3 +46,13 @@ test('Web opens only the original owner validated approval URL and never decides
  assert.equal(f.requests.length,1);
  assert.deepEqual(f.requests[0].body.args,['source-scoped-native-request']);
 });
+
+test('URL page submission has only the original adapter receipt and never persists entered fields',async t=>{
+ const f=browser(t,path=>{
+  assert.equal(path,'/api/v1/conversation/approval-page-submit');
+  return {body:{value:{requestId:'original-url-operation',fingerprint:'intent-digest',outcome:'unknown'}}};
+ });
+ const value=await f.client.transport('backend','SubmitApprovalPage',['original-scoped-request','original-url-operation','original-page-revision',{secret:'synthetic-only'}]);
+ assert.equal(value.outcome,'unknown');assert.equal(f.requests.length,1);assert.equal(f.requests[0].body.id,undefined,'do not create a second Web operation');assert.deepEqual(f.opened,[]);
+ assert.equal(sessionStorage.getItem('caelisbot.pending-operations'),null,'form values/duplicate Web receipt must not persist');
+});

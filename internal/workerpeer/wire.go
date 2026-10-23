@@ -71,6 +71,7 @@ func decodeObservation(v Observation) api.WorkObservation {
 }
 
 type Request struct {
+	URLSubmission api.WorkURLSubmission  `json:"urlSubmission,omitempty"`
 	Contract      int                    `json:"contract"`
 	Action        string                 `json:"action"`
 	ID            string                 `json:"id,omitempty"`
@@ -98,6 +99,7 @@ type Response struct {
 	Operation    api.WorkOperation             `json:"operation"`
 	File         api.WorkFileContent           `json:"file"`
 	URL          string                        `json:"url,omitempty"`
+	URLPage      api.WorkURLPage               `json:"urlPage"`
 }
 type Connection struct {
 	Address string `json:"address"`

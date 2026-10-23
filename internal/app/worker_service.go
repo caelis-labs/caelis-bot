@@ -127,3 +127,69 @@ func (a *Application) retainedWorkerApprovals() []api.Approval {
 	}
 	return nil
 }
+
+func (w *localWorkers) ReadWorkURL(ctx context.Context, task, id string) (api.WorkURLPage, error) {
+	owner, err := w.target(ctx, task)
+	if err != nil {
+		return api.WorkURLPage{}, err
+	}
+	p, ok := owner.(api.WorkURLChallenge)
+	if !ok {
+		return api.WorkURLPage{}, errors.New("worker_url_page_unsupported")
+	}
+	return p.ReadWorkURL(ctx, task, id)
+}
+func (w *localWorkers) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmission) (api.WorkOperation, error) {
+	owner, err := w.target(ctx, in.TaskID)
+	if err != nil {
+		return api.WorkOperation{}, err
+	}
+	p, ok := owner.(api.WorkURLChallenge)
+	if !ok {
+		return api.WorkOperation{}, errors.New("worker_url_page_unsupported")
+	}
+	return p.SubmitWorkURL(ctx, in)
+}
+func (w *localWorkers) ReadWorkURLSubmission(ctx context.Context, task, id, request string) (api.WorkOperation, error) {
+	owner, err := w.target(ctx, task)
+	if err != nil {
+		return api.WorkOperation{}, err
+	}
+	p, ok := owner.(api.WorkURLChallenge)
+	if !ok {
+		return api.WorkOperation{}, errors.New("worker_url_page_unsupported")
+	}
+	return p.ReadWorkURLSubmission(ctx, task, id, request)
+}
+func (w *localWorkers) WorkerApprovalTaskID(id string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	found := ""
+	inspect := func(owner api.WorkRuntime) error {
+		if source, ok := owner.(approvalObserver); ok {
+			for _, a := range source.Snapshot().Approvals {
+				if a.ID == id && a.Owner == "task" && a.TaskID != "" {
+					if found != "" && found != a.TaskID {
+						return errors.New("ambiguous original approval owner")
+					}
+					found = a.TaskID
+				}
+			}
+		}
+		return nil
+	}
+	if err := inspect(w.resident); err != nil {
+		return "", err
+	}
+	for runtime, owner := range w.owners {
+		if runtime != w.active {
+			if err := inspect(owner); err != nil {
+				return "", err
+			}
+		}
+	}
+	if found == "" {
+		return "", errors.New("original Worker request unavailable")
+	}
+	return found, nil
+}

@@ -20,6 +20,10 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "read": true
  },
  "backend.ApprovalURL":{"path":"/api/v1/conversation/approval-url","read":true},
+ "backend.ApprovalPage":{"path":"/api/v1/conversation/approval-page","read":true},
+ // Original native adapter receipts handle this submission; arguments never persist.
+ "backend.SubmitApprovalPage":{"path":"/api/v1/conversation/approval-page-submit","read":true},
+ "backend.ApprovalPageOperation":{"path":"/api/v1/conversation/approval-page-operation","read":true},
  "backend.PetSnapshot": {
   "path": "/api/v1/conversation/pet-snapshot",
   "read": true

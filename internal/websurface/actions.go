@@ -111,6 +111,13 @@ func (s *Server) register(a action) {
 						code = rejected.Code
 					}
 				}
+
+				if a.Path == "/api/v1/conversation/approval-page" {
+					switch e.Error() {
+					case "worker_url_page_unsupported", "worker_url_page_unavailable":
+						code = e.Error()
+					}
+				}
 				fail(w, 503, code)
 				return
 			}

@@ -267,5 +267,14 @@
   "taskInteractionNote": "Questions and approvals appear in your Bot conversation. Ask Bot to continue this task.",
   "workerFileCached": "Saved copy from {time}; remote latest not checked.",
   "workerFileFetched": "Retrieved from the original owner at {time}.",
-  "workerFileRefresh": "Retrieve again from original machine"
+  "workerFileRefresh": "Retrieve again from original machine",
+  "urlPageTitle": "Website verification",
+  "urlPageConsentSeparate": "After submitting this form, respond to the original request. Submitting does not grant native approval.",
+  "urlPageUnsupported": "This page requires browser features that are not supported here. The original request remains pending.",
+  "urlPageUnavailable": "The original page is unavailable. No approval was sent.",
+  "urlPageUnknown": "The submission result is unconfirmed. Check the original submission; do not submit it again.",
+  "urlPageSubmitted": "The website accepted this submission. Respond to the original request to continue.",
+  "urlPageRejected": "The form was not submitted. Check the fields before trying again.",
+  "urlPageSubmit": "Submit",
+  "urlPageCheck": "Check submission"
 }

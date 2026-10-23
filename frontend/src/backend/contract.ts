@@ -582,6 +582,32 @@ export interface WorkExecutionSettings {
   effort: string;
   serviceTier: string;
 }
+export interface WorkURLField {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  value: string;
+  options: Array<WorkURLOption>;
+}
+export interface WorkURLOption {
+  value: string;
+  label: string;
+}
+export interface WorkURLPage {
+  revision: string;
+  origin: string;
+  title: string;
+  text: string;
+  submitLabel: string;
+  fields: Array<WorkURLField>;
+  operation?: WorkURLReceipt | null;
+}
+export interface WorkURLReceipt {
+  requestId: string;
+  fingerprint: string;
+  outcome: string;
+}
 export interface WorkerPeerSource {
   id: string;
   name: string;

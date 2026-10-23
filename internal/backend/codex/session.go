@@ -164,6 +164,7 @@ type Session struct {
 	inputSources           map[string]api.InputSource
 	reviewOrigins          map[string]reviewOrigin
 	prompts                map[string]*prompt
+	workURLPages           map[string]*workURLBinding
 	promptHandles          map[string]string
 	instance               string
 	refs                   map[string]nativeReference

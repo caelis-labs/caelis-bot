@@ -512,6 +512,8 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		id = in.Stop.ID
 	case "decision":
 		id = in.Decision.TaskID
+	case "url-submit":
+		id = in.URLSubmission.TaskID
 	case "operation":
 		id = in.Query.TaskID
 	case "closure":
@@ -689,6 +691,19 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			return fail(errors.New("worker_url_unsupported"))
 		}
 		out.URL, err = p.WorkApprovalURL(ctx, id, in.Ref)
+	case "url-page", "url-submit", "url-operation":
+		p, ok := owner.(api.WorkURLChallenge)
+		if !ok {
+			return fail(errors.New("worker_url_page_unsupported"))
+		}
+		switch in.Action {
+		case "url-page":
+			out.URLPage, err = p.ReadWorkURL(ctx, id, in.Ref)
+		case "url-submit":
+			out.Operation, err = p.SubmitWorkURL(ctx, in.URLSubmission)
+		case "url-operation":
+			out.Operation, err = p.ReadWorkURLSubmission(ctx, id, in.Ref, in.Query.RequestID)
+		}
 	case "operation":
 		p, ok := owner.(api.WorkOperationReader)
 		if !ok {

@@ -1,5 +1,6 @@
 import {isWebSurface} from './transport';
 import {QuestionPrompt} from './QuestionPrompt';
+import {ApprovalPage} from './ApprovalPage';
 import {questionIdentity,visibleQuestionMessages} from './question-presentation';
 import {Recovery} from './SurfaceBoundary';
 import {ChatFeedback} from './ChatFeedback';
@@ -107,7 +108,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     finally { setBusy(false); refresh(); }
   };
   const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
-  return <section className="approval" aria-label={title}>
+  return <section className="approval" data-approval-id={value.id} aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
     <h3>{title}</h3>
     {value.taskTitle && <p>{t('chat.approvalTask',{name:value.taskTitle})}</p>}
@@ -117,7 +118,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     {value.target && <p className="approval-target"><span>{t('chat.approvalTarget')}</span>{value.target}</p>}
     {value.details && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
     {value.sections?.map((section,index)=><details key={index} open={!value.action}><summary>{approvalText(locale,section.titleKey,t('chat.approvalDetails'))}</summary><pre>{section.text}</pre></details>)}
-    {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(cause => setError(t(String(cause).includes('remote_native_url_')?'chat.approvalLinkRemoteUnavailable':'chat.approvalLinkExpired')))}>{t('chat.approvalOpenUrl')}</button>}
+    {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(cause => {if(String(cause).includes('remote_native_url_not_reachable'))window.dispatchEvent(new CustomEvent('approval-page-open',{detail:value.id}));else setError(t('chat.urlPageUnavailable'))})}>{t('chat.approvalOpenUrl')}</button>}
     {(value.questions ?? []).map(q => {
       const options = q.options.length>0?q.options:q.type==='boolean'?[{id:'true',label:t('chat.yes')},{id:'false',label:t('chat.no')}]:[];
       const current = answers[q.id]??[];
@@ -549,6 +550,8 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
+ const [approvalPage,setApprovalPage]=useState('');
+ useEffect(()=>{const open=(event:Event)=>{const id=(event as CustomEvent<unknown>).detail;if(typeof id==='string')setApprovalPage(id)};window.addEventListener('approval-page-open',open);return()=>window.removeEventListener('approval-page-open',open)},[]);
  const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
  const [feedbackTarget,setFeedbackTarget]=useState<HTMLDivElement|null>(null);
@@ -704,6 +707,7 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
   <footer>
    {composerMounted.current&&<Composer key={composerGeneration} snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
   </footer>
+  {approvalPage&&<ApprovalPage id={approvalPage} onClose={()=>setApprovalPage('')}/>}
   {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}
   {quotePreview&&createPortal(<div className="quote-preview-backdrop" onClick={()=>setQuotePreview(null)}><section className="quote-preview" role="dialog" aria-modal="true" aria-label={t('chat.quoteMessage')} onClick={e=>e.stopPropagation()}><button className="quote-preview-close" aria-label={t('common.close')} onClick={()=>setQuotePreview(null)}><Icon name="xmark"/></button><pre>{quotePreview.text}</pre></section></div>,document.body)}
  </main>;

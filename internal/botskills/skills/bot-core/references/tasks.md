@@ -348,3 +348,13 @@ interaction kinds: report an unsupported kind or unreachable remote URL as
 blocked. A loopback URL on the target is not automatically a URL on this machine.
 Lost native approval response channels remain unknown after restart; only a
 fresh native request from the original owner can restore a decidable handle.
+
+
+For a paired Worker's URL challenge, direct the user to its original card in
+this Bot. A bounded loopback HTTP form can be completed there; do not collect
+its web fields, navigate on behalf of the user, or send its native consent with
+Agent tools. Website submission and native consent are independent. A website
+receipt does not prove native continuation or task completion. Unconfirmed web
+submissions are checked by their original ID, never resent. Script-dependent,
+redirect/OAuth and other unsupported pages remain blocked; do not tell the user
+to approve on the other Bot or claim arbitrary webpage equivalence.

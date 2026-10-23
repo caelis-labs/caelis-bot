@@ -520,3 +520,7 @@ summary { cursor:pointer; }
 /* Delivery status lives below the pill; acknowledgement does not resize it. */
 .message.assistant .assistant-status{display:block;margin-top:4px;font-size:11px;line-height:16px;color:var(--muted)}
 .bubble-incomplete{display:block;margin-top:3px;font-size:11px;line-height:16px;color:var(--muted)}
+
+.worker-url-form { display: grid; gap: 14px; }
+.worker-url-form label { display: grid; gap: 6px; }
+.worker-url-form input, .worker-url-form select { width: 100%; box-sizing: border-box; }

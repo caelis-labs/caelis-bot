@@ -1,5 +1,5 @@
 .PHONY: setup doctor dev check check-portability build run package smoke smoke-adapter smoke-workflow smoke-bot smoke-caelis smoke-caelis-live schema
-.PHONY: check-updater
+.PHONY: check-updater e2e-worker-peer-real-url
 setup:
 	./script/npm.sh ci
 	GOWORK=off go mod download
@@ -49,3 +49,7 @@ build-headless:
 .PHONY: e2e-worker-peer
 e2e-worker-peer:
 	bash script/e2e-worker-peer.sh
+
+# Opt-in real installed Codex + isolated mock model/MCP; no download/account.
+e2e-worker-peer-real-url:
+	bash script/e2e-worker-peer-real-url.sh
