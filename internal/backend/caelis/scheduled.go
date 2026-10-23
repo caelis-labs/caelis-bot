@@ -12,6 +12,14 @@ import (
 // Background turns are correlated through native command targets. Safe-point
 // input IDs additionally classify inputs; prose never establishes provenance.
 func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope, scope inputScope) {
+	if v.WorkerOutput == nil && scope.SessionID != "" {
+		for _, worker := range s.state.Workers {
+			if worker.Binding.SessionId == scope.SessionID {
+				v.WorkerOutput = newWorkerTranscript(scope.SessionID)
+				break
+			}
+		}
+	}
 	turn := value(e.TurnId)
 	id := value(e.InputOperationId)
 	j := s.state.Operations[id]

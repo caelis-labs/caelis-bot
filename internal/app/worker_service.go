@@ -6,6 +6,17 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+func (w *localWorkers) ValidateWorkFiles(ctx context.Context, id string, files []api.InputFile) error {
+	owner, err := w.target(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p, ok := owner.(api.WorkInputValidator); ok {
+		return p.ValidateWorkFiles(ctx, id, files)
+	}
+	return errors.New("worker_input_validation_unsupported")
+}
+
 func (w *localWorkers) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
 	owner, err := w.target(ctx, id)
 	if err != nil {

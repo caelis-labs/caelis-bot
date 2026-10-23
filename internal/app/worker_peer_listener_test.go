@@ -1,9 +1,13 @@
 package app
 
 import (
+	"errors"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -33,7 +37,25 @@ func TestWorkerEndpointBindsPersistsAndPreservesPreviousOnConflict(t *testing.T)
 		t.Fatal(err)
 	}
 	defer occupied.Close()
-	if _, err = a.SetWorkerEndpoint(api.WorkerSharingInput{Listen: occupied.Addr().String()}); err == nil || err.Error() != "worker_listener_in_use" {
+	wantConflict := "worker_listener_in_use"
+	if runtime.GOOS == "windows" {
+		// Inspect the actual Windows fixture's bind error. Exclusive-use or
+		// access restrictions can produce WSAEACCES (10013), which is not proof
+		// of an in-use address; WSAEADDRINUSE is 10048. Other platforms retain
+		// the strict in-use assertion, and other Windows errors are failures.
+		probe, probeErr := net.Listen("tcp", occupied.Addr().String())
+		if probe != nil {
+			probe.Close()
+			t.Fatal("occupied fixture unexpectedly accepted another bind")
+		}
+		if errors.Is(probeErr, syscall.Errno(10013)) {
+			wantConflict = "worker_listener_unavailable"
+		} else if !errors.Is(probeErr, syscall.Errno(10048)) {
+			t.Fatal("unexpected native Windows bind error", probeErr)
+		}
+		t.Log("native occupied-address bind:", probeErr)
+	}
+	if _, err = a.SetWorkerEndpoint(api.WorkerSharingInput{Listen: occupied.Addr().String()}); err == nil || err.Error() != wantConflict {
 		t.Fatal("explicit port conflict", err)
 	}
 	if got := a.WorkerSharing(); got.Listen != first.Listen || got.Address != first.Address {
@@ -86,5 +108,13 @@ func TestWorkerListenerRequiresUsableExplicitPublication(t *testing.T) {
 	}
 	if _, err = validatePeerListener(peerListenerConfig{Listen: "127.0.0.1:0", Address: "http://127.0.0.1:29317"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkerListenerPermissionErrorsDoNotClaimAddressInUse(t *testing.T) {
+	for _, err := range []error{os.ErrPermission, os.NewSyscallError("bind", syscall.EACCES), errors.New("address already in use")} {
+		if peerListenerAddressInUse(err) {
+			t.Fatal("permission or error text claimed an in-use address", err)
+		}
 	}
 }

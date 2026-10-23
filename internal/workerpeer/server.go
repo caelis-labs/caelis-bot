@@ -535,6 +535,20 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	if err = owner.Connect(ctx); err != nil {
 		return fail(err)
 	}
+	if in.Action == "validate_files" {
+		files, e := s.stage(peer, id, in.Files)
+		if e != nil {
+			return fail(e)
+		}
+		p, ok := owner.(api.WorkInputValidator)
+		if !ok {
+			return fail(errors.New("worker_input_validation_unsupported"))
+		}
+		if e = p.ValidateWorkFiles(ctx, id, files); e != nil {
+			return fail(e)
+		}
+		return
+	}
 	if in.Action == "prepare" {
 		workspace := in.Start.TaskStart.Workspace
 		if workspace == "" {

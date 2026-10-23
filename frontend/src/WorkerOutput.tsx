@@ -28,10 +28,11 @@ export function WorkerOutput({conversation,items=[],historyFailed,observationFai
  const {t}=useI18n();
  const messages=(Array.isArray(conversation?.messages)?conversation.messages:[]).filter(message=>message.role==='user'||message.role==='assistant');
  const shownFiles=new Set(messages.flatMap(message=>(message.artifacts??[]).map(file=>file.id)));
+ const historicalIDs=new Set(messages.map(message=>message.id));
  const live=(Array.isArray(items)?items:[]).flatMap(item=>{
   const artifacts=(item.artifacts??[]).filter(file=>!shownFiles.has(file.id));
   artifacts.forEach(file=>shownFiles.add(file.id));
-  const text=!['completed','resolved'].includes(item.status)&&['assistant','activity','tool'].includes(item.kind)?item.text:'';
+  const text=!(item.historyId&&historicalIDs.has(item.historyId))&&['assistant','activity','tool'].includes(item.kind)?item.text:'';
   return text.trim()||artifacts.length?[{...item,text,artifacts}]:[];
  });
  return <>

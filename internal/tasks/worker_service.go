@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
+	"path/filepath"
 	"slices"
 )
 
@@ -38,6 +40,19 @@ func (m *Manager) stopWork(ctx context.Context, id string) (api.Task, error) {
 		return api.Task{}, err
 	}
 	return p.StopWorkRequest(ctx, in)
+}
+func (m *Manager) MaterializeTaskFile(ctx context.Context, id, ref string, refresh bool) (api.TaskFileCopy, error) {
+	if err := m.owned(id); err != nil {
+		return api.TaskFileCopy{}, err
+	}
+	if parsed, ok := api.ParseTaskArtifactID(ref); ok {
+		if parsed.TaskID != id {
+			return api.TaskFileCopy{}, errors.New("worker_file_source_conflict")
+		}
+		ref = parsed.ID
+	}
+	m.fileCopiesOnce.Do(func() { m.fileCopies = workerfiles.OpenOutputs(filepath.Join(m.root, ".files")) })
+	return m.fileCopies.Materialize(ctx, id, ref, refresh, func(ctx context.Context) (api.WorkFileContent, error) { return m.ReadTaskFile(ctx, id, ref) })
 }
 func (m *Manager) ObserveTask(ctx context.Context, id string) (api.WorkObservation, error) {
 	if err := m.owned(id); err != nil {

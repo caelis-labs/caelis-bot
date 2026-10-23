@@ -87,6 +87,16 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
+	if r.URL.Query().Get("preview") == "1" {
+		var prefix [512]byte
+		n, _ := f.ReadAt(prefix[:], 0)
+		kind := http.DetectContentType(prefix[:n])
+		switch kind {
+		case "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf":
+			w.Header().Set("Content-Type", kind)
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filepath.Base(path)}))
+		}
+	}
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	http.ServeContent(w, r, filepath.Base(path), time.Time{}, io.NewSectionReader(f, 0, after.Size()))
 }

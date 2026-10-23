@@ -156,7 +156,7 @@ into B's resident runtime. This does not introduce another shared-profile daemon
   A vanished native response channel becomes unknown audit evidence, never an
   actionable approval or an implicit approval.
 - Files are selected artifact references plus bounded byte transfer, not paths
-  on A or generic synchronization. Input references must belong to A's resident
+  on A or generic synchronization. Input references must belong to A's retained user-selected uploads, resident
   artifacts or an owned Worker. Output reads must belong to the original native
   task; A downloads a private checked copy before opening/previewing it. Native
   adapter limits apply equally locally/remotely: Codex up to 8 inputs of 20 MiB;
@@ -211,3 +211,34 @@ only with Check / restore. Reauthorization on that original connection restores 
 same task owners; no internal JSON editing or new execution is needed. Removal,
 revocation and sharing-off never mean stop or approve. Connections without dispatched
 work are removed only after B confirms unpair; an uncertain response retains proof.
+
+## Selected uploads and retrieved output
+
+Before resident submission, A snapshots explicitly selected files into a private
+byte cache and supplies opaque `upload-file:` references to its Agent. The stored
+manifest binds the original submission, ordered filenames and byte digests; it
+contains no chat body, native effect or task state. `bot_delegate` uses the existing
+attachments argument for new/continued local and peer Workers. A resolves an owned
+reference to bytes, while B stages only authenticated task-scoped bytes. A read-only
+`WorkInputValidator` uses each actual native adapter's limits before a new product
+record/dispatch; native dispatch retains its own validation and original receipts.
+An existing uncertain operation is reconciled, never re-prepared as new work.
+
+`bot_tasks file` retrieves a checked private A-local copy and returns its path,
+SHA-256, byte count, media type and fetched/cache status. The Agent uses normal native
+file/image tools on that copy. The cache contains only immutable bytes and task/ref
+indexes; it cannot execute, approve or settle a task. Ownership is rechecked before
+any cache read. Names remain original metadata; portable cache paths are local to A.
+User open/save uses the same copy; Web previews authenticated PDF/raster content and
+downloads other types. Retrieve again checks the original owner. Failure can retain
+the last verified bytes with the original timestamp and `cached=true`; this is not
+proof of the remote latest version. Already retrieved output works with B offline.
+
+Live items carry a native history join key. B keeps a bounded current Worker view;
+A's bounded mounted reader retains observed completed output until the matching
+native message is read successfully. Equal text is never a deduplication key. History
+failure preserves prior content and its read-failure state. Legacy projections with
+no native message-level identity keep their evidence instead of inventing a join.
+
+The byte/reader/HTTP/native-adapter tests cover this path. Real model interpretation,
+packaged preview/save and cross-machine GUI acceptance remain M4 gates.

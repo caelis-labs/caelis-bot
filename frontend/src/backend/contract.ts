@@ -110,6 +110,7 @@ export interface ExecutionSettings {
   approvalMode: string;
 }
 export interface Item {
+  historyId?: string;
   requestId: string;
   seenAt?: number;
   turnKey: string;
@@ -561,6 +562,15 @@ export interface TaskConversationMessage {
   role: string;
   text: string;
   artifacts?: Array<Artifact>;
+}
+export interface TaskFileCopy {
+  id: string;
+  name: string;
+  mediaType: string;
+  sha256: string;
+  bytes: number;
+  cached: boolean;
+  fetchedAt: number;
 }
 export interface TaskPresentation {
   id?: string;

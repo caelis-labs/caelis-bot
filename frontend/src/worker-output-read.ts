@@ -1,4 +1,4 @@
-import type {TaskConversation, WorkerTaskObservation} from './backend/contract';
+import type {Item,TaskConversation, WorkerTaskObservation} from './backend/contract';
 
 export const workerTerminal=new Set(['completed','failed','cancelled','interrupted','stopped']);
 
@@ -7,6 +7,26 @@ export const workerTerminal=new Set(['completed','failed','cancelled','interrupt
 export function normalizeWorkerObservation(value:WorkerTaskObservation,previous?:WorkerTaskObservation):WorkerTaskObservation {
  if(!value?.task||typeof value.task.status!=='string')throw new Error('worker_observation_unavailable');
  return {...value,items:Array.isArray(value.items)?value.items:previous?.items??[]};
+}
+
+// This is a bounded presentation cache, not an event log or execution fact.
+// History replaces an observed message only through its exact native key.
+export function retainWorkerOutput(previous:Item[],current:Item[],history?:TaskConversation):Item[] {
+ const read=new Set((history?.messages??[]).map(message=>message.id));
+ const merged=new Map<string,Item>();
+ for(const item of [...previous,...current]){
+  if(item.historyId&&read.has(item.historyId)){merged.delete(item.id);continue;}
+  merged.set(item.id,item);
+ }
+ let bytes=0;
+ const bounded:Item[]=[];
+ for(const item of [...merged.values()].reverse()){
+  const size=new TextEncoder().encode(JSON.stringify(item)).length;
+  if(size>512*1024)continue;
+  if(bounded.length>=200||bytes+size>512*1024)break;
+  bytes+=size;bounded.push(item);
+ }
+ return bounded.reverse();
 }
 
 // One reader belongs to one mounted task view. Reads are bounded by transport;
@@ -24,6 +44,7 @@ export function createWorkerOutputReader(io:{
 }) {
  let live=true,reading=false,historySettled=false,lastHistory=-Infinity,completedRevision='',status='';
  let previous:WorkerTaskObservation|undefined;
+ let lastTranscript:TaskConversation|undefined;
  const read=async()=>{
   if(!live||reading)return;
   reading=true;
@@ -36,9 +57,11 @@ export function createWorkerOutputReader(io:{
     historyDue?Promise.resolve().then(()=>io.readHistory(io.id)):Promise.resolve(undefined),
    ]);
    if(!live)return;
+   if(historyDue&&history.status==='fulfilled'&&history.value&&Array.isArray(history.value.messages))lastTranscript=history.value;
    if(observed.status==='fulfilled'){
     try {
      const next=normalizeWorkerObservation(observed.value,previous);
+     next.items=retainWorkerOutput(previous?.items??[],next.items,lastTranscript);
      const completed=JSON.stringify(next.items.filter(item=>item.status==='completed').map(item=>[item.id,item.text,item.artifacts]));
      if(completedRevision&&completedRevision!==completed)historySettled=false;
      completedRevision=completed;

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"io"
@@ -14,6 +15,7 @@ func (a *Application) configureTaskFiles(m *tasks.Manager) {
 	if m == nil {
 		return
 	}
+	backend.ConfigureWorkerInputs(a.Backend, filepath.Join(a.root, "WorkerInputs"))
 	m.ConfigureInputResolver(a.residentWorkerFile)
 	a.Backend.ConfigureWorkerTaskView(m)
 	a.Backend.ConfigureWorkerFiles(filepath.Join(a.root, "WorkerFiles"), m)
@@ -21,6 +23,9 @@ func (a *Application) configureTaskFiles(m *tasks.Manager) {
 func (a *Application) residentWorkerFile(ctx context.Context, id string) (api.WorkFileContent, error) {
 	if err := ctx.Err(); err != nil {
 		return api.WorkFileContent{}, err
+	}
+	if value, handled, err := backend.ReadWorkerInput(ctx, a.Backend, id); handled {
+		return value, err
 	}
 	engine := a.currentEngine()
 	owned := false

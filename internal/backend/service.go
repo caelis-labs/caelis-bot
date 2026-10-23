@@ -19,11 +19,13 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/messageimage"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	workerInteractionMu         sync.RWMutex
 	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
 	workerSharing               api.WorkerSharingController
@@ -31,6 +33,8 @@ type Service struct {
 	workerFiles                 api.TaskFileReader
 	workerView                  api.WorkerTaskViewer
 	workerFileRoot              string
+	workerInputs                *workerfiles.Inputs
+	workerInputsError           error
 	machines                    api.MachineController
 	admission                   sync.RWMutex
 	recoveryMu                  sync.Mutex
@@ -692,6 +696,10 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	projected, err := s.resolvePluginReferences(ctx, input)
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+	}
+	projected, files, err = s.retainWorkerInputs(ctx, projected, files)
+	if err != nil {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "附件暂不可用，消息未发送；请检查文件后重试。"}, nil
 	}
 	if err := s.retainMessageMedia(projected, files); err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil

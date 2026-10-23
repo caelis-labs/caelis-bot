@@ -21,6 +21,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 type record struct {
@@ -62,6 +63,8 @@ type state struct {
 }
 
 type Manager struct {
+	fileCopies           *workerfiles.Outputs
+	fileCopiesOnce       sync.Once
 	quarantined          map[string]*record
 	inputResolver        func(context.Context, string) (api.WorkFileContent, error)
 	now                  func() time.Time
@@ -448,11 +451,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	in.Files, err = m.inputFiles(ctx, in.Attachments, in.Files)
 	if err != nil {
-		return api.Task{}, err
+		return m.rejectStartInput(in.RequestID, err)
 	}
 	in.FileDigests, err = api.WorkInputDigests(in.Files)
 	if err != nil {
-		return api.Task{}, err
+		return m.rejectStartInput(in.RequestID, err)
 	}
 	in.Title = taskDisplayTitle(in.Title, in.Prompt)
 	m.op.Lock()
@@ -556,6 +559,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		if err != nil {
 			return api.Task{}, err
 		}
+	}
+	if e := m.validateWorkerInputs(ctx, id, in.Files); e != nil {
+		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
 	}
 	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
 	nativeIntent := nativeStart
@@ -755,6 +761,14 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	if e := m.owned(in.ID); e != nil {
 		return m.rejectMessage(in, e)
+	}
+	m.mu.Lock()
+	alreadyRecorded := slices.Contains(m.state.Records[in.ID].Requests, in.RequestID)
+	m.mu.Unlock()
+	if !alreadyRecorded {
+		if e := m.validateWorkerInputs(ctx, in.ID, in.Files); e != nil {
+			return m.rejectMessage(in, e)
+		}
 	}
 	m.mu.Lock()
 	current := m.state.Records[in.ID]

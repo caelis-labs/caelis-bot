@@ -264,5 +264,8 @@
   "taskMachine": "机器：{name}",
   "taskLocalMachine": "本机",
   "taskLiveOutput": "任务实时输出",
-  "taskInteractionNote": "问题和审批会回到 Bot 对话中。需要继续时，请告诉 Bot。"
+  "taskInteractionNote": "问题和审批会回到 Bot 对话中。需要继续时，请告诉 Bot。",
+  "workerFileCached": "已取回副本（{time}），未核对远端最新内容。",
+  "workerFileFetched": "于 {time} 从原 owner 取回。",
+  "workerFileRefresh": "从原机器重新取回"
 }

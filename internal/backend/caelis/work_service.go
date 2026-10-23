@@ -87,22 +87,33 @@ func (s *Session) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 		out.State.TurnKey = observedTurn(v)
 		// A bounded current view is enough for live output; explicit history uses the
 		// native reader and is never confused with this window.
-		used := 0
-		for i := len(v.Items) - 1; i >= 0 && len(out.Items) < 200; i-- {
-			item := v.Items[i]
-			// A single long native message must not erase all live output.
-			// This window carries its recent suffix; the native history reader
-			// remains the complete source for finished messages.
+		projected := []api.Item{}
+		dedicated := v.WorkerOutput != nil && v.WorkerOutput.Session == w.Binding.SessionId
+		if dedicated {
+			v.WorkerOutput.bound()
+			projected = v.WorkerOutput.current()
+		}
+		for _, item := range v.Items {
+			// The resident projection groups text by Turn. Only the dedicated
+			// Worker segmenter can prove a one-message native history identity.
+			if dedicated && (item.Kind == "assistant" || item.Kind == "user") && item.AsyncCallID == "" && len(item.AsyncQuestions) == 0 {
+				continue
+			}
 			item.Text = workSnapshotTail(item.Text, 128<<10)
 			item.Details = workSnapshotTail(item.Details, 64<<10)
+			copy := clone(item)
+			copy.AsyncCallID = item.AsyncCallID
+			copy.AsyncQuestions = clone(item.AsyncQuestions)
+			projected = append(projected, copy)
+		}
+		used := 0
+		for i := len(projected) - 1; i >= 0 && len(out.Items) < 200; i-- {
+			item := projected[i]
 			used += len(item.Text) + len(item.Details)
 			if used > 512<<10 {
 				break
 			}
-			copy := clone(item)
-			copy.AsyncCallID = item.AsyncCallID
-			copy.AsyncQuestions = clone(item.AsyncQuestions)
-			out.Items = append(out.Items, copy)
+			out.Items = append(out.Items, item)
 		}
 		slices.Reverse(out.Items)
 	}

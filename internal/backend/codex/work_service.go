@@ -371,7 +371,7 @@ func (s *Session) observeWorkItemLocked(t *taskRecord, run string, item nativeIt
 	if s.workItems == nil {
 		s.workItems = map[string][]api.Item{}
 	}
-	view := api.Item{ID: opaque(t.Thread, run, item.ID), TurnKey: opaque(t.Thread, run), Status: item.Status, Activity: itemActivity(item)}
+	view := api.Item{ID: opaque(t.Thread, run, item.ID), HistoryID: "msg-" + opaque(t.Thread, run, item.ID), TurnKey: opaque(t.Thread, run), Status: item.Status, Activity: itemActivity(item)}
 	if complete {
 		view.Status = "completed"
 	} else if view.Status == "" {
@@ -473,6 +473,7 @@ func (s *Session) observeWorkDeltaLocked(t *taskRecord, run, id, kind, delta str
 				return
 			}
 			item.Text = boundedText(item.Text+delta, 16000)
+			item.HistoryID = "msg-" + opaque(t.Thread, run, id)
 			items[i] = item
 			s.workItems[t.View.ID] = items
 			return

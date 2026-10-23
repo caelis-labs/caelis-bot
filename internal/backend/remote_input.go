@@ -34,6 +34,11 @@ func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []ap
 		return r, errors.New("Bot initialization required")
 	}
 	in.FileIDs, in.ReferenceIDs = nil, nil
+	in, files, inputErr := s.retainWorkerInputs(ctx, in, files)
+	if inputErr != nil {
+		r.Message = "附件暂不可用，消息未发送；请检查文件后重试。"
+		return r, nil
+	}
 	if err := s.retainMessageMedia(in, files); err != nil {
 		r.Message = "图片预览存储暂不可用，消息未发送"
 		return r, nil

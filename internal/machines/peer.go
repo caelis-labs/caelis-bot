@@ -394,6 +394,20 @@ func (s *Service) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 	defer s.cacheMu.RUnlock()
 	return s.observations[id], nil
 }
+func (s *Service) ValidateWorkFiles(ctx context.Context, id string, files []api.InputFile) error {
+	if s.route(id) == "" {
+		if p, ok := s.local.(api.WorkInputValidator); ok {
+			return p.ValidateWorkFiles(ctx, id, files)
+		}
+		return nil // Pre-contract local embedders retain native validation.
+	}
+	c, runtime, err := s.connection(id)
+	if err != nil {
+		return err
+	}
+	_, err = workerpeer.Call(ctx, c, workerpeer.Request{Action: "validate_files", ID: id, Runtime: runtime, Message: api.TaskMessage{Files: files}})
+	return err
+}
 func (s *Service) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
 	if s.route(in.ID) == "" {
 		if p, ok := s.local.(api.WorkStopper); ok {

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -65,7 +64,7 @@ func validatePeerListener(c peerListenerConfig) (peerListenerConfig, error) {
 func (a *Application) replacePeerListenerLocked(c peerListenerConfig) error {
 	ln, err := net.Listen("tcp", c.Listen)
 	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
+		if peerListenerAddressInUse(err) {
 			return errors.New("worker_listener_in_use")
 		}
 		return errors.New("worker_listener_unavailable")

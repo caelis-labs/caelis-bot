@@ -23,8 +23,8 @@ The PR stays draft. A owns product tasks/interactions; native adapters own execu
 | --- | --- | --- |
 | M0 | F1–F8 reproductions pass after fixes; local and remote create/continue/stop/approvals/files/history do not regress. Unknown work reserves capacity. Long approval history cannot prevent control. Owner loss and unreadable history remain distinct facts. | Defects fixed and account-free regression gates pass; real-installation parity remains M4 |
 | M1 | B shows actual listener and checked reachable address for A; external network prerequisites are actionable. Accurate unreachable/expired/revoked/incompatible/not-ready guidance names the machine to repair. Rename without pairing, address repair restarts original subscriptions, empty profiles have freshness, revoke is not stop, delete/reauthorize preserves recovery proof. | Implemented and focused/race fixtures pass; native product UX remains M4 |
-| M2 | A's uploaded CSV/PDF/image bytes and original names reach B on create and continue; same-name/count/size boundaries hold. A Agent can read/verify output; user can preview/save; retrieved copies work offline and identify cached versus refreshed bytes. Output survives realtime-to-history transitions and history-read failure. | Open |
-| M3 | Ordinary/sensitive/native-option/opaque/URL interactions close through A and B's original native receipt/continued execution. Check current public Core contract first; missing kinds are explicit minimal upstream dependencies, not private protocol extensions. Network reconnect, App restart and native exit have separate recovery paths; lost requests stay unknown, new work has a bounded explicit recovery route. | Open |
+| M2 | A's uploaded CSV/PDF/image bytes and original names reach B on create and continue; same-name/count/size boundaries hold. A Agent can read/verify output; user can preview/save; retrieved copies work offline and identify cached versus refreshed bytes. Output survives realtime-to-history transitions and history-read failure. | Implemented with account-free byte/HTTP/native-adapter/reader fixtures; packaged UX and real Runtime/model use remain M4 |
+| M3 | Ordinary/sensitive/native-option/opaque/URL interactions close through A and B's original native receipt/continued execution. Check current public Core contract first; missing kinds are explicit minimal upstream dependencies, not private protocol extensions. Network reconnect, App restart and native exit have separate recovery paths; lost requests stay unknown, new work has a bounded explicit recovery route. | Partly implemented: public native approval subjects/choices are preserved. B-local URL continuation, generic Core form/URL and native pending restart remain blocked/open; capability flags do not satisfy this exit |
 | M4 | Representative real installations: macOS A→Linux headless B with real runtime/account/model, macOS A→macOS desktop B, Web A approval/files/output; supported Windows roles need actual artifacts. Bind evidence to SHA/platform/runtime build and visible outcomes. | Not run; real account/model/deployment/system-restart authorization required |
 | M5 | Only after M0–M4 exits: candidate install/start/window-close/restart/settings and upgrades preserve tasks/history/pairing/routes/listener; final distribution signing/notarization/staple/Gatekeeper and update acceptance. | Not authorized; no ready/merge/release |
 
@@ -48,28 +48,38 @@ Record each batch's exact commit and test commands/results below. Protocol, nati
 
 ## M3 public Core dependency (source-verified, not runtime acceptance)
 
-Official Core main `744b6f421c9b19ac905c654c0e6afae1126bd297` matches Bot's pinned
-OpenAPI byte-for-byte (generated wire differs only in package name). A pin refresh
-will not supply the missing interaction kinds.
+Official Core main was rechecked at `c882776c01c6116f1918d796c54ed66dccebc61a`.
+Its public OpenAPI is byte-for-byte identical to Bot's pinned `744b6f4` schema;
+the generated wire differs only in package name. The intervening changes do not
+add an interaction/continuation API. Refreshing the pin alone will not close M3.
 
-- Native option resolution already carries original request ID, full TurnTarget,
-  option ID and operation ID. Reuse [ResolveApproval](https://github.com/caelis-labs/caelis/blob/744b6f421c9b19ac905c654c0e6afae1126bd297/control/appserver/command.go#L215).
-- Existing [approval subjects](https://github.com/caelis-labs/caelis/blob/744b6f421c9b19ac905c654c0e6afae1126bd297/docs/acp-projection-architecture.md#L115)
-  include redacted sensitive/opaque context. Bot still needs to consume this
-  public projection fully; it must not reconstruct hidden values.
-- Generic question/form answers and URL challenges have no native public
-  request/response owner in this pin. MCP [elicitation is not installed](https://github.com/caelis-labs/caelis/blob/744b6f421c9b19ac905c654c0e6afae1126bd297/agent-sdk/tool/mcp/client.go#L66).
-  The minimal upstream dependency is typed live/pending interactions under the
-  existing approval owner, original targets and original operation receipts,
-  including native validation and continuation. Do not encode answers in reason
-  or metadata as a private compatibility protocol.
-- A persisted mirror is not an executable continuation. Core's [live attach](https://github.com/caelis-labs/caelis/blob/744b6f421c9b19ac905c654c0e6afae1126bd297/agent-sdk/runtime/durable_approval.go#L65)
-  is process-local; [startup recovery](https://github.com/caelis-labs/caelis/blob/744b6f421c9b19ac905c654c0e6afae1126bd297/control/appserver/approval_recovery.go#L13)
-  closes pending mirrors whose live waiter was lost. Cross-native-restart answer
-  parity needs a proven native continuation contract, not another Bot ledger.
+- [ResolveApproval](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/control/appserver/command.go#L215)
+  already carries original request ID, complete TurnTarget, native option ID and
+  operation ID. Bot now consumes the public Subject (title/description/operation,
+  targets, grants, sensitivity/opacity/redaction states) without reconstructing
+  hidden input. Native permission bytes and decision eligibility are unchanged.
+- Generic question/form answers and URL challenges lack a public native
+  request/response owner. The [Codex bridge](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/adapters/codex/mcp_approval.go#L11)
+  handles only the supported empty form; general form/URL is cancelled. Core's
+  [MCP client](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/agent-sdk/tool/mcp/client.go#L72)
+  does not install elicitation handling. The minimum upstream work is typed
+  live/pending questions/forms/URL challenges, original targets/options/operation
+  receipts and native validation/continuation under the existing approval owner.
+  Answers must not be encoded into reason or metadata as a private protocol.
+- A saved approval mirror is not an executable continuation. Core's
+  [live waiter](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/agent-sdk/runtime/durable_approval.go#L306)
+  is process-local; [startup recovery](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/control/appserver/approval_recovery.go#L349)
+  closes a pending mirror after losing that waiter. Native restart parity needs
+  a provable native continuation, not a second Bot ledger. Codex's vanished
+  inbound response channel is likewise retained as unknown, never recreated.
+- A reachable Codex URL can close the original native request in the protocol
+  fixture. A B-local URL is still blocked. Opening B's localhost on A, rewriting
+  arbitrary callback URLs or relaying generic browser cookies is not a working
+  challenge. A portable, owner-confirmed challenge path remains implementation
+  work; the host URL-check fix and `url=false` do not finish it.
 
-These are source findings, not a new Core runtime/real-model fixture or an
-upstream implementation/release. M3 remains open.
+These are current source findings, not real-model acceptance, upstream changes
+or a release request. M3 remains open, and the PR cannot become ready on this basis.
 
 ### M0 implementation batch
 
@@ -119,3 +129,81 @@ Focused/race fixtures: `TestWorkerEndpoint*`, `TestHeadlessWorkerEndpoint*`,
 `internal/workerpeer/client_m1_test.go`. TypeScript and bilingual catalogs pass.
 This is account-free listener/HTTP/native-adapter fixture evidence, not real
 cross-machine, packaged desktop or browser GUI acceptance. M4 remains open.
+
+### M2 files/output and partial M3 integration batch
+
+M1 predecessor: `701171043eebd3a1f1f1e721b8d874a941ebed04`. Its separate
+exact-commit `make check` passed; the previous “in progress” check is complete.
+
+- A retains user-selected bytes privately before resident dispatch. Opaque upload
+  references bind original submission and ordered names/digests, without saving
+  chat text or executing work. The existing Agent delegation and Manager input
+  resolver carry CSV/PDF/PNG bytes through the same local/peer Worker contract on
+  both create and continue. Native limits are checked read-only before recording
+  a new product task/message, and again by the original native dispatch boundary.
+  A rejected 5-file/9-MiB Caelis input leaves neither a task nor an execution binding.
+  Reconciliation of an already recorded operation skips a new admission preflight.
+- `bot_tasks file` materializes an owned checked A-local path with SHA-256, byte
+  count and freshness metadata; native file/image tools can verify the bytes.
+  Immutable retrieved versions remain accessible offline and after App cache
+  reopen. Explicit refresh can return the last checked cache on owner failure;
+  its cached flag and original fetch time never imply remote-latest content.
+  Metadata preserves B's name independently of a portable A cache filename.
+- Desktop uses its existing open/preview/save path. Web can preview authenticated
+  PDF/raster bytes; HTML/SVG stay downloads. Task/file ownership is checked before
+  cached as well as remote reads. No B filesystem path is interpreted on A.
+- Both native adapters expose exact live/history message joins. The bounded
+  current Worker projection and UI reader retain completed output until that
+  native history message is read; history failure never deletes observed output.
+  Repeated prose with different native IDs remains distinct. Old projections
+  lacking native message evidence are not given fabricated join IDs.
+- Caelis public approval Subjects now preserve ordinary/native options and safe
+  sensitive/opaque presence through A's existing UI, using original native IDs,
+  targets and receipts. Agent permission remains limited; hidden input is not
+  reconstructed. This is partial M3, not generic form/URL/restart parity.
+- The previous M1 CI exposed an actual `ConfigureWorkerInteractions`/Web snapshot
+  data race. The shared host now synchronizes that pointer. The original failing
+  log and subsequent race run remain separate evidence. Windows listener conflict
+  classification now uses Winsock's actual address-in-use code (10048), not Go's
+  synthetic `syscall.EADDRINUSE`. Ambiguous 10013 remains unavailable. The Windows
+  fixture inspects the native errno, preserves the old listener and tests exclusive
+  binding. [Microsoft documents why 10013 alone cannot prove the cause](https://learn.microsoft.com/en-us/windows/win32/winsock/so-exclusiveaddruse).
+  Cross-build success is not Windows execution or GUI proof.
+
+Executable evidence is in `peer_upload_test.go`, `peer_file_validation_test.go`,
+`workerfiles/*_test.go`, `tasks/file_copies_test.go`, `bot/task_file_copy_test.go`,
+`websurface/artifact_preview_test.go`, both native `work_input_validation_test.go`
+and output identity tests, `caelis/approval_subject_test.go`, and the production
+`script/worker-output.test.mjs` reader tests. These use synthetic native owners,
+real HTTP/SSE routing and bounded bytes; no live user account/model is used.
+
+### Minimum additional M4 environment scope
+
+This is a concrete validation dependency, not authorization to deploy or run models:
+
+1. An isolated macOS A build/profile and Linux B headless build/profile with an
+   unused listener and externally prepared reachable path. B's real account/model
+   must be configured by its user; do not copy credentials or touch Fedora's current
+   service, data or tunnels. Agree a bounded representative model-call budget.
+2. A separate macOS B isolated desktop profile for real listener/window-close/App
+   restart evidence, and a browser against isolated Web A for file/output/approvals.
+3. Fault injection and A/B App/native restart only within those isolated profiles.
+   System restart or production service mutation is separate authorization. Windows
+   product claims require a real corresponding Windows artifact/host.
+
+Evidence must name the exact commit, platform/runtime build, steps and visible/native
+receipt outcomes. No M4 result is inferred from the fixtures, and M5 remains unauthorized.
+
+Integration validation: `make check` passed (299 Node tests, generated contracts,
+public/protocol/assets/i18n, TypeScript/Vite and all Go packages). The shared-layer
+race command passed for `backend`, `bot`, `tasks`, `workerfiles`, `websurface`,
+`workerpeer`, and `machines`, including the previously exposed Web pointer race.
+Both native input-validator and output/approval identity focused race suites pass.
+`make smoke` initializes the installed CLI without a conversation/model request and
+checks offline assets. Native GUI and real-account evidence remain unverified.
+
+Direct compilation passed for macOS `production,private_mac_apis`, Linux amd64
+headless and Windows amd64 CGO-free using existing dependencies. Full `make build`
+packaging/runtime staging was not run: it can fetch release payloads and is not
+needed to establish the changed Worker contracts. Cross-compilation does not
+replace Windows/native GUI or installation acceptance.

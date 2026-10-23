@@ -127,7 +127,7 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 			return Response{}, err
 		}
 	}
-	if in.Action == "send" {
+	if in.Action == "send" || in.Action == "validate_files" {
 		digests, err := api.WorkInputDigests(in.Message.Files)
 		if err != nil {
 			return Response{}, err

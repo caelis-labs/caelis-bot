@@ -6,13 +6,41 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // ConfigureInputResolver resolves only A's explicitly referenced resident
-// artifacts. Worker refs always go through this Manager's ownership check.
+// uploads/artifacts. Worker refs always go through this Manager's ownership check.
 func (m *Manager) ConfigureInputResolver(resolve func(context.Context, string) (api.WorkFileContent, error)) {
 	m.inputResolver = resolve
+}
+func (m *Manager) validateWorkerInputs(ctx context.Context, id string, files []api.InputFile) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if p, ok := m.work.(api.WorkInputValidator); ok {
+		return p.ValidateWorkFiles(ctx, id, files)
+	}
+	return nil // Legacy embedders keep their existing native checks.
+}
+func (m *Manager) rejectStartInput(request string, cause error) (api.Task, error) {
+	// A validation failure proves nothing about an earlier dispatch of this ID.
+	// Serialize with admission before consulting the existing product records.
+	m.op.Lock()
+	defer m.op.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, records := range []map[string]*record{m.state.Records, m.quarantined} {
+		for _, r := range records {
+			if r != nil && slices.Contains(r.Requests, request) {
+				v := r.View
+				v.Outcome = "unknown"
+				return v, cause
+			}
+		}
+	}
+	return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: cause}
 }
 func (m *Manager) inputFiles(ctx context.Context, refs []api.TaskFileReference, files []api.InputFile) ([]api.InputFile, error) {
 	if len(refs) == 0 {

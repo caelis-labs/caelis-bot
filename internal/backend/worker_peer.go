@@ -8,8 +8,14 @@ import (
 )
 
 func (s *Service) ConfigureWorkerSharing(v api.WorkerSharingController) { s.workerSharing = v }
-func (s *Service) ConfigureWorkerInteractions(v any)                    { s.workerInteractions = v }
+func (s *Service) ConfigureWorkerInteractions(v any) {
+	s.workerInteractionMu.Lock()
+	s.workerInteractions = v
+	s.workerInteractionMu.Unlock()
+}
 func (s *Service) workerInteractionOwner() any {
+	s.workerInteractionMu.RLock()
+	defer s.workerInteractionMu.RUnlock()
 	if s.workerInteractions != nil {
 		return s.workerInteractions
 	}

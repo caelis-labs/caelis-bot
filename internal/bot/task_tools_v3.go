@@ -124,6 +124,10 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	data["requestId"] = requestID
 	if err != nil || task.Status == "unknown" || task.Outcome == "unknown" || task.Outcome == "rejected" || task.Outcome == "conflicted" {
 		code, message := "unconfirmed", "The original Worker submission is not confirmed. The Host retained its original receipt and will not replay it with a new ID."
+		var rejected *api.WorkMessageRejection
+		if task.Outcome == "rejected" && errors.As(err, &rejected) {
+			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
+		}
 		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
 			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
 		}
@@ -274,6 +278,13 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		}
 		return compactValue(map[string]any{"ok": true, "data": v}, false)
 	case "file":
+		if p, ok := provider.(api.TaskFileMaterializer); ok {
+			v, err := p.MaterializeTaskFile(bounded, str(q, "task"), str(q, "file"), true)
+			if err != nil {
+				return compactError("native_file_unavailable", err)
+			}
+			return compactValue(map[string]any{"ok": true, "data": map[string]any{"artifact": api.Artifact{ID: v.ID, Name: v.Name}, "localPath": v.Path, "sha256": v.SHA256, "bytes": v.Bytes, "mediaType": v.MediaType, "cached": v.Cached, "fetchedAt": v.FetchedAt, "usage": "Read this checked A-local copy with native file/image tools. Cached bytes are the last retrieved version, not proof of the remote latest content."}}, false)
+		}
 		p, ok := provider.(api.TaskFileReader)
 		if !ok {
 			return compactError("unavailable", errors.New("Worker files unavailable"))

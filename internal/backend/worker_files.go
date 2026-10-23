@@ -24,6 +24,10 @@ func (s *Service) taskArtifact(id string) (string, bool, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if p, ok := s.workerFiles.(api.TaskFileMaterializer); ok {
+		v, err := p.MaterializeTaskFile(ctx, ref.TaskID, ref.ID, false)
+		return v.Path, true, err
+	}
 	v, err := s.workerFiles.ReadTaskFile(ctx, ref.TaskID, ref.ID)
 	if err != nil {
 		return "", true, err
@@ -43,4 +47,19 @@ func (s *Service) taskArtifact(id string) (string, bool, error) {
 		return "", true, err
 	}
 	return path, true, nil
+}
+
+// WorkerFileCopy is a renderer-safe freshness view; no local or remote path.
+func (s *Service) WorkerFileCopy(id string, refresh bool) (api.TaskFileCopy, error) {
+	ref, ok := api.ParseTaskArtifactID(id)
+	if !ok {
+		return api.TaskFileCopy{}, errors.New("invalid_worker_file_reference")
+	}
+	p, ok := s.workerFiles.(api.TaskFileMaterializer)
+	if !ok {
+		return api.TaskFileCopy{}, errors.New("worker_file_copy_unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return p.MaterializeTaskFile(ctx, ref.TaskID, ref.ID, refresh)
 }

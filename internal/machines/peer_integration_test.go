@@ -43,6 +43,7 @@ func (f *dualPeerLocal) SendWork(context.Context, api.TaskMessage) (api.Task, er
 
 type dualPeerNative struct {
 	connectFailure       atomic.Bool
+	fileChecks           atomic.Int32
 	mu                   sync.Mutex
 	source, runtime      string
 	states               map[string]api.WorkState
@@ -51,10 +52,34 @@ type dualPeerNative struct {
 	decisions            []api.WorkDecision
 	closures             []api.QuestionClosure
 	input                map[string][]byte
+	inputBatches         map[string][]dualPeerInputBatch
+}
+
+type dualPeerInputFile struct {
+	Name string
+	Data []byte
+}
+
+type dualPeerInputBatch struct {
+	Kind, RequestID string
+	Files           []dualPeerInputFile
 }
 
 func newDualNative(source, runtime string) *dualPeerNative {
-	return &dualPeerNative{source: source, runtime: runtime, states: map[string]api.WorkState{}, receipts: map[string]api.WorkOperation{}, input: map[string][]byte{}}
+	return &dualPeerNative{source: source, runtime: runtime, states: map[string]api.WorkState{}, receipts: map[string]api.WorkOperation{}, input: map[string][]byte{}, inputBatches: map[string][]dualPeerInputBatch{}}
+}
+
+func (f *dualPeerNative) captureInputFilesLocked(kind, task, request string, files []api.InputFile) error {
+	batch := dualPeerInputBatch{Kind: kind, RequestID: request, Files: []dualPeerInputFile{}}
+	for _, file := range files {
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			return err
+		}
+		batch.Files = append(batch.Files, dualPeerInputFile{Name: file.Name, Data: data})
+	}
+	f.inputBatches[task] = append(f.inputBatches[task], batch)
+	return nil
 }
 func (f *dualPeerNative) Connect(context.Context) error {
 	if f.connectFailure.Load() {
@@ -64,6 +89,29 @@ func (f *dualPeerNative) Connect(context.Context) error {
 }
 func (*dualPeerNative) Close(context.Context) error         { return nil }
 func (*dualPeerNative) WorkAdmission(context.Context) error { return nil }
+func (f *dualPeerNative) ValidateWorkFiles(ctx context.Context, _ string, files []api.InputFile) error {
+	f.fileChecks.Add(1)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := api.WorkInputDigests(files); err != nil {
+		return err
+	}
+	count, size := 8, api.MaxWorkFileBytes
+	if f.runtime == "caelis" {
+		count, size = 4, 8<<20
+	}
+	if len(files) > count {
+		return errors.New("native_file_count_limit")
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file.Path)
+		if err != nil || len(data) > size {
+			return errors.New("native_file_unavailable_or_too_large")
+		}
+	}
+	return nil
+}
 func (f *dualPeerNative) WorkStates() []api.WorkState {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -94,6 +142,9 @@ func (f *dualPeerNative) StartWork(_ context.Context, in api.WorkStart) (api.Tas
 		}
 		f.input[in.ID] = data
 	}
+	if err := f.captureInputFilesLocked("start", in.ID, in.RequestID, in.Files); err != nil {
+		return task, err
+	}
 	return task, nil
 }
 func (f *dualPeerNative) ReadWork(_ context.Context, id string) (api.Task, error) {
@@ -117,6 +168,9 @@ func (f *dualPeerNative) SendWork(_ context.Context, in api.TaskMessage) (api.Ta
 			return v.Task, errors.New("original_intent_conflict")
 		}
 		return v.Task, nil
+	}
+	if err := f.captureInputFilesLocked("send", in.ID, in.RequestID, in.Files); err != nil {
+		return v.Task, err
 	}
 	f.sends++
 	v.ExecutionKey = "turn-two"

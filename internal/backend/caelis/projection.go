@@ -157,15 +157,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			raw, _ := json.Marshal(a.Permission)
 			var p nativePermission
 			_ = json.Unmarshal(raw, &p)
-			summary := p.ToolCall.Title
-			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
-			if len(p.ToolCall.RawInput) == 0 || len(p.Options) == 0 {
-				// Keep an unfamiliar native request opaque and inspectable. A
-				// missing supported shape is never an automatic approval or a
-				// reason to discard its original permission payload.
-				details, _ = json.MarshalIndent(a.Permission, "", "  ")
-			}
-			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), NativeID: a.RequestId, Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
+			item := approvalDisplay(a, p)
+			item.ID, item.NativeID = approvalID(s.state.InstanceID, sid, a), a.RequestId
+			item.NoticeKey = "chat.caelisApproval"
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
 			} else if sid != "" {
@@ -332,6 +326,11 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 			return
 		}
 		v.Seen[key] = true
+	}
+	if v.WorkerOutput != nil && v.WorkerOutput.Session == scope.SessionID {
+		if v.WorkerOutput.apply(e) == nil {
+			v.WorkerOutput.bound()
+		}
 	}
 	if e.Kind == "caelis/approval_review" {
 		applyReview(v, e)
@@ -728,6 +727,12 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				if item.Kind == "user" {
 					staged.InputScopes[item.ID] = v.InputScopes[item.ID]
 				}
+			}
+			if v.WorkerOutput != nil && v.WorkerOutput.Session == sid {
+				if staged.WorkerOutput == nil {
+					staged.WorkerOutput = newWorkerTranscript(sid)
+				}
+				staged.WorkerOutput.retainMissing(v.WorkerOutput)
 			}
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false

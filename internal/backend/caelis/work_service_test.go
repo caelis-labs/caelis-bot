@@ -376,8 +376,8 @@ func TestWorkServiceOpaqueRequestRemainsPendingAndInspectable(t *testing.T) {
 	})
 	addServiceWorker(s, "task", "work", head)
 	out, err := s.ObserveWork(t.Context(), "task")
-	if err != nil || len(out.Approvals) != 1 || !strings.Contains(out.Approvals[0].Details, "opaque-marker") || out.Approvals[0].NativeID != "opaque-native" {
-		t.Fatal("opaque request payload lost", err)
+	if err != nil || len(out.Approvals) != 1 || !strings.Contains(out.Approvals[0].Details, `"state": "opaque"`) || !strings.Contains(out.Approvals[0].Details, `"sensitive_input": true`) || strings.Contains(out.Approvals[0].Details, "opaque-marker") || out.Approvals[0].NativeID != "opaque-native" {
+		t.Fatal("opaque presence lost or private future payload exposed", out.Approvals, err)
 	}
 	decision := api.WorkDecision{TaskID: "task", RequestID: "unsupported-decision", Decision: api.Decision{ID: out.Approvals[0].ID, Choice: "allow"}}
 	if err = s.DecideWork(t.Context(), decision); err == nil || writes.Load() != 0 {

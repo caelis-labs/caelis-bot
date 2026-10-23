@@ -149,3 +149,10 @@ type WorkFileContent struct {
 type WorkFileReader interface {
 	ReadWorkFile(context.Context, string, string) (WorkFileContent, error)
 }
+
+// Validation reads only the prepared input bytes under the original route.
+// It creates no native task, request, operation or approval. Adapters retain
+// their normal dispatch-boundary validation as well.
+type WorkInputValidator interface {
+	ValidateWorkFiles(context.Context, string, []InputFile) error
+}

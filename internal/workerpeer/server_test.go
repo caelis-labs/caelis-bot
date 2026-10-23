@@ -37,6 +37,13 @@ func (f *fixtureOwner) Connect(context.Context) error {
 }
 func (f *fixtureOwner) Close(context.Context) error         { return nil }
 func (f *fixtureOwner) WorkAdmission(context.Context) error { return nil }
+func (*fixtureOwner) ValidateWorkFiles(ctx context.Context, _ string, files []api.InputFile) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := api.WorkInputDigests(files)
+	return err
+}
 func (f *fixtureOwner) WorkStates() []api.WorkState {
 	f.mu.Lock()
 	defer f.mu.Unlock()

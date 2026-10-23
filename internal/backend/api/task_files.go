@@ -8,13 +8,29 @@ import (
 )
 
 // TaskFileReference is either an artifact of an owned Worker or an explicitly
-// selected artifact of A's resident conversation (empty TaskID). No remote path.
+// selected upload/artifact of A's resident conversation (empty TaskID). No remote path.
 type TaskFileReference struct {
 	TaskID string `json:"taskId,omitempty"`
 	ID     string `json:"id"`
 }
 type TaskFileReader interface {
 	ReadTaskFile(context.Context, string, string) (WorkFileContent, error)
+}
+
+// A checked local copy is file data, never an execution receipt. Path is host
+// only; the Agent tool explicitly supplies it for native file-reading tools.
+type TaskFileCopy struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType"`
+	SHA256    string `json:"sha256"`
+	Bytes     int64  `json:"bytes"`
+	Cached    bool   `json:"cached"`
+	FetchedAt int64  `json:"fetchedAt"`
+	Path      string `json:"-"`
+}
+type TaskFileMaterializer interface {
+	MaterializeTaskFile(context.Context, string, string, bool) (TaskFileCopy, error)
 }
 type TaskObserver interface {
 	ObserveTask(context.Context, string) (WorkObservation, error)

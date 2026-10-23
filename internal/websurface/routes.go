@@ -8,6 +8,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/tasks/worker-list", Function: b.WorkerTasks, Read: true},
 		{Path: "/api/v1/tasks/worker-conversation", Function: b.WorkerTaskConversation, Read: true},
 		{Path: "/api/v1/tasks/worker-observation", Function: b.WorkerTaskObservation, Read: true},
+		{Path: "/api/v1/files/worker-copy", Function: b.WorkerFileCopy, Read: true},
 		{Path: "/api/v1/machines/connect-bot", Function: b.ConnectBot},
 		{Path: "/api/v1/machines/recover-bot-work", Function: b.RecoverBotWork},
 		{Path: "/api/v1/machines/recover-worker-sharing", Function: b.RecoverWorkerSharing},

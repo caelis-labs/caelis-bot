@@ -1,9 +1,21 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createWorkerOutputReader} from '../frontend/src/worker-output-read.ts';
+import {createWorkerOutputReader,retainWorkerOutput} from '../frontend/src/worker-output-read.ts';
 
 const observation=(items,status='running')=>({task:{id:'original-task',status},items,revision:'fixture'});
 const transcript=(text,status='running')=>({status,messages:[{id:'original-message',role:'assistant',text}]});
+
+test('completed output survives an empty live window until its exact native history message exists',()=>{
+ const original={id:'live-original',historyId:'native-original',kind:'assistant',status:'completed',text:'same text'};
+ const other={...original,id:'live-other',historyId:'native-other'};
+ assert.deepEqual(retainWorkerOutput([original,other],[],undefined),[original,other]);
+ assert.deepEqual(retainWorkerOutput([original,other],[],{status:'completed',messages:[{id:'native-original',role:'assistant',text:'same text'}]}),[other]);
+ assert.deepEqual(retainWorkerOutput([original],[{...original,text:'updated original'}],undefined),[{...original,text:'updated original'}]);
+});
+test('retained output has a bounded window and never deduplicates by prose',()=>{
+ const values=Array.from({length:220},(_,i)=>({id:String(i),historyId:'native-'+i,text:'identical',kind:'assistant',status:'completed'}));
+ const retained=retainWorkerOutput(values,[]);assert.equal(retained.length,200);assert.equal(retained[0].id,'20');
+});
 function reader(overrides={}){
  const state={observations:[],histories:[],observationFailures:[],historyFailures:[],time:0};
  const poll=createWorkerOutputReader({id:'original-task',readObservation:async()=>observation([]),readHistory:async()=>transcript('native history'),

@@ -326,10 +326,20 @@ execution target that was observed when it was issued.
 
 For explicit attachments, `bot_delegate.attachments` accepts `{taskId,id}`
 references to artifacts of an owned Worker, or `{id}` for an available artifact
-of this Bot's current conversation. Only those referenced bytes are transferred;
+of this Bot's current conversation or a user-selected upload. Uploaded-file
+metadata in the original user input provides the stable attachment objects;
+use those objects, never guess from a filename or pass a local path. The same
+references work for creating work or adding material to the original task.
+Only those referenced bytes are transferred;
 local paths are never interpreted as paths on another machine. Read task message
 artifacts, then use `bot_tasks` `file` with the original task/file reference to
-make a checked result available locally. This is not directory synchronization.
+make a checked result available locally. The file result includes an A-local
+`localPath`, SHA-256, original name, byte count, `cached` and `fetchedAt`. Use the
+native file or image-reading tool on that actual local copy to inspect it; a
+reported file ID or byte count is not evidence that you read its contents.
+Cached copies survive B being offline. They are the last retrieved bytes, not
+proof of B's latest version; say when verification used a cached copy. This file
+cache never determines task or approval state. This is not directory synchronization.
 
 Pending forms, secrets, opaque requests and URL challenges use the same original
 user interaction path as local work. Never claim success because a card was

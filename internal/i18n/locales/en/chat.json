@@ -264,5 +264,8 @@
   "taskMachine": "Machine: {name}",
   "taskLocalMachine": "This machine",
   "taskLiveOutput": "Live task output",
-  "taskInteractionNote": "Questions and approvals appear in your Bot conversation. Ask Bot to continue this task."
+  "taskInteractionNote": "Questions and approvals appear in your Bot conversation. Ask Bot to continue this task.",
+  "workerFileCached": "Saved copy from {time}; remote latest not checked.",
+  "workerFileFetched": "Retrieved from the original owner at {time}.",
+  "workerFileRefresh": "Retrieve again from original machine"
 }

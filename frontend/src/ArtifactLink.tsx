@@ -2,7 +2,7 @@ import {isWebSurface} from './transport';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop } from './desktop';
-import type { Artifact } from './backend/contract';
+import type { Artifact,TaskFileCopy } from './backend/contract';
 import { useI18n } from './i18n';
 
 const textFile = (name: string) => /\.(txt|md|markdown|json|jsonl|sql|log|csv|tsv|ya?ml|xml|toml|ini|sh|py|go|swift|js|ts|tsx|css|html)$/i.test(name);
@@ -16,10 +16,21 @@ export function ArtifactLink({ file, report }: { file: Artifact; report: (messag
  const trigger = useRef<HTMLButtonElement>(null);
  const menu = useRef<HTMLDivElement>(null);
  const [position,setPosition] = useState<{x:number;y:number}|null>(null);
+ const [copyInfo,setCopyInfo]=useState<TaskFileCopy|null>(null),[fetching,setFetching]=useState(false);
  const name = fileLabel(file.name);
  const isText = textFile(name);
  const failure = (error:unknown) => report(error instanceof Error ? error.message : t('chat.artifactUnavailable'));
- const action = (method:string,...args:unknown[]) => { setPosition(null); void desktop(method,file.id,...args).catch(failure); };
+ const action = (method:string,...args:unknown[]) => {
+  setPosition(null);
+  if(file.id.startsWith('task-file:'))void backend<TaskFileCopy>('WorkerFileCopy',file.id,false).then(setCopyInfo).catch(()=>{});
+  void (async()=>{
+   await desktop(method,file.id,...args);
+  })().catch(failure);
+ };
+ const refresh=async()=>{
+  if(fetching)return;setFetching(true);setPosition(null);
+  try{setCopyInfo(await backend<TaskFileCopy>('WorkerFileCopy',file.id,true));}catch(cause){failure(cause);}finally{setFetching(false);}
+ };
  useEffect(() => {
   if(!position)return;
   const outside=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)&&event.target!==trigger.current)setPosition(null);};
@@ -33,9 +44,11 @@ export function ArtifactLink({ file, report }: { file: Artifact; report: (messag
   }} onKeyDown={event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=trigger.current!.getBoundingClientRect();setPosition({x:box.left,y:box.bottom+4});}}}>
    <span aria-hidden="true">↗</span>{name}
   </button>
+  {copyInfo&&<small className="settings-note" role="status">{t(copyInfo.cached?'chat.workerFileCached':'chat.workerFileFetched',{time:new Date(copyInfo.fetchedAt).toLocaleString()})}</small>}
   {position&&createPortal(<div ref={menu} className="artifact-context-menu" role="menu" style={{left:position.x,top:position.y}}>
    <button role="menuitem" onClick={()=>action('OpenArtifact')}>{t('chat.openArtifact')}</button>
    <button role="menuitem" onClick={()=>action('SaveArtifactAs',name)}>{t('chat.saveArtifactAs')}</button>
+   {file.id.startsWith('task-file:')&&<button role="menuitem" disabled={fetching} onClick={()=>void refresh()}>{t('chat.workerFileRefresh')}</button>}
    {!isWebSurface()&&<button role="menuitem" onClick={()=>action('CopyArtifactPath')}>{t('chat.copyArtifactPath')}</button>}
    {isText&&<button role="menuitem" onClick={()=>action('CopyArtifactContent')}>{t('chat.copyArtifactContent')}</button>}
    {!isWebSurface()&&<button role="menuitem" onClick={()=>{setPosition(null);void backend('RevealArtifact',file.id).catch(failure);}}>{t('chat.revealInFinder')}</button>}
