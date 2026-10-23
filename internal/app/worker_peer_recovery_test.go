@@ -3,13 +3,16 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -121,6 +124,26 @@ func foreignWorkerFixtureLaunches(t *testing.T, journal string) []foreignWorkerF
 	return launches
 }
 
+// Observe only the journal-owned fixture process. Do not reap the production
+// launcher's child or send a signal; the native recovery path still verifies
+// its own original PID and birth before it may prepare another owner.
+func foreignWorkerFixtureExited(ctx context.Context, pid int) (bool, error) {
+	if pid <= 1 {
+		return false, fmt.Errorf("invalid fixture PID")
+	}
+	out, err := exec.CommandContext(ctx, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	state := strings.TrimSpace(string(out))
+	if err != nil {
+		if exited, ok := err.(*exec.ExitError); !ok || exited.ExitCode() != 1 || state != "" || len(exited.Stderr) != 0 {
+			return false, err
+		}
+	}
+	return state == "" || strings.HasPrefix(state, "Z"), nil
+}
+
 func TestForeignWorkerFactoryRetainsFailedOwnerAndPublishesRecoveredEndpoint(t *testing.T) {
 	a, root := fixtureApp(t, newTestEngine(), Host{})
 	fixtureRoot := t.TempDir()
@@ -197,11 +220,27 @@ func TestForeignWorkerFactoryRetainsFailedOwnerAndPublishesRecoveredEndpoint(t *
 	if readEndpoint() != launches[0].Endpoint {
 		t.Fatal("Connect did not publish actual native endpoint")
 	}
+	original := launches[0]
+	originalCache, err := os.ReadFile(native.endpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOriginalOwner := func() {
+		t.Helper()
+		observed := foreignWorkerFixtureLaunches(t, journal)
+		if len(observed) != 1 || observed[0] != original {
+			t.Fatal("ordinary readiness replaced the original fixture owner", observed)
+		}
+		cached, err := os.ReadFile(native.endpointPath)
+		if err != nil || !bytes.Equal(cached, originalCache) {
+			t.Fatal("ordinary readiness changed original endpoint evidence", err)
+		}
+	}
 	if err := os.WriteFile(launches[0].Stop, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	// Wait for the test-only native server to close its original socket. This
-	// observes process exit without sending a signal to a numeric PID.
+	// Wait for the test-only native server to close its original socket. The
+	// established transport's asynchronous reader may not yet have consumed EOF.
 	for {
 		conn, err := net.DialTimeout("unix", strings.TrimPrefix(launches[0].Endpoint, "unix://"), 20*time.Millisecond)
 		if err != nil {
@@ -214,13 +253,52 @@ func TestForeignWorkerFactoryRetainsFailedOwnerAndPublishesRecoveredEndpoint(t *
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	if err := native.Connect(ctx); err == nil {
-		t.Fatal("ordinary readiness silently replaced exited owner")
+	readinessDeadline := time.Now().Add(5 * time.Second)
+	cachedReadiness := 0
+	for {
+		err := native.Connect(ctx)
+		// A short-lived cached ready result is not replacement evidence. Check
+		// both process launches and exact persisted endpoint on every outcome;
+		// any actual replacement still fails immediately, including nil results.
+		assertOriginalOwner()
+		if err != nil {
+			break
+		}
+		cachedReadiness++
+		if time.Now().After(readinessDeadline) {
+			t.Fatal("ordinary readiness did not observe the exited original owner")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("ordinary readiness observation timed out", ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if cachedReadiness > 0 {
+		t.Log("cached ready results before native reader observed exit:", cachedReadiness)
+	}
+	exitCtx, exitCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer exitCancel()
+	for {
+		exited, err := foreignWorkerFixtureExited(exitCtx, original.PID)
+		assertOriginalOwner()
+		if err != nil {
+			t.Fatal("could not confirm fixture process exit", err)
+		}
+		if exited {
+			break
+		}
+		select {
+		case <-exitCtx.Done():
+			t.Fatal("fixture process did not exit", exitCtx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	memo, _, _, err := a.openForeignWorker(ctx, source, "codex", sourceRoot)
 	if err != nil || memo != owner || readEndpoint() != launches[0].Endpoint {
 		t.Fatal("failed readiness discarded recovery owner or its evidence", err)
 	}
+	assertOriginalOwner()
 	if err := native.RecoverNewWork(ctx); err != nil {
 		t.Fatal("explicit recovery through retained app owner", err)
 	}

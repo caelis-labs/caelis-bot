@@ -223,3 +223,19 @@ This is a scoped input validation correction. Source basis:
 [Windows Lstat](https://go.dev/src/os/stat_windows.go),
 [lazy file ID / SameFile](https://go.dev/src/os/types_windows.go).
 The final head's Windows CI must pass before claiming native platform coverage.
+
+### App-factory exit-observation follow-up
+
+Windows file-identity correction: `7d6320fa127b989906a4d5e95a6d926626f94ff7`.
+The next local all-package run hit the App-factory exit fixture once: socket
+closure can precede the RPC reader's asynchronous EOF/error projection. A cached
+successful Connect alone does not prove an owner was replaced. Forty unmodified
+focused runs passed; this is not claimed as a reliably repeated negative repro.
+Source confirms that bounded observation gap.
+
+Only the fixture synchronization changes. During bounded Connect observation,
+every result must retain exactly one original process-launch record and byte-for-
+byte endpoint evidence; any replacement immediately fails. It then independently
+observes the journal-owned child's exit using read-only process status before
+explicit recovery. Production recovery still verifies original PID/birth. There
+is no signal, competing Wait, product lifecycle change or relaxed owner assertion.
