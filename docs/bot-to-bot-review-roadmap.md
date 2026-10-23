@@ -1,241 +1,103 @@
-# Bot-to-Bot review and completion gates
+> URL form checkpoint: the bounded original-request HTTP form path now has a real
+> Codex/Mock-MCP A/B/React journey on clean exact SHA `de4b791c` (tree `cc9e1111`)
+> with native continuation and at-most-once counts.
+> See [scope and executable checks](worker-peer-url-forms.md). This does not close
+> arbitrary webpage, physical machine/account/GUI, Windows CI or final review gates.
 
-Tracking for Draft [#221](https://github.com/caelis-labs/caelis-bot/pull/221), related to [#217](https://github.com/caelis-labs/caelis-bot/issues/217). Review input: the user-authorized “审查发布路线图” conversation, checked against source and independent reproductions. External conclusions are inputs, not proof. Baseline: `28d2394b` → `b86c0bda`.
+# Bot-to-Bot convergence and acceptance
 
-The PR stays draft. A owns product tasks/interactions; native adapters own execution and receipts. `workerpeer` stays a transport and source-binding boundary. Declaring a capability false does not complete the first-version goal. No new execution ledger, approval authority, scheduler, discovery/SSH/Tailscale management, task-wait optimization or release work belongs here.
+Draft [#221](https://github.com/caelis-labs/caelis-bot/pull/221), related to [#217](https://github.com/caelis-labs/caelis-bot/issues/217). Review origin: `790cf625b8b6e8ce1677931e2e18218d436b8034`. Delivered application checkpoint: `78fbaaa273cf87739f00e8d078fad97b147f6394`; its CI39940207811 completed successfully on every selected platform, including Windows. Core pin checkpoint: `b7629d1700ecd43d64c8e757d252b05d425aeeb0` (v0.73.2 / `c882776c01c6116f1918d796c54ed66dccebc61a`). Official Bot main remains `28d2394b17dcd1c6fd465e6f9036ca3d1b831691`. The 13:37 review remains an input to independently reproduced repairs, not the current implementation state.
 
-## Findings
+## R0: scope and authority
 
-| ID | Priority | Trigger and independent evidence | State | Regression / remaining evidence |
-| --- | --- | --- | --- | --- |
-| F1 | P1 | Fixed foreign private Codex endpoint also gates empty readiness and new work after the original process exits | Fixed; native subprocess and real App-factory fixtures pass, including race | Existing native owner recovery must archive original bindings/unknown receipts and restore only new work, after PID/birth confirmation; shared daemon is separate |
-| F2 | P1 | Any Connect error becomes owner-unavailable, so A frees a still-running task's capacity | Reproduced before fix; max-one HTTP/native fixture and race pass | Temporary failure must reserve unknown capacity; only native evidence can prove owner loss |
-| F3 | P2 | Approvals consume prompt/total receipt quotas and eventually prevent continue/stop | Reproduced; 255 native approvals then continue/stop pass | Control history must not block stop; original IDs/digests/unknown dedup remain in native receipts |
-| F4 | P2 | Failed preparation persists B binding; A ignores failed unpair and discards its only proof | Reproduced; prepare/remove/re-pair and lost-proof regression pass | Undispatched preparation differs from dispatched/unknown; unconfirmed removal retains proof |
-| F5 | P2 | Task-keyed streams keep old address; old errors invalidate new connection | Reproduced; address-switch SSE regression and race pass | Cancel/rebuild on connection generation; fence both success and error application |
-| F6 | P2 | `items:null` throws before releasing polling guard | Reproduced on original hook; production reader regression passes | Normalize empty arrays, finally-release guard, retry while retaining output |
-| F7 | P2 | Web opens Snapshot URL directly, bypassing original owner checks | Reproduced on original transport; shared host/Web tests pass | Shared host validation for desktop/Web; this alone does not finish remote native challenge |
-| F8 | P2 | Unordered grants are labeled by positional Bot numbers | Reproduced; named-source metadata/order test passes | Stable source ID plus recognizable name/pair time; deterministic sorting, no device-manager authority |
+The contract is equivalent local/remote behavior for the **same Runtime and configuration**. A owns product tasks, output, completion, questions and user approval UI. B owns isolated native execution and original receipts. B foreign work never enters B resident chat, normal tasks, notifications or Agent context. Connectivity is external and never authorization.
 
-## Milestones and exit criteria
+| Native fact | Required behavior |
+| --- | --- |
+| Network/App connection lost; original owner and request still valid | Reconnect the original binding; restore the original request at A. |
+| Original owner/request confirmed invalid | Keep task/result and show accurate invalidation; never send its old decision to a replacement owner. |
+| Earlier effect still unknown | Keep original operation ID/digest/receipt and reconcile it; never replay, change owner or substitute a task. This can coexist with request invalidation. |
+| Confirmed private owner exit; user starts new work | Existing native lifecycle can prepare a new owner for new work; old tasks do not migrate. |
 
-| Stage | Required exit | Status |
+This supersedes the former unconditional requirement to revive all native continuations. Core's existing `interrupted` / `startup_recovery` facts must be consumed. No new execution/approval authority, continuation resurrection system, scheduler, discovery, SSH/Tailscale management or general upload session is in scope.
+
+| Capability | Codex | Caelis | Evidence required |
+| --- | --- | --- | --- |
+| Create/continue/guarded stop, output/history/files | Same shared adapters and original routes | Same shared adapters and original routes | Actual A/B entry, native receipt and byte verification. |
+| Existing ordinary/sensitive/native option/opaque interactions | All existing local kinds return to A; Agent remains limited | Existing local permissions/questions/options return to A | Original IDs/options/scope reach B and native execution continues. |
+| Native URL challenge, including B localhost | Must close through A; unsupported/going to B is not acceptance | Match existing local support; no upstream general form/URL expansion for this PR | Original native owner confirms the challenge and continues. Opening a page alone is insufficient. |
+| Surviving-owner reconnect/App restart | Restore original state and valid requests | Restore original state and valid requests | Fault injection with original binding/receipt readback. |
+| Native exit/startup recovery | Accurate request invalidation plus retained unknown effects | Consume existing native invalidation facts | No old decision reaches a new owner; new work remains usable. |
+
+## Reading and retention responsibilities
+
+Environment health answers whether the environment can accept new work. Complete task observation owns current task and pending interaction completeness. SSE improves timeliness within its budget; it cannot be the only way an approval arrives. Native history remains authoritative history. A bounded presentation cache retains received content and never invents execution or decision outcomes. Old output is removed only with a reliable native replacement, never because a new projection merely exists.
+
+Pairing checks B's selected existing configuration without keeping a fixed empty readiness owner. Source-isolated native owners are prepared at actual connection/work boundaries. Input preflight uses actual Runtime limits and metadata; dispatch sends bytes once and validates their digests. Files join existing storage accounting/cleanup with protected references. Ordinary UI shows environments/status/connections/necessary source grants; network diagnostics live in details with one relevant recovery action.
+
+## R1: independent findings and convergence
+
+Each finding needs a failing baseline test and a passing repaired test. No string-based guess may turn transport uncertainty into rejection.
+
+| ID | Review finding | State / evidence |
 | --- | --- | --- |
-| M0 | F1–F8 reproductions pass after fixes; local and remote create/continue/stop/approvals/files/history do not regress. Unknown work reserves capacity. Long approval history cannot prevent control. Owner loss and unreadable history remain distinct facts. | Defects fixed and account-free regression gates pass; real-installation parity remains M4 |
-| M1 | B shows actual listener and checked reachable address for A; external network prerequisites are actionable. Accurate unreachable/expired/revoked/incompatible/not-ready guidance names the machine to repair. Rename without pairing, address repair restarts original subscriptions, empty profiles have freshness, revoke is not stop, delete/reauthorize preserves recovery proof. | Implemented and focused/race fixtures pass; native product UX remains M4 |
-| M2 | A's uploaded CSV/PDF/image bytes and original names reach B on create and continue; same-name/count/size boundaries hold. A Agent can read/verify output; user can preview/save; retrieved copies work offline and identify cached versus refreshed bytes. Output survives realtime-to-history transitions and history-read failure. | Implemented with account-free byte/HTTP/native-adapter/reader fixtures; packaged UX and real Runtime/model use remain M4 |
-| M3 | Ordinary/sensitive/native-option/opaque/URL interactions close through A and B's original native receipt/continued execution. Check current public Core contract first; missing kinds are explicit minimal upstream dependencies, not private protocol extensions. Network reconnect, App restart and native exit have separate recovery paths; lost requests stay unknown, new work has a bounded explicit recovery route. | Partly implemented: public native approval subjects/choices are preserved. B-local URL continuation, generic Core form/URL and native pending restart remain blocked/open; capability flags do not satisfy this exit |
-| M4 | Representative real installations: macOS A→Linux headless B with real runtime/account/model, macOS A→macOS desktop B, Web A approval/files/output; supported Windows roles need actual artifacts. Bind evidence to SHA/platform/runtime build and visible outcomes. | Not run; real account/model/deployment/system-restart authorization required |
-| M5 | Only after M0–M4 exits: candidate install/start/window-close/restart/settings and upgrades preserve tasks/history/pairing/routes/listener; final distribution signing/notarization/staple/Gatekeeper and update acceptance. | Not authorized; no ready/merge/release |
+| R2-1 P1 | Deterministic Web pairing/listener rejection persists as unconfirmed and blocks corrected input | Code repair committed in `ebdff02e`; real client/handler regression and 4f186371 application wrong-code→correction journey pass. Genuine response loss keeps the original operation/proof. |
+| R2-2 P2 | Sixteen SSE slots determine approval visibility; historical questions retain subscriptions | Code repair committed in `4ce45cc`; 17 active approvals, 16 completed question histories plus one active task, and failed SSE regressions pass. The 16-stream budget remains independent of full-observation visibility. |
+| R2-3 P2 | Definitely rejected first pairing leaves an undeletable unauthorised profile | Code repair committed in `9c1b9e4b`; definitely refused no-binding profiles can be deleted, while uncertain attempts preserve original proof/token across reopen. No new removal state machine. |
+| R2-4 P2 | Old activity crowds out latest Caelis text; empty projection hides legacy text | Code repair committed in `ebdff02e`; failing-before/passing-after coverage retains newest text, legacy Items and content when native history is unreadable. |
+| R2-5 P2 | Safe cache basename becomes download/preview name | Code repair committed in `ebdff02e`; real cache/resolver/authenticated HTTP preserve original names over safe paths. 4f186371 application preview/download checks actual bytes and names; explicit desktop SaveArtifactAs was retained. |
 
-## M4 fault matrix
+Previous F1–F8 remain regression gates: private owner new-work recovery, unknown capacity, control/prompt receipt quotas, preparation/proof preservation, configuration-fenced subscriptions, null reader recovery, original-owner URL validation and stable source labels. Their existing repository fixtures are retained; passing them is not a substitute for the application journeys below.
 
-- Pair/create/continue/stop/decide response loss: query the same original operation and digest; each native effect occurs at most once.
-- Network loss while B continues: retain unknown capacity; reconnect to the original task.
-- A/B App restart with native owner surviving: restore original tasks/requests/completion notices; do not confuse a vanished native response channel with surviving requests.
-- Native exit or machine restart: retain old results/uncertain receipts; explicit recovery admits new work without migrating old execution.
-- Address changes, sharing off, revocation/reauthorization: repaired connection is used and stale streams cannot overwrite it.
-- Multiple sources/equal native IDs: tasks/files/history/decisions remain isolated and revocation labels identify the source.
-- Local and old helper owners: keep original reading/repair behavior.
+## R2: reproducible actual-application E2E
 
-## Evidence policy
+The repository entry `make e2e-worker-peer` runs actual isolated A/B applications, real HTTP/React/browser UI, Bot MCP and persisted product state. The controlled runner replaces only the native protocol, not the product API. The 4f186371 journey covers CSV/PDF/PNG create/continue, ordinary/opaque interactions, Agent file verification, preview/download, B offline copies, create-response loss and upload-period UI Stop. The historical 78fbaaa URL probe confirmed a remote gap. The clean de4b791c six-case URL journey now adds real Codex/Mock MCP and actual A/B/React HTTP-form completion. It does not establish account/physical-machine/native-GUI acceptance. Evidence identifies SHA, platform, native build, steps/assertions and sanitized original-operation effect counts. Cleanup owns only its processes/listeners/data.
 
-Record each batch's exact commit and test commands/results below. Protocol, native-process, synthetic two-instance, component-browser, real-account and packaged/native-GUI evidence are separate levels. CI success is not full feature acceptance. Do not put credentials, real conversation bodies or machine-specific absolute report paths in PR evidence. Use current repository fixtures/docs and existing dependency caches; avoid release downloads.
+| Journey | Required assertions |
+| --- | --- |
+| Wrong address/code/expired code, correction, deletion and re-add | Draft input remains, corrected attempt actually reaches the backend; no stuck failure row; unknown proof is preserved. |
+| CSV plus PDF/image create and original-task continuation | Original names/bytes/digests and B binding; limits reject without fake execution. |
+| Native ordinary/sensitive/opaque/options/URL | A makes decisions; original request and choices reach original native owner; native confirmation and continued execution. |
+| Historical questions, long tool activity, history failure | Every new approval appears without opening task details; newest/received output survives transitions and read errors. |
+| Agent result verification, preview/download/save, B offline | Agent reads actual bytes, names stay original, retrieved copies stay usable; cached differs from refreshed. |
+| Pair/create/send/stop/decision response loss | Query original operations; effects at most once; same ID/different content rejected; no uncertain replay. |
+| Network/address/App/native changes | Original routes survive; stale results are fenced; invalid requests stay invalid; new work does not migrate old work. |
+| Two A sources with equal native IDs; revoke/reauthorize/archive | No cross-source task/file/history/decision access; revoke never means stop/approve; B product remains isolated. |
+| Upgrade cursors, local and legacy helper | Retain original results/routes/proof; no silent migration or local regression. |
 
-### Batch log
+## R3: fixed-SHA candidate and representative acceptance
 
-- M0 baseline: original source and authorized review independently checked; main still `28d2394b`, PR head still `b86c0bda`, original CI green. Targeted negative reproductions failed before fixes and are retained as regression tests.
+Core v0.73.2 preserves the exact public schema/wire. The released native CLI suite passes Worker/resource/approval/restart/image paths, and the released 0.73.1→0.73.2 interop suite preserves an active old Session, Bot identity and callback receipts without replay. These use isolated Stores and synthetic model endpoints; they are not Bot GUI/account or cross-machine acceptance. Runtime/protocol pins now share one source check. No release archive was downloaded; existing cache bytes match current official Release API/checksums.
 
-## M3 public Core dependency (source-verified, not runtime acceptance)
+The [original-request HTTP form path](worker-peer-url-forms.md) is implemented.
+Clean same-SHA `de4b791c` passes actual Apps/React with real Codex 0.162.1 and
+isolated Mock MCP/local model, retaining original IDs and independent web/native
+confirmation/continuation counters. Decline/expiry/owner exit have no success;
+unknown effects do not replay. CI39983328004 passes every platform/product gate.
+This is neither third-party OAuth nor arbitrary webpage equivalence.
 
-Official Core main was rechecked at `c882776c01c6116f1918d796c54ed66dccebc61a`.
-Its public OpenAPI is byte-for-byte identical to Bot's pinned `744b6f4` schema;
-the generated wire differs only in package name. The intervening changes do not
-add an interaction/continuation API. Refreshing the pin alone will not close M3.
+The bounded independent 34-file review found U1 (original URL receipt blocked by
+native Connect/current resident model) and U2 (readonly/disabled-fieldset/template
+controls silently rewritten). Each has a failing-before/passing-after regression;
+U1 retains source/binding authentication and loads the existing original receipt
+without native recovery, while new work retains its normal model/readiness path.
+U2 refuses unimplemented browser semantics. The host regression exercises actual
+authenticated HTTP, App assembly and saved Codex binding. Review closure is limited
+to this slice; a final whole-PR review remains required.
 
-- [ResolveApproval](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/control/appserver/command.go#L215)
-  already carries original request ID, complete TurnTarget, native option ID and
-  operation ID. Bot now consumes the public Subject (title/description/operation,
-  targets, grants, sensitivity/opacity/redaction states) without reconstructing
-  hidden input. Native permission bytes and decision eligibility are unchanged.
-- Generic question/form answers and URL challenges lack a public native
-  request/response owner. The [Codex bridge](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/adapters/codex/mcp_approval.go#L11)
-  handles only the supported empty form; general form/URL is cancelled. Core's
-  [MCP client](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/agent-sdk/tool/mcp/client.go#L72)
-  does not install elicitation handling. The minimum upstream work is typed
-  live/pending questions/forms/URL challenges, original targets/options/operation
-  receipts and native validation/continuation under the existing approval owner.
-  Answers must not be encoded into reason or metadata as a private protocol.
-- A saved approval mirror is not an executable continuation. Core's
-  [live waiter](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/agent-sdk/runtime/durable_approval.go#L306)
-  is process-local; [startup recovery](https://github.com/caelis-labs/caelis/blob/c882776c01c6116f1918d796c54ed66dccebc61a/control/appserver/approval_recovery.go#L349)
-  closes a pending mirror after losing that waiter. Native restart parity needs
-  a provable native continuation, not a second Bot ledger. Codex's vanished
-  inbound response channel is likewise retained as unknown, never recreated.
-- A reachable Codex URL can close the original native request in the protocol
-  fixture. A B-local URL is still blocked. Opening B's localhost on A, rewriting
-  arbitrary callback URLs or relaying generic browser cookies is not a working
-  challenge. A portable, owner-confirmed challenge path remains implementation
-  work; the host URL-check fix and `url=false` do not finish it.
+[Concrete URL classes and smallest choices](worker-peer-url-contract.md) distinguish
+reachable normal-browser websites from B-only origins, callbacks and B-only browser
+state. Existing scope is not reduced. An external same-origin/port forward plus an
+original-request-scoped opt-in opener is a candidate for the first remaining class;
+it is not implemented or proven for a real provider. Certificate/profile-bound
+flows need a provider/native path or an explicit user scope decision.
 
-These are current source findings, not real-model acceptance, upstream changes
-or a release request. M3 remains open, and the PR cannot become ready on this basis.
+Minimum roles: macOS desktop A → Linux headless B; macOS desktop A → macOS desktop B lifecycle; browser → headless A → B. At least one complete real Codex journey and one real Caelis journey, with interaction kinds matched to their existing local support. No Windows desktop expansion belongs in this PR; any advertised Windows role needs its own actual artifact evidence.
 
-### M0 implementation batch
+Only isolated profiles/listeners may be modified. Existing authorised Fedora SSH can carry an isolated test after exact path/PID/config identification; no daily service/data/tunnel is replaced and credentials are never copied. Missing accounts/environments become specific blockers after all independent work is complete. A fixture is not a real Runtime/account or GUI result.
 
-- F1: explicit new-work recovery reuses native lost-owner archives and verifies
-  private PID/birth. Normal reconnect never replaces an owner. The production App
-  factory is exercised with a real controlled Unix-WebSocket child and endpoint
-  cache; no model-serving methods exist in that fixture.
-- F2/F4/F5: [Manager + HTTP/SSE regressions](../internal/machines/peer_m0_test.go)
-  reproduce max-one capacity, failed preparation/proof retention and address
-  replacement. Both ordinary and race runs pass.
-- F3: [native receipt-limit fixture](../internal/backend/codex/work_receipt_limits_test.go)
-  executes 255 original approval decisions, continues after 100, and observes one
-  guarded interrupt. Native ID/digest dedup and unknown receipts remain intact.
-- F6/F7: production output-reader and actual Web-transport tests cover null items,
-  released polling guards, retained text/history and host-refused/validated URLs.
-  Both are part of `make check`. Host validation is shared with desktop.
-- F8: named grants preserve source identity and pairing time across state reads,
-  with deterministic sorting. Position and display name never authorize a source.
+Merge readiness requires: all five new findings closed with negative/positive evidence; prior eight regressions; exact-source check/smoke/build/CI; application E2E; same-SHA candidate startup and representative real journeys; no local-to-remote degradation in the stated matrix; PR/docs matching evidence. Only then may the draft become ready. Merge and release remain unauthorised. Distribution signing/notarization and production upgrade remain release gates, not permission to modify daily installations.
 
-Validation: `make check` passed (297 Node tests, TypeScript/Vite/i18n/generated
-contracts and all Go packages); `make smoke` initialized the installed native CLI
-without creating a conversation or model request and checked offline assets.
-`go test -race -count=1 ./internal/workerpeer ./internal/machines` passed, plus
-focused native Codex receipt/recovery and App-factory race tests. macOS
-`production,private_mac_apis`, Linux amd64 headless and Windows amd64 CGO-free
-compilation passed. Full packaging, release dependency staging, real accounts,
-real cross-machine execution and native GUI acceptance were not run. The build
-checks reuse existing dependencies and download no release payloads.
+## Batch/source evidence
 
-### M1 connection-maintenance batch
-
-M0 predecessor: `7e42ddfe194355a14ce67eddc77ff5dca25139c4` (all F1–F8 fixes).
-
-- Separate actual B listener and published A address. Desktop supports an explicitly
-  configured reachable bind, with bind-before-replace and conflict preservation;
-  headless only publishes an address and retains its existing listener. Tests cover
-  port persistence/reopen and mandatory authentication after replacing the listener.
-- A renames offline; address repair authenticates the original peer without another
-  code. Fixed connection diagnostics avoid exposing arbitrary HTTP/native bodies.
-  Empty profiles have bounded readiness and timestamped freshness checks.
-- Removal with retained tasks archives the environment for new delegation and keeps
-  original proof/routes. The existing panel restores it, including after revocation
-  with a fresh code. No new device manager, task transfer or execution authority.
-
-Focused/race fixtures: `TestWorkerEndpoint*`, `TestHeadlessWorkerEndpoint*`,
-`TestWorkerListener*`; `internal/machines/peer_m1_test.go` and
-`internal/workerpeer/client_m1_test.go`. TypeScript and bilingual catalogs pass.
-This is account-free listener/HTTP/native-adapter fixture evidence, not real
-cross-machine, packaged desktop or browser GUI acceptance. M4 remains open.
-
-### M2 files/output and partial M3 integration batch
-
-M1 predecessor: `701171043eebd3a1f1f1e721b8d874a941ebed04`. Its separate
-exact-commit `make check` passed; the previous “in progress” check is complete.
-
-- A retains user-selected bytes privately before resident dispatch. Opaque upload
-  references bind original submission and ordered names/digests, without saving
-  chat text or executing work. The existing Agent delegation and Manager input
-  resolver carry CSV/PDF/PNG bytes through the same local/peer Worker contract on
-  both create and continue. Native limits are checked read-only before recording
-  a new product task/message, and again by the original native dispatch boundary.
-  A rejected 5-file/9-MiB Caelis input leaves neither a task nor an execution binding.
-  Reconciliation of an already recorded operation skips a new admission preflight.
-- `bot_tasks file` materializes an owned checked A-local path with SHA-256, byte
-  count and freshness metadata; native file/image tools can verify the bytes.
-  Immutable retrieved versions remain accessible offline and after App cache
-  reopen. Explicit refresh can return the last checked cache on owner failure;
-  its cached flag and original fetch time never imply remote-latest content.
-  Metadata preserves B's name independently of a portable A cache filename.
-- Desktop uses its existing open/preview/save path. Web can preview authenticated
-  PDF/raster bytes; HTML/SVG stay downloads. Task/file ownership is checked before
-  cached as well as remote reads. No B filesystem path is interpreted on A.
-- Both native adapters expose exact live/history message joins. The bounded
-  current Worker projection and UI reader retain completed output until that
-  native history message is read; history failure never deletes observed output.
-  Repeated prose with different native IDs remains distinct. Old projections
-  lacking native message evidence are not given fabricated join IDs.
-- Caelis public approval Subjects now preserve ordinary/native options and safe
-  sensitive/opaque presence through A's existing UI, using original native IDs,
-  targets and receipts. Agent permission remains limited; hidden input is not
-  reconstructed. This is partial M3, not generic form/URL/restart parity.
-- The previous M1 CI exposed an actual `ConfigureWorkerInteractions`/Web snapshot
-  data race. The shared host now synchronizes that pointer. The original failing
-  log and subsequent race run remain separate evidence. Windows listener conflict
-  classification now uses Winsock's actual address-in-use code (10048), not Go's
-  synthetic `syscall.EADDRINUSE`. Ambiguous 10013 remains unavailable. The Windows
-  fixture inspects the native errno, preserves the old listener and tests exclusive
-  binding. [Microsoft documents why 10013 alone cannot prove the cause](https://learn.microsoft.com/en-us/windows/win32/winsock/so-exclusiveaddruse).
-  Cross-build success is not Windows execution or GUI proof.
-
-Executable evidence is in `peer_upload_test.go`, `peer_file_validation_test.go`,
-`workerfiles/*_test.go`, `tasks/file_copies_test.go`, `bot/task_file_copy_test.go`,
-`websurface/artifact_preview_test.go`, both native `work_input_validation_test.go`
-and output identity tests, `caelis/approval_subject_test.go`, and the production
-`script/worker-output.test.mjs` reader tests. These use synthetic native owners,
-real HTTP/SSE routing and bounded bytes; no live user account/model is used.
-
-### Minimum additional M4 environment scope
-
-This is a concrete validation dependency, not authorization to deploy or run models:
-
-1. An isolated macOS A build/profile and Linux B headless build/profile with an
-   unused listener and externally prepared reachable path. B's real account/model
-   must be configured by its user; do not copy credentials or touch Fedora's current
-   service, data or tunnels. Agree a bounded representative model-call budget.
-2. A separate macOS B isolated desktop profile for real listener/window-close/App
-   restart evidence, and a browser against isolated Web A for file/output/approvals.
-3. Fault injection and A/B App/native restart only within those isolated profiles.
-   System restart or production service mutation is separate authorization. Windows
-   product claims require a real corresponding Windows artifact/host.
-
-Evidence must name the exact commit, platform/runtime build, steps and visible/native
-receipt outcomes. No M4 result is inferred from the fixtures, and M5 remains unauthorized.
-
-Integration validation: `make check` passed (299 Node tests, generated contracts,
-public/protocol/assets/i18n, TypeScript/Vite and all Go packages). The shared-layer
-race command passed for `backend`, `bot`, `tasks`, `workerfiles`, `websurface`,
-`workerpeer`, and `machines`, including the previously exposed Web pointer race.
-Both native input-validator and output/approval identity focused race suites pass.
-`make smoke` initializes the installed CLI without a conversation/model request and
-checks offline assets. Native GUI and real-account evidence remain unverified.
-
-Direct compilation passed for macOS `production,private_mac_apis`, Linux amd64
-headless and Windows amd64 CGO-free using existing dependencies. Full `make build`
-packaging/runtime staging was not run: it can fetch release payloads and is not
-needed to establish the changed Worker contracts. Cross-compilation does not
-replace Windows/native GUI or installation acceptance.
-
-### Windows CI follow-up
-
-M2/partial-M3 batch: `107f0c3b9ed6b194934863c77f1c4c2b492e160a`.
-Its exact local check/smoke/direct builds and remote macOS/Linux checks passed.
-Windows exposed a real validation gap in the retained same-size/same-mtime path
-replacement test: Go's Windows Lstat defers the file ID lookup until SameFile,
-so two path snapshots can resolve to the replacement object. The pre-read identity
-now comes from an actual file handle (`File.Stat`), closed before the digest read;
-the post-read path must still identify that original object. The original test is
-unchanged, not skipped or weakened. Native dispatch remains authoritative.
-
-This is a scoped input validation correction. Source basis:
-[Windows Lstat](https://go.dev/src/os/stat_windows.go),
-[lazy file ID / SameFile](https://go.dev/src/os/types_windows.go).
-The final head's Windows CI must pass before claiming native platform coverage.
-
-### App-factory exit-observation follow-up
-
-Windows file-identity correction: `7d6320fa127b989906a4d5e95a6d926626f94ff7`.
-The next local all-package run hit the App-factory exit fixture once: socket
-closure can precede the RPC reader's asynchronous EOF/error projection. A cached
-successful Connect alone does not prove an owner was replaced. Forty unmodified
-focused runs passed; this is not claimed as a reliably repeated negative repro.
-Source confirms that bounded observation gap.
-
-Only the fixture synchronization changes. During bounded Connect observation,
-every result must retain exactly one original process-launch record and byte-for-
-byte endpoint evidence; any replacement immediately fails. It then independently
-observes the journal-owned child's exit using read-only process status before
-explicit recovery. Production recovery still verifies original PID/birth. There
-is no signal, competing Wait, product lifecycle change or relaxed owner assertion.
+Prior implementation commits: `b86c0bda8fa904d75237f518530c4385b9a9ca57`; M0 `7e42ddfe194355a14ce67eddc77ff5dca25139c4`; M1 `701171043eebd3a1f1f1e721b8d874a941ebed04`; M2/partial M3 `107f0c3b9ed6b194934863c77f1c4c2b492e160a`; Windows identity `7d6320fa127b989906a4d5e95a6d926626f94ff7`; strict exit fixture `790cf625b8b6e8ce1677931e2e18218d436b8034`. Their CI/fixture successes remain historical evidence, not closure of this review.

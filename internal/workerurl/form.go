@@ -199,6 +199,11 @@ func parse(u *url.URL, body string) (*Page, error) {
 	var fields func(*html.Node) error
 	fields = func(n *html.Node) error {
 		if n.Type == html.ElementNode {
+			// These native browser semantics are deliberately not projected. Inert
+			// controls must not become successful fields, nor fixed values editable.
+			if n.Data == "template" || n.Data == "fieldset" && hasAttr(n, "disabled") || hasAttr(n, "readonly") {
+				return ErrUnsupported
+			}
 			if hasAttr(n, "form") || hasAttr(n, "formaction") || hasAttr(n, "formmethod") || hasAttr(n, "formenctype") {
 				return ErrUnsupported
 			}

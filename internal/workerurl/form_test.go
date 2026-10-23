@@ -127,3 +127,18 @@ func TestEmptyOriginalSelectedOptionIsNotReplaced(t *testing.T) {
 		t.Fatal("original empty option/scope changed", err, page)
 	}
 }
+
+func TestUnimplementedBrowserControlSemanticsAreNotRewritten(t *testing.T) {
+	u, _ := url.Parse("http://127.0.0.1:1234/original")
+	for name, body := range map[string]string{
+		"disabled-fieldset": `<form method="post"><fieldset disabled><input name="scope" value="admin"></fieldset><button>Continue</button></form>`,
+		"readonly":          `<form method="post"><input readonly name="scope" value="read"><button>Continue</button></form>`,
+		"inert-template":    `<form method="post"><template><input name="scope" value="admin"></template><button>Continue</button></form>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parse(u, body); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("native browser form semantics changed", err)
+			}
+		})
+	}
+}

@@ -23,7 +23,7 @@ Linux/WSL 正式发行形态与安装入口状态见[安装说明](install.linux
 - 一个目录只允许一个 headless 进程。**不要与桌面 App 共用正在使用的数据目录**，也不要给容器挂载用户整个 HOME/密钥目录。
 - `Ctrl-C` 或服务管理器 SIGTERM 停止服务。关闭浏览器仅断开显示；已接受的 Bot/Worker 工作继续由原 owner 管理。
 - `serve --web=false` 只运行后台服务。`pair` 必须使用与 `serve` 相同的 `--data-dir`。
-- 归档和 Docker 均携带 `resources/caelis-runtime/release.json` 锁定的 Caelis v0.72.2。发行目录必须保留 `Helpers/caelis`、`Resources/Caelis-Runtime.json` 和许可证；构建核对归档、可执行文件 SHA-256 与 ELF 架构。选择默认连接后沿用 App 的自动准备和模型配置，无需另装 Caelis。
+- 归档和 Docker 均携带 `resources/caelis-runtime/release.json` 锁定的同一 Caelis 正式版本。发行目录必须保留 `Helpers/caelis`、`Resources/Caelis-Runtime.json` 和许可证；构建核对归档、可执行文件 SHA-256 与 ELF 架构。选择默认连接后沿用 App 的自动准备和模型配置，无需另装 Caelis。
 - 显式 CLI 路径优先，其次是程序自身发行目录，最后才是 PATH/用户安装。随包程序禁止自更新，随 Bot 完整归档/镜像更新；缺失或损坏时不悄悄改用系统 CLI。不会向系统 PATH 安装或覆盖已有 Caelis。
 - 程序暂不可用时设置和恢复入口仍可达。所有检测、程序路径与数据目录均属于**执行主机**，不是浏览器电脑；Linux 不伪装桌面文件选择器。
 - Codex 不随包交付。App/Web 共用明确用户动作触发的 Linux/macOS 安装服务与真实进度；已有外部安装优先。认证主路径为服务端原生 ChatGPT device-auth，Web 展示用户验证码及官方验证链接，成功自动继续；API Key 仅次级入口。已有认证保留，不依赖服务主机图形浏览器。见 [Codex 安装合同](codex-installation.md)。
@@ -121,6 +121,12 @@ caelisbot serve --require-pairing --listen 127.0.0.1:9317 --origin https://your-
 | 下载 | 原 backend ArtifactResolver 校验归属，拒绝符号链接/非普通文件；下载强制附件，不接受任意主机路径；单文件 256 MiB 上限 |
 | 内容包 | 浏览器上传 `.caelispack`，复用原 Registry 校验和资源路由，不引入执行脚本 |
 | 权限 | 浏览器不获得服务端桌面权限。终端、系统快捷键、桌宠窗口及 Linux/WSL DTW 的无效入口隐藏，能力标记仍明确不可用；任务结果不依赖终端窗口 |
+
+Bot-to-Bot peer 入口始终独立认证，不能继承浏览器的 loopback 免认证。原 Worker URL
+静态表单由 A 的同一用户界面处理，固定路由只带原请求与操作引用，不接受任意目标 URL。
+网页提交沿 B 原 adapter 回执核对，不将输入字段再次保存到 Web 操作账本；网页成功不等于
+原生批准或执行完成。公开可达网页仍走原 owner 校验的浏览器入口。B-only 脚本/回调/浏览器状态
+的具体差距与范围见 [URL 合同](worker-peer-url-contract.md)，不能用“已打开”关闭验收。
 
 Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate 写入。遇到未知写入，保留原操作/业务回执，查看当前状态，不用新 ID 自动重试。已确认终态定期压缩为私有 SQLite 不可重放标记，保留原 ID 归属与摘要；最近回执供响应丢失对账。真正 unknown 永不退休；只有累计 4096 条尚未确认记录才停止新写入。不能手删 operations 或退休标记来“恢复”。上传暂存目录总量上限 512 MiB；未知结果先查看原草稿附件。
 

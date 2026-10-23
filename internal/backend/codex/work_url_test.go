@@ -105,6 +105,13 @@ func TestWorkerURLFormOriginalReceiptAndIndependentNativeConsent(t *testing.T) {
 			if err != nil || receipt.Outcome != expected || posts.Load() != 1 {
 				t.Fatal(receipt, err)
 			}
+			// A fresh disconnected projection reads the saved original binding; it
+			// must not require native request resurrection or a new execution owner.
+			reopened := NewSession(SessionOptions{StateFile: s.opts.StateFile})
+			restored, err := reopened.ReadWorkURLSubmission(t.Context(), task.ID, a.ID, in.RequestID)
+			if err != nil || restored.Outcome != expected || restored.Fingerprint != receipt.Fingerprint || reopened.client != nil {
+				t.Fatal("offline durable original receipt unavailable", restored, err)
+			}
 		})
 	}
 }

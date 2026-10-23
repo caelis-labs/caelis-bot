@@ -33,6 +33,16 @@ type Factory func(context.Context, string, string, string) (Owner, string, *api.
 type authenticatedGrant struct{ Peer, Hash string }
 type authenticatedGrantKey struct{}
 
+type originalReceiptReadKey struct{}
+
+// OriginalReceiptRead tells the owner factory this call loads only an existing
+// binding's durable receipt. It cannot prepare native work or resolve new model
+// defaults. Only the fixed authenticated receipt action sets this host context.
+func OriginalReceiptRead(ctx context.Context) bool {
+	v, _ := ctx.Value(originalReceiptReadKey{}).(bool)
+	return v
+}
+
 type grant struct {
 	Peer     string `json:"peer"`
 	Hash     string `json:"hash"`
@@ -536,9 +546,26 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			return fail(errors.New("worker_workspace_not_absolute"))
 		}
 	}
+	if in.Action == "url-operation" {
+		ctx = context.WithValue(ctx, originalReceiptReadKey{}, true)
+	}
 	owner, work, err := s.owner(ctx, peer, id, in.Runtime, in.Action == "prepare" || in.Action == "start")
 	if err != nil {
 		return fail(err)
+	}
+	// A durable original receipt is readable even when its native process or
+	// request is gone. Authenticated source/binding lookup above is still required;
+	// this read must not connect, recover, or substitute an execution owner.
+	if in.Action == "url-operation" {
+		p, ok := owner.(api.WorkURLChallenge)
+		if !ok {
+			return fail(errors.New("worker_url_page_unsupported"))
+		}
+		out.Operation, err = p.ReadWorkURLSubmission(ctx, id, in.Ref, in.Query.RequestID)
+		if err != nil {
+			return fail(err)
+		}
+		return
 	}
 	if in.Action == "prepare" {
 		err = recoverNewWork(ctx, owner)
@@ -691,7 +718,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			return fail(errors.New("worker_url_unsupported"))
 		}
 		out.URL, err = p.WorkApprovalURL(ctx, id, in.Ref)
-	case "url-page", "url-submit", "url-operation":
+	case "url-page", "url-submit":
 		p, ok := owner.(api.WorkURLChallenge)
 		if !ok {
 			return fail(errors.New("worker_url_page_unsupported"))
@@ -701,8 +728,6 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			out.URLPage, err = p.ReadWorkURL(ctx, id, in.Ref)
 		case "url-submit":
 			out.Operation, err = p.SubmitWorkURL(ctx, in.URLSubmission)
-		case "url-operation":
-			out.Operation, err = p.ReadWorkURLSubmission(ctx, id, in.Ref, in.Query.RequestID)
 		}
 	case "operation":
 		p, ok := owner.(api.WorkOperationReader)

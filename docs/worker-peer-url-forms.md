@@ -114,9 +114,14 @@ native owners, verifying executable/cwd/PID birth before forced cleanup.
 Unit/race regressions additionally cover original owner loss, cross-task scope,
 ordinary turn change, hidden-value injection, preserved empty option values,
 redirect/control-port/credential-bearing targets, bounded pages, unsupported
-script/constraint forms and the absence of a second Web secret journal.
+script/constraint/readonly/disabled-fieldset/inert-template forms and the absence of a second Web secret journal.
 
-Windows CI persistence timeouts remain an independent blocking gate until their
-cause is established and fixed without weakening durability. Physical machine,
+The independent review also covers offline receipt reads through retained routing
+and actual host assembly: current resident model/native readiness cannot hide an
+original saved receipt. New work still resolves its actual model and readiness.
+
+CI39983328004 at de4b791c passed all selected platforms, including Windows. Earlier
+persistence timeout causes remain unproven; no retry, timeout/durability relaxation
+or claim of flakiness was used to erase them. Physical machine,
 real account/model, native GUI/upgrade, full webpage parity and final whole-PR
 independent review are still separate gates.

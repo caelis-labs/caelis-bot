@@ -1,116 +1,101 @@
-# Worker URL challenge: confirmed open gate
+# Original Worker URL contract and remaining acceptance
 
-The B-loopback URL gate is **not closed**. This checkpoint adds a real application
-positive/negative control and records the native dependency; it does not add a
-proxy or advertise local/remote URL equivalence. Keep #221 draft.
+The original-request HTTP-form slice is implemented in `de4b791c`;
+[architecture, supported controls and repeatable command](worker-peer-url-forms.md).
+It is one shared user-only Worker companion and the original Codex task receipt,
+not a browser proxy, new native protocol or approval authority. Keep #221 Draft
+until the stated parity and representative acceptance gates pass.
 
-## Consumed contract and its boundary
+## Confirmed native contract
 
-The checked-in Codex schema is generated from 0.153.4. Its URL variant supplies
-`threadId`, nullable `turnId`, `serverName`, `mode`, `message`, `url`,
-`elicitationId`, and optional metadata. The reply is the original JSON-RPC
-request's `accept`/`decline`/`cancel`. The matching
-[0.153.4 native type](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/app-server-protocol/src/protocol/v2/mcp.rs#L694)
-and the installed CLI's
-[0.162.1 native type](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/app-server-protocol/src/protocol/v2/mcp.rs#L728)
-were both checked. Neither URL variant defines remote browser handoff, callback
-rebinding or an authorized HTTP resource/origin set. This is not evidence that
-all other native APIs have been exhaustively audited.
+Checked-in Codex schema 0.153.4 and real installed 0.162.1 expose original
+`threadId`, optional `turnId`, server/message/URL/elicitation ID and original native
+`accept`/`decline`/`cancel` reply. The public
+[0.153.4 type](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/app-server-protocol/src/protocol/v2/mcp.rs)
+and [0.162.1 type](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/app-server-protocol/src/protocol/v2/mcp.rs)
+provide no generic remote browser/callback handoff. This is a bounded contract
+observation, not proof that every provider needs new native features. Native
+`serverRequest/resolved` is not webpage completion evidence.
 
-The native
-[App Server lifecycle](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/app-server/README.md#mcp-server-elicitations)
-also allows `serverRequest/resolved` for lifecycle cleanup. It is not a webpage
-completion receipt. Retain native item/turn evidence for actual continuation.
-The [MCP URL mode](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#url-mode-elicitation-requests)
-keeps sensitive web interaction outside the MCP client's structured forms.
-Converting an arbitrary webpage into a Bot approval form would change that
-contract and expose web secrets to another interaction path.
+Core v0.73.2/source `c882776c01c6116f1918d796c54ed66dccebc61a` preserves its
+pinned public schema/wire. This Bot-direct-Codex path does not add general forms
+or URL support to the Caelis adapter where local Core has no such capability.
 
-## Reproduction through real Apps
+## Actual product evidence
 
-Run with an existing Playwright installation and browser (no download):
+The historical `78fbaaa` native-fixture probe established local browser nonce POST
+plus original consent and reproduced the B-loopback gap. Its old negative-control
+assertions are historical; `--url-contract` now forwards to the real-Runtime entry.
 
-```sh
-WORKER_PEER_PLAYWRIGHT_MODULE=/absolute/existing/playwright/index.mjs \
-  bash script/e2e-worker-peer.sh --url-contract
-```
+Clean exact SHA `de4b791c`, tree `cc9e1111`, passed
+`make e2e-worker-peer-real-url`: real A/B applications, HTTP/React/Chrome/Bot MCP,
+real Codex 0.162.1, temporary ordinary MCP and controlled local Responses model.
+No user credential/daily MCP configuration or paid model was used. It asserts:
 
-The ordinary `make e2e-worker-peer` vertical journey remains unchanged in scope.
-The mode uses production A/B App, HTTP, React, real Bot MCP tools, task manager
-and Codex adapter. Only the native process is synthetic. It checks:
+- Original task/thread/turn/native request/elicitation/source references remain.
+- A completes the B-loopback form; original native consent, tool result and
+  native continuation are independently required and each effect occurs once.
+- Duplicate original operation does not POST again; conflicting content is refused.
+- Lost peer reply reconciles original receipt; provider reply loss remains unknown
+  even after native continuation, including UI reload. Neither permits replay.
+- Decline, provider expiry and verified original-owner exit cause no successful
+  webpage/native effect. B resident lists exclude foreign work.
 
-- A local Worker: original URL opens in the actual browser. GET is insufficient;
-  a foreign Origin is refused; native page nonce submission and original consent
-  are independently required. Duplicate native page submission has one challenge
-  effect. Original native reply and continuation each occur once. The completed
-  URL and original product navigation handle are no longer usable.
-- Same-config B Worker: the original URL arrives in A's approval card but opening
-  is refused by the shared original-owner resolver. Two clicks produce no popup,
-  native reply, challenge effect or continuation. This **confirms a regression**.
-- A UI reload retains the same pending remote request. Losing a real peer URL
-  read response does not decide or replay work. Decline on A reaches the original
-  B request once; the original handle subsequently fails closed.
-- Native fixture tests cover wrong request/nonce/origin, decline/cancel/interrupt,
-  and a late consent reply after original turn termination, with zero effects.
+This is real Runtime + mock model/MCP, **not** real accounts, third-party OAuth,
+physical cross-machine or native-GUI acceptance. `check`, affected race and smoke
+pass; CI39983328004 passed macOS/Linux/Windows/product at that exact head. Earlier
+Windows durable-I/O timeout causes remain unproven, not labelled flaky.
 
-The Web read path also preserves the fixed, owner-certified unreachable-link
-reason instead of displaying “expired” for a still-pending original request. Only
-two allowlisted navigation codes cross this read boundary; arbitrary native
-diagnostics and URL bytes remain private. No write receipt is created or changed.
+The independent 34-file review added two concrete regressions: offline original
+receipt retrieval (including B App factory/current resident readiness) and browser
+control semantics. Receipt reads now retain authentication/source/original binding
+without requiring native Connect, replacement or model selection; new work still
+uses B's real selection/readiness. Readonly, disabled fieldset and inert template
+forms are rejected, not projected into mutable/successful controls. Saved accepted
+and unknown receipts remain readable through a disconnected native projection.
 
-A passing probe means its assertions about the open gate hold. It is **not** a
-successful remote challenge, native GUI acceptance, account journey or proof of
-URL recovery across a dead native owner. No test submits the remote challenge
-by going directly to B. Timer expiry, redirect/browser-credential flows and a
-successful remote challenge remain unverified. Existing desktop/Web tests prove
-they share `backend.Service.ApprovalURL` and original `WorkDecider`, not remote
-web completion.
+## Which local browser capabilities still regress remotely
 
-The first browser positive control exposed a fixture bug: `no-referrer` made
-Chromium serialize the form POST's Origin as `null`; the fixture then refused
-it. The fixture now uses `same-origin` Referrer-Policy and still rejects foreign
-Origin, wrong Host, nonce and closed requests. No product security check changed.
+| Native original URL/page | Local behavior | Current remote behavior / exact gap |
+| --- | --- | --- |
+| Public reachable HTTP(S), including JavaScript or OAuth with reachable callback | Original-owner-checked URL opens normal browser; original native reply remains separate | Same navigation path exists. OAuth/scripts alone are not a remote regression. Real provider native completion still needs representative evidence. |
+| B literal-loopback HTTP, single supported static POST on exact original URL | Normal browser can submit | Shared bounded portal completes with real Codex/Mock MCP/React proof. |
+| B-only localhost hostname, GET/multistep/redirect/JS or different form action | Browser handles ordinary website semantics | Portal refuses. This is a real regression when the original native provider issues such a request. |
+| Public login with callback to B loopback | Browser on B reaches callback | A browser may reach login but callback hits A unless externally forwarded. Merely opening the login does not pass. |
+| B HTTPS/local certificate or B-only browser credentials/profile | B browser may have required trust/state | Neither static portal nor ordinary SSH forwarding guarantees equivalent state. No credential copying or generic browser proxy. |
 
-## Smallest path to a real closure
+## Smallest user-executable path and decisions
 
-Prefer a challenge-provider-issued, A-browser-reachable HTTPS URL whose server
-completes the **same original B elicitation**. For a provider already offering
-such a URL, the existing original-owner navigation and decision routes can be
-reused; test native continuation rather than treating `accept` as completion.
-This does not grant A B's account/model credentials or create another authority.
+For the B-only ordinary HTTP/JS/redirect/callback class, a candidate is:
 
-For an existing provider that issues only B-local webpages, the concrete missing
-piece is an official provider/native handoff that can mint that reachable URL or
-explicitly declare a request-scoped remote web channel. Its minimum semantics:
+1. The user externally forwards each **exact original origin/port**, e.g. an SSH
+   `-L 127.0.0.1:P:127.0.0.1:P`. Bot does not install/manage that forwarding.
+2. A exposes a user-only opt-in opener limited to the existing original request,
+   retaining its exact original URL/origin, expiry and native decision. This opener
+   is **not implemented yet**; current loopback refusal cannot be called support.
+3. A's normal browser handles scripts/redirects using A's own legitimate login.
+   B's original native result/continuation must independently confirm completion.
+   A local port conflict, unavailable callback origin or changed original request
+   must fail precisely; never silently rewrite callback/port or replay effects.
 
-- B validates authenticated source, original task, original native owner and
-  elicitation; the provider derives the target, never an Agent/client URL.
-- Original challenge origin/port, allowed resources/callbacks and redirects must
-  be explicit. No arbitrary Host/DNS target, redirect expansion or forwarding of
-  Bot peer tokens, browser cookies or B account credentials.
-- Short-lived single-challenge credentials and finalization/revocation belong to
-  the original provider/request. Repeated clicks cannot duplicate native effects;
-  uncertain writes reconcile the original receipt, not a replacement request.
-- Native consent remains the original choice/ID; completion remains original
-  native evidence. Owner/request loss invalidates the handoff without substituting
-  another owner. A remains the only task/interaction UI; B exposes no task card.
+This needs an account-free actual A/B/browser/native representative JS + callback
+probe before it can count as a supported user path. It does not solve B-only
+certificates/profile-bound credentials; those require a concrete provider-supported
+reachable handoff/device flow, or an explicit first-release scope decision.
 
-This is a proposed upstream/provider dependency, **not an implemented extension**
-or private `_meta` convention. Caelis's absent local general form/URL capability
-is not expanded.
+Two real choices, if release scope must change: retain the current parity gate and
+implement/verify that narrowly scoped external-forward opener; or explicitly defer
+named B-only browser flows while shipping reachable normal-browser URLs plus the
+bounded portal. No choice has been made to reduce scope. Safe refusal,
+`capability=false`, going to B, or the broad phrase “OAuth unsupported” cannot close
+these gates. No arbitrary URL/credential proxy is proposed.
 
-A raw HTTP relay for only the initial URL could transport this fixture's simple
-HTML form, but that would not prove the native URL contract: real pages can use
-scripts, absolute resources, redirects, origin-bound credentials and callbacks.
-Rewriting them into A's product origin or proxying arbitrary follow-up resources
-would introduce the general browser/credential proxy excluded from this change.
-A separate A loopback listener also fails Web clients that can reach A only via
-its existing forwarded HTTP endpoint. Neither approach is called parity.
+## Remaining representative acceptance
 
-## Remaining merge gates
-
-A successful request/owner-scoped remote URL journey and its disconnect,
-expiry, duplicate/unknown-write, redirect/credential and dead-owner boundaries
-are still blocking. Then run same-SHA real Codex/Caelis machine/account journeys,
-full check/smoke/build and independent review. Fixtures and green CI do not close
-those gates. No production App/Fedora/tunnel, real credential or model was used.
+Same-SHA macOS A → Fedora headless B, macOS desktop lifecycle/GUI and Caelis
+v0.73.2 real Runtime paths are separate from synthetic native tests. Existing SSH
+and release caches may be used only with isolated profiles after PID/path identity
+checks. Real account/model access needs an explicitly configured isolated profile;
+no keys or daily Store are copied. Final whole-PR independent review and matching
+candidate/check/smoke/build/CI evidence remain required before ready. Merge/release
+and changing formal services/tunnels remain unauthorised.

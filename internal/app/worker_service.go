@@ -151,7 +151,7 @@ func (w *localWorkers) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmissi
 	return p.SubmitWorkURL(ctx, in)
 }
 func (w *localWorkers) ReadWorkURLSubmission(ctx context.Context, task, id, request string) (api.WorkOperation, error) {
-	owner, err := w.target(ctx, task)
+	owner, _, err := w.boundOwner(task)
 	if err != nil {
 		return api.WorkOperation{}, err
 	}

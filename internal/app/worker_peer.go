@@ -96,6 +96,15 @@ func (a *Application) openForeignWorker(ctx context.Context, source, runtime, ro
 			runtime = a.currentEngine().(api.Provider).ProviderInfo().ID
 		}
 	}
+	receiptRead := workerpeer.OriginalReceiptRead(ctx)
+	if receiptRead {
+		a.peer.mu.Lock()
+		owner := a.peer.owners[source+"\x00"+runtime]
+		a.peer.mu.Unlock()
+		if owner != nil {
+			return owner, runtime, nil, nil
+		}
+	}
 	dir, err := providerDirectory(a.root, runtime)
 	if err != nil {
 		return nil, "", nil, err
@@ -111,7 +120,7 @@ func (a *Application) openForeignWorker(ctx context.Context, source, runtime, ro
 	if err != nil {
 		return nil, "", nil, err
 	}
-	if a.localWork.DefaultRuntime() == "conversation" && a.currentEngine().(api.Provider).ProviderInfo().ID == runtime {
+	if !receiptRead && a.localWork.DefaultRuntime() == "conversation" && a.currentEngine().(api.Provider).ProviderInfo().ID == runtime {
 		if p, ok := a.currentEngine().(interface {
 			ConversationExecution(context.Context) (api.WorkExecutionSettings, error)
 		}); ok {

@@ -51,6 +51,7 @@ protocol to install runtimes, edit models/Team, or manage legacy helpers.
 | Explicit host projection and authenticated thin transport | `workerpeer/{wire,client,server}.go` |
 | B native owner assembly and App lifecycle | `app/worker_peer.go`; headless mounts the same endpoint in its existing HTTP server |
 | A full user interactions | existing retained approvals, Worker questions, Backend decision/URL/answer paths; `machines` implements the retained hook |
+| Original loopback HTTP forms | shared `WorkURLChallenge`, original Codex adapter receipts, user-only desktop/Web UI; [scope](worker-peer-url-forms.md) |
 | A output/history/files | shared `WorkerOutput`, desktop `WorkerTaskDialog`, web tasks; Backend/Manager route every reference to its original task |
 | Setup | `BotConnections` in existing machine settings; Backend Worker-sharing/connection methods |
 
@@ -114,12 +115,13 @@ a conflict preserves the old listener. Published addresses and successful ports 
 Native owners detach through the existing owner lifecycle when the App closes.
 Codex retains its original native socket and ordinary reconnect refuses replacement
 if it disappears. “Prepare new work” is an explicit action on A's connection and
-B's sharing setup (including an empty readiness owner). The native adapter checks
+the relevant connection recovery path. Pairing only inspects the configured Worker;
+it does not keep an empty foreign readiness owner. The native adapter checks
 the original private PID and birth identity; only a confirmed exited process permits
 archiving original bindings/receipts and preparing a new native owner. An alive or
 unverified process is not replaced. This never moves or resubmits old tasks. Shared
 daemon reconnect remains separate, with no new shared-profile process.
-Inbound execution bindings, including readiness-created owners, are not imported
+Inbound execution bindings are not imported
 into B's resident runtime. This does not introduce another shared-profile daemon.
 
 ## Recovery and interaction semantics
@@ -150,7 +152,12 @@ into B's resident runtime. This does not introduce another shared-profile daemon
   stop; an exact pre-dispatch rejection is not reported as an unknown write.
 - Desktop and Web ask the same host reader to validate the original pending
   request before opening its URL. A snapshot URL alone is not authority. This
-  entry-point fix does not make a B-local loopback challenge reachable from A.
+  entry-point fix alone does not complete a B-local challenge. The bounded
+  original-request HTTP-form path now has a real Codex A/B/React completion;
+  native consent and webpage effect remain independently verified facts. Original
+  URL receipts are read from the frozen binding even when native execution or B
+  resident model setup is offline. No reconnect, replacement or model selection
+  is needed for that read; new work still uses B's actual configuration/readiness.
 - Completed execution, readable native history and question closure are separate
   facts. A history-read failure preserves cached content and a read failure state.
   A vanished native response channel becomes unknown audit evidence, never an
@@ -175,18 +182,35 @@ fails closed. Legacy bindings without native owner/build evidence are not promot
 | --- | --- | --- |
 | Create/continue/output/history/files/original receipts/guarded stop | Shared ports, fixture and integration coverage | Shared ports, native HTTP fixtures and integration coverage |
 | Ordinary/secret forms and native option/opaque request projection | Native forms/options/opaque preserved | Native option/opaque projection; form answers rejected because the consumed native protocol has no form contract |
-| URL | Native URL challenge fixture completes original request; A can open a reachable native URL | `url=false`; no native URL request contract claimed |
-| B-local loopback/unspecified native URL from A | Explicit `remote_native_url_not_reachable`; no rewrite or proxy | Unsupported |
+| URL | Reachable original HTTP(S) URLs use the owner-checked browser; B-loopback static forms use the shared user-only portal plus original native consent | No generic native URL request contract claimed |
+| B-only loopback pages beyond the static form subset | Actual remaining regression for scripts/redirects/callbacks or B browser state; see concrete classes and choices in [URL contract](worker-peer-url-contract.md) | Match existing local support; no new generic form/URL feature |
 | Transport reconnect while original native owner/request survives | Fresh state/requests read, no replay | Fresh state/requests read, no replay |
 | Native owner restart restores old pending response channel | `pendingAcrossRestart=false`; vanished channel is unknown; fresh native reissue required | `pendingAcrossRestart=false`; native option state is read, but general restart parity is not claimed |
 
-Evidence is deliberately separated: native protocol fixtures, actual HTTP/SSE
-dual-instance fixtures with real Manager/machine routes, race tests, repository
-checks, account-free local Codex initialize, and browser component preview. No
-real account/model, cross-machine execution, signed packaged desktop, Windows GUI
-or live Core URL/pending-restart acceptance is implied by those tests. General
-URL and cross-native-restart interaction parity remain blocked by the limits
-above; users are never asked to resolve foreign work on B.
+Evidence is separated by layer. `4f186371` covers production A/B HTTP/React/Bot
+MCP with a controlled native process; its CSV/PDF/PNG, output/download, offline copy,
+unknown-create and upload-period UI Stop assertions remain at that layer.
+`de4b791c` additionally passed a clean same-SHA **real Codex 0.162.1 + isolated
+Mock MCP/local controlled model + actual A/B/React** six-case URL journey: original
+IDs, webpage effect, original native confirmation and continuation once; decline,
+expiry, native-owner exit and both response-loss boundaries. This is not a real
+account, third-party OAuth, physical dual-machine or native-GUI journey.
+CI39983328004 at that SHA passed scope, macOS, Linux, Windows and product. Earlier
+Windows persistence timeouts remain recorded with unknown cause; a green run does
+not establish flakiness or erase those failures. The URL independent review found
+two additional issues, now covered by negative/positive regressions: offline
+receipt routing/host assembly, and unsupported readonly/disabled/inert semantics.
+The latter are refused rather than silently changing the website's controls.
+
+Core v0.73.2 shares the pinned public source/schema/wire and passed released native
+Host/old-session upgrade checks with isolated controlled model endpoints. Real
+account/model, physical cross-machine, native GUI and upgrade acceptance remain
+separate gates. Full existing-native browser parity is retained as a requirement;
+public reachable OAuth is not itself a missing feature. The precise remaining gap
+is B-only browser origins/callbacks/profile state. No user is required to operate
+B to resolve foreign work, and no scope reduction has been authorised. Caelis
+local generic form/URL expansion is outside this PR. Confirmed invalidation and
+unknown prior effects remain separate; dead native continuations are not revived.
 
 New-task environments list only local and Bot peer profiles; the old SSH add
 entry is retired. Existing SSH helper profiles and original history paths remain
@@ -300,6 +324,8 @@ remain last-retrieved bytes, not evidence of the remote latest version. Cache
 read/publication and cleanup share per-root locks; damaged indexes, symlinks,
 changed file identities, and failed Trash operations do not authorize deletion.
 
-Tests use isolated directories and synthetic Trash callbacks through the real
-application usage/cleanup entry points. This checkpoint does not establish the
-actual A/B/browser upload-period Stop, native URL, or same-SHA real-machine gates.
+Storage tests use isolated directories and synthetic Trash callbacks through the
+real application usage/cleanup entry points. The 4f186371 application journey
+subsequently verifies upload-period UI Stop and B-offline copies. Remote URL
+completion, same-SHA real-machine/account/GUI and final independent review remain
+open; see the [current roadmap](bot-to-bot-review-roadmap.md).
