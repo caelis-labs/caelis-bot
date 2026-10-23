@@ -46,6 +46,9 @@ func (s *Session) ReadWorkURLSubmission(ctx context.Context, task, id, request s
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.loadErr != nil {
+		return api.WorkOperation{}, workerurl.ErrUnavailable
+	}
 	t := s.binding.Tasks[task]
 	if t == nil {
 		return api.WorkOperation{}, workerurl.ErrUnavailable

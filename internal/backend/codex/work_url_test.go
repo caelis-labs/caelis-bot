@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -196,5 +197,32 @@ func TestWorkerURLNativeConsentResolutionDoesNotCompleteOrRevokeWebChallenge(t *
 	})
 	if _, err = s.ReadWorkURL(t.Context(), task.ID, a.ID); err == nil {
 		t.Fatal("terminal native facts did not revoke page")
+	}
+}
+
+func TestWorkerURLReceiptDoesNotTrustUnreadableBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name, extra string
+		version     int
+		wantError   bool
+	}{
+		{"valid", "", 1, false}, {"unsupported-version", "", 2, true}, {"partial-type-error", `,"scheduled":[]`, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := t.TempDir() + "/binding.json"
+			data := fmt.Sprintf(`{"version":%d,"tasks":{"original-task":{"view":{"id":"original-task"},"requests":{"original-operation":{"kind":"url-submit","controlTarget":"original-request","intentFingerprint":"original-digest","outcome":"accepted"}}}}%s}`, tc.version, tc.extra)
+			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			s := NewSession(SessionOptions{StateFile: path})
+			op, err := s.ReadWorkURLSubmission(t.Context(), "original-task", "original-request", "original-operation")
+			if tc.wantError {
+				if s.loadErr == nil || err == nil || op.Outcome == "accepted" {
+					t.Fatal("unreadable original binding certified a receipt", s.loadErr, op, err)
+				}
+			} else if err != nil || op.Outcome != "accepted" {
+				t.Fatal("valid offline receipt unavailable", op, err)
+			}
+		})
 	}
 }

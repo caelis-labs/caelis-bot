@@ -119,6 +119,8 @@ script/constraint/readonly/disabled-fieldset/disabled-option-group/inert/templat
 The independent review also covers offline receipt reads through retained routing
 and actual host assembly: current resident model/native readiness cannot hide an
 original saved receipt. New work still resolves its actual model and readiness.
+Malformed/incompatible native bindings remain unavailable; partial decoding cannot
+certify an accepted receipt. This does not rewrite any original outcome.
 
 CI39983328004 at de4b791c passed all selected platforms, including Windows. Earlier
 persistence timeout causes remain unproven; no retry, timeout/durability relaxation
