@@ -71,18 +71,19 @@ func decodeObservation(v Observation) api.WorkObservation {
 }
 
 type Request struct {
-	Contract int                    `json:"contract"`
-	Action   string                 `json:"action"`
-	ID       string                 `json:"id,omitempty"`
-	Runtime  string                 `json:"runtime,omitempty"`
-	Start    api.WorkStart          `json:"start,omitempty"`
-	Message  api.TaskMessage        `json:"message,omitempty"`
-	Stop     api.WorkStop           `json:"stop,omitempty"`
-	Decision api.WorkDecision       `json:"decision,omitempty"`
-	Query    api.WorkOperationQuery `json:"query,omitempty"`
-	Closure  api.QuestionClosure    `json:"closure,omitempty"`
-	Files    []api.WorkFileContent  `json:"files,omitempty"`
-	Ref      string                 `json:"ref,omitempty"`
+	Contract      int                    `json:"contract"`
+	Action        string                 `json:"action"`
+	ID            string                 `json:"id,omitempty"`
+	Runtime       string                 `json:"runtime,omitempty"`
+	Start         api.WorkStart          `json:"start,omitempty"`
+	Message       api.TaskMessage        `json:"message,omitempty"`
+	Stop          api.WorkStop           `json:"stop,omitempty"`
+	Decision      api.WorkDecision       `json:"decision,omitempty"`
+	Query         api.WorkOperationQuery `json:"query,omitempty"`
+	Closure       api.QuestionClosure    `json:"closure,omitempty"`
+	Files         []api.WorkFileContent  `json:"files,omitempty"`
+	InputMetadata []api.WorkFileMetadata `json:"inputMetadata,omitempty"`
+	Ref           string                 `json:"ref,omitempty"`
 }
 type Response struct {
 	Contract     int                           `json:"contract"`

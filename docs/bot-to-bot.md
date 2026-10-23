@@ -242,3 +242,20 @@ no native message-level identity keep their evidence instead of inventing a join
 
 The byte/reader/HTTP/native-adapter tests cover this path. Real model interpretation,
 packaged preview/save and cross-machine GUI acceptance remain M4 gates.
+
+## File preflight and admission deadlines
+
+Peer preflight sends file names and byte counts, never attachment bytes. B checks
+its actual owner's declared count/size limits; missing limit evidence is an
+incompatibility for file delegation. Native dispatch still checks the exact
+bytes and original digests. Preflight does not create a native task or receipt.
+
+Plain delegation keeps its 25-second admission limit. File delegation budgets
+the existing maximum 8 x 20 MiB input plus JSON base64 overhead at a 1 MiB/second
+transfer allowance, then the same 25-second control budget: 239 seconds. The
+private bridge and native task MCP envelope add 10 seconds each (249/259 seconds).
+This is a bounded policy allowance, not a measured speed or a guarantee for every
+network. A shorter caller deadline and cancellation still win. Only authenticated
+peer request bodies receive this allowance; browser trust and deadlines stay as
+configured. A timeout after dispatch remains unknown and reconciles its original
+operation; it never authorizes replacement work or an automatic upload replay.

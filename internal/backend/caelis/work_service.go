@@ -58,7 +58,7 @@ func (s *Session) workCapabilitiesLocked(id string) (api.WorkCapabilities, error
 	}
 	// These identify the native Session/store, not the App which happens to proxy it.
 	owner := "caelis:" + api.WorkFingerprint([]string{s.state.StoreID, s.state.PrincipalID, sid})
-	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: owner, Build: build, Runtime: "caelis", History: true, Observe: true, Interactions: true, Files: true, Reconcile: true, URL: false, PendingAcrossRestart: false}, nil
+	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: owner, Build: build, Runtime: "caelis", History: true, Observe: true, Interactions: true, Files: true, InputMaxFiles: 4, InputMaxFileBytes: 8 << 20, Reconcile: true, URL: false, PendingAcrossRestart: false}, nil
 }
 func (s *Session) WorkCapabilities(_ context.Context, id string) (api.WorkCapabilities, error) {
 	s.mu.Lock()

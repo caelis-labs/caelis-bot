@@ -28,6 +28,8 @@ type WorkCapabilities struct {
 	Observe              bool   `json:"observe"`
 	Interactions         bool   `json:"interactions"`
 	Files                bool   `json:"files"`
+	InputMaxFiles        int    `json:"inputMaxFiles"`
+	InputMaxFileBytes    int64  `json:"inputMaxFileBytes"`
 	Reconcile            bool   `json:"reconcile"`
 	URL                  bool   `json:"url"`
 	PendingAcrossRestart bool   `json:"pendingAcrossRestart"`

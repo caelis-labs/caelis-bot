@@ -105,8 +105,6 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	if err := r.reserveDelegation(requestID, q); err != nil {
 		return compactError("invocation_conflict", err)
 	}
-	bounded, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
 	var task api.Task
 	var attachments []api.TaskFileReference
 	if raw, ok := q["attachments"]; ok {
@@ -115,6 +113,15 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 			return compactError("invalid_attachments", errors.New("invalid Worker file references"))
 		}
 	}
+	// Byte transfer shares the original invocation, but is not constrained to
+	// the small text-admission timeout. Cancellation and native reconciliation
+	// remain unchanged; no second upload or write retry is introduced.
+	deadline := api.WorkerAdmissionTimeout
+	if len(attachments) > 0 {
+		deadline = api.WorkerAttachmentTimeout
+	}
+	bounded, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
 	if taskID == "" {
 		task, err = provider.StartTask(bounded, api.TaskStart{RequestID: requestID, Prompt: str(q, "prompt"), Title: str(q, "title"), Workspace: str(q, "workspace"), Machine: machine, LocalRuntime: machine == "", Attachments: attachments})
 	} else {

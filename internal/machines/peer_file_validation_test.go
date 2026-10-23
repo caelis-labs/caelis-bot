@@ -48,8 +48,8 @@ func TestBotPeerCaelisInputValidationRejectsBeforeExecution(t *testing.T) {
 				t.Fatal("known native input refusal became an unknown execution", result, err)
 			}
 			owner := target.owner(service.state.ProfileID, "caelis")
-			if owner == nil || owner.fileChecks.Load() == 0 {
-				t.Fatal("B's actual selected native owner did not validate the bytes")
+			if owner == nil || owner.fileChecks.Load() != 0 {
+				t.Fatal("metadata refusal read/dispatched file bytes or did not select B actual owner")
 			}
 			owner.mu.Lock()
 			starts, states, receipts := owner.starts, len(owner.states), len(owner.receipts)
@@ -103,7 +103,7 @@ func TestBotPeerInputValidationDoesNotReplaceUnknownOriginalOperations(t *testin
 	}
 	before := owner.fileChecks.Load()
 	if before == 0 {
-		t.Fatal("new input bytes were not validated before dispatch")
+		t.Fatal("native dispatch did not validate original input bytes")
 	}
 	receipt, err := manager.ReconcileTaskRequest(t.Context(), task.ID, start.RequestID)
 	if err != nil || receipt.Outcome != "accepted" {

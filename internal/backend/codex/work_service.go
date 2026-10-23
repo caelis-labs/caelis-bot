@@ -60,7 +60,7 @@ func (s *Session) workCapabilitiesLocked(id string) (api.WorkCapabilities, error
 		// Legacy bindings without this evidence cannot be upgraded by an App build.
 		owner, build = t.Owner, t.Build
 	}
-	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: owner, Build: build, Runtime: "codex", History: true, Observe: true, Interactions: true, Files: true, Reconcile: true, URL: true, PendingAcrossRestart: false}, nil
+	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: owner, Build: build, Runtime: "codex", History: true, Observe: true, Interactions: true, Files: true, InputMaxFiles: 8, InputMaxFileBytes: api.MaxWorkFileBytes, Reconcile: true, URL: true, PendingAcrossRestart: false}, nil
 }
 func (s *Session) WorkCapabilities(ctx context.Context, id string) (api.WorkCapabilities, error) {
 	if err := ctx.Err(); err != nil {

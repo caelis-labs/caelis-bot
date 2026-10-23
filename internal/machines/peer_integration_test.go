@@ -70,6 +70,7 @@ func newDualNative(source, runtime string) *dualPeerNative {
 }
 
 func (f *dualPeerNative) captureInputFilesLocked(kind, task, request string, files []api.InputFile) error {
+	if len(files)>0 {if err:=f.ValidateWorkFiles(context.Background(),task,files);err!=nil{return err}}
 	batch := dualPeerInputBatch{Kind: kind, RequestID: request, Files: []dualPeerInputFile{}}
 	for _, file := range files {
 		data, err := os.ReadFile(file.Path)
@@ -204,7 +205,11 @@ func (f *dualPeerNative) WorkCapabilities(_ context.Context, id string) (api.Wor
 			return api.WorkCapabilities{}, errors.New("native_task_not_owned")
 		}
 	}
-	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: f.source + ":" + f.runtime, Build: "actual-native-fixture", Runtime: f.runtime, History: true, Observe: true, Interactions: true, Files: true, Reconcile: true, URL: true}, nil
+	count, size := 8, int64(api.MaxWorkFileBytes)
+	if f.runtime == "caelis" {
+		count, size = 4, 8<<20
+	}
+	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: f.source + ":" + f.runtime, Build: "actual-native-fixture", Runtime: f.runtime, History: true, Observe: true, Interactions: true, Files: true, InputMaxFiles: count, InputMaxFileBytes: size, Reconcile: true, URL: true}, nil
 }
 func (f *dualPeerNative) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
 	caps, err := f.WorkCapabilities(ctx, id)

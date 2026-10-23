@@ -115,7 +115,7 @@ func (f *fixtureOwner) StopWorkRequest(_ context.Context, in api.WorkStop) (api.
 	return s.Task, nil
 }
 func (f *fixtureOwner) WorkCapabilities(context.Context, string) (api.WorkCapabilities, error) {
-	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: "original-native-owner", Build: "fixture-native-1", Runtime: "codex", History: true, Observe: true, Interactions: true, Files: true, Reconcile: true, URL: true}, nil
+	return api.WorkCapabilities{Contract: api.WorkerContract, Owner: "original-native-owner", Build: "fixture-native-1", Runtime: "codex", History: true, Observe: true, Interactions: true, Files: true, InputMaxFiles: 8, InputMaxFileBytes: api.MaxWorkFileBytes, Reconcile: true, URL: true}, nil
 }
 func (f *fixtureOwner) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
 	task, err := f.ReadWork(ctx, id)

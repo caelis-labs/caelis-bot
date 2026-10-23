@@ -296,6 +296,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Only authenticated Worker requests receive the bounded attachment budget;
+	// browser/headless defaults and all peer authentication remain unchanged.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(api.WorkerAttachmentTimeout))
 	var in Request
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 230<<20)).Decode(&in); err != nil {
 		http.Error(w, "invalid_worker_request", 400)
@@ -536,17 +539,28 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		return fail(err)
 	}
 	if in.Action == "validate_files" {
-		files, e := s.stage(peer, id, in.Files)
-		if e != nil {
-			return fail(e)
+		if len(in.Files) > 0 {
+			return fail(errors.New("worker_preflight_requires_metadata"))
 		}
-		p, ok := owner.(api.WorkInputValidator)
+		p, ok := owner.(api.WorkCapabilityProvider)
 		if !ok {
 			return fail(errors.New("worker_input_validation_unsupported"))
 		}
-		if e = p.ValidateWorkFiles(ctx, id, files); e != nil {
+		s.mu.Lock()
+		prepared := s.state.Preparations[peer][id]
+		s.mu.Unlock()
+		original := id
+		if prepared {
+			original = ""
+		}
+		caps, e := p.WorkCapabilities(ctx, original)
+		if e != nil {
 			return fail(e)
 		}
+		if e = api.ValidateWorkFileMetadata(in.InputMetadata, caps); e != nil {
+			return fail(e)
+		}
+		out.Capabilities = caps
 		return
 	}
 	if in.Action == "prepare" {

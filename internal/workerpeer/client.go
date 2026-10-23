@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -135,26 +136,36 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 	if in.Action == "start" {
 		in.Start.Machine = ""
 		in.Start.ExecutionOverride = nil
-		digests, err := api.WorkInputDigests(in.Start.Files)
+		files, err := readFiles(ctx, in.Start.Files)
 		if err != nil {
 			return Response{}, err
+		}
+		digests := api.WorkContentDigests(files)
+		if in.Start.FileDigests != nil && !slices.Equal(in.Start.FileDigests, digests) {
+			return Response{}, errors.New("worker_attachment_intent_changed")
 		}
 		in.Start.FileDigests = digests
-		in.Files, err = readFiles(in.Start.Files)
+		in.Files = files
+	}
+	if in.Action == "validate_files" {
+		var err error
+		in.InputMetadata, err = api.WorkFileMetadataFor(in.Message.Files)
 		if err != nil {
 			return Response{}, err
 		}
+		in.Files = nil
 	}
-	if in.Action == "send" || in.Action == "validate_files" {
-		digests, err := api.WorkInputDigests(in.Message.Files)
+	if in.Action == "send" {
+		files, err := readFiles(ctx, in.Message.Files)
 		if err != nil {
 			return Response{}, err
+		}
+		digests := api.WorkContentDigests(files)
+		if in.Message.FileDigests != nil && !slices.Equal(in.Message.FileDigests, digests) {
+			return Response{}, errors.New("worker_attachment_intent_changed")
 		}
 		in.Message.FileDigests = digests
-		in.Files, err = readFiles(in.Message.Files)
-		if err != nil {
-			return Response{}, err
-		}
+		in.Files = files
 	}
 	b, err := json.Marshal(in)
 	if err != nil {
@@ -179,6 +190,11 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 		return out, errors.New("bot_worker_contract_incompatible")
 	}
 	err = check(c, out, in.Action)
+	if err == nil && in.Action == "validate_files" {
+		// An older peer may ignore unknown metadata fields. Its empty reply
+		// cannot prove it checked the actual original owner's input limits.
+		err = api.ValidateWorkFileMetadata(in.InputMetadata, out.Capabilities)
+	}
 	if err != nil && out.Rejected && out.Contract == api.WorkerContract && (c.Peer == "" || c.Peer == out.Peer) {
 		if in.Action == "send" {
 			err = &api.WorkMessageRejection{Cause: err}
@@ -205,11 +221,30 @@ func check(c Connection, out Response, action string) error {
 	}
 	return nil
 }
-func readFiles(files []api.InputFile) ([]api.WorkFileContent, error) {
+func readFiles(ctx context.Context, files []api.InputFile) ([]api.WorkFileContent, error) {
+	if len(files) > 8 {
+		return nil, errors.New("too_many_worker_files")
+	}
 	out := []api.WorkFileContent{}
 	for _, f := range files {
-		data, err := os.ReadFile(f.Path)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		file, err := os.Open(f.Path)
 		if err != nil {
+			return nil, err
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			return nil, errors.New("worker_file_unavailable")
+		}
+		data, err := io.ReadAll(io.LimitReader(file, api.MaxWorkFileBytes+1))
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if len(data) > api.MaxWorkFileBytes {

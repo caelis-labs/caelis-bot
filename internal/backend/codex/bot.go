@@ -422,5 +422,8 @@ func serviceToolConfig(c *api.ToolConnection, service api.ToolService) map[strin
 	if service.Name == "caelis_context" {
 		config["tool_timeout_sec"] = 45
 	}
+	if service.Name == "caelis_tasks" {
+		config["tool_timeout_sec"] = int(api.WorkerMCPTimeout.Seconds())
+	}
 	return config
 }
