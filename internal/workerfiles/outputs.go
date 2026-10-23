@@ -16,16 +16,21 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 // Outputs stores checked immutable bytes by content and a task/ref cache index.
 // Callers must establish product task ownership before every lookup, offline too.
 // It contains no execution, decision, operation or readiness state.
 type Outputs struct {
-	root    string
-	mu      sync.Mutex
-	readers map[string]*sync.Mutex
+	maintenance *sync.RWMutex
+	root        string
+	mu          sync.Mutex
+	readers     map[string]*sync.Mutex
 }
+
+var outputGates sync.Map
+
 type outputRef struct {
 	Task, Ref, Name, MediaType, SHA256 string
 	Bytes                              int64
@@ -33,7 +38,8 @@ type outputRef struct {
 }
 
 func OpenOutputs(root string) *Outputs {
-	return &Outputs{root: root, readers: map[string]*sync.Mutex{}}
+	gate, _ := outputGates.LoadOrStore(filepath.Clean(root), new(sync.RWMutex))
+	return &Outputs{root: root, maintenance: gate.(*sync.RWMutex), readers: map[string]*sync.Mutex{}}
 }
 func outputSHA(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 func validOutputName(name string) bool {
@@ -58,12 +64,29 @@ func outputObjectName(name string) string {
 	}
 	return "content" + ext
 }
+
+func (s *Outputs) checkDirectories(paths ...string) error {
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue // A new cache is created only after fetching checked bytes.
+		}
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("worker_file_cache_unavailable")
+		}
+	}
+	return nil
+}
+
 func (s *Outputs) copied(r outputRef, cached bool) (api.TaskFileCopy, error) {
 	hash, hashErr := hex.DecodeString(r.SHA256)
 	if !validOutputName(r.Name) || hashErr != nil || len(hash) != 32 || r.Bytes < 0 || r.Bytes > api.MaxWorkFileBytes || r.FetchedAt <= 0 {
 		return api.TaskFileCopy{}, errors.New("worker_file_cache_invalid")
 	}
 	path := filepath.Join(s.root, "objects", r.SHA256, outputObjectName(r.Name))
+	if err := s.checkDirectories(filepath.Dir(path)); err != nil {
+		return api.TaskFileCopy{}, err
+	}
 	before, e := os.Lstat(path)
 	if e != nil || !before.Mode().IsRegular() || !localstate.RestrictedAccess(path, before) {
 		return api.TaskFileCopy{}, errors.New("worker_file_cache_unavailable")
@@ -84,11 +107,18 @@ func (s *Outputs) copied(r outputRef, cached bool) (api.TaskFileCopy, error) {
 	return api.TaskFileCopy{ID: api.TaskArtifactID(r.Task, r.Ref), Name: r.Name, MediaType: r.MediaType, SHA256: r.SHA256, Bytes: r.Bytes, Cached: cached, FetchedAt: r.FetchedAt, Path: path}, nil
 }
 func (s *Outputs) Materialize(ctx context.Context, task, ref string, refresh bool, read func(context.Context) (api.WorkFileContent, error)) (api.TaskFileCopy, error) {
+	if err := lockwait.RLock(ctx, s.maintenance); err != nil {
+		return api.TaskFileCopy{}, err
+	}
+	defer s.maintenance.RUnlock()
 	if err := ctx.Err(); err != nil {
 		return api.TaskFileCopy{}, err
 	}
 	if !filepath.IsAbs(s.root) || task == "" || ref == "" || len(task) > 1024 || len(ref) > 8192 {
 		return api.TaskFileCopy{}, errors.New("worker_file_reference_invalid")
+	}
+	if err := s.checkDirectories(s.root, filepath.Join(s.root, "objects"), filepath.Join(s.root, "refs")); err != nil {
+		return api.TaskFileCopy{}, err
 	}
 	key := api.WorkFingerprint(struct{ Task, Ref string }{task, ref})
 	s.mu.Lock()
@@ -127,8 +157,14 @@ func (s *Outputs) Materialize(ctx context.Context, task, ref string, refresh boo
 	}
 	r := outputRef{Task: task, Ref: ref, Name: value.Name, MediaType: media, SHA256: outputSHA(value.Data), Bytes: int64(len(value.Data)), FetchedAt: time.Now().UnixMilli()}
 	dir := filepath.Join(s.root, "objects", r.SHA256)
-	if err = localstate.EnsurePrivateDirectory(dir); err != nil {
-		return api.TaskFileCopy{}, err
+	for _, path := range []string{s.root, filepath.Join(s.root, "objects"), filepath.Join(s.root, "refs"), dir} {
+		if err = localstate.EnsurePrivateDirectory(path); err != nil {
+			return api.TaskFileCopy{}, err
+		}
+		info, e := os.Lstat(path)
+		if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return api.TaskFileCopy{}, errors.New("worker_file_cache_unavailable")
+		}
 	}
 	file, e := os.CreateTemp(dir, ".output-*")
 	if e != nil {

@@ -53,6 +53,16 @@ type inputManifest struct {
 	Files   []InputReference `json:"files"`
 }
 
+func (s *Inputs) checkDirectories() error {
+	for _, path := range []string{s.root, filepath.Join(s.root, "manifests"), filepath.Join(s.root, "bytes")} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return ErrInputUnavailable
+		}
+	}
+	return nil
+}
+
 // OpenInputs prepares a private file cache without touching native state.
 func OpenInputs(root string) (*Inputs, error) {
 	if root == "" || !filepath.IsAbs(root) {
@@ -225,6 +235,9 @@ func (s *Inputs) Retain(ctx context.Context, submission, modelInput string, file
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.checkDirectories(); err != nil {
+		return nil, nil, err
+	}
 	key := inputHash([]byte(submission))
 	old, loadErr := s.manifest(key)
 	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
@@ -235,6 +248,7 @@ func (s *Inputs) Retain(ctx context.Context, submission, modelInput string, file
 	}
 	refs := make([]InputReference, 0, len(files))
 	prepared := make([]api.InputFile, 0, len(files))
+	contents := make([][]byte, 0, len(files))
 	for index, file := range files {
 		if !inputName(file.Name) {
 			return nil, nil, ErrInputUnavailable
@@ -245,10 +259,8 @@ func (s *Inputs) Retain(ctx context.Context, submission, modelInput string, file
 		}
 		digest := inputHash(data)
 		ref := InputReference{ID: inputReference(key, index, digest), Name: file.Name, SHA256: digest, Size: int64(len(data))}
-		if err := s.saveBytes(ctx, ref, data); err != nil {
-			return nil, nil, err
-		}
 		refs = append(refs, ref)
+		contents = append(contents, data)
 		prepared = append(prepared, api.InputFile{Name: file.Name, Path: filepath.Join(s.root, "bytes", digest)})
 	}
 	input := inputHash([]byte(modelInput))
@@ -257,6 +269,27 @@ func (s *Inputs) Retain(ctx context.Context, submission, modelInput string, file
 		if old.Intent != intent {
 			return nil, nil, ErrInputConflict
 		}
+	}
+	// Refuse a changed original intent before publishing any new cache bytes.
+	// A rejected correction must not leave an unreferenced copy behind.
+	var created []string
+	published := false
+	defer func() {
+		if !published {
+			_ = s.rollbackUnpublished(created)
+		}
+	}()
+	for i, ref := range refs {
+		path := filepath.Join(s.root, "bytes", ref.SHA256)
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			created = append(created, path)
+		}
+		if err := s.saveBytes(ctx, ref, contents[i]); err != nil {
+			return nil, nil, err
+		}
+	}
+	if loadErr == nil {
+		published = true
 		return prepared, refs, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -266,6 +299,7 @@ func (s *Inputs) Retain(ctx context.Context, submission, modelInput string, file
 	if err := localstate.WriteConfirmed(filepath.Join(s.root, "manifests", key+".json"), manifest); err != nil {
 		return nil, nil, err
 	}
+	published = true
 	return prepared, refs, nil
 }
 
@@ -277,6 +311,9 @@ func (s *Inputs) Read(ctx context.Context, id string) (api.WorkFileContent, erro
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.checkDirectories(); err != nil {
+		return api.WorkFileContent{}, err
+	}
 	manifest, err := s.manifest(key)
 	if err != nil || index >= len(manifest.Files) || manifest.Files[index].ID != id || manifest.Files[index].SHA256 != digest {
 		return api.WorkFileContent{}, ErrInputUnavailable

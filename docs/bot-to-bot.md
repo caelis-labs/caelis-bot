@@ -274,3 +274,32 @@ Connection rows show the environment name and availability. Listener/published
 address and diagnostic freshness live in details. A saved unavailable connection
 has one relevant restore action; editing its address or pairing code uses the
 normal save/connect path. Restore never stops old work or approves a request.
+
+
+## Worker file cache lifecycle
+
+The existing attachment usage and cleanup actions include `WorkerInputs`, task
+input staging, and checked task output copies. Cleanup uses the existing host
+Trash operation and 30-day retention; it never scans or removes user-selected
+source files or a Worker's workspace. It adds no execution ledger.
+
+Maintenance fences resident admission and task preparation, then reads reference
+identities from the full conversation store and retained product task records
+(including unpinned/quarantined tasks). Original active or unknown operations
+retain their input references and paths. Unloaded/damaged reference stores,
+legacy task records without file provenance, and unconfirmed persistence retain
+bytes conservatively. Preparation rejection/cancellation removes only new,
+unpublished staging copies; an uncertain native receipt is not a rejection.
+Immutable upload intent manifests remain after unreferenced old bytes retire, so
+cleanup cannot permit different content under an original submission ID.
+
+Current indexed output copies stay available offline, and can be attached to
+another owned task without contacting B. Only old superseded/unindexed output
+objects not referenced by task inputs are cleanup candidates. Cached results
+remain last-retrieved bytes, not evidence of the remote latest version. Cache
+read/publication and cleanup share per-root locks; damaged indexes, symlinks,
+changed file identities, and failed Trash operations do not authorize deletion.
+
+Tests use isolated directories and synthetic Trash callbacks through the real
+application usage/cleanup entry points. This checkpoint does not establish the
+actual A/B/browser upload-period Stop, native URL, or same-SHA real-machine gates.

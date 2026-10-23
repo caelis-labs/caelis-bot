@@ -928,15 +928,17 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	if err != nil {
 		return media, err
 	}
+	worker, err := a.workerFileStorage(context.Background(), false, nil)
+	media = addAttachmentStorage(media, worker)
+	if err != nil {
+		return media, err
+	}
 	if source, ok := a.currentEngine().(api.AttachmentProvider); ok {
 		info, err := source.AttachmentStorage()
 		if err != nil {
 			return info, err
 		}
-		info.Files += media.Files
-		info.Bytes += media.Bytes
-		info.EligibleFiles += media.EligibleFiles
-		info.EligibleBytes += media.EligibleBytes
+		info = addAttachmentStorage(info, media)
 		info.CanClean = (info.CanClean || media.CanClean) && info.Notice == "" && a.guardRuntimeChange() == nil
 		return info, nil
 	}
@@ -945,6 +947,9 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
 	if err := a.guardRuntimeChange(); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	if _, err := a.workerFileStorage(ctx, false, nil); err != nil {
 		return api.AttachmentStorage{}, err
 	}
 	if source, ok := a.currentEngine().(api.AttachmentProvider); ok && a.host.TrashFile != nil {
@@ -956,6 +961,9 @@ func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStora
 		return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentClean", nil))
 	}
 	if _, err := backend.ScreenMediaStorage(a.Backend, true, a.host.TrashFile); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	if _, err := a.workerFileStorage(ctx, true, a.host.TrashFile); err != nil {
 		return api.AttachmentStorage{}, err
 	}
 	return a.AttachmentStorage()

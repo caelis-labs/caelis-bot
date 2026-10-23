@@ -25,31 +25,34 @@ import (
 )
 
 type record struct {
-	Operations          map[string]api.WorkOperationQuery `json:"operations,omitempty"`
-	Requests            []string                          `json:"requests,omitempty"`
-	ConfirmedRequests   map[string]bool                   `json:"confirmedRequests,omitempty"`
-	RequestOutcomes     map[string]string                 `json:"requestOutcomes,omitempty"`
-	RequestFingerprints map[string]string                 `json:"requestFingerprints,omitempty"`
-	RetiredExecutions   []string                          `json:"retiredExecutions,omitempty"`
-	PreviousReports     []reportReceipt                   `json:"previousReports,omitempty"`
-	Runtime             string                            `json:"runtime,omitempty"`
-	Sequence            int64                             `json:"sequence,omitempty"`
-	CreatedAt           int64                             `json:"createdAt,omitempty"`
-	Locked              bool                              `json:"locked,omitempty"`
-	CompletedAt         int64                             `json:"completedAt,omitempty"`
-	ActiveAt            int64                             `json:"activeAt,omitempty"`
-	Pinned              *bool                             `json:"pinned,omitempty"`
-	OriginalPrompt      string                            `json:"originalPrompt,omitempty"`
-	View                api.Task                          `json:"view"`
-	Provider            string                            `json:"provider"`
-	Fingerprint         string                            `json:"fingerprint,omitempty"`
-	Execution           string                            `json:"execution,omitempty"`
-	ReportID            string                            `json:"reportId,omitempty"`
-	ReportState         string                            `json:"reportState,omitempty"`
-	StopResolution      string                            `json:"stopResolution,omitempty"`
-	UnknownSince        int64                             `json:"unknownSince,omitempty"`
-	UnknownNotice       string                            `json:"unknownNotice,omitempty"`
-	Activity            string                            `json:"-"`
+	FileStorageVersion  int                                `json:"fileStorageVersion,omitempty"`
+	InputReferences     map[string][]api.TaskFileReference `json:"inputReferences,omitempty"`
+	InputPaths          map[string][]string                `json:"inputPaths,omitempty"`
+	Operations          map[string]api.WorkOperationQuery  `json:"operations,omitempty"`
+	Requests            []string                           `json:"requests,omitempty"`
+	ConfirmedRequests   map[string]bool                    `json:"confirmedRequests,omitempty"`
+	RequestOutcomes     map[string]string                  `json:"requestOutcomes,omitempty"`
+	RequestFingerprints map[string]string                  `json:"requestFingerprints,omitempty"`
+	RetiredExecutions   []string                           `json:"retiredExecutions,omitempty"`
+	PreviousReports     []reportReceipt                    `json:"previousReports,omitempty"`
+	Runtime             string                             `json:"runtime,omitempty"`
+	Sequence            int64                              `json:"sequence,omitempty"`
+	CreatedAt           int64                              `json:"createdAt,omitempty"`
+	Locked              bool                               `json:"locked,omitempty"`
+	CompletedAt         int64                              `json:"completedAt,omitempty"`
+	ActiveAt            int64                              `json:"activeAt,omitempty"`
+	Pinned              *bool                              `json:"pinned,omitempty"`
+	OriginalPrompt      string                             `json:"originalPrompt,omitempty"`
+	View                api.Task                           `json:"view"`
+	Provider            string                             `json:"provider"`
+	Fingerprint         string                             `json:"fingerprint,omitempty"`
+	Execution           string                             `json:"execution,omitempty"`
+	ReportID            string                             `json:"reportId,omitempty"`
+	ReportState         string                             `json:"reportState,omitempty"`
+	StopResolution      string                             `json:"stopResolution,omitempty"`
+	UnknownSince        int64                              `json:"unknownSince,omitempty"`
+	UnknownNotice       string                             `json:"unknownNotice,omitempty"`
+	Activity            string                             `json:"-"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -63,6 +66,10 @@ type state struct {
 }
 
 type Manager struct {
+	inputMu              sync.Mutex
+	inputActive          int
+	inputCreated         map[string]os.FileInfo // guarded by inputMu; unpublished cache identities only
+	fileStorageUncertain bool                   // guarded by mu; never execution state
 	fileCopies           *workerfiles.Outputs
 	fileCopiesOnce       sync.Once
 	quarantined          map[string]*record
@@ -449,6 +456,8 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	if !valid(in.RequestID, in.Prompt) || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
+	finishInputs := m.beginInputPreparation(len(in.Attachments) > 0 || len(in.Files) > 0)
+	defer finishInputs()
 	in.Files, err = m.inputFiles(ctx, in.Attachments, in.Files)
 	if err != nil {
 		return m.rejectStartInput(in.RequestID, err)
@@ -569,12 +578,15 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	m.mu.Lock()
 	pinned := true
 	r := &record{Operations: map[string]api.WorkOperationQuery{in.RequestID: {TaskID: id, RequestID: in.RequestID, Kind: "start", Fingerprint: api.WorkFingerprint(nativeIntent)}}, Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r.FileStorageVersion = 1
+	r.retainInputFiles(in.RequestID, in.Attachments, in.Files)
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
 	m.state.Records[id] = r
 	e = m.write()
 	if e != nil {
+		m.fileStorageUncertain = true
 		delete(m.state.Records, id)
 	}
 	m.mu.Unlock()
@@ -591,7 +603,12 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		m.mu.Lock()
 		r.View.Status = "failed"
 		r.View.Outcome = "rejected"
+		delete(r.InputPaths, in.RequestID)
+		delete(r.InputReferences, in.RequestID)
 		saveErr := m.write()
+		if saveErr != nil {
+			m.fileStorageUncertain = true
+		}
 		v := r.View
 		m.mu.Unlock()
 		return v, errors.Join(e, saveErr)
@@ -600,6 +617,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	defer m.markInflight(id, false)
 	v, e := m.work.StartWork(ctx, nativeStart)
 	result, captureErr := m.capture(id, v, e)
+	if result.Outcome == "rejected" {
+		captureErr = errors.Join(captureErr, m.releaseRejectedInputFiles(id, in.RequestID))
+	}
 	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
 		visible := result
 		if captureErr != nil {
@@ -739,6 +759,8 @@ func (m *Manager) rejectMessage(in api.TaskMessage, err error) (api.Task, error)
 }
 
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	finishInputs := m.beginInputPreparation(len(in.Attachments) > 0 || len(in.Files) > 0)
+	defer finishInputs()
 	var fileErr error
 	in.Files, fileErr = m.inputFiles(ctx, in.Attachments, in.Files)
 	if fileErr != nil {
@@ -874,7 +896,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			r.Operations = map[string]api.WorkOperationQuery{}
 		}
 		r.Operations[in.RequestID] = api.WorkOperationQuery{TaskID: in.ID, RequestID: in.RequestID, Kind: "send", Fingerprint: api.WorkFingerprint(in)}
+		r.retainInputFiles(in.RequestID, in.Attachments, in.Files)
 		if e := m.write(); e != nil {
+			m.fileStorageUncertain = true
 			r.Requests = r.Requests[:len(r.Requests)-1]
 			delete(r.RequestFingerprints, in.RequestID)
 			m.mu.Unlock()
@@ -887,6 +911,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.markInflight(in.ID, false)
 	v, e := m.work.SendWork(ctx, in)
 	v, e = m.captureMessage(in.ID, v, e, false)
+	if v.Outcome == "rejected" {
+		e = errors.Join(e, m.releaseRejectedInputFiles(in.ID, in.RequestID))
+	}
 	if v.Outcome == "rejected" || e == nil && v.Outcome == "accepted" {
 		m.mu.Lock()
 		if r.RequestOutcomes == nil {
