@@ -22,6 +22,20 @@ try {
   Invoke-BotCommand node --test @taskNodeTests
   # Bound package concurrency on hosted Windows runners. The timeout applies to
   # an entire package (hundreds of native-process tests), not a request deadline.
-  Invoke-BotCommand go test -p 2 -timeout 180s ./...
+  New-Item -ItemType Directory -Force -Path .cache/windows-state-io | Out-Null
+  $taskPreviousIOTrace = $env:CAELIS_BOT_TEST_WORKERPEER_TRACE
+  $taskIOTrace = Join-Path $taskBotRoot ('.cache/windows-state-io/' + [Guid]::NewGuid().ToString('N') + '.trace')
+  $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskIOTrace
+  $taskFullSuiteError = $null
+  try { Invoke-BotCommand go test -json -p 2 -timeout 180s ./... }
+  catch { $taskFullSuiteError = $_ }
+  finally { $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskPreviousIOTrace }
+  # Decode the original invocation's trace; no second test attempt. A diagnostic
+  # result must never replace the full suite's original error.
+  $taskDiagnosticError = $null
+  try { Invoke-BotCommand node script/diagnose-windows-state-io.mjs $taskIOTrace }
+  catch { $taskDiagnosticError = $_ }
+  if ($taskFullSuiteError) { throw $taskFullSuiteError }
+  if ($taskDiagnosticError) { Write-Host "State I/O diagnostic unavailable; original suite result retained: $taskDiagnosticError" }
   Invoke-BotCommand git diff --check
 } finally { $env:CGO_ENABLED=$taskPreviousCGO }

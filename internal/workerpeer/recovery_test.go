@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"runtime/trace"
 	"sync/atomic"
 	"testing"
 
@@ -108,7 +109,10 @@ func TestNewPreparationRecoversOnlyNewWorkAndKeepsOriginalReceipt(t *testing.T) 
 	defer h.Close()
 	c := pairFixture(t, server, h, "source-a")
 	start := api.WorkStart{ID: "old-worker", TaskStart: api.TaskStart{RequestID: "original-unknown", Prompt: "original"}}
-	if _, err = Call(t.Context(), c, Request{Action: "start", Start: start}); err != nil {
+	trace.WithRegion(t.Context(), "recovery-original-start", func() {
+		_, err = Call(t.Context(), c, Request{Action: "start", Start: start})
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	source.mu.Lock()

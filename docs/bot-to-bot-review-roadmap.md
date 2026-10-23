@@ -92,6 +92,28 @@ original-request-scoped opt-in opener is a candidate for the first remaining cla
 it is not implemented or proven for a real provider. Certificate/profile-bound
 flows need a provider/native path or an explicit user scope decision.
 
+Candidate `8f203370` now also has two separate real-Runtime acceptance records:
+macOS **headless** A → Fedora x86_64 headless B with actual React and real Codex
+0.162.1 on both ends (controlled model/Mock MCP), original task/request identities,
+web/native/continuation effects each once and original A task completed; and macOS
+native Dev GUI → released Core v0.73.2 with a controlled model, one completed chat
+exchange, close/reopen and App restart retaining output/native owner with exactly
+one model request. These do not combine into a native-GUI remote-Worker journey,
+real-account journey or the full fault/interaction matrix. Only owned temporary
+services/forwards were used; Fedora's daily launcher PID remained unchanged.
+
+CI39987269322 at this candidate passed macOS/Linux but failed Windows in
+`TestNewPreparationRecoversOnlyNewWorkAndKeepsOriginalReceipt`, initial start,
+2.35 seconds / `context deadline exceeded`. Workerpeer's package took 5.228 seconds;
+Codex/chatlog/eventplan passed. The specific original `peers.json` durable-write
+stage is not logged. The next diagnostic records the **original full-suite**
+workerpeer process with opt-in test-only Go trace, per-test JSON times, syscall and
+synchronization profiles plus a named original-start region. No second test attempt,
+production persistence change, relaxed assertion, 2-second/180-second change or
+new durability authority. Sampling failure is reported unavailable; the original
+full-suite result is preserved. A trace profile is not Windows ACL/driver/error
+attribution, nor proof a timed-out writer finished after the trace ended.
+
 Minimum roles: macOS desktop A → Linux headless B; macOS desktop A → macOS desktop B lifecycle; browser → headless A → B. At least one complete real Codex journey and one real Caelis journey, with interaction kinds matched to their existing local support. No Windows desktop expansion belongs in this PR; any advertised Windows role needs its own actual artifact evidence.
 
 Only isolated profiles/listeners may be modified. Existing authorised Fedora SSH can carry an isolated test after exact path/PID/config identification; no daily service/data/tunnel is replaced and credentials are never copied. Missing accounts/environments become specific blockers after all independent work is complete. A fixture is not a real Runtime/account or GUI result.
