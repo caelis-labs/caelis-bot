@@ -136,7 +136,7 @@ func parse(u *url.URL, body string) (*Page, error) {
 	scan = func(n *html.Node) error {
 		if n.Type == html.ElementNode {
 			for _, a := range n.Attr {
-				if strings.HasPrefix(a.Key, "on") {
+				if strings.HasPrefix(a.Key, "on") || a.Key == "inert" {
 					return ErrUnsupported
 				}
 			}
@@ -282,6 +282,9 @@ func parse(u *url.URL, body string) (*Page, error) {
 					selected := false
 					var options func(*html.Node) error
 					options = func(node *html.Node) error {
+						if node.Type == html.ElementNode && node.Data == "optgroup" && hasAttr(node, "disabled") {
+							return ErrUnsupported
+						}
 						if node.Type == html.ElementNode && node.Data == "option" {
 							if hasAttr(node, "disabled") {
 								return ErrUnsupported

@@ -114,7 +114,7 @@ native owners, verifying executable/cwd/PID birth before forced cleanup.
 Unit/race regressions additionally cover original owner loss, cross-task scope,
 ordinary turn change, hidden-value injection, preserved empty option values,
 redirect/control-port/credential-bearing targets, bounded pages, unsupported
-script/constraint/readonly/disabled-fieldset/inert-template forms and the absence of a second Web secret journal.
+script/constraint/readonly/disabled-fieldset/disabled-option-group/inert/template forms and the absence of a second Web secret journal.
 
 The independent review also covers offline receipt reads through retained routing
 and actual host assembly: current resident model/native readiness cannot hide an

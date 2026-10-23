@@ -134,6 +134,8 @@ func TestUnimplementedBrowserControlSemanticsAreNotRewritten(t *testing.T) {
 		"disabled-fieldset": `<form method="post"><fieldset disabled><input name="scope" value="admin"></fieldset><button>Continue</button></form>`,
 		"readonly":          `<form method="post"><input readonly name="scope" value="read"><button>Continue</button></form>`,
 		"inert-template":    `<form method="post"><template><input name="scope" value="admin"></template><button>Continue</button></form>`,
+		"disabled-optgroup": `<form method="post"><select name="scope"><optgroup disabled><option value="admin">Admin</option></optgroup><option value="read">Read</option></select><button>Continue</button></form>`,
+		"inert-ancestor":    `<div inert><form method="post"><input name="scope" value="admin"><button>Continue</button></form></div>`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parse(u, body); !errors.Is(err, ErrUnsupported) {
