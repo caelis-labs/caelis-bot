@@ -348,7 +348,11 @@ func (s *Service) storeObservation(id string, v api.WorkObservation, metadata ..
 	if s.observations == nil {
 		s.observations = map[string]api.WorkObservation{}
 	}
+	if s.observationAt == nil {
+		s.observationAt = map[string]time.Time{}
+	}
 	s.observations[id] = v
+	s.observationAt[id] = time.Now()
 	s.cacheMu.Unlock()
 }
 func (s *Service) connection(id string) (workerpeer.Connection, string, error) {
@@ -605,6 +609,7 @@ type peerSubscription struct {
 func (s *Service) peerStreams(ctx context.Context) {
 	var streams sync.WaitGroup
 	running := map[string]peerSubscription{}
+	attempted := map[string]time.Time{}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	defer func() {
@@ -671,7 +676,63 @@ func (s *Service) peerStreams(ctx context.Context) {
 				}
 			}()
 		}
+		// Streams improve latency, not interaction completeness. Observe stale
+		// or unsubscribed tasks fairly with four bounded reads per round. Failed
+		// reads rotate too, so four unreachable tasks cannot starve the rest.
+		s.observePeerFallback(ctx, targets, runtimes, attempted)
 	}
+}
+
+func (s *Service) observePeerFallback(ctx context.Context, targets map[string]profile, runtimes map[string]string, attempted map[string]time.Time) {
+	type candidate struct {
+		id string
+		at time.Time
+	}
+	now := time.Now()
+	due := []candidate{}
+	s.cacheMu.RLock()
+	for id := range targets {
+		at := s.observationAt[id]
+		if attempted[id].After(at) {
+			at = attempted[id]
+		}
+		if now.Sub(at) >= 2*time.Second {
+			due = append(due, candidate{id, at})
+		}
+	}
+	s.cacheMu.RUnlock()
+	for id := range attempted {
+		if _, ok := targets[id]; !ok {
+			delete(attempted, id)
+		}
+	}
+	slices.SortFunc(due, func(a, b candidate) int {
+		if a.at.Before(b.at) {
+			return -1
+		}
+		if a.at.After(b.at) {
+			return 1
+		}
+		return strings.Compare(a.id, b.id)
+	})
+	if len(due) > 4 {
+		due = due[:4]
+	}
+	var reads sync.WaitGroup
+	for _, entry := range due {
+		id := entry.id
+		attempted[id] = now
+		p, runtime := targets[id], runtimes[id]
+		reads.Go(func() {
+			readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			out, err := workerpeer.Call(readCtx, p.Peer, workerpeer.Request{Action: "observe", ID: id, Runtime: runtime})
+			if err == nil {
+				s.applyPeerObservation(id, p, runtime, workerpeer.DecodeObservation(out.Observation))
+			}
+		})
+	}
+	reads.Wait()
 }
 
 // Configuration equality is the subscription generation. Hold the route lock
@@ -717,14 +778,22 @@ func (s *Service) needsPeerStream(id string) bool {
 			}
 			switch state.Task.Status {
 			case "completed", "failed", "cancelled", "interrupted", "stopped":
-				if len(state.AsyncQuestions) > 0 {
+				if state.Activity == "active" {
 					return true
 				}
-				for _, approval := range s.observations[id].Approvals {
+				observation, observed := s.observations[id]
+				if !observed {
+					return true
+				}
+				for _, approval := range observation.Approvals {
 					if approval.Status == "pending" {
 						return true
 					}
 				}
+				// AsyncQuestions are completed native call records. Their user
+				// lifecycle/closure is retained elsewhere and a nonempty history
+				// does not imply a live native producer needing a stream. State
+				// polling still imports these records for A's question owner.
 				return false
 			default:
 				return true

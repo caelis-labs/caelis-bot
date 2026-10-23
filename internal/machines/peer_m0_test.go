@@ -2,6 +2,7 @@ package machines
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -85,7 +86,13 @@ func TestPeerStreamsFollowRepairedAddressAndFenceOldErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var oldRequests, newRequests atomic.Int32
-	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { oldRequests.Add(1); <-r.Context().Done() }))
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		oldRequests.Add(1)
+		// Complete the incoming body so net/http can observe client cancellation
+		// for both SSE GET and the bounded full-observation POST fallback.
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+	}))
 	defer old.Close()
 	s.mu.Lock()
 	p := s.state.Profiles[machine]

@@ -54,6 +54,7 @@ type Service struct {
 	cache         map[string][]api.WorkState
 	cacheRevision map[string]uint64              // guarded by mu; fences late observations
 	observations  map[string]api.WorkObservation // guarded by cacheMu
+	observationAt map[string]time.Time           // successful current snapshots; not execution state
 	local         api.WorkRuntime
 	artifact      func(string) ([]byte, error)
 }
