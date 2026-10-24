@@ -34,7 +34,11 @@ isolated. The command does not alter any installed Bot or tunnel.
 ## Executable journey and assertions
 
 - Enable sharing on B; Web A submits a wrong code, then corrects the same form and
-  pairs. This exercises the real Web operation rejection/receipt path.
+  pairs. The relay also drops an original pair before B sees it (zero grants).
+  A offers explicit fresh-code authorization, refuses reuse of the old code,
+  permits correction of a known bad new code, then reconciles a real B grant
+  whose response is lost. Refresh and rename keep the same connection/proof;
+  the original unknown receipt and browser pending ID remain unchanged.
 - Upload CSV/PDF through the actual browser file picker, select B through real
   `bot_tasks environments`, and create via `bot_delegate`. Both A/B native layers
   read the original bytes and verify names, lengths and SHA-256. Add a decodable

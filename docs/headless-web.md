@@ -231,4 +231,7 @@ not agent capabilities, tool contracts, permissions, or task workflows.
 
 Web 的 Bot 配对回包丢失由原连接 proof、目标身份和显式配对代次核对，原 Web 操作不重发。
 后来改址或新配对不能回填原未知结果，也不能由旧回执回滚当前路由。若原 proof 无法认证，
-原操作继续 unknown；本批未交付绕过它的新授权入口。详见[最终审计](worker-peer-final-audit.md)。
+原操作继续 unknown。用户可在 B 生成新码，从 A 的“生成新配对码后重新授权”发起独立授权，
+沿用原连接/source/proof；旧 pending 和 unknown 不清除。新授权确认后才允许后续连接操作，
+其回包再次丢失仍核对该次原 ID，不以改码重放。明确错码/过期拒绝可直接纠正。
+旧 Draft 未保存原码指纹的 unknown 不能安全判定新码，仍保留，不作隐式迁移。详见[最终审计](worker-peer-final-audit.md)。

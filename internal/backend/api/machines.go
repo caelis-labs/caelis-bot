@@ -109,8 +109,10 @@ type WorkerSharingController interface {
 }
 
 // BotConnectionReference is a host-captured original proof reference, never a
-// credential or browser-supplied authority. It permits only authenticated reads.
+// credential or browser-supplied authority. Reads and explicit fresh authorization
+// resolve this reference at its existing machines owner; it never grants access.
 type BotConnectionReference struct {
+	CodeDigest    string `json:"codeDigest,omitempty"`
 	Pairing       string `json:"pairing,omitempty"`
 	Configuration string `json:"configuration"`
 	ID            string `json:"id"`
@@ -128,4 +130,16 @@ func (e *BotConnectionUnconfirmedError) Unwrap() error { return e.Cause }
 
 type BotConnectionReceiptReader interface {
 	ReadBotConnectionReceipt(context.Context, BotConnectionReference) (Machine, error)
+}
+
+// Explicit new user authorization; OriginalOperationID is an ingress reference
+// only on Web. It never replaces an original pairing/task operation identity.
+type BotConnectionAuthorization struct {
+	Connection          BotConnectionInput `json:"connection"`
+	OriginalOperationID string             `json:"originalOperationId,omitempty"`
+}
+type BotConnectionAuthorizer interface {
+	BotAuthorizationReference(string) (BotConnectionReference, error)
+	AuthorizeBotConnection(context.Context, BotConnectionReference, BotConnectionInput) (Machine, BotConnectionReference, error)
+	ValidateBotAuthorizationCode(BotConnectionReference, string) error
 }

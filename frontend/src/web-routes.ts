@@ -4,6 +4,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
  "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
  "backend.WorkerFileCopy":{"path":"/api/v1/files/worker-copy","read":true},
+ "backend.AuthorizeBotConnection":{"path":"/api/v1/machines/authorize-bot","read":false},
  "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
  "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
  "backend.RecoverWorkerSharing":{"path":"/api/v1/machines/recover-worker-sharing","read":false},

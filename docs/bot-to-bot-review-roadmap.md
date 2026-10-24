@@ -148,5 +148,8 @@ blocked without a repeated question. Keep Draft until remaining gates are met.
 The whole-PR audit and newly reproduced A1–A3/S1–S2 boundaries are tracked in
 [the final audit closure map](worker-peer-final-audit.md). Repairs retain the
 existing native binding/receipt authority; no deferred URL flow is counted as a
-fixed finding. Exact frozen-head checks and remaining account/GUI gates are
+fixed finding. The no-grant unknown Web pairing trap is covered by explicit
+fresh-code authorization on the original profile/proof, with old unknown and
+pending references retained, response-loss reconciliation and archive/restart
+coverage; it is separate from known bad-code correction. Exact frozen-head checks and remaining account/GUI gates are
 reported separately from the earlier `8f203370` hardware record.

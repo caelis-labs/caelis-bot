@@ -1,9 +1,11 @@
 // Opaque IDs only persist. Arguments (including credentials) stay in memory.
 // Every subsequent invocation first reads its original receipt; a changed body
 // must never inherit that receipt's value or silently dispatch a second effect.
-const rejectionDetails=new Set(['pairing_code_invalid','pairing_code_expired','peer_authorization_revoked','peer_authentication_required','original_peer_proof_required','worker_sharing_disabled','worker_not_ready','bot_worker_contract_incompatible','bot_peer_identity_changed','invalid_bot_address','worker_listener_invalid','worker_reachable_address_required','worker_listener_managed_headless']);
+const rejectionDetails=new Set(['pairing_code_invalid','pairing_code_expired','peer_authorization_revoked','peer_authentication_required','original_peer_proof_required','worker_sharing_disabled','worker_not_ready','bot_worker_contract_incompatible','bot_peer_identity_changed','invalid_bot_address','worker_listener_invalid','worker_reachable_address_required','worker_listener_managed_headless','invalid_bot_name','machine_connection_type_conflict','new_pairing_code_required','original_pairing_code_unavailable','original_bot_authorization_changed']);
 export function safeWebRejectionDetail(value:unknown){return typeof value==='string'&&rejectionDetails.has(value)?value:undefined;}
-type WebOperation={state:string;error?:string;detail?:string;value?:unknown};
+type BotRecovery={operationId:string;profileId:string;canAuthorize:boolean};
+type WebOperation={state:string;error?:string;detail?:string;value?:unknown;recovery?:BotRecovery;followingAuthorization?:string;authorizationConfirmed?:boolean};
+const connectPath='/api/v1/machines/connect-bot',authorizePath='/api/v1/machines/authorize-bot';
 const rejectionDetail=(op:WebOperation)=>op.error==='operation_rejected'?safeWebRejectionDetail(op.detail):undefined;
 export function createWebOperations(io:{storage:Storage;identity:()=>string;post:(path:string,body:unknown,timeout:number)=>Promise<{value:unknown}>;receipt:(id:string)=>Promise<WebOperation>;failure:(code:string,detail?:string)=>Error}){
  const key='caelisbot.pending-operations';
@@ -16,9 +18,11 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
   const value=op.value as {outcome?:string;state?:string}|null;
   return op.state==='complete'&&!op.error?.startsWith('operation_unconfirmed')&&value?.outcome!=='unknown'&&value?.state!=='unknown';
  };
+ const uncertain=(op?:WebOperation)=>Object.assign(io.failure('operation_unconfirmed'),op?.recovery?{botRecovery:op.recovery}:{});
+ const markAuthorization=(id:string)=>{pending['authorization:'+connectPath]=id;remember()};
  const settle=async(path:string,id:string,same:boolean)=>{
   const op=await io.receipt(id);
-  if(!terminal(op))throw io.failure('operation_unconfirmed');
+  if(!terminal(op))throw uncertain(op);
   finish(path);
   if(!same)throw io.failure('previous_operation_resolved');
   if(op.error)throw io.failure(op.error,rejectionDetail(op));
@@ -26,29 +30,50 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
  };
  return async(path:string,args:unknown[],read:boolean)=>{
   if(read)return (await io.post(path,{id:io.identity(),args},8000)).value;
-  if(active.has(path))throw io.failure('operation_unconfirmed');
-  active.add(path);
+  let scope=path,afterAuthorization='';
+  if(path===authorizePath){
+   const request=args[0] as {originalOperationId?:string;connection?:{id?:string}};
+   scope=path+'@'+(request.originalOperationId||request.connection?.id||'');
+  }
+  if(path===connectPath){
+   const remembered=pending['authorization:'+path];
+   if(remembered){const op=await io.receipt(remembered);if(!op.authorizationConfirmed)throw uncertain(op);afterAuthorization=remembered;}
+   for(let depth=0;depth<16;depth++){
+    scope=afterAuthorization?path+'@'+afterAuthorization:path;
+    const prior=pending[scope];if(!prior)break;
+    const op=await io.receipt(prior);
+    if(!op.followingAuthorization)break;
+    if(op.followingAuthorization===afterAuthorization)throw uncertain(op);
+    afterAuthorization=op.followingAuthorization;markAuthorization(afterAuthorization);
+    if(depth===15)throw uncertain(op);
+   }
+  }
+  if(active.has(scope))throw io.failure('operation_unconfirmed');
+  active.add(scope);
   try{
-   const prior=pending[path],body=JSON.stringify(args);
-   if(prior)return await settle(path,prior,bodies.get(path)===body);
-   const id=io.identity();pending[path]=id;bodies.set(path,body);remember();
+   const prior=pending[scope],body=JSON.stringify(args);
+   if(prior){
+    const value=await settle(scope,prior,bodies.get(scope)===body);
+    if(path===authorizePath)markAuthorization(prior);
+    return value;
+   }
+   const id=io.identity();pending[scope]=id;bodies.set(scope,body);remember();
    try{
-    const result=await io.post(path,{id,args},120000);
-    // A successful HTTP response may itself contain a native unknown receipt.
-    if(terminal({state:'complete',value:result.value}))finish(path);
+    const result=await io.post(path,{id,args,...(afterAuthorization?{afterAuthorization}:{})},120000);
+    if(terminal({state:'complete',value:result.value})){finish(scope);if(path===authorizePath)markAuthorization(id);}
     return result.value;
    }catch(error){
     const code=(error as {code?:string})?.code;
-    // These are refusals *before admission*. Owner refusals below are read back
-    // from the durable receipt, including request_conflict after response loss.
-    if(code&&['composer_owned_elsewhere','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required','not_dispatched'].includes(code)){finish(path);throw error}
+    if(code&&['composer_owned_elsewhere','request_id_required','invalid_request','csrf_denied','origin_denied','pair_required','not_dispatched'].includes(code)){finish(scope);throw error}
+    let last:WebOperation|undefined;
     for(let attempt=0;attempt<3;attempt++){
-     let op;try{op=await io.receipt(id)}catch{/* Read again, never replay. */}
-     if(op&&terminal(op)){finish(path);if(op.error)throw io.failure(op.error,rejectionDetail(op));return op.value}
+     try{last=await io.receipt(id)}catch{/* Read again, never replay. */}
+     if(last&&terminal(last)){finish(scope);if(last.error)throw io.failure(last.error,rejectionDetail(last));if(path===authorizePath)markAuthorization(id);return last.value}
      if(attempt<2)await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
     }
+    if(last?.recovery)throw Object.assign(error instanceof Error?error:io.failure('operation_unconfirmed'),{botRecovery:last.recovery});
     throw error;
    }
-  }finally{active.delete(path)}
+  }finally{active.delete(scope)}
  };
 }

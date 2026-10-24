@@ -814,8 +814,14 @@
   "botTargetMachine": "the target Bot",
   "botCheckedAt": "Checked {time}",
   "botNotChecked": "Not checked yet",
-  "botArchived": "Retained tasks only",
+  "botArchived": "Inactive",
   "botCheckRestore": "Check / restore connection",
   "botSaveConnection": "Save connection",
-  "botRemoveNote": "Removing a connection with retained tasks keeps its original route and pairing proof for reading and recovery. It stops neither work nor approvals. Restore it here, with a fresh code if access was revoked."
+  "botRemoveNote": "Removing disables new delegation. Original tasks and any unconfirmed authorization keep their connection information; removal does not stop work or revoke access.",
+  "botNewAuthorization": "Authorize with a new pairing code",
+  "botNewAuthorizationNote": "The earlier pairing result is still unconfirmed and will not be resent. Generate new pairing information on the target Bot, then enter the new code here.",
+  "botAuthorize": "Authorize connection",
+  "botFreshCodeRequired": "Use a newly generated pairing code. The earlier code will not be sent again.",
+  "botOriginalPairingUnavailable": "This older pairing record can only be checked with its original connection proof. A new authorization cannot safely reuse that record.",
+  "botAuthorizationChanged": "This connection changed while authorization was being checked. Reopen it to use the current connection."
 }

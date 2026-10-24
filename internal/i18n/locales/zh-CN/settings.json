@@ -813,8 +813,14 @@
   "botTargetMachine": "目标 Bot",
   "botCheckedAt": "检查于 {time}",
   "botNotChecked": "尚未检查",
-  "botArchived": "仅保留任务",
+  "botArchived": "已停用",
   "botCheckRestore": "检查 / 恢复连接",
   "botSaveConnection": "保存连接",
-  "botRemoveNote": "移除有保留任务的连接会保留原路由和配对证明，供读取和恢复，不会停止任务或审批。可在此恢复；授权撤销后需原 Bot 的新配对码。"
+  "botRemoveNote": "移除后停用新委派；原任务或未确认的授权会保留连接资料。移除不等于停止任务或撤销访问。",
+  "botNewAuthorization": "生成新配对码后重新授权",
+  "botNewAuthorizationNote": "原配对结果仍未确认，不会重发。请在目标 Bot 生成新的配对信息，再在这里填写新配对码。",
+  "botAuthorize": "授权连接",
+  "botFreshCodeRequired": "请使用新生成的配对码，原配对码不会再次发送。",
+  "botOriginalPairingUnavailable": "此旧配对记录只能通过原连接证明核对，暂无法安全用于新的授权。",
+  "botAuthorizationChanged": "核对授权时连接已变化，请重新打开该连接。"
 }

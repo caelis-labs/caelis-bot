@@ -49,6 +49,10 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
+export interface BotConnectionAuthorization {
+  connection: BotConnectionInput;
+  originalOperationId?: string;
+}
 export interface BotConnectionInput {
   reconnect?: boolean;
   id: string;

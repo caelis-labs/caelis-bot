@@ -13,19 +13,24 @@ import (
 )
 
 type operation struct {
-	BotConnection *api.BotConnectionReference `json:"botConnection,omitempty"`
-	Digest        string                      `json:"digest"`
-	Owner         string                      `json:"owner"`
-	State         string                      `json:"state"`
-	Value         json.RawMessage             `json:"value,omitempty"`
-	Error         string                      `json:"error,omitempty"`
-	Detail        string                      `json:"detail,omitempty"`
-	At            int64                       `json:"at"`
-	Native        *nativeReceipt              `json:"native,omitempty"`
+	ArchivedAuthorization bool                        `json:"archivedAuthorization,omitempty"`
+	AuthorizationBy       string                      `json:"authorizationBy,omitempty"`
+	AuthorizationParent   string                      `json:"authorizationParent,omitempty"`
+	BotAuthorization      bool                        `json:"botAuthorization,omitempty"`
+	BotConnection         *api.BotConnectionReference `json:"botConnection,omitempty"`
+	Digest                string                      `json:"digest"`
+	Owner                 string                      `json:"owner"`
+	State                 string                      `json:"state"`
+	Value                 json.RawMessage             `json:"value,omitempty"`
+	Error                 string                      `json:"error,omitempty"`
+	Detail                string                      `json:"detail,omitempty"`
+	At                    int64                       `json:"at"`
+	Native                *nativeReceipt              `json:"native,omitempty"`
 }
 type actionRequest struct {
-	ID   string            `json:"id"`
-	Args []json.RawMessage `json:"args"`
+	AfterAuthorization string            `json:"afterAuthorization,omitempty"`
+	ID                 string            `json:"id"`
+	Args               []json.RawMessage `json:"args"`
 }
 type action struct {
 	Path                  string
@@ -131,6 +136,9 @@ func (s *Server) register(a action) {
 		}
 		body, _ := json.Marshal(in.Args)
 		fingerprint := digest(a.Path + string(body))
+		if in.AfterAuthorization != "" {
+			fingerprint = digest(a.Path + "\n" + in.AfterAuthorization + "\n" + string(body))
+		}
 		owner := sessionID(r)
 		s.mu.Lock()
 		old, exists, lookupErr := s.lookupOperation(in.ID)
@@ -156,6 +164,30 @@ func (s *Server) register(a action) {
 			jsonOut(w, 200, map[string]any{"value": old.Value})
 			return
 		}
+		var authorization *botAuthorizationCall
+		var authorizationErr error
+		if a.Path == botAuthorizationPath || in.AfterAuthorization != "" {
+			authorization, authorizationErr = s.prepareBotAuthorizationLocked(a.Path, in, owner)
+		}
+		if authorizationErr != nil {
+			var refusal *api.ActionRejectedError
+			if errors.As(authorizationErr, &refusal) {
+				record := operation{Digest: fingerprint, Owner: owner, State: "complete", Error: "operation_rejected", Detail: safeRejectionDetail(refusal.Code), At: time.Now().Unix()}
+				s.operations[in.ID] = record
+				if err := s.saveOperations(); err != nil {
+					delete(s.operations, in.ID)
+					s.mu.Unlock()
+					fail(w, 503, "not_dispatched")
+					return
+				}
+				s.mu.Unlock()
+				operationFailure(w, 409, record)
+				return
+			}
+			s.mu.Unlock()
+			fail(w, 409, "not_dispatched")
+			return
+		}
 		// Retain identity tombstones. Expiry must never authorize replay. Local
 		// draft CAS is handled by its existing owner, not this effect journal.
 		if len(s.operations) >= 4096 {
@@ -164,8 +196,31 @@ func (s *Server) register(a action) {
 			return
 		}
 		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, State: "pending", At: time.Now().Unix()}
+		if a.Path == botAuthorizationPath && authorization != nil {
+			record := s.operations[in.ID]
+			record.BotAuthorization = true
+			ref := authorization.reference
+			record.BotConnection = &ref
+			s.operations[in.ID] = record
+		}
+		var parentBefore operation
+		if a.Path == botAuthorizationPath && authorization != nil && authorization.parent != "" {
+			record := s.operations[in.ID]
+			record.AuthorizationParent = authorization.parent
+			record.BotAuthorization = true
+			originalRef := authorization.reference
+			record.BotConnection = &originalRef
+			s.operations[in.ID] = record
+			parentBefore = s.operations[authorization.parent]
+			parent := parentBefore
+			parent.AuthorizationBy = in.ID
+			s.operations[authorization.parent] = parent
+		}
 		if e := s.saveOperations(); e != nil {
 			delete(s.operations, in.ID)
+			if authorization != nil && a.Path == botAuthorizationPath && authorization.parent != "" {
+				s.operations[authorization.parent] = parentBefore
+			}
 			s.mu.Unlock()
 			fail(w, 503, "not_dispatched")
 			return
@@ -183,6 +238,9 @@ func (s *Server) register(a action) {
 			engine = s.services.Backend.CurrentRuntimeBinding().Engine
 			before = engine.Snapshot()
 		}
+		if authorization != nil {
+			ctx = context.WithValue(ctx, botAuthorizationCallKey{}, authorization)
+		}
 		value, e := invoke(api.WithSetupAccess(ctx, "web:"+owner), in.Args)
 		var native *nativeReceipt
 		if receipt, ok := value.(api.Receipt); ok && e == nil && receipt.Outcome == "unknown" && engine != nil {
@@ -198,6 +256,10 @@ func (s *Server) register(a action) {
 		record.State = "complete"
 		record.Value = result
 		record.Native = native
+		if a.Path == botAuthorizationPath && authorization != nil {
+			ref := authorization.reference
+			record.BotConnection = &ref
+		}
 		// Bound confirmed display payloads only. An unknown native receipt may
 		// contain its original reconciliation target; never trim that evidence.
 		if len(result) > 32<<10 && operationTerminal(record) {
@@ -244,7 +306,7 @@ func (s *Server) register(a action) {
 // Error text and remote response bodies are never a source of Web diagnostics.
 func safeRejectionDetail(code string) string {
 	switch code {
-	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless":
+	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless", "invalid_bot_name", "machine_connection_type_conflict", "new_pairing_code_required", "original_pairing_code_unavailable", "original_bot_authorization_changed":
 		return code
 	}
 	return ""

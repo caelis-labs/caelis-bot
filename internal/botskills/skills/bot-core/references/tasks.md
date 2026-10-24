@@ -370,3 +370,8 @@ prepared work. Preserve their identity and uncertainty; do not migrate them,
 replay an operation or send an old decision to a new owner. A missing original
 pairing grant remains unknown until its original proof can be authenticated;
 never erase its pending operation or silently authorize another Bot instead.
+If the user needs a new authorization, direct them to the connection settings
+and a newly generated code from that Bot. This explicit action retains the
+original connection/source/proof and the old unknown; only its own confirmed
+receipt permits following connection actions. Never replay an uncertain pair or
+claim a missing/revoked grant proves its original write was rejected.

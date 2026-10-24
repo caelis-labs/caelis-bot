@@ -25,13 +25,15 @@ import (
 )
 
 type profile struct {
-	PairingEpoch string                `json:"pairingEpoch,omitempty"`
-	Peer         workerpeer.Connection `json:"peer,omitempty"`
-	View         api.Machine           `json:"view"`
-	Key          string                `json:"key"`
-	Root         string                `json:"root"`
-	Helper       string                `json:"helper"`
-	Identity     string                `json:"identity"`
+	PairingCodeDigest  string                `json:"pairingCodeDigest,omitempty"`
+	RetainPairingProof bool                  `json:"retainPairingProof,omitempty"`
+	PairingEpoch       string                `json:"pairingEpoch,omitempty"`
+	Peer               workerpeer.Connection `json:"peer,omitempty"`
+	View               api.Machine           `json:"view"`
+	Key                string                `json:"key"`
+	Root               string                `json:"root"`
+	Helper             string                `json:"helper"`
+	Identity           string                `json:"identity"`
 }
 type disk struct {
 	Version   int                `json:"version"`
@@ -444,7 +446,7 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 			hasTasks = true
 		}
 	}
-	if hasTasks {
+	if hasTasks || p.View.ConnectionType == "bot" && p.RetainPairingProof {
 		if p.View.ConnectionType != "bot" {
 			s.mu.Unlock()
 			return errors.New("machine_has_tasks")

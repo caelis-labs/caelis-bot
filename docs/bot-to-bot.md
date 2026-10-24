@@ -348,3 +348,8 @@ transport file copies are ephemeral; existing storage inventory covers interrupt
 leftovers without touching native/A originals. Web pair-response loss reconciles
 the original proof and pairing intent; a later grant/configuration cannot certify
 or overwrite the original unknown. A missing grant remains unknown, never replayed.
+Web offers explicit fresh-code authorization using the same original profile,
+source and proof; its separate receipt can unlock future connection edits while
+the old unknown and pending reference remain intact. Unknown new authorization
+is reconciled under its own ID. Draft-era records without an original-code
+fingerprint are retained without a silent migration.

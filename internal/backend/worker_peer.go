@@ -102,3 +102,42 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	}
 	return p.ReadBotConnectionReceipt(ctx, ref)
 }
+
+func (s *Service) AuthorizeBotConnection(in api.BotConnectionAuthorization) (api.Machine, error) {
+	p, ok := s.machines.(api.BotConnectionAuthorizer)
+	if !ok {
+		return api.Machine{}, errors.New("bot_connections_unavailable")
+	}
+	ref, err := p.BotAuthorizationReference(in.Connection.ID)
+	if err != nil {
+		return api.Machine{}, err
+	}
+	v, _, err := AuthorizeOriginalBotConnection(s, ref, in.Connection)
+	return v, err
+}
+
+// Host-only reference comes from the original authenticated Web receipt.
+func AuthorizeOriginalBotConnection(s *Service, ref api.BotConnectionReference, in api.BotConnectionInput) (api.Machine, api.BotConnectionReference, error) {
+	p, ok := s.machines.(api.BotConnectionAuthorizer)
+	if !ok {
+		return api.Machine{}, ref, errors.New("bot_connections_unavailable")
+	}
+	ctx, cancel := s.machineContext()
+	defer cancel()
+	return p.AuthorizeBotConnection(ctx, ref, in)
+}
+func ValidateBotAuthorizationCode(s *Service, ref api.BotConnectionReference, code string) error {
+	p, ok := s.machines.(api.BotConnectionAuthorizer)
+	if !ok {
+		return errors.New("bot_connections_unavailable")
+	}
+	return p.ValidateBotAuthorizationCode(ref, code)
+}
+
+func BotAuthorizationReference(s *Service, id string) (api.BotConnectionReference, error) {
+	p, ok := s.machines.(api.BotConnectionAuthorizer)
+	if !ok {
+		return api.BotConnectionReference{}, errors.New("bot_connections_unavailable")
+	}
+	return p.BotAuthorizationReference(id)
+}
