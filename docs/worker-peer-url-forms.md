@@ -67,9 +67,13 @@ uncertain prior effect as rejected. A verified dead owner is never substituted.
 | Scripts/event handlers, iframe/embed, redirects, alternate form actions, HTTPS portal, file/multiple/number/textarea fields, extra HTML validation constraints, implicit option IDs | Explicitly outside this slice. No arbitrary target/proxy, callback rewriting, general credential/browser proxy or automatic B-user fallback. Original native request is not falsely declared expired or approved. |
 | Public reachable HTTP(S) native URL | Existing original-owner checked browser navigation remains. It is not an OAuth relay. |
 
-The complete same-Runtime local/remote goal still includes native-supported web
-flows outside this subset. Rejecting them safely or advertising a capability as
-false does not close that goal. Caelis local generic form/URL capability is not
+First-release scope explicitly defers B-only multistep/GET/JS/redirect/different
+form-action pages, public logins whose callback is B-loopback, and B-only
+certificates/browser state. These remain actual limitations, not repaired flows.
+Public reachable HTTP(S), including scripts/OAuth with reachable callbacks, keeps
+the original-owner-checked normal-browser route. See the precise
+[support decision and follow-up](worker-peer-url-contract.md). No external-forward
+opener or general proxy is added. Caelis local generic form/URL support is not
 expanded here.
 
 ## Reproducible actual application journey
@@ -125,5 +129,6 @@ certify an accepted receipt. This does not rewrite any original outcome.
 CI39983328004 at de4b791c passed all selected platforms, including Windows. Earlier
 persistence timeout causes remain unproven; no retry, timeout/durability relaxation
 or claim of flakiness was used to erase them. Physical machine,
-real account/model, native GUI/upgrade, full webpage parity and final whole-PR
-independent review are still separate gates.
+real account/model, final-head native GUI/upgrade and final whole-PR independent
+review remain separate gates. B-only browser flows named in the first-release
+scope decision are deferred follow-up, not an unbounded webpage parity gate.

@@ -125,8 +125,10 @@ caelisbot serve --require-pairing --listen 127.0.0.1:9317 --origin https://your-
 Bot-to-Bot peer 入口始终独立认证，不能继承浏览器的 loopback 免认证。原 Worker URL
 静态表单由 A 的同一用户界面处理，固定路由只带原请求与操作引用，不接受任意目标 URL。
 网页提交沿 B 原 adapter 回执核对，不将输入字段再次保存到 Web 操作账本；网页成功不等于
-原生批准或执行完成。公开可达网页仍走原 owner 校验的浏览器入口。B-only 脚本/回调/浏览器状态
-的具体差距与范围见 [URL 合同](worker-peer-url-contract.md)，不能用“已打开”关闭验收。
+原生批准或执行完成。公开可达 HTTP(S) 网页（含回调也可达的脚本/OAuth）仍走原 owner
+校验的浏览器入口。首版明确延期 B-only localhost 多步骤/GET/脚本/重定向/不同 form action、
+公共登录回调 B-loopback、B 专属证书/浏览器状态；不新增外部转发 opener、自动隧道或通用代理。
+这些是未实现的限制，见 [URL 合同](worker-peer-url-contract.md)，不能用“已打开”关闭验收。
 
 Web 状态位于 `<data>/Web`，sessions / operations 用既有原子 localstate 写入。遇到未知写入，保留原操作/业务回执，查看当前状态，不用新 ID 自动重试。已确认终态定期压缩为私有 SQLite 不可重放标记，保留原 ID 归属与摘要；最近回执供响应丢失对账。真正 unknown 永不退休；只有累计 4096 条尚未确认记录才停止新写入。不能手删 operations 或退休标记来“恢复”。上传暂存目录总量上限 512 MiB；未知结果先查看原草稿附件。
 

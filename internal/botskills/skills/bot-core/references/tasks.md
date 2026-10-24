@@ -355,6 +355,11 @@ this Bot. A bounded loopback HTTP form can be completed there; do not collect
 its web fields, navigate on behalf of the user, or send its native consent with
 Agent tools. Website submission and native consent are independent. A website
 receipt does not prove native continuation or task completion. Unconfirmed web
-submissions are checked by their original ID, never resent. Script-dependent,
-redirect/OAuth and other unsupported pages remain blocked; do not tell the user
-to approve on the other Bot or claim arbitrary webpage equivalence.
+submissions are checked by their original ID, never resent. Public reachable
+HTTP(S) links use the normal browser, including scripts/OAuth only when every
+required callback is reachable. First-release limitations include B-only
+localhost multistep/GET/script/redirect/different-action pages, login callbacks
+to B-loopback and B-only certificates/browser state. Those flows are deferred,
+not repaired; keep affected work blocked and explain the limitation. Do not ask
+the user to approve on the other Bot, invent a tunnel/proxy or claim arbitrary
+webpage equivalence.

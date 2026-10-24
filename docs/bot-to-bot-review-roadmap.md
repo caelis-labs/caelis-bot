@@ -2,7 +2,8 @@
 > Codex/Mock-MCP A/B/React journey on clean exact SHA `de4b791c` (tree `cc9e1111`)
 > with native continuation and at-most-once counts.
 > See [scope and executable checks](worker-peer-url-forms.md). This does not close
-> arbitrary webpage, physical machine/account/GUI, Windows CI or final review gates.
+> final-head account/GUI and final review gates. Named B-only browser flows are
+> explicitly deferred for the first release; see the URL support decision.
 
 # Bot-to-Bot convergence and acceptance
 
@@ -25,7 +26,7 @@ This supersedes the former unconditional requirement to revive all native contin
 | --- | --- | --- | --- |
 | Create/continue/guarded stop, output/history/files | Same shared adapters and original routes | Same shared adapters and original routes | Actual A/B entry, native receipt and byte verification. |
 | Existing ordinary/sensitive/native option/opaque interactions | All existing local kinds return to A; Agent remains limited | Existing local permissions/questions/options return to A | Original IDs/options/scope reach B and native execution continues. |
-| Native URL challenge, including B localhost | Must close through A; unsupported/going to B is not acceptance | Match existing local support; no upstream general form/URL expansion for this PR | Original native owner confirms the challenge and continues. Opening a page alone is insufficient. |
+| Native URL challenge within the first-release scope | Reachable normal-browser URLs and supported static loopback forms close through A; original native continuation required. Named B-only browser flows are explicitly deferred, not repaired | Match existing local support; no upstream general form/URL expansion for this PR | Original native owner confirms the challenge and continues. Opening a page alone is insufficient. |
 | Surviving-owner reconnect/App restart | Restore original state and valid requests | Restore original state and valid requests | Fault injection with original binding/receipt readback. |
 | Native exit/startup recovery | Accurate request invalidation plus retained unknown effects | Consume existing native invalidation facts | No old decision reaches a new owner; new work remains usable. |
 
@@ -85,12 +86,14 @@ U2 refuses unimplemented browser semantics. The host regression exercises actual
 authenticated HTTP, App assembly and saved Codex binding. Review closure is limited
 to this slice; a final whole-PR review remains required.
 
-[Concrete URL classes and smallest choices](worker-peer-url-contract.md) distinguish
-reachable normal-browser websites from B-only origins, callbacks and B-only browser
-state. Existing scope is not reduced. An external same-origin/port forward plus an
-original-request-scoped opt-in opener is a candidate for the first remaining class;
-it is not implemented or proven for a real provider. Certificate/profile-bound
-flows need a provider/native path or an explicit user scope decision.
+[First-release URL support decision](worker-peer-url-contract.md) retains public
+reachable HTTP(S), including scripts/OAuth with reachable callbacks, and the
+verified bounded static HTTP form portal. The user explicitly deferred B-only
+localhost multistep/GET/JS/redirect/different-form-action pages, public login
+callbacks to B-loopback, and B-only certificates/browser state. These are real
+remaining limitations, not closed findings. No external-forward opener, automatic
+tunnels, general proxy or certificate/credential migration is added. This named
+scope decision does not waive other interaction, account, GUI or review gates.
 
 Candidate `8f203370` now also has two separate real-Runtime acceptance records:
 macOS **headless** A → Fedora x86_64 headless B with actual React and real Codex
@@ -123,3 +126,21 @@ Merge readiness requires: all five new findings closed with negative/positive ev
 ## Batch/source evidence
 
 Prior implementation commits: `b86c0bda8fa904d75237f518530c4385b9a9ca57`; M0 `7e42ddfe194355a14ce67eddc77ff5dca25139c4`; M1 `701171043eebd3a1f1f1e721b8d874a941ebed04`; M2/partial M3 `107f0c3b9ed6b194934863c77f1c4c2b492e160a`; Windows identity `7d6320fa127b989906a4d5e95a6d926626f94ff7`; strict exit fixture `790cf625b8b6e8ce1677931e2e18218d436b8034`. Their CI/fixture successes remain historical evidence, not closure of this review.
+
+## Final audit checkpoint
+
+Baseline `d04aa56c` CI39994365443 passed scope/macOS/Linux/Windows/product. Its
+original Windows full-suite trace records the target recovery test passing in
+0.19s; original start region 69.443ms, two Fsync calls (max 25.325ms), two
+MoveFileEx calls (max 16.096ms), six SetSecurityInfo calls (max 0.376ms). These
+measurements do not explain or repair the older 2.35s failure. Persistence
+semantics/deadlines/assertions remain unchanged.
+
+The next independent audit covers the complete official `main` → fixed candidate,
+not just the earlier 34-file URL slice. Record every finding, reproduction,
+fix/recheck and exact-source validation here. The older physical-machine/GUI
+record is at `8f203370`; later changes include offline receipt load validation,
+readonly/disabled-optgroup/inert control rejection and test-only CI diagnostics.
+They need their own final-head affected-path evidence, not relabelled old evidence.
+Q22 isolated account/model input is unanswered; dependent real-account steps remain
+blocked without a repeated question. Keep Draft until remaining gates are met.

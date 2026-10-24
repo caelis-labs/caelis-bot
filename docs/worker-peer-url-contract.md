@@ -1,10 +1,10 @@
-# Original Worker URL contract and remaining acceptance
+# Original Worker URL contract and first-release scope
 
 The original-request HTTP-form slice is implemented in `de4b791c`;
 [architecture, supported controls and repeatable command](worker-peer-url-forms.md).
 It is one shared user-only Worker companion and the original Codex task receipt,
 not a browser proxy, new native protocol or approval authority. Keep #221 Draft
-until the stated parity and representative acceptance gates pass.
+until the stated first-release and representative acceptance gates pass.
 
 ## Confirmed native contract
 
@@ -54,48 +54,57 @@ uses B's real selection/readiness. Readonly, disabled fieldset and inert templat
 forms are rejected, not projected into mutable/successful controls. Saved accepted
 and unknown receipts remain readable through a disconnected native projection.
 
-## Which local browser capabilities still regress remotely
+## First-release support decision
 
-| Native original URL/page | Local behavior | Current remote behavior / exact gap |
+The user explicitly deferred the following B-only browser flows for the first
+release. This is a scope decision, **not a repair or evidence of equivalence**.
+The rest of the same-Runtime task/interaction contract remains unchanged.
+
+| Native original URL/page | First-release behavior | Evidence / limit |
 | --- | --- | --- |
-| Public reachable HTTP(S), including JavaScript or OAuth with reachable callback | Original-owner-checked URL opens normal browser; original native reply remains separate | Same navigation path exists. OAuth/scripts alone are not a remote regression. Real provider native completion still needs representative evidence. |
-| B literal-loopback HTTP, single supported static POST on exact original URL | Normal browser can submit | Shared bounded portal completes with real Codex/Mock MCP/React proof. |
-| B-only localhost hostname, GET/multistep/redirect/JS or different form action | Browser handles ordinary website semantics | Portal refuses. This is a real regression when the original native provider issues such a request. |
-| Public login with callback to B loopback | Browser on B reaches callback | A browser may reach login but callback hits A unless externally forwarded. Merely opening the login does not pass. |
-| B HTTPS/local certificate or B-only browser credentials/profile | B browser may have required trust/state | Neither static portal nor ordinary SSH forwarding guarantees equivalent state. No credential copying or generic browser proxy. |
+| Public reachable HTTP(S), including JavaScript or OAuth with a reachable callback | Original-owner-checked URL opens A's normal browser; original native reply remains separate | Existing normal-browser route. Reachability includes every required callback. No claim of real third-party OAuth acceptance. |
+| B literal-loopback HTTP, one supported static POST on exact original URL | A's bounded portal submits to B's original request; native consent and continuation remain separate | Real Codex/Mock MCP/React evidence, including physical macOS headless A → Fedora B at `8f203370`. |
+| B-only localhost hostname, GET/multistep/redirect/JS or different form action | **Deferred**; current portal refuses and retains original pending/unknown facts | An actual local-to-remote limitation, not completed functionality. |
+| Public login with callback to B loopback | **Deferred**, unless the original callback is independently reachable from A through the supported normal-browser path | Opening the public login alone cannot complete the callback. Bot does not create a forward or add an external-forward opener. |
+| B HTTPS/local certificate or B-only browser credentials/profile | **Deferred** | No certificate/credential migration or browser-state relay. |
 
-## Smallest user-executable path and decisions
+A native URL is a website entry, not a serializable completion API. A's browser
+interprets localhost and a loopback callback as **A**, while the original service
+lives on B. Multistep pages can change methods/actions, run scripts, redirect and
+rely on origin-bound cookies or browser state. Supporting those semantics would
+require broader browser/transport authority than the exact static form projection.
+B-only certificates/profile credentials add separate trust and ownership barriers.
+There is no generic native handoff contract that makes those steps transparent.
 
-For the B-only ordinary HTTP/JS/redirect/callback class, a candidate is:
+Publicly reachable scripts or OAuth are **not categorically unsupported**. They
+use normal browser navigation if their entire required callback path is reachable.
+The bounded portal does not execute scripts or relay OAuth credentials. A webpage
+open, a safe refusal or a native consent alone never proves webpage completion or
+native continuation. Users are not sent to B to approve foreign work.
 
-1. The user externally forwards each **exact original origin/port**, e.g. an SSH
-   `-L 127.0.0.1:P:127.0.0.1:P`. Bot does not install/manage that forwarding.
-2. A exposes a user-only opt-in opener limited to the existing original request,
-   retaining its exact original URL/origin, expiry and native decision. This opener
-   is **not implemented yet**; current loopback refusal cannot be called support.
-3. A's normal browser handles scripts/redirects using A's own legitimate login.
-   B's original native result/continuation must independently confirm completion.
-   A local port conflict, unavailable callback origin or changed original request
-   must fail precisely; never silently rewrite callback/port or replay effects.
+## Deferred follow-up (not a first-release implementation gate)
 
-This needs an account-free actual A/B/browser/native representative JS + callback
-probe before it can count as a supported user path. It does not solve B-only
-certificates/profile-bound credentials; those require a concrete provider-supported
-reachable handoff/device flow, or an explicit first-release scope decision.
-
-Two real choices, if release scope must change: retain the current parity gate and
-implement/verify that narrowly scoped external-forward opener; or explicitly defer
-named B-only browser flows while shipping reachable normal-browser URLs plus the
-bounded portal. No choice has been made to reduce scope. Safe refusal,
-`capability=false`, going to B, or the broad phrase “OAuth unsupported” cannot close
-these gates. No arbitrary URL/credential proxy is proposed.
+Record concrete provider/native examples for B-only multistep/GET/JS/redirect or
+different-action pages, B-loopback login callbacks and B-only trust/browser state.
+Any future support needs an explicit original-request-scoped design and independent
+native continuation evidence. No automatic tunnels, general proxy, certificate or
+credential migration, or new external-forward opener is included in this release.
+Do not expand this backlog into a general browser system during final audit.
 
 ## Remaining representative acceptance
 
-Same-SHA macOS A → Fedora headless B, macOS desktop lifecycle/GUI and Caelis
-v0.73.2 real Runtime paths are separate from synthetic native tests. Existing SSH
+`8f203370` has physical macOS headless A → Fedora headless B and a separate
+macOS native GUI → released Core v0.73.2 journey with controlled local models.
+Those older records are not final-head evidence or a native-GUI remote-Worker
+journey. Final-head affected application checks and remaining representative
+GUI/upgrade paths stay separate from synthetic native tests. Existing SSH
 and release caches may be used only with isolated profiles after PID/path identity
 checks. Real account/model access needs an explicitly configured isolated profile;
 no keys or daily Store are copied. Final whole-PR independent review and matching
 candidate/check/smoke/build/CI evidence remain required before ready. Merge/release
 and changing formal services/tunnels remain unauthorised.
+
+The isolated real-account/model input (Q22) has not been supplied. Dependent real
+account steps remain blocked; no daily credentials/configuration may be copied
+and no unanswered question is inferred to be authorization. Scope deferral does
+not waive account/GUI, final review or exact-source validation gates.

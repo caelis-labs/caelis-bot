@@ -270,7 +270,7 @@
   "workerFileRefresh": "Retrieve again from original machine",
   "urlPageTitle": "Website verification",
   "urlPageConsentSeparate": "After submitting this form, respond to the original request. Submitting does not grant native approval.",
-  "urlPageUnsupported": "This page requires browser features that are not supported here. The original request remains pending.",
+  "urlPageUnsupported": "This version supports only simple forms at a remote machine’s local address. Pages needing scripts, redirects, multiple steps or that machine’s browser state cannot be completed here. The original request remains pending.",
   "urlPageUnavailable": "The original page is unavailable. No approval was sent.",
   "urlPageUnknown": "The submission result is unconfirmed. Check the original submission; do not submit it again.",
   "urlPageSubmitted": "The website accepted this submission. Respond to the original request to continue.",

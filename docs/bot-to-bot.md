@@ -183,7 +183,7 @@ fails closed. Legacy bindings without native owner/build evidence are not promot
 | Create/continue/output/history/files/original receipts/guarded stop | Shared ports, fixture and integration coverage | Shared ports, native HTTP fixtures and integration coverage |
 | Ordinary/secret forms and native option/opaque request projection | Native forms/options/opaque preserved | Native option/opaque projection; form answers rejected because the consumed native protocol has no form contract |
 | URL | Reachable original HTTP(S) URLs use the owner-checked browser; B-loopback static forms use the shared user-only portal plus original native consent | No generic native URL request contract claimed |
-| B-only loopback pages beyond the static form subset | Actual remaining regression for scripts/redirects/callbacks or B browser state; see concrete classes and choices in [URL contract](worker-peer-url-contract.md) | Match existing local support; no new generic form/URL feature |
+| B-only loopback pages beyond the static form subset | Explicit first-release deferral: B-only multistep/GET/JS/redirect/different-action pages, B-loopback login callbacks, B-only certificates/browser state; see [support boundary](worker-peer-url-contract.md) | Match existing local support; no new generic form/URL feature |
 | Transport reconnect while original native owner/request survives | Fresh state/requests read, no replay | Fresh state/requests read, no replay |
 | Native owner restart restores old pending response channel | `pendingAcrossRestart=false`; vanished channel is unknown; fresh native reissue required | `pendingAcrossRestart=false`; native option state is read, but general restart parity is not claimed |
 
@@ -204,13 +204,19 @@ The latter are refused rather than silently changing the website's controls.
 
 Core v0.73.2 shares the pinned public source/schema/wire and passed released native
 Host/old-session upgrade checks with isolated controlled model endpoints. Real
-account/model, physical cross-machine, native GUI and upgrade acceptance remain
-separate gates. Full existing-native browser parity is retained as a requirement;
-public reachable OAuth is not itself a missing feature. The precise remaining gap
-is B-only browser origins/callbacks/profile state. No user is required to operate
-B to resolve foreign work, and no scope reduction has been authorised. Caelis
-local generic form/URL expansion is outside this PR. Confirmed invalidation and
-unknown prior effects remain separate; dead native continuations are not revived.
+account/model, final-head native GUI and upgrade acceptance remain separate gates.
+Physical dual-host and native GUI controlled-model evidence at `8f203370` is
+recorded separately in the [roadmap](bot-to-bot-review-roadmap.md); it does not
+prove later-head or real-account acceptance. The user explicitly deferred named
+B-only browser flows for the first release. Public reachable HTTP(S), including
+scripts/OAuth whose required callbacks are reachable, remains on the normal
+browser path. The bounded static portal remains supported. This is an honest
+local-to-remote limitation for the deferred classes, not a repair or native success.
+No external-forward opener, automatic tunnels, general proxy or credential/state
+migration is added. Caelis local generic form/URL expansion is outside this PR.
+Confirmed invalidation and unknown prior effects remain separate; dead native
+continuations are not revived. Q22 isolated account/model input is still missing;
+dependent real-account acceptance stays blocked without a repeated question.
 
 New-task environments list only local and Bot peer profiles; the old SSH add
 entry is retired. Existing SSH helper profiles and original history paths remain
