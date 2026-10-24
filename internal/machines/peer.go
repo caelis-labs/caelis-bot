@@ -681,6 +681,7 @@ func (s *Service) RetainedApprovalURL(id string) (string, bool, error) {
 // peerStreams uses the same bounded native observation contract as local owners.
 // Each reconnect reads a fresh snapshot; it never dispatches a task or decision.
 type peerSubscription struct {
+	done       <-chan struct{}
 	cancel     context.CancelFunc
 	connection workerpeer.Connection
 	runtime    string
@@ -715,13 +716,7 @@ func (s *Service) peerStreams(ctx context.Context) {
 			}
 		}
 		s.mu.Unlock()
-		for id, stream := range running {
-			target, ok := targets[id]
-			if !ok || target.Peer != stream.connection || runtimes[id] != stream.runtime {
-				stream.cancel()
-				delete(running, id)
-			}
-		}
+		reapPeerStreams(running, targets, runtimes)
 		for id, p := range targets {
 			if _, exists := running[id]; exists {
 				continue
@@ -731,10 +726,12 @@ func (s *Service) peerStreams(ctx context.Context) {
 			}
 			streamCtx, cancel := context.WithCancel(ctx)
 			runtime := runtimes[id]
-			running[id] = peerSubscription{cancel: cancel, connection: p.Peer, runtime: runtime}
+			done := make(chan struct{})
+			running[id] = peerSubscription{done: done, cancel: cancel, connection: p.Peer, runtime: runtime}
 			streams.Add(1)
 			go func() {
 				defer streams.Done()
+				defer close(done)
 				for streamCtx.Err() == nil {
 					err := workerpeer.Watch(streamCtx, p.Peer, id, func(v api.WorkObservation) { s.applyPeerObservation(id, p, runtime, v) })
 					if streamCtx.Err() != nil {
@@ -992,4 +989,23 @@ func (s *Service) AuthorizeBotConnection(ctx context.Context, ref api.BotConnect
 	next := ref
 	v, err := s.connectBot(ctx, in, &next)
 	return v, next, err
+}
+
+// Canceled Watches retain their resource slot until the body/callback unwinds.
+// Never block observation fallback while a canceled stream finishes.
+func reapPeerStreams(running map[string]peerSubscription, targets map[string]profile, runtimes map[string]string) {
+	for id, stream := range running {
+		// A task can resume on the same connection while its canceled Watch exits.
+		// Reap completed lifetimes even if the target becomes eligible again.
+		select {
+		case <-stream.done:
+			delete(running, id)
+			continue
+		default:
+		}
+		target, ok := targets[id]
+		if !ok || target.Peer != stream.connection || runtimes[id] != stream.runtime {
+			stream.cancel()
+		}
+	}
 }

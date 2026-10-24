@@ -69,9 +69,13 @@ its product code was unchanged from that baseline. Final candidate check/smoke/
 build, affected race and actual A/B browser evidence must name the exact frozen
 source and are linked in the PR/task handoff. Pending/cancelled CI is never a pass.
 
-The real physical macOS headless A → Fedora headless B and separate native macOS
-GUI → released Core v0.73.2 controlled-model records are at `8f203370`, not the
-final candidate. Later production differences include offline original receipt
+Earlier physical macOS headless A → Fedora headless B and separate native macOS
+GUI → released Core v0.73.2 controlled-model records remain at `8f203370`. A
+subsequent clean `3bed7bd9` macOS headless A → Fedora B journey used real Codex
+0.162.1, isolated Mock MCP/local model and React: original URL task/request/owner,
+web/native/continuation effects 1/1/1, B product isolation and no account claim.
+Newer candidate records must still name their own source/artifact; none relabels
+those earlier runs. Later production differences include offline original receipt
 load validation, stricter browser control rejection and the five audit repair
 boundaries above; test-only Windows timing diagnostics are separate. Final-head
 A/B evidence cannot relabel those old hardware/GUI records.
@@ -82,3 +86,31 @@ daily credential copying or inferred permission. Remaining representative native
 macOS remote-Worker approval/lifecycle/upgrade and full loss/restart/revoke/source
 matrix evidence must stay explicit. This document does not authorize ready,
 merge or release; the PR stays Draft while acceptance gates remain.
+
+## Subscription cancellation follow-up
+
+`3bed7bd9` CI40092637391 passed macOS/Windows but Linux failed
+`TestPeerHistoricalQuestionsDoNotStarveOnlyActiveApproval`: server handler max17.
+Inspection and independent deterministic regressions found cancellation released
+an A subscription slot before its Watch/body/callback lifetime had exited.
+Canceled Watches now retain their slot until `done`; observation fallback keeps
+running. A resumed same-task/same-connection target also reaps an exited Watch
+before replacement, rather than retaining a dead slot. `Observe` joins its two
+owned background loops on cancellation; native Workers are not stopped.
+
+The integration assertion still enforces **16**, now measured at the actual
+A HTTP request/response-body lifetime, including connection errors and final
+Close. Remote canceled handler scheduling is a separate teardown diagnostic;
+remote convergence to one active stream remains checked. The new deterministic
+cancellation/generation/resumption tests failed before their respective fixes;
+17 approvals, 16 historical questions plus one active task and failed-SSE
+compensation remain covered. This is a lifecycle repair, not a higher budget,
+longer deadline, weakened durability or a generic task-wait change.
+
+The preserved old isolated macOS GUI profile booted under `3bed7bd9` with released
+Core0.73.2 and unchanged runtime/initialization/model-configuration identity.
+`cua.getApp` twice failed with `Sky Computer Use native pipe startup failed`;
+no visual interaction/history/GUI upgrade pass is claimed. This tooling blocker
+is independent of missing Q22 account input. Only the owned App/private Core were
+stopped and the old profile/history retained. Fixed-head follow-up evidence and
+current CI are recorded in the PR; pending or cancelled runs are never success.

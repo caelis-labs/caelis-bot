@@ -153,3 +153,11 @@ fresh-code authorization on the original profile/proof, with old unknown and
 pending references retained, response-loss reconciliation and archive/restart
 coverage; it is separate from known bad-code correction. Exact frozen-head checks and remaining account/GUI gates are
 reported separately from the earlier `8f203370` hardware record.
+
+A later clean `3bed7bd9` physical macOS-headless→Fedora journey passed using real
+Codex/React and controlled Mock MCP/model (URL effects1/1/1, B product isolation).
+The same source's native GUI profile boot/configuration check succeeded, but
+visual acceptance was blocked by the native UI control pipe, independently of
+Q22. Its Linux CI exposed a canceled-SSE slot lifetime defect; the final audit
+map records the deterministic failure/fix and strict16 client-lifetime metric.
+These are source-bound evidence, not approval to waive final-head or GUI gates.

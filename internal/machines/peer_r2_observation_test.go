@@ -3,8 +3,10 @@ package machines
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,7 +28,8 @@ func (n *r2ObservedNative) ObserveWork(ctx context.Context, id string) (api.Work
 }
 
 type r2StreamCounters struct {
-	active, maximum, attempts atomic.Int32
+	active, maximum, attempts   atomic.Int32
+	clientActive, clientMaximum atomic.Int32
 }
 
 func r2ObservationTarget(t *testing.T, failEvents bool) (*dualPeerTarget, *r2StreamCounters) {
@@ -66,6 +69,12 @@ func r2ObservationTarget(t *testing.T, failEvents bool) (*dualPeerTarget, *r2Str
 		}
 		s.ServeHTTP(w, r)
 	}))
+	// Count the actual A-side HTTP lifetime, including connection and Body.Close.
+	// A canceled B handler can still be queued for teardown after A has closed its
+	// socket; that remote scheduling delay is not a live client subscription.
+	previous := http.DefaultTransport
+	http.DefaultTransport = &r2ClientTransport{upstream: previous, peer: f.http.URL, counters: streams}
+	t.Cleanup(func() { http.DefaultTransport = previous })
 	t.Cleanup(f.http.Close)
 	t.Cleanup(func() { _ = s.Close(context.Background()) })
 	return f, streams
@@ -104,8 +113,8 @@ func TestPeerAllApprovalsArriveWithoutDetailBeyondStreamBudget(t *testing.T) {
 			if streams.attempts.Load() == 0 {
 				t.Fatal("fixture never exercised the SSE transport")
 			}
-			if streams.maximum.Load() > 16 {
-				t.Fatal("subscription budget increased", streams.maximum.Load())
+			if streams.clientMaximum.Load() > 16 {
+				t.Fatal("subscription budget increased", streams.clientMaximum.Load())
 			}
 		})
 	}
@@ -163,7 +172,38 @@ func TestPeerHistoricalQuestionsDoNotStarveOnlyActiveApproval(t *testing.T) {
 			t.Fatal("completed historical question retained a subscription", id)
 		}
 	}
-	if streams.maximum.Load() > 16 {
-		t.Fatal("subscription budget increased", streams.maximum.Load())
+	if streams.clientMaximum.Load() > 16 {
+		t.Fatal("subscription budget increased", streams.clientMaximum.Load())
 	}
 }
+
+type r2ClientTransport struct {
+	upstream http.RoundTripper
+	peer     string
+	counters *r2StreamCounters
+}
+
+func (rt *r2ClientTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Scheme+"://"+r.URL.Host != rt.peer || r.URL.Path != workerpeer.Prefix+"events" {
+		return rt.upstream.RoundTrip(r)
+	}
+	n := rt.counters.clientActive.Add(1)
+	for old := rt.counters.clientMaximum.Load(); n > old && !rt.counters.clientMaximum.CompareAndSwap(old, n); old = rt.counters.clientMaximum.Load() {
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { rt.counters.clientActive.Add(-1) }) }
+	response, err := rt.upstream.RoundTrip(r)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	response.Body = &r2ClientBody{ReadCloser: response.Body, release: release}
+	return response, nil
+}
+
+type r2ClientBody struct {
+	io.ReadCloser
+	release func()
+}
+
+func (b *r2ClientBody) Close() error { defer b.release(); return b.ReadCloser.Close() }

@@ -325,8 +325,10 @@ func (s *Service) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 // Poll native facts, never a model. Observation cancellation leaves target owners
 // alive; reconnecting reads the same durable bindings and never resends a turn.
 func (s *Service) Observe(ctx context.Context) {
-	go s.peerStreams(ctx)
-	go s.observeBotProfiles(ctx)
+	var background sync.WaitGroup
+	background.Go(func() { s.peerStreams(ctx) })
+	background.Go(func() { s.observeBotProfiles(ctx) })
+	defer background.Wait()
 	type observation struct {
 		budget   sharedruntime.ObservationBudget
 		revision uint64
