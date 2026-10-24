@@ -1,5 +1,18 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.WorkerTasks":{"path":"/api/v1/tasks/worker-list","read":true},
+ "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
+ "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
+ "backend.WorkerFileCopy":{"path":"/api/v1/files/worker-copy","read":true},
+ "backend.AuthorizeBotConnection":{"path":"/api/v1/machines/authorize-bot","read":false},
+ "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
+ "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
+ "backend.RecoverWorkerSharing":{"path":"/api/v1/machines/recover-worker-sharing","read":false},
+ "backend.SaveWorkerSharing":{"path":"/api/v1/machines/save-worker-sharing","read":false},
+ "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
+ "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
+ "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},
+ "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
  "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},
  "backend.DiagnosticReport":{"path":"/api/v1/diagnostics/read","read":true},
@@ -7,6 +20,11 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "path": "/api/v1/conversation/snapshot",
   "read": true
  },
+ "backend.ApprovalURL":{"path":"/api/v1/conversation/approval-url","read":true},
+ "backend.ApprovalPage":{"path":"/api/v1/conversation/approval-page","read":true},
+ // Original native adapter receipts handle this submission; arguments never persist.
+ "backend.SubmitApprovalPage":{"path":"/api/v1/conversation/approval-page-submit","read":true},
+ "backend.ApprovalPageOperation":{"path":"/api/v1/conversation/approval-page-operation","read":true},
  "backend.PetSnapshot": {
   "path": "/api/v1/conversation/pet-snapshot",
   "read": true

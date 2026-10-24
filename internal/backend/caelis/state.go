@@ -24,6 +24,7 @@ type pendingInput struct {
 }
 
 type journal struct {
+	Work           *workIntent        `json:"work,omitempty"`
 	OriginRequests []string           `json:"originRequests,omitempty"`
 	OriginOwner    string             `json:"originOwner,omitempty"`
 	ReceiptID      string             `json:"receiptID,omitempty"`
@@ -39,6 +40,7 @@ type journal struct {
 	Source         wire.SessionSource `json:"source"`
 }
 type view struct {
+	WorkerOutput    *workerTranscript                `json:"workerOutput,omitempty"`
 	InputScopes     map[string]inputScope            `json:"inputScopes,omitempty"`
 	Usage           api.ContextUsage                 `json:"-"`
 	UsageTurn       string                           `json:"-"`
@@ -79,31 +81,32 @@ type binding struct {
 
 	// Keep callback formats across a crash or a disabled experiment so old
 	// pending calls can receive an unknown receipt without redispatching effects.
-	ContentCatalogs   map[string]map[string]bool           `json:"contentCatalogs,omitempty"`
-	Context           contextseed.State                    `json:"context,omitempty"`
-	ContextInputs     map[string]int                       `json:"contextInputs,omitempty"`
-	ContextRequests   map[string]string                    `json:"contextRequests,omitempty"`
-	PastSessions      []string                             `json:"pastSessions,omitempty"`
-	RenewedBy         string                               `json:"renewedBy,omitempty"`
-	CommandFollowups  map[string]commandFollowup           `json:"commandFollowups,omitempty"`
-	Version           int                                  `json:"version"`
-	ProjectionVersion int                                  `json:"projectionVersion"`
-	StoreID           string                               `json:"storeID"`
-	StoreDirectory    string                               `json:"storeDirectory,omitempty"`
-	Endpoint          string                               `json:"endpoint"`
-	InstanceID        string                               `json:"instanceID"`
-	PrincipalID       string                               `json:"principalID"`
-	Session           wire.SessionBinding                  `json:"session"`
-	CreateID          string                               `json:"createID"`
-	Operations        map[string]journal                   `json:"operations"`
-	Views             map[string]*view                     `json:"views"`
-	Calls             map[string]callRecord                `json:"calls"`
-	Typed             map[string]typedRecord               `json:"typed"`
-	Configurations    map[string]wire.SessionConfiguration `json:"configurations"`
-	Workers           map[string]worker                    `json:"workers"`
-	Grants            map[string]grantRecord               `json:"grants"`
-	FinishedTurn      string                               `json:"finishedTurn"`
-	LastReceipt       api.Receipt                          `json:"lastReceipt"`
+	ContentCatalogs    map[string]map[string]bool           `json:"contentCatalogs,omitempty"`
+	Context            contextseed.State                    `json:"context,omitempty"`
+	ContextInputs      map[string]int                       `json:"contextInputs,omitempty"`
+	ContextRequests    map[string]string                    `json:"contextRequests,omitempty"`
+	PastSessions       []string                             `json:"pastSessions,omitempty"`
+	RenewedBy          string                               `json:"renewedBy,omitempty"`
+	CommandFollowups   map[string]commandFollowup           `json:"commandFollowups,omitempty"`
+	Version            int                                  `json:"version"`
+	ProjectionVersion  int                                  `json:"projectionVersion"`
+	StoreID            string                               `json:"storeID"`
+	StoreDirectory     string                               `json:"storeDirectory,omitempty"`
+	Endpoint           string                               `json:"endpoint"`
+	InstanceID         string                               `json:"instanceID"`
+	PrincipalID        string                               `json:"principalID"`
+	Session            wire.SessionBinding                  `json:"session"`
+	CreateID           string                               `json:"createID"`
+	Operations         map[string]journal                   `json:"operations"`
+	Views              map[string]*view                     `json:"views"`
+	Calls              map[string]callRecord                `json:"calls"`
+	Typed              map[string]typedRecord               `json:"typed"`
+	Configurations     map[string]wire.SessionConfiguration `json:"configurations"`
+	WorkSourceIdentity string                               `json:"workSourceIdentity,omitempty"`
+	Workers            map[string]worker                    `json:"workers"`
+	Grants             map[string]grantRecord               `json:"grants"`
+	FinishedTurn       string                               `json:"finishedTurn"`
+	LastReceipt        api.Receipt                          `json:"lastReceipt"`
 }
 
 // privateRead refuses redirected/world-readable metadata and bounds allocations.

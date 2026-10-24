@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	_ "modernc.org/sqlite"
 )
@@ -52,7 +53,13 @@ func (s *Server) archiveDB() (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS retired (id TEXT PRIMARY KEY, digest TEXT NOT NULL, owner TEXT NOT NULL, error TEXT NOT NULL) WITHOUT ROWID`)
+	_, err = db.Exec(`PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS retired (id TEXT PRIMARY KEY, digest TEXT NOT NULL, owner TEXT NOT NULL, error TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '') WITHOUT ROWID`)
+	if err == nil {
+		err = addArchiveDetail(db)
+	}
+	if err == nil {
+		err = addArchiveAuthorization(db)
+	}
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -60,6 +67,30 @@ func (s *Server) archiveDB() (*sql.DB, error) {
 	s.retired = db
 	return db, nil
 }
+
+func addArchiveDetail(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(retired)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			break
+		}
+		found = found || name == "detail"
+	}
+	err = errors.Join(err, rows.Err(), rows.Close())
+	if err != nil || found {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE retired ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
 func (s *Server) lookupOperation(id string) (operation, bool, error) {
 	if op, ok := s.operations[id]; ok {
 		op, err := s.reconcileOperation(id, op)
@@ -70,7 +101,17 @@ func (s *Server) lookupOperation(id string) (operation, bool, error) {
 		return operation{}, false, err
 	}
 	op := operation{State: "complete"}
-	err = db.QueryRow(`SELECT digest, owner, error FROM retired WHERE id = ?`, digest(id)).Scan(&op.Digest, &op.Owner, &op.Error)
+	var authorization string
+	err = db.QueryRow(`SELECT digest, owner, error, detail, authorization FROM retired WHERE id = ?`, digest(id)).Scan(&op.Digest, &op.Owner, &op.Error, &op.Detail, &authorization)
+	if err == nil && authorization != "" {
+		var archived botAuthorizationArchive
+		if err = json.Unmarshal([]byte(authorization), &archived); err == nil {
+			op.BotAuthorization = true
+			op.BotConnection = archived.Reference
+			op.AuthorizationParent = archived.Parent
+			op.ArchivedAuthorization = archived.Accepted
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return operation{}, false, nil
 	}
@@ -97,6 +138,16 @@ func (s *Server) loadOperations() error {
 	}
 	if s.operations == nil {
 		s.operations = map[string]operation{}
+	}
+	// The prior host process cannot complete an admitted authorization invocation.
+	// Its grant effect is still unknown; retain the original reference for reads
+	// and a separate explicit authorization rather than replaying the write.
+	for id, op := range s.operations {
+		if (op.BotConnection != nil || op.Remote) && op.State == "pending" {
+			op.State = "complete"
+			op.Error = "operation_unconfirmed"
+			s.operations[id] = op
+		}
 	}
 	return s.compactOperations()
 }
@@ -142,7 +193,12 @@ func (s *Server) compactOperations() error {
 		if code == "" {
 			code = "operation_retired"
 		}
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO retired(id,digest,owner,error) VALUES(?,?,?,?)`, digest(id), op.Digest, op.Owner, code); err != nil {
+		authorization := ""
+		if op.BotAuthorization {
+			value, _ := json.Marshal(botAuthorizationArchive{Reference: op.BotConnection, Parent: op.AuthorizationParent, Accepted: botAuthorizationConfirmed(op)})
+			authorization = string(value)
+		}
+		if _, err = tx.Exec(`INSERT OR IGNORE INTO retired(id,digest,owner,error,detail,authorization) VALUES(?,?,?,?,?,?)`, digest(id), op.Digest, op.Owner, code, operationDetail(op), authorization); err != nil {
 			return err
 		}
 	}
@@ -163,4 +219,35 @@ func (s *Server) compactOperations() error {
 	}
 	s.operations = next
 	return nil
+}
+
+// Preserve only authorization provenance when display values retire. This is
+// the existing ingress tombstone store, never another grant/execution ledger.
+type botAuthorizationArchive struct {
+	Reference *api.BotConnectionReference `json:"reference"`
+	Parent    string                      `json:"parent,omitempty"`
+	Accepted  bool                        `json:"accepted"`
+}
+
+func addArchiveAuthorization(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(retired)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			break
+		}
+		found = found || name == "authorization"
+	}
+	err = errors.Join(err, rows.Err(), rows.Close())
+	if err != nil || found {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE retired ADD COLUMN authorization TEXT NOT NULL DEFAULT ''`)
+	return err
 }

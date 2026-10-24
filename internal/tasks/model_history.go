@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -91,6 +92,12 @@ func (m *Manager) QueryTaskHistory(q api.TaskHistoryQuery) ([]api.TaskHistoryEnt
 }
 
 func (m *Manager) ReadTaskConversation(ctx context.Context, id string) (api.TaskConversation, error) {
+	machine := m.taskEnvironment(id)
+	release, e := m.environmentOperation(ctx, machine)
+	if e != nil {
+		return api.TaskConversation{}, e
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if err := m.owned(id); err != nil {
@@ -100,17 +107,25 @@ func (m *Manager) ReadTaskConversation(ctx context.Context, id string) (api.Task
 	if !ok {
 		return api.TaskConversation{}, errors.New("native task messages are unavailable for this Runtime")
 	}
-	view, err := m.work.ReadWork(ctx, id)
+	view, err := workerIO(m, machine, func() (api.Task, error) { return m.work.ReadWork(ctx, id) })
 	view, err = m.capture(id, view, err)
 	if err != nil {
 		return api.TaskConversation{}, err
 	}
-	messages, err := reader.ReadWorkConversation(ctx, id)
+	messages, err := workerIO(m, machine, func() ([]api.TaskConversationMessage, error) { return reader.ReadWorkConversation(ctx, id) })
 	if err != nil {
 		return api.TaskConversation{}, err
 	}
 	if messages == nil {
 		messages = []api.TaskConversationMessage{}
+	}
+	messages = slices.Clone(messages)
+	for i := range messages {
+		messages[i].Artifacts = slices.Clone(messages[i].Artifacts)
+		for j := range messages[i].Artifacts {
+			a := &messages[i].Artifacts[j]
+			a.ID = api.TaskArtifactID(id, a.ID)
+		}
 	}
 	return api.TaskConversation{Status: view.Status, Messages: messages}, nil
 }

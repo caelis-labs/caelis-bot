@@ -49,6 +49,17 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
+export interface BotConnectionAuthorization {
+  connection: BotConnectionInput;
+  originalOperationId?: string;
+}
+export interface BotConnectionInput {
+  reconnect?: boolean;
+  id: string;
+  name: string;
+  address: string;
+  code: string;
+}
 export interface BotInitialization {
   requestId?: string;
   prompt?: string;
@@ -103,6 +114,7 @@ export interface ExecutionSettings {
   approvalMode: string;
 }
 export interface Item {
+  historyId?: string;
   requestId: string;
   seenAt?: number;
   turnKey: string;
@@ -127,6 +139,10 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
+  checkedAt?: number;
+  archived?: boolean;
+  connectionType?: string;
+  peerId?: string;
   id: string;
   name: string;
   address: string;
@@ -530,6 +546,36 @@ export interface Submission {
   referenceIds: Array<string>;
   quoted?: QuotedMessage | null;
 }
+export interface Task {
+  createdAt?: string;
+  machineName?: string;
+  machine?: string;
+  id: string;
+  title: string;
+  workspace: string;
+  status: string;
+  outcome?: string;
+  result?: string;
+}
+export interface TaskConversation {
+  status: string;
+  messages: Array<TaskConversationMessage>;
+}
+export interface TaskConversationMessage {
+  id: string;
+  role: string;
+  text: string;
+  artifacts?: Array<Artifact>;
+}
+export interface TaskFileCopy {
+  id: string;
+  name: string;
+  mediaType: string;
+  sha256: string;
+  bytes: number;
+  cached: boolean;
+  fetchedAt: number;
+}
 export interface TaskPresentation {
   id?: string;
   title: string;
@@ -539,4 +585,55 @@ export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
+}
+export interface WorkURLField {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  value: string;
+  options: Array<WorkURLOption>;
+}
+export interface WorkURLOption {
+  value: string;
+  label: string;
+}
+export interface WorkURLPage {
+  revision: string;
+  origin: string;
+  title: string;
+  text: string;
+  submitLabel: string;
+  fields: Array<WorkURLField>;
+  operation?: WorkURLReceipt | null;
+}
+export interface WorkURLReceipt {
+  requestId: string;
+  fingerprint: string;
+  outcome: string;
+}
+export interface WorkerPeerSource {
+  id: string;
+  name: string;
+  pairedAt: number;
+}
+export interface WorkerSharing {
+  enabled: boolean;
+  address: string;
+  listen: string;
+  listening: boolean;
+  managed: boolean;
+  peer: string;
+  code?: string;
+  expiresAt?: number;
+  sources: Array<WorkerPeerSource>;
+}
+export interface WorkerSharingInput {
+  listen: string;
+  address: string;
+}
+export interface WorkerTaskObservation {
+  task: Task;
+  items: Array<Item>;
+  revision: string;
 }

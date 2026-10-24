@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,9 +75,30 @@ func runCodexInstaller(ctx context.Context, script string) error {
 	if err != nil {
 		return errors.New("无法启动 Codex 安装")
 	}
-	defer output.Close()
 	stderr := &boundedOutput{}
-	cmd.Stderr = stderr
+	errorOutput, errorWriter, err := os.Pipe()
+	if err != nil {
+		_ = output.Close()
+		return errors.New("无法启动 Codex 安装")
+	}
+	defer errorWriter.Close()
+	cmd.Stderr = errorWriter
+	var closeOnce sync.Once
+	closeReaders := func() {
+		closeOnce.Do(func() {
+			_ = output.Close()
+			_ = errorOutput.Close()
+		})
+	}
+	defer closeReaders()
+	cancel := cmd.Cancel
+	cmd.Cancel = func() error {
+		err := cancel() // Preserve the existing installer-only process-group scope.
+		// A descendant can retain either pipe after the shell has exited. End
+		// our reads so cancellation reaches Wait instead of blocking in Scan.
+		closeReaders()
+		return err
+	}
 	for _, v := range os.Environ() {
 		if !strings.HasPrefix(v, "PATH=") && !strings.HasPrefix(v, "CODEX_INSTALL") && !strings.HasPrefix(v, "CODEX_NON_INTERACTIVE=") && !strings.HasPrefix(v, "CODEX_RELEASE=") {
 			cmd.Env = append(cmd.Env, v)
@@ -91,6 +113,12 @@ func runCodexInstaller(ctx context.Context, script string) error {
 	if e := cmd.Start(); e != nil {
 		return errors.New("无法启动 Codex 官方安装脚本，请检查本机执行权限")
 	}
+	_ = errorWriter.Close() // Only the child may retain the write end now.
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		_, _ = io.Copy(stderr, errorOutput)
+	}()
 	scanner := bufio.NewScanner(output)
 	for scanner.Scan() {
 		switch {
@@ -102,7 +130,33 @@ func runCodexInstaller(ctx context.Context, script string) error {
 	}
 	// Drain even unexpected long output so a script cannot block on its pipe.
 	_, _ = io.Copy(io.Discard, output)
-	if e := cmd.Wait(); e != nil {
+	e := cmd.Wait()
+	// Preserve all normal diagnostics. A surviving foreign writer gets the
+	// same existing WaitDelay allowance, without relying on exec's copy loop.
+	var drainDeadline <-chan time.Time
+	if cmd.WaitDelay > 0 {
+		timer := time.NewTimer(cmd.WaitDelay)
+		defer timer.Stop()
+		drainDeadline = timer.C
+	}
+	select {
+	case <-stderrDone:
+	case <-ctx.Done():
+		// Wait may already have reaped the installer and stopped its context
+		// watcher while an unrelated writer still retains stderr.
+		closeReaders()
+		<-stderrDone
+		if e == nil {
+			e = ctx.Err()
+		}
+	case <-drainDeadline:
+		closeReaders()
+		<-stderrDone
+		if e == nil {
+			e = exec.ErrWaitDelay
+		}
+	}
+	if e != nil {
 		if ctx.Err() != nil {
 			return codexDownloadError(ctx.Err())
 		}

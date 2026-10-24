@@ -23,11 +23,13 @@ import (
 )
 
 type Options struct {
-	Diagnostics   *diagnosticlog.Logger
-	WorkExecution api.WorkExecutionSettings
-	Directory     string
-	Settings      api.RuntimeSettings
-	Execution     api.ExecutionSettings
+	// WorkSourceIdentity is set by the authenticated host factory, not remote JSON.
+	WorkSourceIdentity string
+	Diagnostics        *diagnosticlog.Logger
+	WorkExecution      api.WorkExecutionSettings
+	Directory          string
+	Settings           api.RuntimeSettings
+	Execution          api.ExecutionSettings
 	// ToolsOnly is for protocol acceptance without native execution. Product
 	// assembly always requests workspace-write; it never silently falls back.
 	ToolsOnly bool
@@ -40,6 +42,7 @@ type Session struct {
 	cached                atomic.Pointer[api.Snapshot]
 	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
+	workSourceIdentity    string
 	sendingScheduled      string
 	dispatching           map[string]bool // Live POSTs; durable unknown journals also survive crashes.
 	scheduledPreviousTurn string
@@ -96,7 +99,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	s := &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
+	s := &Session{workSourceIdentity: opts.WorkSourceIdentity, requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
 	s.bumpLocked()
 	return s
 }

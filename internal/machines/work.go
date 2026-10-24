@@ -16,9 +16,18 @@ func (s *Service) TaskMachines() []api.TaskMachine {
 	defer s.mu.Unlock()
 	out := []api.TaskMachine{}
 	for _, p := range s.state.Profiles {
-		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: p.View.State == "ready"})
+		// New product delegation uses Bot peers. Legacy helper profiles remain
+		// addressable only through already retained task bindings and setup repair.
+		if p.View.ConnectionType != "bot" || p.View.Archived {
+			continue
+		}
+		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: botProfileReady(p.View)})
 	}
 	return out
+}
+func botProfileReady(v api.Machine) bool {
+	age := time.Since(time.UnixMilli(v.CheckedAt))
+	return v.State == "ready" && !v.Archived && v.CheckedAt > 0 && age >= 0 && age <= 60*time.Second
 }
 func (s *Service) WorkAdmission(ctx context.Context) error { return s.local.WorkAdmission(ctx) }
 func (s *Service) WorkStates() []api.WorkState {
@@ -50,23 +59,41 @@ func (s *Service) cacheResponse(id, name, runtime string, states []api.WorkState
 }
 func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id string) (string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	p, ok := s.state.Profiles[in.Machine]
 	if !ok {
+		s.mu.Unlock()
 		return "", errors.New("machine_not_ready")
 	}
-	// bindLocked checks readiness for a new route. A recorded preparation keeps
-	// its original backend even if the new default is currently unconfigured.
 	runtime, e := s.bindLocked(in, id, "")
+	key := s.state.ReservationKeys[id]
+	reserved := s.state.Reservations[id]
+	s.mu.Unlock()
 	if e != nil {
 		return "", e
 	}
 	r, e := s.call(ctx, p, remotework.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
 	if e != nil {
-		return "", errors.Join(e, s.releasePreparationLocked(id))
+		return "", errors.Join(e, s.ReleaseWorkPreparation(id))
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Routes[id] != in.Machine || s.state.Runtimes[id] != runtime || s.state.Reservations[id] != reserved || s.state.ReservationKeys[id] != key || !sameBotConfiguration(s.state.Profiles[in.Machine], p) {
+		return "", errors.New("work_preparation_changed")
+	}
+	if reserved && p.View.ConnectionType == "bot" && len(r.Available) == 1 {
+		selected := r.Available[0]
+		if selected != "codex" && selected != "caelis" {
+			return "", errors.New("original_task_runtime_unavailable")
+		}
+		s.state.Runtimes[id] = selected
+		if err := s.save(); err != nil {
+			s.state.Runtimes[id] = runtime
+			return "", err
+		}
 	}
 	return r.Task.Workspace, nil
 }
+
 func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	if in.Machine == "" {
 		return s.local.StartWork(ctx, in)
@@ -75,26 +102,29 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return api.Task{}, e
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	runtime, e := s.bindLocked(in.TaskStart, in.ID, "")
 	if e != nil {
+		s.mu.Unlock()
 		return api.Task{}, e
 	}
-	// Crossing this fence makes the route an owner even if dispatch's outcome is
-	// unknown. Preparation cleanup must never release it after this point.
+	// Retain the original route before dispatch, even if the response is lost.
 	if s.state.Reservations[in.ID] {
+		reservationKey := s.state.ReservationKeys[in.ID]
 		delete(s.state.Reservations, in.ID)
+		delete(s.state.ReservationKeys, in.ID)
 		if e = s.save(); e != nil {
 			s.state.Reservations[in.ID] = true
+			if s.state.ReservationKeys == nil {
+				s.state.ReservationKeys = map[string]string{}
+			}
+			s.state.ReservationKeys[in.ID] = reservationKey
+			s.mu.Unlock()
 			return api.Task{}, e
 		}
 	}
 	p := s.state.Profiles[in.Machine]
-	r, e := s.call(ctx, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
-	r.Task.Machine = in.Machine
-	r.Task.MachineName = p.View.Name
-	s.refreshCacheLocked(ctx, in.Machine, p, runtime)
-	return r.Task, e
+	s.mu.Unlock()
+	return s.callWork(ctx, in.Machine, runtime, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
 }
 
 type workPoll struct {
@@ -198,18 +228,28 @@ func (s *Service) invalidateActivity(id, runtime string) {
 }
 func (s *Service) remote(ctx context.Context, id, action string, message api.TaskMessage) (api.Task, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	machine := s.state.Routes[id]
+	machine, runtime := s.state.Routes[id], s.state.Runtimes[id]
 	p, ok := s.state.Profiles[machine]
+	s.mu.Unlock()
 	if !ok {
 		return api.Task{}, errors.New("original_machine_unavailable")
 	}
-	r, e := s.call(ctx, p, remotework.Request{Action: action, Runtime: s.state.Runtimes[id], ID: id, Message: message})
-	r.Task.Machine = machine
-	r.Task.MachineName = p.View.Name
-	s.refreshCacheLocked(ctx, machine, p, s.state.Runtimes[id])
-	return r.Task, e
+	return s.callWork(ctx, machine, runtime, p, remotework.Request{Action: action, Runtime: runtime, ID: id, Message: message})
 }
+
+// A network write must not hold the route lock in front of its guarded Stop.
+// Refresh uses the existing profile/revision fence, so late results cannot
+// overwrite observations from a changed connection or another execution.
+func (s *Service) callWork(ctx context.Context, machine, runtime string, p profile, request remotework.Request) (api.Task, error) {
+	s.cacheMu.RLock()
+	revision := s.cacheRevision[machine+"\x00"+runtime]
+	s.cacheMu.RUnlock()
+	r, err := s.call(ctx, p, request)
+	r.Task.Machine, r.Task.MachineName = machine, p.View.Name
+	s.pollWork(ctx, workPoll{id: machine, runtime: runtime, profile: p, revision: revision})
+	return r.Task, err
+}
+
 func (s *Service) route(id string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -295,28 +335,14 @@ func (s *Service) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	r.Terminal.SSH, e = s.sshArgs(p, true)
 	return r.Terminal, e
 }
-func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, runtime string) {
-	r, e := s.call(ctx, p, remotework.Request{Action: "states", Runtime: runtime})
-	if e == nil {
-		s.cacheResponse(id, p.View.Name, runtime, r.States)
-		if p.View.Runtime == runtime && p.View.State == "offline" {
-			// Reachability alone is not readiness: recheck native account/model
-			// admission before making this machine available for new work.
-			_, _ = s.inspectLocked(ctx, id, p.View.Runtime)
-		}
-	} else {
-		if p.View.Runtime == runtime && (p.View.State != "offline" || p.View.Issue != e.Error()) {
-			p.View.State, p.View.Issue = "offline", e.Error()
-			s.state.Profiles[id] = p
-			_ = s.save()
-		}
-		s.invalidateActivity(id, runtime)
-	}
-}
 
 // Poll native facts, never a model. Observation cancellation leaves target owners
 // alive; reconnecting reads the same durable bindings and never resends a turn.
 func (s *Service) Observe(ctx context.Context) {
+	var background sync.WaitGroup
+	background.Go(func() { s.peerStreams(ctx) })
+	background.Go(func() { s.observeBotProfiles(ctx) })
+	defer background.Wait()
 	type observation struct {
 		budget   sharedruntime.ObservationBudget
 		revision uint64

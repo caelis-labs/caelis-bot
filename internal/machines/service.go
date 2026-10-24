@@ -13,6 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"maps"
 	"os"
 	"path/filepath"
@@ -20,14 +21,19 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type profile struct {
-	View     api.Machine `json:"view"`
-	Key      string      `json:"key"`
-	Root     string      `json:"root"`
-	Helper   string      `json:"helper"`
-	Identity string      `json:"identity"`
+	PairingCodeDigest  string                `json:"pairingCodeDigest,omitempty"`
+	RetainPairingProof bool                  `json:"retainPairingProof,omitempty"`
+	PairingEpoch       string                `json:"pairingEpoch,omitempty"`
+	Peer               workerpeer.Connection `json:"peer,omitempty"`
+	View               api.Machine           `json:"view"`
+	Key                string                `json:"key"`
+	Root               string                `json:"root"`
+	Helper             string                `json:"helper"`
+	Identity           string                `json:"identity"`
 }
 type disk struct {
 	Version   int                `json:"version"`
@@ -36,22 +42,28 @@ type disk struct {
 	Routes    map[string]string  `json:"routes"`
 	Runtimes  map[string]string  `json:"runtimes,omitempty"`
 	// Reservations have never dispatched a Worker. Legacy routes are owners.
-	Reservations map[string]bool `json:"reservations,omitempty"`
+	Reservations    map[string]bool   `json:"reservations,omitempty"`
+	ReservationKeys map[string]string `json:"reservationKeys,omitempty"`
 }
 type Service struct {
-	loadErr       error
-	request       func(context.Context, profile, remotework.Request) (remotework.Response, error)
-	mu            sync.Mutex
-	secretMu      sync.RWMutex
-	secretStore   secretstore.Store
-	cacheMu       sync.RWMutex
-	root          string
-	state         disk
-	secrets       map[string]string
-	cache         map[string][]api.WorkState
-	cacheRevision map[string]uint64 // guarded by mu; fences late observations
-	local         api.WorkRuntime
-	artifact      func(string) ([]byte, error)
+	pairingActive           map[string]int // mu; live invocations only, never a receipt ledger
+	peerApprovalFingerprint string         // cacheMu; presentation change evidence only
+	peerApprovalRevision    uint64         // cacheMu; monotonic, never native execution state
+	loadErr                 error
+	request                 func(context.Context, profile, remotework.Request) (remotework.Response, error)
+	mu                      sync.Mutex
+	secretMu                sync.RWMutex
+	secretStore             secretstore.Store
+	cacheMu                 sync.RWMutex
+	root                    string
+	state                   disk
+	secrets                 map[string]string
+	cache                   map[string][]api.WorkState
+	cacheRevision           map[string]uint64              // guarded by mu; fences late observations
+	observations            map[string]api.WorkObservation // guarded by cacheMu
+	observationAt           map[string]time.Time           // successful current snapshots; not execution state
+	local                   api.WorkRuntime
+	artifact                func(string) ([]byte, error)
 }
 
 func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, error)) (*Service, error) {
@@ -269,6 +281,9 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 }
 func fmtPort(v int) string { return strings.TrimSpace(strconv.Itoa(v)) }
 func (s *Service) call(ctx context.Context, p profile, r remotework.Request) (remotework.Response, error) {
+	if p.View.ConnectionType == "bot" {
+		return s.peerCall(ctx, p, r)
+	}
 	if s.request != nil {
 		return s.request(ctx, p, r)
 	}
@@ -299,6 +314,10 @@ func first(a, b string) string {
 }
 func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.Machine, error) {
 	s.mu.Lock()
+	if p := s.state.Profiles[id]; p.View.ConnectionType == "bot" {
+		s.mu.Unlock()
+		return s.inspectBot(ctx, id, false, true)
+	}
 	defer s.mu.Unlock()
 	// With several runtimes and no selection, inspectLocked only returns the
 	// cached profile; that is not fresh evidence for any observation budget.
@@ -418,28 +437,73 @@ func (s *Service) MachineTerminal(ctx context.Context, id string) (api.TerminalT
 }
 func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	p, exists := s.state.Profiles[id]
+	if !exists {
+		s.mu.Unlock()
+		return errors.New("machine_unknown")
+	}
+	hasTasks := false
 	for task, route := range s.state.Routes {
 		if route == id && !s.state.Reservations[task] {
-			return errors.New("machine_has_tasks")
+			hasTasks = true
 		}
 	}
-	if err := s.secretStore.Delete(id); err != nil {
+	if hasTasks || p.View.ConnectionType == "bot" && p.RetainPairingProof {
+		if p.View.ConnectionType != "bot" {
+			s.mu.Unlock()
+			return errors.New("machine_has_tasks")
+		}
+		// Product removal hides this target from new delegation, not its task
+		// ownership. Keep the only original proof and every retained route.
+		next := p
+		next.View.Archived = true
+		s.state.Profiles[id] = next
+		err := s.save()
+		if err != nil {
+			s.state.Profiles[id] = p
+		}
+		s.mu.Unlock()
 		return err
 	}
+	if p.View.ConnectionType == "bot" {
+		s.mu.Unlock()
+		checkCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		_, err := workerpeer.Call(checkCtx, p.Peer, workerpeer.Request{Action: "unpair"})
+		cancel()
+		if err != nil {
+			return errors.Join(errors.New("peer_unpair_unconfirmed"), err)
+		}
+		s.mu.Lock()
+		current, ok := s.state.Profiles[id]
+		if !ok || !sameBotConfiguration(current, p) {
+			s.mu.Unlock()
+			return errors.New("peer_unpair_unconfirmed")
+		}
+		for task, route := range s.state.Routes {
+			if route == id && !s.state.Reservations[task] {
+				s.mu.Unlock()
+				return errors.New("peer_unpair_unconfirmed")
+			}
+		}
+	} else if err := s.secretStore.Delete(id); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	defer s.mu.Unlock()
 	old := s.state
 	s.state.Profiles = maps.Clone(old.Profiles)
 	s.state.Routes = maps.Clone(old.Routes)
 	s.state.Runtimes = maps.Clone(old.Runtimes)
 	s.state.Reservations = maps.Clone(old.Reservations)
+	s.state.ReservationKeys = maps.Clone(old.ReservationKeys)
 	delete(s.state.Profiles, id)
-	// An interrupted pre-dispatch reservation must not make an otherwise empty
-	// machine undeletable after restart. No remote Worker exists for these IDs.
+	// Confirmed unpair releases only undispatched preparation bindings.
 	for task, route := range s.state.Routes {
 		if route == id {
 			delete(s.state.Routes, task)
 			delete(s.state.Runtimes, task)
 			delete(s.state.Reservations, task)
+			delete(s.state.ReservationKeys, task)
 		}
 	}
 	if err := s.save(); err != nil {

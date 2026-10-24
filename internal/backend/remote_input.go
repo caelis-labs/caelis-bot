@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -34,6 +35,11 @@ func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []ap
 		return r, errors.New("Bot initialization required")
 	}
 	in.FileIDs, in.ReferenceIDs = nil, nil
+	in, files, inputErr := s.retainWorkerInputs(ctx, in, files)
+	if inputErr != nil {
+		r.Message = "附件暂不可用，消息未发送；请检查文件后重试。"
+		return r, nil
+	}
 	if err := s.retainMessageMedia(in, files); err != nil {
 		r.Message = "图片预览存储暂不可用，消息未发送"
 		return r, nil
@@ -60,10 +66,21 @@ func ObserveSubmissions(s *Service, observer func(api.Submission, []api.InputFil
 // ResolveRemoteArtifact keeps export restricted to artifacts already owned by
 // the backend. A Telegram identifier cannot be turned into an arbitrary path.
 func ResolveRemoteArtifact(s *Service, id string) (string, error) {
+	value, err := ResolveRemoteArtifactCopy(s, id)
+	return value.Path, err
+}
+
+// ResolveRemoteArtifactCopy keeps the verified native name beside the owned
+// local bytes. It is host-only; TaskFileCopy.Path is never serialized to clients.
+func ResolveRemoteArtifactCopy(s *Service, id string) (api.TaskFileCopy, error) {
+	if value, ok, err := s.taskArtifactCopy(id); ok {
+		return value, err
+	}
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if resolver, ok := s.currentEngine().(api.ArtifactResolver); ok && !s.restarting && !s.setupRequired {
-		return resolver.Artifact(id)
+		path, err := resolver.Artifact(id)
+		return api.TaskFileCopy{ID: id, Name: filepath.Base(path), Path: path}, err
 	}
-	return "", errors.New("artifact unavailable")
+	return api.TaskFileCopy{}, errors.New("artifact unavailable")
 }

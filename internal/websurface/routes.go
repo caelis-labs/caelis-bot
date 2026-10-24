@@ -5,8 +5,27 @@ package websurface
 func (s *Server) registerActions() {
 	b, d := s.services.Backend, s.services.Surface
 	for _, entry := range []action{
+		{Path: "/api/v1/tasks/worker-list", Function: b.WorkerTasks, Read: true},
+		{Path: "/api/v1/tasks/worker-conversation", Function: b.WorkerTaskConversation, Read: true},
+		{Path: "/api/v1/tasks/worker-observation", Function: b.WorkerTaskObservation, Read: true},
+		{Path: "/api/v1/files/worker-copy", Function: b.WorkerFileCopy, Read: true},
+		{Path: "/api/v1/machines/connect-bot", Function: s.connectBot, Remote: true},
+		{Path: "/api/v1/machines/authorize-bot", Function: s.authorizeBotConnection, Remote: true},
+		{Path: "/api/v1/machines/recover-bot-work", Function: b.RecoverBotWork, Remote: true},
+		{Path: "/api/v1/machines/recover-worker-sharing", Function: b.RecoverWorkerSharing, Remote: true},
+		{Path: "/api/v1/machines/save-worker-sharing", Function: b.SaveWorkerSharing, Remote: true},
+		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},
+		{Path: "/api/v1/machines/set-worker-sharing", Function: b.SetWorkerSharing, Remote: true},
+		{Path: "/api/v1/machines/create-worker-pairing", Function: b.CreateWorkerPairing, Remote: true},
+		{Path: "/api/v1/machines/revoke-worker-peer", Function: b.RevokeWorkerPeer, Remote: true},
 		{Path: "/api/v1/diagnostics/read", Function: b.DiagnosticReport, Read: true},
 		{Path: "/api/v1/conversation/snapshot", Function: b.Snapshot, Read: true, Composer: false},
+		{Path: "/api/v1/conversation/approval-url", Function: b.ApprovalURL, Read: true, Composer: false},
+		{Path: "/api/v1/conversation/approval-page", Function: b.ApprovalPage, Read: true},
+		// Secret values stay transient; the original Worker adapter owns the
+		// durable op ID/digest/outcome. No duplicate Web execution journal.
+		{Path: "/api/v1/conversation/approval-page-submit", Function: b.SubmitApprovalPage, Local: true},
+		{Path: "/api/v1/conversation/approval-page-operation", Function: b.ApprovalPageOperation, Read: true},
 		{Path: "/api/v1/conversation/pet-snapshot", Function: b.PetSnapshot, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/composer-snapshot", Function: b.ComposerSnapshot, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/chat-snapshot", Function: b.ChatSnapshot, Read: true, Composer: false},
@@ -72,7 +91,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/machines/connect-machine", Function: b.ConnectMachine, Read: false, Composer: false},
 		{Path: "/api/v1/machines/save-machine-model", Function: b.SaveMachineModel, Read: false, Composer: false},
 		{Path: "/api/v1/machines/change-machine-team", Function: b.ChangeMachineTeam, Read: false, Composer: false},
-		{Path: "/api/v1/machines/remove-machine", Function: b.RemoveMachine, Read: false, Composer: false},
+		{Path: "/api/v1/machines/remove-machine", Function: b.RemoveMachine, Read: false, Composer: false, Remote: true},
 		{Path: "/api/v1/connections/initialize-bot", Function: b.InitializeBot, Read: false, Composer: false},
 		{Path: "/api/v1/connections/retry-bot-introduction", Function: b.RetryBotIntroduction, Read: false, Composer: false},
 		{Path: "/api/v1/preferences/language-preferences", Function: d.LanguagePreferences, Read: true, Composer: false},

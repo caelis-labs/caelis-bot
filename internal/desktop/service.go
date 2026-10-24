@@ -48,6 +48,8 @@ type Service struct {
 	capture                captureState
 	permissionGuide        permissionGuide
 	featureGuide           permissionGuide
+	workerTaskView         func(context.Context, string) (bool, error)
+	workerTaskSelection    string
 	taskPreferences        func() tasks.Preferences
 	saveTaskPreferences    func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices        func() []taskterminal.Choice
@@ -131,6 +133,7 @@ type Service struct {
 	presentationWarnings   map[string]bool
 	saveDiagnosticPath     func() (string, error)
 	resolveArtifact        func(string) (string, error)
+	resolveArtifactCopy    func(string) (api.TaskFileCopy, error)
 	openArtifactFile       func(string) error
 	saveArtifactPath       func(string) (string, error)
 	exportMu               sync.Mutex

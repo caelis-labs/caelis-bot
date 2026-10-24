@@ -19,13 +19,22 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/messageimage"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	workerInteractionMu         sync.RWMutex
 	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
+	workerSharing               api.WorkerSharingController
+	workerInteractions          any
+	workerFiles                 api.TaskFileReader
+	workerView                  api.WorkerTaskViewer
+	workerFileRoot              string
+	workerInputs                *workerfiles.Inputs
+	workerInputsError           error
 	machines                    api.MachineController
 	admission                   sync.RWMutex
 	recoveryMu                  sync.Mutex
@@ -274,7 +283,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
-	if owner, ok := s.localWorkers.(interface {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalState() ([]api.Approval, uint64)
 	}); ok {
 		approvals, revision := owner.RetainedApprovalState()
@@ -422,7 +431,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 		if questionRevision != nil {
 			combined += questionRevision()
 		}
-		if owner, ok := s.localWorkers.(interface {
+		if owner, ok := s.workerInteractionOwner().(interface {
 			RetainedApprovalState() ([]api.Approval, uint64)
 		}); ok {
 			_, workerRevision := owner.RetainedApprovalState()
@@ -688,6 +697,10 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
 	}
+	projected, files, err = s.retainWorkerInputs(ctx, projected, files)
+	if err != nil {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "附件暂不可用，消息未发送；请检查文件后重试。"}, nil
+	}
 	if err := s.retainMessageMedia(projected, files); err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil
 	}
@@ -799,7 +812,7 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	return s.currentEngine().Interrupt(ctx)
 }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error {
-	if owner, ok := s.localWorkers.(interface {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		DecideRetainedApproval(context.Context, api.Decision) (bool, error)
 	}); ok {
 		if handled, err := owner.DecideRetainedApproval(ctx, d); handled {
@@ -826,6 +839,12 @@ func (s *Service) CancelLogin(ctx context.Context) error {
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
+	if path, ok, err := s.taskArtifact(id); ok {
+		if err != nil {
+			return err
+		}
+		return s.reveal(path)
+	}
 	resolver, ok := s.currentEngine().(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
@@ -836,22 +855,26 @@ func (s *Service) RevealArtifact(id string) error {
 	}
 	return s.reveal(p)
 }
-func (s *Service) OpenApprovalURL(id string) error {
-	if owner, ok := s.localWorkers.(interface {
+
+// ApprovalURL reads the original native request through its retained Worker
+// owner or current resident adapter. Renderer snapshot URLs are display data,
+// never navigation authority; browser and desktop use this same checked path.
+func (s *Service) ApprovalURL(id string) (string, error) {
+	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalURL(string) (string, bool, error)
 	}); ok {
 		if url, handled, err := owner.RetainedApprovalURL(id); handled {
-			if err != nil {
-				return err
-			}
-			return s.openURL(url)
+			return url, err
 		}
 	}
 	navigator, ok := s.currentEngine().(api.ApprovalNavigator)
 	if !ok {
-		return errors.New("当前后端不支持打开外部审批")
+		return "", errors.New("当前后端不支持打开外部审批")
 	}
-	u, err := navigator.ApprovalURL(id)
+	return navigator.ApprovalURL(id)
+}
+func (s *Service) OpenApprovalURL(id string) error {
+	u, err := s.ApprovalURL(id)
 	if err != nil {
 		return err
 	}

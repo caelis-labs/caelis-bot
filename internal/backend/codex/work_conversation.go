@@ -109,7 +109,8 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 					continue
 				}
 				seen[key] = true
-				messages = append(messages, api.TaskConversationMessage{ID: "msg-" + opaque(thread, turn.ID, item.ID), Role: role, Text: text})
+				artifacts, _ := workArtifacts(t.View.Workspace, text)
+				messages = append(messages, api.TaskConversationMessage{Artifacts: artifacts, ID: "msg-" + opaque(thread, turn.ID, item.ID), Role: role, Text: text})
 			}
 		}
 		if page.NextCursor == "" {

@@ -64,11 +64,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
-	path, err := backend.ResolveRemoteArtifact(s.services.Backend, r.PathValue("id"))
+	copy, err := backend.ResolveRemoteArtifactCopy(s.services.Backend, r.PathValue("id"))
 	if err != nil {
 		fail(w, 404, "file_unavailable")
 		return
 	}
+	path, name := copy.Path, copy.Name
 	before, err := os.Lstat(path)
 	if err != nil || !before.Mode().IsRegular() || before.Size() > 256<<20 {
 		fail(w, 404, "file_unavailable")
@@ -86,9 +87,19 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	if r.URL.Query().Get("preview") == "1" {
+		var prefix [512]byte
+		n, _ := f.ReadAt(prefix[:], 0)
+		kind := http.DetectContentType(prefix[:n])
+		switch kind {
+		case "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf":
+			w.Header().Set("Content-Type", kind)
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": name}))
+		}
+	}
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
-	http.ServeContent(w, r, filepath.Base(path), time.Time{}, io.NewSectionReader(f, 0, after.Size()))
+	http.ServeContent(w, r, name, time.Time{}, io.NewSectionReader(f, 0, after.Size()))
 }
 
 // The uploaded archive stays in a private temporary directory and goes through

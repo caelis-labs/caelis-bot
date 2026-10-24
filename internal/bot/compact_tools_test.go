@@ -19,6 +19,29 @@ type compactTasks struct {
 	starts, sends int
 }
 
+type uncertainCompactTasks struct{ compactTasks }
+
+func (f *uncertainCompactTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
+	f.start = in
+	f.starts++
+	return api.Task{ID: "owned", Status: "unknown", Outcome: "unknown"}, context.DeadlineExceeded
+}
+func TestUnconfirmedDelegationReturnsOriginalOperationForReconciliation(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &uncertainCompactTasks{}
+	r.ConfigureTasks(f, nil)
+	invocation := api.ToolInvocation{Provider: "codex", Session: "resident", Turn: "turn", CallID: "lost-create"}
+	ctx := api.WithToolInvocation(t.Context(), invocation)
+	out := r.CallTool(ctx, "bot_delegate", json.RawMessage(`{"title":"Review","prompt":"Check assigned source"}`))
+	if !out.IsError {
+		t.Fatal("unknown became success")
+	}
+	data := out.StructuredContent["data"].(map[string]any)
+	if data["requestId"] != toolSubmissionID(invocation) || data["id"] != "owned" || f.starts != 1 {
+		t.Fatal("original receipt is not available to reconcile", data)
+	}
+}
+
 func (f *compactTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
 	f.start = in
 	f.starts++

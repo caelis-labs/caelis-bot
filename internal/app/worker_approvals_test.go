@@ -15,6 +15,48 @@ type workerApprovalEngine struct {
 	reportOutcome string
 }
 
+type serviceApprovalEngine struct {
+	*workerApprovalEngine
+	workDecisions []api.WorkDecision
+}
+
+func (e *serviceApprovalEngine) DecideWork(_ context.Context, in api.WorkDecision) error {
+	e.workDecisions = append(e.workDecisions, in)
+	return nil
+}
+func (e *serviceApprovalEngine) WorkApprovalURL(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func TestUserWorkerDecisionUsesSharedContractForActiveAndRetainedOwner(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active", true: "retained"}[retained], func(t *testing.T) {
+			target := &serviceApprovalEngine{workerApprovalEngine: &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Approvals: []api.Approval{{ID: "native-form", NativeID: "raw-native", TaskID: "owned-task", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "secret", Secret: true}}}}}}}
+			var a *Application
+			if retained {
+				current := &workerApprovalEngine{testEngine: newTestEngine()}
+				a, _ = fixtureApp(t, current, Host{})
+				a.localWork.owners["codex"] = target
+			} else {
+				a, _ = fixtureApp(t, target, Host{})
+			}
+			if len(a.WorkerApprovals()) != 0 {
+				t.Fatal("Agent received sensitive native form")
+			}
+			d := api.Decision{ID: "native-form", Answers: map[string][]string{"secret": {"fixture-only"}}}
+			if err := a.Backend.Decide(t.Context(), d); err != nil {
+				t.Fatal(err)
+			}
+			if len(target.decisions) != 0 || len(target.workDecisions) != 1 {
+				t.Fatal("shared native contract was bypassed")
+			}
+			in := target.workDecisions[0]
+			if in.TaskID != "owned-task" || in.RequestID != api.WorkDecisionRequestID("owned-task", d) || in.Decision.Answers["secret"][0] != "fixture-only" {
+				t.Fatal("full original user intent lost")
+			}
+		})
+	}
+}
+
 func (e *workerApprovalEngine) WorkTerminal(context.Context, string) (api.TerminalTarget, error) {
 	return api.TerminalTarget{}, nil
 }

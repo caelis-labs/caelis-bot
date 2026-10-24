@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-func Lock(ctx context.Context, mu *sync.Mutex) error    { return wait(ctx, mu.TryLock) }
-func RLock(ctx context.Context, mu *sync.RWMutex) error { return wait(ctx, mu.TryRLock) }
+func Lock(ctx context.Context, mu *sync.Mutex) error        { return wait(ctx, mu.TryLock) }
+func RLock(ctx context.Context, mu *sync.RWMutex) error     { return wait(ctx, mu.TryRLock) }
+func WriteLock(ctx context.Context, mu *sync.RWMutex) error { return wait(ctx, mu.TryLock) }
 func wait(ctx context.Context, acquire func() bool) error {
 	if ctx == nil {
 		ctx = context.Background()

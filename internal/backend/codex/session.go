@@ -126,7 +126,8 @@ type Session struct {
 	cachedComposer         atomic.Pointer[api.Snapshot]
 	cachedRecovery         atomic.Pointer[api.RecoveryState]
 	residentSyncNeeded     bool
-	workerOnly             bool // trusted target owner; no resident API is exposed
+	workItems              map[string][]api.Item // bounded, task-owned live snapshot; not a journal
+	workerOnly             bool                  // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
 	residentExecution      api.WorkExecutionSettings
@@ -163,6 +164,7 @@ type Session struct {
 	inputSources           map[string]api.InputSource
 	reviewOrigins          map[string]reviewOrigin
 	prompts                map[string]*prompt
+	workURLPages           map[string]*workURLBinding
 	promptHandles          map[string]string
 	instance               string
 	refs                   map[string]nativeReference
@@ -425,6 +427,7 @@ func (s *Session) publishSnapshot() {
 	}
 	for i := range out.Approvals {
 		out.Approvals[i].TaskID = s.state.Approvals[i].TaskID
+		out.Approvals[i].NativeID = s.state.Approvals[i].NativeID
 	}
 	out = s.presentScheduled(out)
 	out.ReportSources = s.reportSources()
@@ -465,6 +468,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		}
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
+			out.Approvals[i].NativeID = snapshot.Approvals[i].NativeID
 		}
 		return out
 	}
@@ -1410,6 +1414,9 @@ func (s *Session) Interrupt(ctx context.Context) error {
 			c.Close()
 			if c.toolCleanupError() != nil {
 				return s.connectionError("任务已中断，但工具清理未能确认，请重新连接核对", c.toolCleanupError())
+			}
+			if recovered, err := s.recoverStoppedPrivateOwner(ctx); recovered {
+				return err
 			}
 			if err := s.connect(ctx); err != nil {
 				return err

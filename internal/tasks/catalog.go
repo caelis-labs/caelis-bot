@@ -123,7 +123,7 @@ func (m *Manager) reservedLocked() int {
 	return n
 }
 func summary(r *record) api.TaskSummary {
-	return api.TaskSummary{ID: r.View.ID, Title: r.View.Title, Status: r.View.Status, Outcome: r.View.Outcome, Locked: r.Locked, Pinned: r.Pinned != nil && *r.Pinned}
+	return api.TaskSummary{Machine: r.View.Machine, MachineName: r.View.MachineName, ID: r.View.ID, Title: r.View.Title, Status: r.View.Status, Outcome: r.View.Outcome, Locked: r.Locked, Pinned: r.Pinned != nil && *r.Pinned}
 }
 
 // Legacy records acquire stable pagination order once. Only old unfinished work

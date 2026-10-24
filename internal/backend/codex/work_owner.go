@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -22,6 +23,16 @@ func NewWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 		return nil, errors.New("resident bindings cannot become a worker owner")
 	}
 	s.workerOnly = true
+	// If explicit recovery durably archived a private owner but preparing its
+	// replacement failed, the host's endpoint cache may still name that old
+	// socket. The original archive is proof to ignore only that stale hint.
+	if s.binding.OwnerEndpoint == "" && len(s.binding.LostOwners) > 0 {
+		old := s.binding.LostOwners[len(s.binding.LostOwners)-1]
+		if old.Process.valid() && s.opts.Socket == strings.TrimPrefix(old.Endpoint, "unix://") {
+			s.opts.Socket, s.opts.RequiredSocket = "", false
+		}
+	}
+	s.resetProjection() // Restore task-owned subscriptions after loading the binding.
 	return &WorkOwner{s}, nil
 }
 
@@ -33,6 +44,7 @@ func NewRetainedWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 	}
 	s := NewSession(opts)
 	s.workerOnly = true
+	s.resetProjection() // Restore task-owned subscriptions after loading the binding.
 	return &WorkOwner{s}, s.loadErr
 }
 func (w *WorkOwner) Close(ctx context.Context) error { return w.engine.Close(ctx) }
@@ -55,6 +67,11 @@ func (w *WorkOwner) SetModel(ctx context.Context, v api.WorkExecutionSettings, p
 }
 
 func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
+
+// RecoverNewWork is an explicit host action. It prepares new work only after
+// verifying the original private process has exited and preserving its tasks
+// and uncertain receipts under the existing lost-owner archive.
+func (w *WorkOwner) RecoverNewWork(ctx context.Context) error { return w.engine.recoverNewWork(ctx) }
 
 // ConnectedForStop lets the local owner router reach StopWork's pre-lock
 // cancellation without first waiting for Connect on the active Turn lock.
@@ -107,4 +124,36 @@ func (w *WorkOwner) Models(ctx context.Context) ([]api.ModelOption, error) {
 
 func (w *WorkOwner) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
 	return w.engine.RuntimeDefault(ctx)
+}
+
+func (w *WorkOwner) WorkCapabilities(ctx context.Context, id string) (api.WorkCapabilities, error) {
+	return w.engine.WorkCapabilities(ctx, id)
+}
+func (w *WorkOwner) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
+	return w.engine.ObserveWork(ctx, id)
+}
+func (w *WorkOwner) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
+	return w.engine.StopWorkRequest(ctx, in)
+}
+func (w *WorkOwner) DecideWork(ctx context.Context, in api.WorkDecision) error {
+	return w.engine.DecideWork(ctx, in)
+}
+func (w *WorkOwner) WorkApprovalURL(ctx context.Context, task, id string) (string, error) {
+	return w.engine.WorkApprovalURL(ctx, task, id)
+}
+func (w *WorkOwner) ReadWorkOperation(ctx context.Context, q api.WorkOperationQuery) (api.WorkOperation, error) {
+	return w.engine.ReadWorkOperation(ctx, q)
+}
+func (w *WorkOwner) ReadWorkFile(ctx context.Context, task, id string) (api.WorkFileContent, error) {
+	return w.engine.ReadWorkFile(ctx, task, id)
+}
+
+func (w *WorkOwner) ReadWorkURL(ctx context.Context, task, id string) (api.WorkURLPage, error) {
+	return w.engine.ReadWorkURL(ctx, task, id)
+}
+func (w *WorkOwner) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmission) (api.WorkOperation, error) {
+	return w.engine.SubmitWorkURL(ctx, in)
+}
+func (w *WorkOwner) ReadWorkURLSubmission(ctx context.Context, task, id, request string) (api.WorkOperation, error) {
+	return w.engine.ReadWorkURLSubmission(ctx, task, id, request)
 }

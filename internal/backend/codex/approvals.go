@@ -82,6 +82,7 @@ func pretty(v json.RawMessage) string {
 	return string(b)
 }
 func (s *Session) replacePrompt(id string, view api.Approval) {
+	s.retainWorkApprovalLocked(view)
 	for i, p := range s.state.Approvals {
 		if p.ID == id {
 			s.state.Approvals[i] = view
@@ -125,7 +126,7 @@ func (s *Session) addPrompt(event Notification) {
 	}
 	id := opaque(s.instance, fmt.Sprint(s.epoch), fmt.Sprint(event.Sequence), string(event.RequestID))
 	p := &prompt{id: event.RequestID, sequence: event.Sequence, method: event.Method, thread: n.ThreadID, turn: n.TurnID, item: n.ItemID, choices: map[string]any{}}
-	p.view = api.Approval{ID: id, TurnKey: opaque(n.TurnID), Description: n.Reason, Status: "pending", Choices: []api.Choice{}, Questions: []api.Question{}}
+	p.view = api.Approval{NativeID: string(event.RequestID), ID: id, TurnKey: opaque(n.TurnID), Description: n.Reason, Status: "pending", Choices: []api.Choice{}, Questions: []api.Question{}}
 	add := func(id, labelKey string, value any) {
 		p.view.Choices = append(p.view.Choices, api.Choice{ID: id, LabelKey: labelKey})
 		p.choices[id] = value
@@ -429,6 +430,11 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 		return err
 	}
 	defer s.op.Unlock()
+	return s.decideLocked(ctx, d)
+}
+
+// decideLocked keeps source-binding validation and native response in one op lock.
+func (s *Session) decideLocked(ctx context.Context, d api.Decision) error {
 	s.mu.Lock()
 	trustApproval := s.trustApprovalID != "" && d.ID == s.trustApprovalID
 	s.mu.Unlock()
@@ -441,12 +447,12 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {
 		s.mu.Unlock()
-		return errors.New("这项请求已失效或已处理")
+		return api.DecisionValidationError{Message: "这项请求已失效或已处理"}
 	}
 	result, offered := p.choices[d.Choice]
 	if !offered {
 		s.mu.Unlock()
-		return errors.New("请选择当前请求提供的选项")
+		return api.DecisionValidationError{Message: "请选择当前请求提供的选项"}
 	}
 	var err error
 	if d.Choice == "answer" {

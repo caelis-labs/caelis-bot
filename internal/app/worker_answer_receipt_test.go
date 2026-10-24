@@ -42,7 +42,8 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			a.localWork, a.tasks = pool, manager
+			wireTestWorkers(t, a, pool)
+			a.tasks = manager
 			work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "fixture-start", Title: "Synthetic", Prompt: "Synthetic question", Workspace: root})
 			if err != nil {
 				t.Fatal(err)

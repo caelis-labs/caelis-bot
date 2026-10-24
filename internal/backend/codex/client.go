@@ -15,6 +15,7 @@ const TestedVersion = "0.153.4"
 
 type Client struct {
 	rpc              *transport
+	build            string // Exact initialized native owner userAgent, never the Bot build.
 	home             string // Native handshake home, for attaching the user's TUI to this server.
 	owner            retainedNativeOwner
 	recoveredPrivate bool
@@ -103,6 +104,7 @@ func initializeClient(ctx context.Context, conn connection, stop func(), opts Op
 		if json.Unmarshal(result, &response) != nil || response.UserAgent == "" {
 			err = ErrProtocol
 		}
+		c.build = response.UserAgent
 		_ = json.Unmarshal(response.CodexHome, &c.home)
 	}
 	if err == nil {

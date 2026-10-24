@@ -585,6 +585,15 @@ Ingress and Worker receipts are likewise never replayed; see
 
 ## Remote machines
 
+Bot connections use the same `api.WorkRuntime` and companion Worker service
+ports as local adapters. A's `tasks.Manager` owns the product task, while B's
+isolated native `NewWorkOwner` owns execution. Inbound bindings are never added
+to B's local Worker enumeration or product Manager. Full interactions return to
+A through its existing retained approval/question paths; only the Agent's view
+is filtered. See [Bot-to-Bot](bot-to-bot.md) for source isolation, receipts,
+capability limits and verification. SSH helper profiles below retain their
+original execution and history routes; they are a separate legacy connection type.
+
 The resident adapter remains local. `machines.Service` multiplexes the existing
 `api.WorkRuntime` port by an explicitly selected machine; absent targets stay local.
 `tasks.Manager` persists the machine and actual backend before dispatch. `WorkRouter`
@@ -645,7 +654,11 @@ fence; preparation or ledger failure releases only these reservations. Legacy an
 unknown dispatched owners are never released by preparation cleanup. A restart
 can remove an empty machine containing only pre-dispatch reservations.
 Reconnection reads original bindings; it never resends work.
-`TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
+Local and Bot peer task cards open the same read-only Worker output view in A's
+conversation window, with native history, bounded current output and scoped file
+references. Closing it leaves execution and the resident draft intact. Questions,
+approvals, continuation and stop still use the existing product paths.
+For legacy SSH profiles, `TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
 script allocates SSH PTY and runs the original `codex --remote ... resume ...` or
 `caelis attach ...` on the target. Remote paths and token-file references stay on the
 target. Closing the observer does not close the native Worker owner.

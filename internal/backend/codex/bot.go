@@ -222,7 +222,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	// Only consumed state can supersede reconciliation. Metadata such as token
 	// usage or thread/started must not discard the only restored task snapshot.
 	switch event.Method {
-	case "item/completed", "turn/started", "turn/completed", "serverRequest/resolved", "thread/closed", "thread/deleted":
+	case "item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta", "item/mcpToolCall/progress", "turn/started", "turn/completed", "serverRequest/resolved", "thread/closed", "thread/deleted":
 		s.childRevision[thread]++
 		s.childRetireSeq[thread]++
 	default:
@@ -235,6 +235,9 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 		RequestID json.RawMessage `json:"requestId"`
 		Thread    nativeThread    `json:"thread"`
 		Item      nativeItem      `json:"item"`
+		ItemID    string          `json:"itemId"`
+		Delta     string          `json:"delta"`
+		Message   string          `json:"message"`
 	}
 	if !s.decodeEvent(event, &n, false) {
 		if event.Method == "turn/started" || event.Method == "turn/completed" {
@@ -247,7 +250,23 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 		return
 	}
 	switch event.Method {
+	case "item/started":
+		s.observeWorkItemLocked(s.taskByThread(thread), turn, n.Item, false)
+	case "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta":
+		s.observeWorkDeltaLocked(s.taskByThread(thread), turn, n.ItemID, event.Method, n.Delta)
+	case "item/mcpToolCall/progress":
+		if task := s.taskByThread(thread); task != nil {
+			key := opaque(thread, turn, n.ItemID)
+			for i, item := range s.workItems[task.View.ID] {
+				if item.ID == key {
+					item.Details = boundedText(n.Message, 16000)
+					s.workItems[task.View.ID][i] = item
+					break
+				}
+			}
+		}
 	case "item/completed":
+		s.observeWorkItemLocked(s.taskByThread(thread), turn, n.Item, true)
 		if task := s.taskByThread(thread); task != nil && turn != "" && n.Item.ID != "" && n.Item.Type == "agentMessage" {
 			if task.CompletedMessages == nil {
 				task.CompletedMessages = map[string]bool{}
@@ -285,6 +304,8 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	case "serverRequest/resolved":
 		id := s.promptHandles[string(n.RequestID)]
 		if p := s.prompts[id]; p != nil && p.thread == thread {
+			p.nativeResolved = true
+			p.view.Resolution = resolvedDecision(p)
 			s.resolvePrompt(id, p)
 		}
 	case "thread/closed", "thread/deleted":
@@ -400,6 +421,9 @@ func serviceToolConfig(c *api.ToolConnection, service api.ToolService) map[strin
 	config := toolConfig(copy)
 	if service.Name == "caelis_context" {
 		config["tool_timeout_sec"] = 45
+	}
+	if service.Name == "caelis_tasks" {
+		config["tool_timeout_sec"] = int(api.WorkerMCPTimeout.Seconds())
 	}
 	return config
 }

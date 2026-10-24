@@ -53,7 +53,7 @@ func (s *Session) recoverUnresolvedChildren(c *Client, epoch uint64) {
 
 func taskHasUnknownReceipt(task *taskRecord) bool {
 	for _, receipt := range task.Requests {
-		if receipt.Outcome == "unknown" {
+		if receipt.Outcome == "unknown" && (receipt.Kind == "" || receipt.Kind == "start" || receipt.Kind == "send") {
 			return true
 		}
 	}

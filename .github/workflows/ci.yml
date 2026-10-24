@@ -104,6 +104,7 @@ jobs:
     env:
       GOWORK: "off"
       CGO_ENABLED: "0"
+      CI_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,6 +122,14 @@ jobs:
           npm ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./script/check-windows.ps1
+      - name: Preserve Windows state I/O diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-state-io-${{ github.sha }}
+          path: .cache/windows-state-io/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify pinned Windows Desktop World payload
         shell: pwsh
         run: |

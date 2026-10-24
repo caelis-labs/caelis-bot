@@ -105,22 +105,42 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	if err := r.reserveDelegation(requestID, q); err != nil {
 		return compactError("invocation_conflict", err)
 	}
-	bounded, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
 	var task api.Task
-	if taskID == "" {
-		task, err = provider.StartTask(bounded, api.TaskStart{RequestID: requestID, Prompt: str(q, "prompt"), Title: str(q, "title"), Workspace: str(q, "workspace"), Machine: machine, LocalRuntime: machine == ""})
-	} else {
-		task, err = provider.SendTask(bounded, api.TaskMessage{ID: taskID, RequestID: requestID, Prompt: str(q, "prompt")})
+	var attachments []api.TaskFileReference
+	if raw, ok := q["attachments"]; ok {
+		b, _ := json.Marshal(raw)
+		if json.Unmarshal(b, &attachments) != nil {
+			return compactError("invalid_attachments", errors.New("invalid Worker file references"))
+		}
 	}
+	// Byte transfer shares the original invocation, but is not constrained to
+	// the small text-admission timeout. Cancellation and native reconciliation
+	// remain unchanged; no second upload or write retry is introduced.
+	deadline := api.WorkerAdmissionTimeout
+	if len(attachments) > 0 {
+		deadline = api.WorkerAttachmentTimeout
+	}
+	bounded, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	if taskID == "" {
+		task, err = provider.StartTask(bounded, api.TaskStart{RequestID: requestID, Prompt: str(q, "prompt"), Title: str(q, "title"), Workspace: str(q, "workspace"), Machine: machine, LocalRuntime: machine == "", Attachments: attachments})
+	} else {
+		task, err = provider.SendTask(bounded, api.TaskMessage{ID: taskID, RequestID: requestID, Prompt: str(q, "prompt"), Attachments: attachments})
+	}
+	data := taskReceipt(task)
+	data["requestId"] = requestID
 	if err != nil || task.Status == "unknown" || task.Outcome == "unknown" || task.Outcome == "rejected" || task.Outcome == "conflicted" {
 		code, message := "unconfirmed", "The original Worker submission is not confirmed. The Host retained its original receipt and will not replay it with a new ID."
+		var rejected *api.WorkMessageRejection
+		if task.Outcome == "rejected" && errors.As(err, &rejected) {
+			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
+		}
 		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
 			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
 		}
-		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": taskReceipt(task), "error": map[string]string{"code": code, "message": message}}, true)
+		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message}}, true)
 	}
-	return compactValue(map[string]any{"ok": true, "data": taskReceipt(task)}, false)
+	return compactValue(map[string]any{"ok": true, "data": data}, false)
 }
 
 func taskEnvironments(provider api.TaskProvider, localStatus string) []map[string]string {
@@ -244,6 +264,47 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 			messages[i].Text = collapsedTaskText(messages[i].Text)
 		}
 		return compactValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "messages": messages}}, false)
+	case "observe":
+		p, ok := provider.(api.TaskObserver)
+		if !ok {
+			return compactError("unavailable", errors.New("Worker observation unavailable"))
+		}
+		v, err := p.ObserveTask(bounded, str(q, "task"))
+		if err != nil {
+			return compactError("original_owner_unavailable", err)
+		}
+		return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"task": v.State.Task, "items": v.Items, "revision": v.Revision}})
+	case "reconcile":
+		p, ok := provider.(api.TaskOperationReader)
+		if !ok {
+			return compactError("unavailable", api.ErrWorkOperationUnsupported)
+		}
+		v, err := p.ReconcileTaskRequest(bounded, str(q, "task"), str(q, "requestId"))
+		if err != nil {
+			return compactError("original_operation_unavailable", err)
+		}
+		return compactValue(map[string]any{"ok": true, "data": v}, false)
+	case "file":
+		if p, ok := provider.(api.TaskFileMaterializer); ok {
+			v, err := p.MaterializeTaskFile(bounded, str(q, "task"), str(q, "file"), true)
+			if err != nil {
+				return compactError("native_file_unavailable", err)
+			}
+			return compactValue(map[string]any{"ok": true, "data": map[string]any{"artifact": api.Artifact{ID: v.ID, Name: v.Name}, "localPath": v.Path, "sha256": v.SHA256, "bytes": v.Bytes, "mediaType": v.MediaType, "cached": v.Cached, "fetchedAt": v.FetchedAt, "usage": "Read this checked A-local copy with native file/image tools. Cached bytes are the last retrieved version, not proof of the remote latest content."}}, false)
+		}
+		p, ok := provider.(api.TaskFileReader)
+		if !ok {
+			return compactError("unavailable", errors.New("Worker files unavailable"))
+		}
+		id, ref := str(q, "task"), str(q, "file")
+		v, err := p.ReadTaskFile(bounded, id, ref)
+		if err != nil {
+			return compactError("native_file_unavailable", err)
+		}
+		if native, ok := api.ParseTaskArtifactID(ref); ok {
+			ref = native.ID
+		}
+		return compactValue(map[string]any{"ok": true, "data": map[string]any{"artifact": api.Artifact{ID: api.TaskArtifactID(id, ref), Name: v.Name}, "bytes": len(v.Data)}}, false)
 	case "stop":
 		task, err := provider.StopTask(bounded, str(q, "task"))
 		if err != nil {

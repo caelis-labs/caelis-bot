@@ -107,6 +107,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
+	if err := s.reconcileBotConnection(r.Context(), r.PathValue("id"), sessionID(r)); err != nil {
+		fail(w, 503, "receipt_unavailable")
+		return
+	}
 	s.mu.Lock()
 	v, ok, err := s.lookupOperation(r.PathValue("id"))
 	s.mu.Unlock()
@@ -118,5 +122,26 @@ func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "operation_unavailable")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"state": v.State, "value": v.Value, "error": v.Error})
+	body := map[string]any{"state": v.State, "value": v.Value, "error": v.Error}
+	if botAuthorizationConfirmed(v) {
+		body["authorizationConfirmed"] = true
+	}
+	s.mu.Lock()
+	tailID, tail, valid := s.botAuthorizationTailLocked(r.PathValue("id"), sessionID(r))
+	s.mu.Unlock()
+	if valid {
+		if tailID == r.PathValue("id") && botAuthorizationConfirmed(tail) {
+			body["authorizationConfirmed"] = true
+		}
+		if botAuthorizationConfirmed(tail) {
+			body["followingAuthorization"] = tailID
+		}
+		if tail.State == "complete" && tail.Error == "operation_unconfirmed" {
+			body["recovery"] = botRecovery{OperationID: tailID, ProfileID: tail.BotConnection.ID, CanAuthorize: tail.BotConnection.CodeDigest != ""}
+		}
+	}
+	if detail := operationDetail(v); detail != "" {
+		body["detail"] = detail
+	}
+	jsonOut(w, 200, body)
 }
