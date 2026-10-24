@@ -79,24 +79,31 @@ archived on their original owner; B's remote bindings are not migrated. Alive or
 unknown process evidence cannot start a replacement. Real private-child tests
 cover failure before this repair and recovery after it.
 
-## Still-open gates
+## Additional URL journey and remaining gates
 
-The native fixture itself independently verifies that a URL GET has no effect,
-that original consent alone is insufficient, and that a native nonce POST plus
-original consent is required. **The product B-loopback URL path is not implemented
-or accepted by this checkpoint.** A task/original-request-scoped authenticated
-channel, isolated browser content, exact native target validation, revocation and
-native completion evidence still need a separate implementation/review. This is
-not permission to add an arbitrary URL proxy, bypass origin checks, invent an
-approval authority, disable the capability or redirect the user to B.
+`make e2e-worker-peer-real-url` now runs actual A/B/React with **real installed
+Codex**, an isolated ordinary Mock MCP and controlled local Responses model.
+It does not replace Codex with the native fixture. The clean `de4b791c` six-case
+journey verifies B-loopback static form completion through A, original native
+consent/continuation, at-most-once effects, decline, expiry, lost peer/provider
+responses and verified native-owner exit. See [contract and first-release
+scope](worker-peer-url-contract.md) and [repeatable entry](worker-peer-url-forms.md).
+The old synthetic URL negative-control probe is historical; `--url-contract`
+forwards to the real-Runtime entry.
 
-The full response-loss/restart/revocation/two-source matrix still has existing
-contract/fixture coverage to combine with further application journeys. Native
-form/marked-sensitive/URL application journeys and real Codex/Caelis accounts,
-macOS→Linux, macOS desktop lifecycle, same-SHA candidate hardware acceptance and
-final independent review remain separate gates. Passing this command alone does
-not make the Draft ready to merge or release.
+The first release retains public reachable normal-browser HTTP(S), including
+scripts/OAuth with reachable callbacks, plus the bounded static form portal.
+B-only localhost multistep/GET/JS/redirect/different-form-action pages, public login
+callbacks to B-loopback and B-only certificates/browser state are explicitly
+deferred limitations. They are not repaired by safe refusal and do not justify
+an arbitrary URL proxy, external-forward opener or B-side user approval.
 
-The opt-in [URL contract probe](worker-peer-url-contract.md) adds a real local
-positive control and an A/B regression reproduction. Its pass result preserves
-the remote URL blocking gate; it does not count as remote challenge acceptance.
+Physical macOS headless A → Fedora headless B (real Codex/controlled model/MCP)
+and a separate native macOS GUI → Core v0.73.2 controlled-model journey exist at
+`8f203370`. They do not establish later-head, real-account, remote-Worker GUI or
+full lifecycle/upgrade acceptance. Remaining interaction/loss/restart/revoke/
+two-source/local-helper checks must retain their actual evidence layers.
+Q22 isolated account/model input is still missing; dependent real-account steps
+remain blocked without another question. Final-head checks, affected application
+journeys and whole-PR independent audit are required; no merge or release is
+authorized by a successful test command.
