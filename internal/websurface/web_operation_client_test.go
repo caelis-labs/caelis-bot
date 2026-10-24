@@ -134,3 +134,17 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 		t.Fatal("actual network uncertainty was cleared or duplicated", unknown)
 	}
 }
+
+func (f *rejectedConnectionFixture) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConnectionReference) (api.BotConnectionReference, error) {
+	return api.BotConnectionReference{ID: "original-fixture-peer", Pairing: "fixture-intent", Proof: "fixture-proof"}, nil
+}
+func (f *rejectedConnectionFixture) ConnectPreparedBot(ctx context.Context, ref api.BotConnectionReference, in api.BotConnectionInput) (api.Machine, api.BotConnectionReference, error) {
+	v, e := f.ConnectBot(ctx, in)
+	return v, ref, e
+}
+func (f *rejectedConnectionFixture) BotConnectionQuiescent(api.BotConnectionReference) bool {
+	return true
+}
+func (f *rejectedConnectionFixture) AbortPreparedBotConnection(api.BotConnectionReference) error {
+	return nil
+}

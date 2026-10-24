@@ -21,7 +21,7 @@ PR review, distinct from the earlier 34-file URL review.
 
 Independent recheck closed A1–A3 and S1–S2 (including S2b/S2c and the in-flight
 pairing-epoch race) at the source/targeted-regression layer. This does not close
-final candidate or live acceptance gates.
+final exact-source automated gates, or claim live acceptance.
 
 The failure probes use isolated overlays or newly tracked regressions. Native
 fixtures replace only the consumed native boundary; they are not real-account or
@@ -80,12 +80,12 @@ load validation, stricter browser control rejection and the five audit repair
 boundaries above; test-only Windows timing diagnostics are separate. Final-head
 A/B evidence cannot relabel those old hardware/GUI records.
 
-Q22 isolated Codex/Caelis account/model configuration has not been supplied.
-Dependent real-account/model steps remain **blocked**; no repeated question,
-daily credential copying or inferred permission. Remaining representative native
-macOS remote-Worker approval/lifecycle/upgrade and full loss/restart/revoke/source
-matrix evidence must stay explicit. This document does not authorize ready,
-merge or release; the PR stays Draft while acceptance gates remain.
+The latest review scope makes real-account, physical-machine and native-GUI
+acceptance **nonblocking follow-up**, not merge gates. Q22 is unanswered; its
+dependent real-account steps are still unperformed, with no inferred permission
+or credential copying. Do not relabel controlled/native-fixture evidence as
+account/GUI acceptance. Ready still requires the fixed-head automated gates and
+independent review below. Merge/release remain unauthorized.
 
 ## Subscription cancellation follow-up
 
@@ -114,3 +114,27 @@ no visual interaction/history/GUI upgrade pass is claimed. This tooling blocker
 is independent of missing Q22 account input. Only the owned App/private Core were
 stopped and the old profile/history retained. Fixed-head follow-up evidence and
 current CI are recorded in the PR; pending or cancelled runs are never success.
+
+## 22:05 follow-up: retained authority and local availability
+
+Review baseline: `0f1fd2cabe50410d9f84ffb15c48d6ed26d9c5da`;
+its Product checks CI40094111741 passed all selected platforms. These repairs
+extend the same Manager, machines binding and Web ingress journal; no new task,
+approval, execution or recovery authority is introduced.
+
+| Finding | Existing-boundary repair | Failing-before / passing-after evidence |
+| --- | --- | --- |
+| F1 P2 retained read/observe/decision still uses current B resident/default | `workerpeer.Server.owner` derives original-binding-only at the durable binding boundary, not an action whitelist. New preparations alone resolve current admission. | `app.TestBoundPeerReadObserveDecisionIgnoreResidentConfiguration` uses real Application factory, durable source/runtime binding and authenticated HTTP; controlled original native owner serves read/observe/history/decision while resident configuration is offline. |
+| F2 P2 ordinary first pair loses recoverable Web reference on host exit; later valid pairing epoch revives historical update blocker | Machines persists original profile/proof/intent before Web admission; Web consumes its captured reference. Historical uncertain grants remain unknown and cannot globally block updates. | `websurface.TestFirstPairHostExitRestoresOriginalWebReceipt`: real TS+HTTP and reopened journal before B grant, after dropped B reply, after machines result but before Web result. `TestUnknownNoGrantExplicitFreshAuthorizationRecoversWeb` covers fresh authorization, revoke, later fresh pair and reload without reactivating old blockers. |
+| F3 P2 preparation cleanup holds Service.mu across network | Snapshot route/runtime/connection/reservation generation under lock, remote call outside, CAS only the same undispatched reservation. Preparation itself also releases Service.mu. | `machines.TestHungPeerCleanupDoesNotDelayLocalOrOtherPeerStop`, `TestLatePeerCleanupPreservesDispatchedOrReplacedReservation`: hung cleanup, native stop reachability, late dispatch/replacement and unknown preservation. |
+| F4 P2 old foreign Caelis unknown adopts another source's equal operation ID | Shared `recoverOperation` refuses reconciliation without owned NativeScope correlation; known history/results remain readable; local/helper behavior unchanged. | `caelis.TestLegacyForeignUnknownCannotAdoptAnotherSourceReceipt`: explicit read and background recovery collide with another source's accepted receipt, remain unknown and issue no foreign lookup; known/local controls remain intact. |
+| I1/I2 local Manager I/O lock and global capacity couple remote faults into local controls | Short global ledger fence; live per-environment admission mutexes; remote I/O outside global fence. Unknown keeps capacity only in its frozen environment. Original stop generation/operation IDs stay authoritative. | `tasks.TestReviewRemoteReadCannotBlockExistingLocalStop`, `TestReviewUnknownRemoteCapacityCannotRejectLocalCreate`; held prepare/start/send/history allow local read/continue/stop/create and another peer, cancellation releases live locks, update pause prevents a new dispatch. |
+| I3/I4/I5 shared Web pending scope, historical remote decisions and remote journal quota affect local writes/update | Pending keys use original interaction/profile identity. Host-owned remote routing distinguishes effect certainty from historical quiescence; local and remote have bounded independent admission accounting in the same journal. | Actual TS scoped-pending tests; `websurface.TestReviewUnknownRemoteDecisionCannotGateLocalUpdate`, remote4096-receipt/local-submit regression. No unknown receipt is removed or marked successful. |
+| I6 definitely undispatched Web admission burns unused pairing code | Pairing domain CAS-aborts only the prepared intent after ingress save failed before invocation; old uncertain proof and newer intents survive. | `websurface.TestReviewKnownUndispatchedPairCanUseItsStillUnusedCode`, `machines.TestAbortingUndispatchedPairPreservesNewIntentAndOldUnknown`. |
+| I7 read-only POST observations unnecessarily retain HTTP write drain | Authenticated fixed `Read` actions release the existing host drain before I/O. Arbitrary paths/caller flags and writes cannot do so. Actual mutable calls still drain within bounded owner deadlines; remote decision uses existing8s control deadline. | `websurface.TestReadAdmissionReleasesOnlyAuthenticatedFixedReads`, headless admission lifecycle coverage; local/native unresolved writes retain their existing guard. |
+
+The independent reviewer reproduced I1–I6 against the then-current candidate
+using isolated overlays, not mocked product APIs, and rechecks changed boundaries.
+Final-source `make check`, smoke, build, affected race, `make e2e-worker-peer`,
+`make e2e-worker-peer-real-url` and all Product checks must pass before Ready.
+Exact commit/evidence links belong in PR#221; pending CI is not a pass.

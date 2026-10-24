@@ -270,10 +270,6 @@ func parse(u *url.URL, body string) (*Page, error) {
 				if f.Label == "" {
 					f.Label = name
 				}
-				if n.Data == "textarea" {
-					f.Type = "text"
-					f.Value = text(n)
-				}
 				if n.Data == "select" {
 					if hasAttr(n, "multiple") {
 						return ErrUnsupported

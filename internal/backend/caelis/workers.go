@@ -251,7 +251,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 	}
 	profile := wire.SessionProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{HostStart: hostIntent, Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId, Files: inputs}}
+	w := worker{HostStart: hostIntent, Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId, Files: inputs}}
 	if s.workSourceIdentity != "" {
 		w.NativeScope = digest([]byte(s.workSourceIdentity + "\x00" + rand.Text()))
 	}

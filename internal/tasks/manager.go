@@ -66,6 +66,8 @@ type state struct {
 }
 
 type Manager struct {
+	environmentMu        sync.Mutex
+	environmentOps       map[string]*environmentOperation // live target locks, no execution state
 	inputMu              sync.Mutex
 	inputActive          int
 	inputCreated         map[string]os.FileInfo // guarded by inputMu; unpublished cache identities only
@@ -467,6 +469,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return m.rejectStartInput(in.RequestID, err)
 	}
 	in.Title = taskDisplayTitle(in.Title, in.Prompt)
+	release, guardErr := m.environmentOperation(ctx, in.Machine)
+	if guardErr != nil {
+		return api.Task{}, guardErr
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
@@ -517,7 +524,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return v, nil
 	}
 	m.mu.Unlock()
-	used, e := m.admissionUsage(ctx)
+	used, e := m.admissionUsage(ctx, in.Machine)
 	if e != nil {
 		return api.Task{}, e
 	}
@@ -541,7 +548,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	defer func() {
 		if !ledgerWritten {
 			if rollback, ok := m.work.(api.WorkPreparationRollback); ok {
-				err = errors.Join(err, rollback.ReleaseWorkPreparation(id))
+				err = errors.Join(err, workerAction(m, in.Machine, func() error { return rollback.ReleaseWorkPreparation(id) }))
 			}
 		}
 	}()
@@ -552,7 +559,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 			return api.Task{}, errors.New("remote work unavailable")
 		}
 		var err error
-		workspace, err = p.PrepareRemoteWork(ctx, in, id)
+		workspace, err = workerIO(m, in.Machine, func() (string, error) { return p.PrepareRemoteWork(ctx, in, id) })
 		if err != nil {
 			return api.Task{}, err
 		}
@@ -569,8 +576,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 			return api.Task{}, err
 		}
 	}
-	if e := m.validateWorkerInputs(ctx, id, in.Files); e != nil {
+	if e := workerAction(m, in.Machine, func() error { return m.validateWorkerInputs(ctx, id, in.Files) }); e != nil {
 		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
+	}
+	if m.paused {
+		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
 	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
 	nativeIntent := nativeStart
@@ -615,7 +625,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)
-	v, e := m.work.StartWork(ctx, nativeStart)
+	v, e := workerIO(m, in.Machine, func() (api.Task, error) { return m.work.StartWork(ctx, nativeStart) })
 	result, captureErr := m.capture(id, v, e)
 	if result.Outcome == "rejected" {
 		captureErr = errors.Join(captureErr, m.releaseRejectedInputFiles(id, in.RequestID))
@@ -713,12 +723,18 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 		m.mu.Unlock()
 		return v, err
 	}
+	machine := m.taskEnvironment(id)
+	release, err := m.environmentOperation(ctx, machine)
+	if err != nil {
+		return api.Task{}, err
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if e := m.owned(id); e != nil {
 		return api.Task{}, e
 	}
-	v, e := m.work.ReadWork(ctx, id)
+	v, e := workerIO(m, machine, func() (api.Task, error) { return m.work.ReadWork(ctx, id) })
 	v, e = m.capture(id, v, e)
 	if e == nil && terminal(v.Status) {
 		m.mu.Lock()
@@ -773,6 +789,12 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if !valid(in.RequestID, in.Prompt) {
 		return m.rejectMessage(in, errors.New(m.text("host.requiresRequestIdAndRequirements")))
 	}
+	machine := m.taskEnvironment(in.ID)
+	release, guardErr := m.environmentOperation(ctx, machine)
+	if guardErr != nil {
+		return api.Task{}, guardErr
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
@@ -788,7 +810,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	alreadyRecorded := slices.Contains(m.state.Records[in.ID].Requests, in.RequestID)
 	m.mu.Unlock()
 	if !alreadyRecorded {
-		if e := m.validateWorkerInputs(ctx, in.ID, in.Files); e != nil {
+		if e := workerAction(m, machine, func() error { return m.validateWorkerInputs(ctx, in.ID, in.Files) }); e != nil {
 			return m.rejectMessage(in, e)
 		}
 	}
@@ -813,7 +835,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			query, has := current.Operations[in.RequestID]
 			m.mu.Unlock()
 			if has {
-				receipt, readErr := native.ReadWorkOperation(ctx, query)
+				receipt, readErr := workerIO(m, machine, func() (api.WorkOperation, error) { return native.ReadWorkOperation(ctx, query) })
 				if readErr == nil {
 					prior.Outcome = receipt.Outcome
 					if receipt.Outcome == "accepted" || receipt.Outcome == "rejected" {
@@ -837,13 +859,16 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		// distinguish acceptance from rejection. Reconcile the original native
 		// receipt rather than inventing an accepted outcome.
 		recorded, ok := m.work.(api.RecordedWorkMessage)
-		if !ok || !recorded.WorkMessageRecorded(in) {
+		if !ok || !func() bool {
+			v, _ := workerIO(m, machine, func() (bool, error) { return recorded.WorkMessageRecorded(in), nil })
+			return v
+		}() {
 			prior.Outcome = "unknown"
 			return prior, errors.New("original submission receipt is not confirmed; no Worker prompt was replayed")
 		}
 		m.markInflight(in.ID, true)
 		defer m.markInflight(in.ID, false)
-		v, err := m.work.SendWork(ctx, in)
+		v, err := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 		v, err = m.captureMessage(in.ID, v, err, true)
 		if v.Outcome == "rejected" || err == nil && v.Outcome == "accepted" {
 			m.mu.Lock()
@@ -873,16 +898,22 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	used := 0
 	if restarting {
 		var err error
-		used, err = m.admissionUsage(ctx)
+		used, err = m.admissionUsage(ctx, machine)
 		if err != nil {
 			return m.rejectMessage(in, err)
 		}
 	}
 	if restarting && used >= m.maximumRunning() {
 		replay, ok := m.work.(api.RecordedWorkMessage)
-		if !ok || !replay.WorkMessageRecorded(in) {
+		if !ok || !func() bool {
+			v, _ := workerIO(m, machine, func() (bool, error) { return replay.WorkMessageRecorded(in), nil })
+			return v
+		}() {
 			return m.rejectMessage(in, errors.New(m.text("host.taskCapacityFull")))
 		}
+	}
+	if m.paused {
+		return m.rejectMessage(in, errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	m.mu.Lock()
 	r := m.state.Records[in.ID]
@@ -909,7 +940,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.notifyWatchlist()
 	m.markInflight(in.ID, true)
 	defer m.markInflight(in.ID, false)
-	v, e := m.work.SendWork(ctx, in)
+	v, e := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 	v, e = m.captureMessage(in.ID, v, e, false)
 	if v.Outcome == "rejected" {
 		e = errors.Join(e, m.releaseRejectedInputFiles(in.ID, in.RequestID))
@@ -930,9 +961,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 // cannot claim the same last slot. Unknown work with unreadable activity keeps
 // one possible slot each. Only when full do we try original-owner reads to
 // release positively idle tasks; a failed read never frees its reservation.
-func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
+func (m *Manager) admissionUsage(ctx context.Context, machine string) (int, error) {
 	m.mu.Lock()
-	used := m.activeLocked() + m.reservedLocked()
+	used := m.environmentUsageLocked(machine)
 	m.mu.Unlock()
 	if used < m.maximumRunning() {
 		return used, nil
@@ -940,7 +971,7 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 	m.mu.Lock()
 	ids := make([]string, 0)
 	for id, r := range m.state.Records {
-		if m.owns(r) && r.View.Status == "unknown" {
+		if m.owns(r) && r.View.Machine == machine && r.View.Status == "unknown" {
 			ids = append(ids, id)
 		}
 	}
@@ -951,14 +982,14 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 		}
 		// A read error leaves that task unknown and reserved. Other owners may
 		// still provide idle capacity evidence without retrying any execution.
-		_, _ = m.work.ReadWork(ctx, id)
+		_, _ = workerIO(m, machine, func() (api.Task, error) { return m.work.ReadWork(ctx, id) })
 	}
 	if err := m.refresh(); err != nil {
 		return 0, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.activeLocked() + m.reservedLocked(), nil
+	return m.environmentUsageLocked(machine), nil
 }
 
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
@@ -976,7 +1007,7 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 	if e := m.owned(id); e != nil {
 		return api.Task{}, e
 	}
-	v, e := m.stopWork(ctx, id)
+	v, e := workerIO(m, m.taskEnvironment(id), func() (api.Task, error) { return m.stopWork(ctx, id) })
 	return m.capture(id, v, e)
 }
 

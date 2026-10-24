@@ -59,33 +59,41 @@ func (s *Service) cacheResponse(id, name, runtime string, states []api.WorkState
 }
 func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id string) (string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	p, ok := s.state.Profiles[in.Machine]
 	if !ok {
+		s.mu.Unlock()
 		return "", errors.New("machine_not_ready")
 	}
-	// bindLocked checks readiness for a new route. A recorded preparation keeps
-	// its original backend even if the new default is currently unconfigured.
 	runtime, e := s.bindLocked(in, id, "")
+	key := s.state.ReservationKeys[id]
+	reserved := s.state.Reservations[id]
+	s.mu.Unlock()
 	if e != nil {
 		return "", e
 	}
 	r, e := s.call(ctx, p, remotework.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
 	if e != nil {
-		return "", errors.Join(e, s.releasePreparationLocked(id))
+		return "", errors.Join(e, s.ReleaseWorkPreparation(id))
 	}
-	if p.View.ConnectionType == "bot" && len(r.Available) == 1 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Routes[id] != in.Machine || s.state.Runtimes[id] != runtime || s.state.Reservations[id] != reserved || s.state.ReservationKeys[id] != key || !sameBotConfiguration(s.state.Profiles[in.Machine], p) {
+		return "", errors.New("work_preparation_changed")
+	}
+	if reserved && p.View.ConnectionType == "bot" && len(r.Available) == 1 {
 		selected := r.Available[0]
 		if selected != "codex" && selected != "caelis" {
 			return "", errors.New("original_task_runtime_unavailable")
 		}
 		s.state.Runtimes[id] = selected
 		if err := s.save(); err != nil {
+			s.state.Runtimes[id] = runtime
 			return "", err
 		}
 	}
 	return r.Task.Workspace, nil
 }
+
 func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	if in.Machine == "" {
 		return s.local.StartWork(ctx, in)
@@ -101,9 +109,15 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	// Retain the original route before dispatch, even if the response is lost.
 	if s.state.Reservations[in.ID] {
+		reservationKey := s.state.ReservationKeys[in.ID]
 		delete(s.state.Reservations, in.ID)
+		delete(s.state.ReservationKeys, in.ID)
 		if e = s.save(); e != nil {
 			s.state.Reservations[in.ID] = true
+			if s.state.ReservationKeys == nil {
+				s.state.ReservationKeys = map[string]string{}
+			}
+			s.state.ReservationKeys[in.ID] = reservationKey
 			s.mu.Unlock()
 			return api.Task{}, e
 		}

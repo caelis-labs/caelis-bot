@@ -33,7 +33,7 @@ func (m *Manager) PauseIfIdle(guard func() error) error {
 	m.mu.Lock()
 	busy := false
 	for _, r := range m.state.Records {
-		if m.owns(r) && (!terminal(r.View.Status) || r.ReportState == "dispatching") {
+		if m.owns(r) && r.View.Machine == "" && (!terminal(r.View.Status) || r.ReportState == "dispatching") {
 			busy = true
 			break
 		}

@@ -143,7 +143,7 @@ func (s *Server) loadOperations() error {
 	// Its grant effect is still unknown; retain the original reference for reads
 	// and a separate explicit authorization rather than replaying the write.
 	for id, op := range s.operations {
-		if op.BotAuthorization && op.BotConnection != nil && op.State == "pending" {
+		if (op.BotConnection != nil || op.Remote) && op.State == "pending" {
 			op.State = "complete"
 			op.Error = "operation_unconfirmed"
 			s.operations[id] = op

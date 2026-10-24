@@ -204,7 +204,7 @@ The latter are refused rather than silently changing the website's controls.
 
 Core v0.73.2 shares the pinned public source/schema/wire and passed released native
 Host/old-session upgrade checks with isolated controlled model endpoints. Real
-account/model, final-head native GUI and upgrade acceptance remain separate gates.
+account/model, physical-machine and native-GUI/upgrade acceptance remain separately labeled, nonblocking follow-up under the latest review scope.
 Physical dual-host and native GUI controlled-model evidence at `8f203370` is
 recorded separately in the [roadmap](bot-to-bot-review-roadmap.md); it does not
 prove later-head or real-account acceptance. The user explicitly deferred named
@@ -271,7 +271,8 @@ failure preserves prior content and its read-failure state. Legacy projections w
 no native message-level identity keep their evidence instead of inventing a join.
 
 The byte/reader/HTTP/native-adapter tests cover this path. Real model interpretation,
-packaged preview/save and cross-machine GUI acceptance remain M4 gates.
+packaged preview/save and cross-machine GUI acceptance remain separately labeled,
+nonblocking follow-up under the latest review scope.
 
 ## File preflight and admission deadlines
 
@@ -353,3 +354,23 @@ source and proof; its separate receipt can unlock future connection edits while
 the old unknown and pending reference remain intact. Unknown new authorization
 is reconciled under its own ID. Draft-era records without an original-code
 fingerprint are retained without a silent migration.
+
+## Local availability boundary
+
+A remote environment is optional execution capacity. Its uncertain work reserves
+only that environment's slots; total task counts remain presentation totals.
+Remote native I/O, cleanup and history do not hold Manager's local admission
+fence or machines' routing mutex. Each peer retains its own serial admission and
+original binding; cancellation releases live waiters, and no failure falls back
+local. Existing task reads/observations/decisions use the frozen B source/runtime
+owner even if B's current resident/default configuration is unavailable.
+
+Web pending writes use original request/profile scope. First pairing persists
+its original proof/intent before Web admission; a host restart queries that same
+reference. Historical remote unknowns neither become successful nor lock local
+updates. A definitely undispatched ingress failure CAS-rolls back only its own
+preparation; actual uncertain pairing retains proof. Fixed authenticated reads
+leave HTTP write drain before network I/O. Current mutations keep finite original
+owner deadlines and native/local unresolved writes retain their stricter guards.
+Final automated/review gates are listed in the roadmap. Missing Q22 account input
+is not permission to read or use daily accounts, and is no longer a merge gate.

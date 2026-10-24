@@ -38,8 +38,8 @@ type authenticatedGrantKey struct{}
 type originalBindingOnlyKey struct{}
 
 // OriginalBindingOnly resolves the existing source/runtime owner without current
-// model defaults or preparation. Only fixed authenticated receipt/guarded-stop
-// actions set this context; native stop still checks its original generation.
+// model defaults or preparation. The authenticated binding boundary sets this
+// for retained work; adapters still validate their original owner and requests.
 func OriginalBindingOnly(ctx context.Context) bool {
 	v, _ := ctx.Value(originalBindingOnlyKey{}).(bool)
 	return v
@@ -232,6 +232,11 @@ func (s *Server) owner(ctx context.Context, peer, id, runtime string, newBinding
 		runtime = bound
 	} else {
 		runtime = ""
+	}
+	// Only an undispatched preparation/new task consults current admission.
+	// All retained operations resolve their frozen source/runtime owner.
+	if exists && (!newBinding || !s.state.Preparations[peer][id]) {
+		ctx = context.WithValue(ctx, originalBindingOnlyKey{}, true)
 	}
 	root := filepath.Join(s.root, "sources", sourceDir(peer))
 	candidate, selected, work, err := s.factory(ctx, peer, runtime, root)
@@ -549,9 +554,6 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			return fail(errors.New("worker_workspace_not_absolute"))
 		}
 	}
-	if in.Action == "url-operation" || in.Action == "operation" || in.Action == "stop" {
-		ctx = context.WithValue(ctx, originalBindingOnlyKey{}, true)
-	}
 	owner, work, err := s.owner(ctx, peer, id, in.Runtime, in.Action == "prepare" || in.Action == "start")
 	if err != nil {
 		return fail(err)
@@ -747,12 +749,6 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		case "url-submit":
 			out.Operation, err = p.SubmitWorkURL(ctx, in.URLSubmission)
 		}
-	case "operation":
-		p, ok := owner.(api.WorkOperationReader)
-		if !ok {
-			return fail(errors.New("worker_reconcile_unsupported"))
-		}
-		out.Operation, err = p.ReadWorkOperation(ctx, in.Query)
 	case "file":
 		p, ok := owner.(api.WorkFileReader)
 		if !ok {

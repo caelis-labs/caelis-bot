@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type operation struct {
+	Remote                bool                        `json:"remote,omitempty"` // host-owned remote effect routing, never success
 	ArchivedAuthorization bool                        `json:"archivedAuthorization,omitempty"`
 	AuthorizationBy       string                      `json:"authorizationBy,omitempty"`
 	AuthorizationParent   string                      `json:"authorizationParent,omitempty"`
@@ -37,6 +39,7 @@ type action struct {
 	Function              any
 	Read, Composer, Local bool
 	NativeReceipt         bool
+	Remote                bool
 }
 
 // bind only decodes the signature of a function explicitly listed in routes.go.
@@ -104,6 +107,9 @@ func (s *Server) register(a action) {
 			}
 		}
 		if a.Read || a.Local {
+			if a.Read {
+				releaseReadAdmission(r.Context())
+			}
 			value, e := invoke(api.WithSetupAccess(r.Context(), "web:"+sessionID(r)), in.Args)
 			if e != nil {
 				code := "read_unavailable"
@@ -140,6 +146,13 @@ func (s *Server) register(a action) {
 			fingerprint = digest(a.Path + "\n" + in.AfterAuthorization + "\n" + string(body))
 		}
 		owner := sessionID(r)
+		remote := a.Remote
+		if a.Path == "/api/v1/conversation/decide" && len(in.Args) == 1 {
+			var d api.Decision
+			if json.Unmarshal(in.Args[0], &d) == nil {
+				remote = backend.RemoteWorkApproval(s.services.Backend, d.ID)
+			}
+		}
 		s.mu.Lock()
 		old, exists, lookupErr := s.lookupOperation(in.ID)
 		if lookupErr != nil {
@@ -164,15 +177,26 @@ func (s *Server) register(a action) {
 			jsonOut(w, 200, map[string]any{"value": old.Value})
 			return
 		}
+		used := 0
+		for _, op := range s.operations {
+			if (op.Remote || op.BotConnection != nil) == remote {
+				used++
+			}
+		}
+		if used >= 4096 {
+			s.mu.Unlock()
+			fail(w, 503, "operation_capacity")
+			return
+		}
 		var authorization *botAuthorizationCall
 		var authorizationErr error
-		if a.Path == botAuthorizationPath || in.AfterAuthorization != "" {
+		if a.Path == botAuthorizationPath || a.Path == botConnectionPath || in.AfterAuthorization != "" {
 			authorization, authorizationErr = s.prepareBotAuthorizationLocked(a.Path, in, owner)
 		}
 		if authorizationErr != nil {
 			var refusal *api.ActionRejectedError
 			if errors.As(authorizationErr, &refusal) {
-				record := operation{Digest: fingerprint, Owner: owner, State: "complete", Error: "operation_rejected", Detail: safeRejectionDetail(refusal.Code), At: time.Now().Unix()}
+				record := operation{Digest: fingerprint, Owner: owner, Remote: remote, State: "complete", Error: "operation_rejected", Detail: safeRejectionDetail(refusal.Code), At: time.Now().Unix()}
 				s.operations[in.ID] = record
 				if err := s.saveOperations(); err != nil {
 					delete(s.operations, in.ID)
@@ -188,17 +212,10 @@ func (s *Server) register(a action) {
 			fail(w, 409, "not_dispatched")
 			return
 		}
-		// Retain identity tombstones. Expiry must never authorize replay. Local
-		// draft CAS is handled by its existing owner, not this effect journal.
-		if len(s.operations) >= 4096 {
-			s.mu.Unlock()
-			fail(w, 503, "operation_capacity")
-			return
-		}
-		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, State: "pending", At: time.Now().Unix()}
-		if a.Path == botAuthorizationPath && authorization != nil {
+		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, Remote: remote, State: "pending", At: time.Now().Unix()}
+		if authorization != nil {
 			record := s.operations[in.ID]
-			record.BotAuthorization = true
+			record.BotAuthorization = a.Path == botAuthorizationPath
 			ref := authorization.reference
 			record.BotConnection = &ref
 			s.operations[in.ID] = record
@@ -222,6 +239,9 @@ func (s *Server) register(a action) {
 				s.operations[authorization.parent] = parentBefore
 			}
 			s.mu.Unlock()
+			if authorization != nil {
+				_ = backend.AbortPreparedBotConnection(s.services.Backend, authorization.reference)
+			}
 			fail(w, 503, "not_dispatched")
 			return
 		}
@@ -256,7 +276,7 @@ func (s *Server) register(a action) {
 		record.State = "complete"
 		record.Value = result
 		record.Native = native
-		if a.Path == botAuthorizationPath && authorization != nil {
+		if authorization != nil {
 			ref := authorization.reference
 			record.BotConnection = &ref
 		}
@@ -274,6 +294,11 @@ func (s *Server) register(a action) {
 			}
 			record.Error = "operation_unconfirmed"
 			var rejected *api.ActionRejectedError
+			var decision *api.DecisionValidationError
+			var decisionValue api.DecisionValidationError
+			if a.Path == "/api/v1/conversation/decide" && (errors.As(e, &decision) || errors.As(e, &decisionValue)) {
+				record.Error = "operation_rejected"
+			}
 			if errors.As(e, &rejected) {
 				record.Error = "operation_rejected"
 				record.Detail = safeRejectionDetail(rejected.Code)

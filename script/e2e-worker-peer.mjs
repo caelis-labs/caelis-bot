@@ -79,7 +79,8 @@ try{
  await a.getByLabel('配对码',{exact:true}).fill(code);
  await a.getByRole('button',{name:'连接',exact:true}).click();
  await a.getByRole('button',{name:'生成新配对码后重新授权',exact:true}).waitFor();
- const originalPair=await a.evaluate(()=>JSON.parse(sessionStorage.getItem('caelisbot.pending-operations'))['/api/v1/machines/connect-bot']);assert.ok(originalPair);
+ const originalScope=await a.evaluate(()=>Object.keys(JSON.parse(sessionStorage.getItem('caelisbot.pending-operations'))).find(k=>k.startsWith('/api/v1/machines/connect-bot@')));assert.ok(originalScope);
+ const originalPair=await a.evaluate(key=>JSON.parse(sessionStorage.getItem('caelisbot.pending-operations'))[key],originalScope);assert.ok(originalPair);
  const beforeGrant=JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8'));assert.equal(Object.keys(beforeGrant.grants).length,0);
  const connections=(await host(a,'/api/v1/machines/machines')).body.value;const originalConnection=connections.find(v=>v.connectionType==='bot');assert.ok(originalConnection?.id);
  await b.getByRole('button',{name:'生成配对信息',exact:true}).click();
@@ -99,7 +100,7 @@ try{
  await a.locator('.machine-row').filter({hasText:'B synthetic'}).locator('.machine-status.ready').waitFor();
  const originalReceipt=await a.evaluate(id=>fetch('/api/v1/operations/'+id).then(r=>r.json()),originalPair);
  assert.equal(originalReceipt.error,'operation_unconfirmed');assert.ok(originalReceipt.followingAuthorization);
- assert.equal(await a.evaluate(()=>JSON.parse(sessionStorage.getItem('caelisbot.pending-operations'))['/api/v1/machines/connect-bot']),originalPair);
+ assert.equal(await a.evaluate(key=>JSON.parse(sessionStorage.getItem('caelisbot.pending-operations'))[key],originalScope),originalPair);
  const afterGrant=JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8'));assert.equal(Object.keys(afterGrant.grants).length,1);
  await a.reload();await a.locator('.machine-row').filter({hasText:'B synthetic'}).click();
  await a.getByLabel('机器名称',{exact:true}).fill('B renamed');await a.getByRole('button',{name:'保存连接',exact:true}).click();
@@ -208,6 +209,16 @@ try{
  assert.match(await a.getByRole('dialog',{name:'文件预览',exact:true}).textContent(),/fixture,42/);
  await shot(a,'A-offline-preview');
  evidence.steps.push('B offline: previously retrieved checked output remains previewable through actual A Web UI');
+ await a.keyboard.press('Escape');
+ await a.getByRole('dialog',{name:'文件预览',exact:true}).waitFor({state:'hidden'});
+ await until('A resident remains healthy with disconnected/unknown remote work',async()=>{const r=await host(a,'/api/v1/conversation/snapshot');return r.status===200&&r.body.value.connection==='ready'&&r.body.value.canSend;});
+ await send(a,{action:'delegate',environment:'local',title:'Local remains available while B offline',scenario:'csv',wait:true});
+ const independent=await until('real local Worker completes despite B offline and old unknown receipts',async()=>{const d=JSON.parse(await readFile(join(A.data,'tasks.json'),'utf8'));return Object.values(d.records).find(v=>v.view.title==='Local remains available while B offline'&&v.view.status==='completed');},45000);
+ assert.equal(independent.view.machine||'','');
+ await until('A Agent reads local result through normal product tools',async()=>(await nativeStates(A.data)).some(v=>v.effectCounts['verified-file:'+independent.view.id]===1),45000);
+ evidence.localIsolation={task:independent.view.id,resident:'ready',remoteOffline:true,oldUnknownPreserved:JSON.parse(await readFile(join(A.data,'tasks.json'),'utf8')).records[held.task].view.status==='unknown'};
+ assert.equal(evidence.localIsolation.oldUnknownPreserved,true);
+ evidence.steps.push('B disconnected and original remote upload unknown: A React/resident remains ready; real local delegation completes and A Agent verifies its original file, without fallback or clearing remote uncertainty');
  const native=await nativeStates(B.data);
  evidence.nativeCounts=native.map(v=>({build:v.build,effects:v.effectCounts,inputs:v.clientInputCounts}));
  assert.ok(native.some(v=>Object.keys(v.effectCounts).some(k=>k.includes('verified-input:')&&k.endsWith('quarterly-report.csv'))));

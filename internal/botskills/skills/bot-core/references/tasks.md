@@ -65,6 +65,11 @@ connected key they specified. An explicit workspace belongs to that selected
 environment. Local files are not copied there automatically. Keep the same
 task after an environment outage; do not create a replacement on another host.
 
+Concurrency admission is per execution environment. An uncertain remote task
+keeps its possible slot on that machine; it does not consume local capacity.
+Aggregate task counts are presentation totals, not evidence that local work is
+blocked. A remote outage affects only that environment and its original tasks.
+
 State purpose, scope, file ownership, constraints, deliverable and verification
 in the prompt. Include workspace placement and cleanup responsibility; require
 the Worker to report created paths and whether each was removed or retained.

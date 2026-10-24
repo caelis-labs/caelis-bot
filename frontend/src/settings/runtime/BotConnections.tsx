@@ -6,7 +6,7 @@ import {DesktopTowerIcon, SettingsChevron} from '../../SettingsIcons';
 import {SettingsDialog} from './SettingsDialog';
 
 type BotRecovery={operationId:string;profileId:string;canAuthorize:boolean};
-const emptyConnection = (): BotConnectionInput => ({id:'', name:'', address:'', code:''});
+const emptyConnection = (): BotConnectionInput => ({id:'bot-'+Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join(''), name:'', address:'', code:''});
 
 export function BotConnections({active=true, call=backend}: {active?:boolean; call?:typeof backend}) {
  const {t}=useI18n();
@@ -50,6 +50,13 @@ export function BotConnections({active=true, call=backend}: {active?:boolean; ca
  };
  const pairingLive=!!sharing?.code&&!!sharing.expiresAt&&sharing.expiresAt*1000>now;
  const selected=machines.find(machine=>machine.id===draft?.id);
+ const changeAddress=(address:string,code?:string)=>{
+  if(!draft)return;
+  const canonical=(value:string)=>{try{return new URL(value).origin}catch{return value.trim().replace(/\/$/,'')}};
+  const existing=!selected?machines.find(machine=>canonical(machine.address)===canonical(address)):undefined;
+  setDraft({...draft,...(existing?{id:existing.id,name:draft.name||existing.name}:{}),address,...(code!==undefined?{code}:{})});
+ };
+
  const needsWorkRecovery=!!selected?.issue?.includes('worker_not_ready');
  const restoreVisible=!recovery&&!newAuthorization&&!!draft?.id&&!!selected&&(selected.archived||selected.state!=='ready')&&draft.address===selected.address&&!draft.code.trim();
  const copy=async()=>{
@@ -102,18 +109,18 @@ export function BotConnections({active=true, call=backend}: {active?:boolean; ca
    {!!sharing.sources?.length&&<div className="machine-extra"><strong>{t('settings.botConnectedSources')}</strong><ul className="machine-list">{sharing.sources.map(source=><li key={source.id}><div className="machine-status-actions"><span><strong>{source.name||t('settings.botConnectedSource')}</strong><small>{source.id.slice(-8)}{source.pairedAt>0&&` · ${new Date(source.pairedAt).toLocaleString()}`}</small></span><button disabled={busy} onClick={()=>void revoke(source.id)}>{t('settings.botRevoke')}</button></div></li>)}</ul></div>}
   </>}
   {error&&<p role="alert" className="inline-error">{error}</p>}
-  {draft&&<SettingsDialog title={t(draft.id?'settings.botEdit':'settings.botAdd')} description={t('settings.botConnectNote')} busy={busy} onClose={()=>setDraft(null)}>
+  {draft&&<SettingsDialog title={t(selected?'settings.botEdit':'settings.botAdd')} description={t('settings.botConnectNote')} busy={busy} onClose={()=>setDraft(null)}>
    <form onSubmit={event=>{event.preventDefault();void connect();}}>
-    <label>{t('settings.botAddress')}<input autoFocus required type="url" autoComplete="off" placeholder="http://127.0.0.1:29317" disabled={busy} value={draft.address} onChange={event=>setDraft({...draft,address:event.target.value})} onPaste={event=>{
-     try{const info=JSON.parse(event.clipboardData.getData('text'));if(typeof info.address==='string'&&typeof info.code==='string'){event.preventDefault();setDraft({...draft,address:info.address,code:info.code});}}catch{/* Ordinary address paste remains unchanged. */}
+    <label>{t('settings.botAddress')}<input autoFocus required type="url" autoComplete="off" placeholder="http://127.0.0.1:29317" disabled={busy} value={draft.address} onChange={event=>changeAddress(event.target.value)} onPaste={event=>{
+     try{const info=JSON.parse(event.clipboardData.getData('text'));if(typeof info.address==='string'&&typeof info.code==='string'){event.preventDefault();changeAddress(info.address,info.code);}}catch{/* Ordinary address paste remains unchanged. */}
     }}/></label>
-    <label>{t('settings.botCode')}<input required={newAuthorization||!draft.id} type="password" autoComplete="off" disabled={busy} value={draft.code} onChange={event=>setDraft({...draft,code:event.target.value})}/></label>
+    <label>{t('settings.botCode')}<input required={newAuthorization||!selected} type="password" autoComplete="off" disabled={busy} value={draft.code} onChange={event=>setDraft({...draft,code:event.target.value})}/></label>
     <label>{t('settings.machineName')}<input maxLength={80} autoComplete="off" disabled={busy} value={draft.name} onChange={event=>setDraft({...draft,name:event.target.value})}/></label>
-    {draft.id&&<><details><summary>{t('settings.botEndpointSettings')}</summary><p className="settings-note">{selected?.checkedAt?t('settings.botCheckedAt',{time:new Date(selected.checkedAt).toLocaleTimeString()}):t('settings.botNotChecked')}</p><p className="settings-note">{t('settings.botRePairNote')}</p><p className="settings-note">{t('settings.botRemoveNote')}</p></details>{selected?.issue&&<p className="settings-note">{problem(selected.issue,false,selected.name)}</p>}{restoreVisible&&<button type="button" disabled={busy} onClick={()=>void (needsWorkRecovery?recover():connect(true))}>{t('settings.botCheckRestore')}</button>}</>}
+    {selected&&<><details><summary>{t('settings.botEndpointSettings')}</summary><p className="settings-note">{selected?.checkedAt?t('settings.botCheckedAt',{time:new Date(selected.checkedAt).toLocaleTimeString()}):t('settings.botNotChecked')}</p><p className="settings-note">{t('settings.botRePairNote')}</p><p className="settings-note">{t('settings.botRemoveNote')}</p></details>{selected?.issue&&<p className="settings-note">{problem(selected.issue,false,selected.name)}</p>}{restoreVisible&&<button type="button" disabled={busy} onClick={()=>void (needsWorkRecovery?recover():connect(true))}>{t('settings.botCheckRestore')}</button>}</>}
     {recovery&&!newAuthorization&&<div className="settings-note" role="status"><p>{t(recovery.canAuthorize?'settings.botNewAuthorizationNote':'settings.botOriginalPairingUnavailable')}</p>{recovery.canAuthorize&&<button type="button" disabled={busy} onClick={beginAuthorization}>{t('settings.botNewAuthorization')}</button>}</div>}
     {newAuthorization&&<p className="settings-note" role="status">{t('settings.botNewAuthorizationNote')}</p>}
     {dialogError&&<p role="alert" className="inline-error">{dialogError}</p>}
-    <div className="setup-end">{draft.id&&<button type="button" className="text-action" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}<button type="button" disabled={busy} onClick={()=>setDraft(null)}>{t('common.cancel')}</button><button type="submit" className="primary" disabled={busy}>{t(busy?'settings.machineConnecting':newAuthorization?'settings.botAuthorize':draft.id?'settings.botSaveConnection':'settings.machineConnect')}</button></div>
+    <div className="setup-end">{selected&&<button type="button" className="text-action" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}<button type="button" disabled={busy} onClick={()=>setDraft(null)}>{t('common.cancel')}</button><button type="submit" className="primary" disabled={busy}>{t(busy?'settings.machineConnecting':newAuthorization?'settings.botAuthorize':selected?'settings.botSaveConnection':'settings.machineConnect')}</button></div>
    </form>
   </SettingsDialog>}
   {endpoint&&<SettingsDialog title={t('settings.botEndpointSettings')} description={t('settings.botEndpointNote')} busy={busy} onClose={()=>setEndpoint(null)}><form onSubmit={event=>{event.preventDefault();void saveEndpoint();}}>

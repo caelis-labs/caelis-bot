@@ -129,6 +129,7 @@ certify an accepted receipt. This does not rewrite any original outcome.
 CI39983328004 at de4b791c passed all selected platforms, including Windows. Earlier
 persistence timeout causes remain unproven; no retry, timeout/durability relaxation
 or claim of flakiness was used to erase them. Physical machine,
-real account/model, final-head native GUI/upgrade and final whole-PR independent
-review remain separate gates. B-only browser flows named in the first-release
+real account/model and native-GUI/upgrade results remain separate evidence, now
+nonblocking follow-up under the latest review scope. Final whole-PR independent
+review and exact-source automated gates remain required. B-only browser flows named in the first-release
 scope decision are deferred follow-up, not an unbounded webpage parity gate.

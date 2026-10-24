@@ -108,3 +108,40 @@ func TestBotInvalidAddressIsRejectedBeforeCreatingPairingProfile(t *testing.T) {
 		t.Fatal("correctable address refusal became an uncertain profile", err)
 	}
 }
+
+func TestAbortingUndispatchedPairPreservesNewIntentAndOldUnknown(t *testing.T) {
+	s, e := Open(t.TempDir(), &dualPeerLocal{}, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	in := api.BotConnectionInput{ID: "original-profile", Address: "http://127.0.0.1:1", Code: "old-uncertain-code"}
+	old, e := s.PrepareBotConnection(in, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// Simulate the original attempt having crossed ingress admission. Its proof
+	// must survive rollback of a new, explicitly distinct undispatched intent.
+	in.Code = "new-unused-code"
+	next, e := s.PrepareBotConnection(in, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.AbortPreparedBotConnection(next); e != nil {
+		t.Fatal(e)
+	}
+	restored, e := s.BotAuthorizationReference(in.ID)
+	if e != nil || restored.Pairing != old.Pairing || restored.Proof != old.Proof {
+		t.Fatal("old unknown proof changed", e)
+	}
+	newer, e := s.PrepareBotConnection(in, nil)
+	if e != nil {
+		t.Fatal("unused new code was burned", e)
+	}
+	if e = s.AbortPreparedBotConnection(old); e != nil {
+		t.Fatal(e)
+	}
+	current, e := s.BotAuthorizationReference(in.ID)
+	if e != nil || current.Pairing != newer.Pairing {
+		t.Fatal("late rollback erased newer preparation", e)
+	}
+}

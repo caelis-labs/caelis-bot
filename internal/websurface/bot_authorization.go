@@ -100,13 +100,17 @@ func (s *Server) prepareBotAuthorizationLocked(path string, in actionRequest, ow
 		if err != nil || ref.Proof != op.BotConnection.Proof {
 			return nil, &api.ActionRejectedError{Code: "original_peer_proof_required"}
 		}
-		return &botAuthorizationCall{parent: id, reference: ref}, nil
+		prepared, err := backend.PrepareBotConnection(s.services.Backend, input.Connection, &ref)
+		if err != nil {
+			return nil, err
+		}
+		return &botAuthorizationCall{parent: id, reference: prepared}, nil
 	}
 	if path != botConnectionPath {
 		return nil, &api.ActionRejectedError{Code: "invalid_argument"}
 	}
 	op, ok, lookupErr := s.lookupOperation(in.AfterAuthorization)
-	if lookupErr != nil || !ok || op.Owner != owner || !botAuthorizationConfirmed(op) || op.BotConnection == nil {
+	if in.AfterAuthorization != "" && (lookupErr != nil || !ok || op.Owner != owner || !botAuthorizationConfirmed(op) || op.BotConnection == nil) {
 		return nil, errors.New("authorization unconfirmed")
 	}
 	// Following permits another explicit connection intent; it does not certify
@@ -128,14 +132,18 @@ func (s *Server) prepareBotAuthorizationLocked(path string, in actionRequest, ow
 			id = parent.AuthorizationParent
 		}
 	}
-	return nil, nil
+	ref, err := backend.PrepareBotConnection(s.services.Backend, input, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &botAuthorizationCall{reference: ref}, nil
 }
 func (s *Server) authorizeBotConnection(ctx context.Context, in api.BotConnectionAuthorization) (api.Machine, error) {
 	call, ok := ctx.Value(botAuthorizationCallKey{}).(*botAuthorizationCall)
 	if !ok {
 		return api.Machine{}, errors.New("original authorization unavailable")
 	}
-	value, ref, err := backend.AuthorizeOriginalBotConnection(s.services.Backend, call.reference, in.Connection)
+	value, ref, err := backend.ConnectPreparedBot(s.services.Backend, call.reference, in.Connection)
 	call.reference = ref
 	return value, err
 }
@@ -144,17 +152,18 @@ func botAuthorizationConfirmed(op operation) bool {
 	return op.BotAuthorization && op.State == "complete" && (op.ArchivedAuthorization || operationTerminal(op) && op.Error == "")
 }
 
-// A completed pair invocation has no ongoing execution to drain after a separate
-// same-proof authorization is confirmed. This only permits host restart; the old
-// uncertain effect and its tombstone remain nonterminal and are never replayed.
+// The pairing domain decides whether an actual invocation remains active.
+// Historical unknown authorization/epoch changes never govern local health.
 func (s *Server) botAuthorizationAllowsRestartLocked(id string, op operation) bool {
-	if op.State != "complete" || op.Error != "operation_unconfirmed" || op.BotConnection == nil || op.Native != nil {
-		return false
+	return op.State == "complete" && op.BotConnection != nil && op.Native == nil && backend.BotConnectionQuiescent(s.services.Backend, *op.BotConnection)
+}
+
+func (s *Server) connectBot(ctx context.Context, in api.BotConnectionInput) (api.Machine, error) {
+	call, ok := ctx.Value(botAuthorizationCallKey{}).(*botAuthorizationCall)
+	if !ok {
+		return api.Machine{}, errors.New("original authorization unavailable")
 	}
-	tailID, tail, ok := s.botAuthorizationTailLocked(id, op.Owner)
-	if !ok || tailID == id || !botAuthorizationConfirmed(tail) {
-		return false
-	}
-	current, err := backend.BotAuthorizationReference(s.services.Backend, tail.BotConnection.ID)
-	return err == nil && current.Proof == tail.BotConnection.Proof && current.Pairing == tail.BotConnection.Pairing && (tail.BotConnection.Peer == "" || current.Peer == tail.BotConnection.Peer)
+	value, ref, err := backend.ConnectPreparedBot(s.services.Backend, call.reference, in)
+	call.reference = ref
+	return value, err
 }

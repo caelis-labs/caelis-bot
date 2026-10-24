@@ -108,6 +108,7 @@ and a separate native macOS GUI → Core v0.73.2 controlled-model journey exist 
 full lifecycle/upgrade acceptance. Remaining interaction/loss/restart/revoke/
 two-source/local-helper checks must retain their actual evidence layers.
 Q22 isolated account/model input is still missing; dependent real-account steps
-remain blocked without another question. Final-head checks, affected application
+remain unperformed without another question and are nonblocking follow-up under
+the latest review scope. Final-head checks, affected application
 journeys and whole-PR independent audit are required; no merge or release is
 authorized by a successful test command.

@@ -2,6 +2,7 @@ package machines
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
@@ -37,9 +38,15 @@ func (s *Service) bindLocked(in api.TaskStart, id, runtime string) (string, erro
 		// Restoring a durable visible task ledger retains its original owner,
 		// including a crash between writing that ledger and attempting dispatch.
 		if runtime != "" && s.state.Reservations[id] {
+			reservationKey := s.state.ReservationKeys[id]
 			delete(s.state.Reservations, id)
+			delete(s.state.ReservationKeys, id)
 			if err := s.save(); err != nil {
 				s.state.Reservations[id] = true
+				if s.state.ReservationKeys == nil {
+					s.state.ReservationKeys = map[string]string{}
+				}
+				s.state.ReservationKeys[id] = reservationKey
 				return "", err
 			}
 		}
@@ -59,11 +66,16 @@ func (s *Service) bindLocked(in api.TaskStart, id, runtime string) (string, erro
 	s.state.Routes[id], s.state.Runtimes[id] = in.Machine, runtime
 	if reservation {
 		s.state.Reservations[id] = true
+		if s.state.ReservationKeys == nil {
+			s.state.ReservationKeys = map[string]string{}
+		}
+		s.state.ReservationKeys[id] = rand.Text()
 	}
 	if err := s.save(); err != nil {
 		delete(s.state.Routes, id)
 		delete(s.state.Runtimes, id)
 		delete(s.state.Reservations, id)
+		delete(s.state.ReservationKeys, id)
 		return "", err
 	}
 	return runtime, nil
@@ -71,29 +83,37 @@ func (s *Service) bindLocked(in api.TaskStart, id, runtime string) (string, erro
 
 func (s *Service) ReleaseWorkPreparation(id string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.releasePreparationLocked(id)
-}
-
-func (s *Service) releasePreparationLocked(id string) error {
 	if !s.state.Reservations[id] {
+		s.mu.Unlock()
 		return nil
 	}
-	machine, runtime := s.state.Routes[id], s.state.Runtimes[id]
-	if p := s.state.Profiles[machine]; p.View.ConnectionType == "bot" {
+	machine, runtime, key := s.state.Routes[id], s.state.Runtimes[id], s.state.ReservationKeys[id]
+	p := s.state.Profiles[machine]
+	s.mu.Unlock()
+	if p.View.ConnectionType == "bot" {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		// A release is safe only for the target's still-undispatched reservation.
-		// Failure retains the sole proof and route for an explicit later repair.
 		if _, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "release_preparation", ID: id, Runtime: runtime}); err != nil {
 			return err
 		}
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A late acknowledgement can release only this unchanged undispatched lease.
+	current := s.state.Profiles[machine]
+	if !s.state.Reservations[id] || s.state.Routes[id] != machine || s.state.Runtimes[id] != runtime || s.state.ReservationKeys[id] != key || !sameBotConfiguration(current, p) {
+		return nil
+	}
 	delete(s.state.Routes, id)
 	delete(s.state.Runtimes, id)
 	delete(s.state.Reservations, id)
+	delete(s.state.ReservationKeys, id)
 	if err := s.save(); err != nil {
 		s.state.Routes[id], s.state.Runtimes[id], s.state.Reservations[id] = machine, runtime, true
+		if s.state.ReservationKeys == nil {
+			s.state.ReservationKeys = map[string]string{}
+		}
+		s.state.ReservationKeys[id] = key
 		return err
 	}
 	return nil

@@ -141,3 +141,37 @@ func BotAuthorizationReference(s *Service, id string) (api.BotConnectionReferenc
 	}
 	return p.BotAuthorizationReference(id)
 }
+
+func PrepareBotConnection(s *Service, in api.BotConnectionInput, ref *api.BotConnectionReference) (api.BotConnectionReference, error) {
+	p, ok := s.machines.(api.BotConnectionLifecycle)
+	if !ok {
+		return api.BotConnectionReference{}, errors.New("bot_connections_unavailable")
+	}
+	return p.PrepareBotConnection(in, ref)
+}
+func ConnectPreparedBot(s *Service, ref api.BotConnectionReference, in api.BotConnectionInput) (api.Machine, api.BotConnectionReference, error) {
+	p, ok := s.machines.(api.BotConnectionLifecycle)
+	if !ok {
+		return api.Machine{}, ref, errors.New("bot_connections_unavailable")
+	}
+	ctx, cancel := s.machineContext()
+	defer cancel()
+	return p.ConnectPreparedBot(ctx, ref, in)
+}
+func BotConnectionQuiescent(s *Service, ref api.BotConnectionReference) bool {
+	p, ok := s.machines.(api.BotConnectionLifecycle)
+	return ok && p.BotConnectionQuiescent(ref)
+}
+func AbortPreparedBotConnection(s *Service, ref api.BotConnectionReference) error {
+	p, ok := s.machines.(api.BotConnectionLifecycle)
+	if !ok {
+		return errors.New("bot_connections_unavailable")
+	}
+	return p.AbortPreparedBotConnection(ref)
+}
+
+// Resolve the existing owner, not a browser-supplied prefix or boolean.
+func RemoteWorkApproval(s *Service, id string) bool {
+	p, ok := s.workerInteractionOwner().(interface{ RemoteWorkApproval(string) bool })
+	return ok && p.RemoteWorkApproval(id)
+}

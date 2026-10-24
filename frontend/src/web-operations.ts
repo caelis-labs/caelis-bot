@@ -13,13 +13,14 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
  try{const saved=JSON.parse(io.storage.getItem(key)||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))pending=Object.fromEntries(Object.entries(saved).filter((e):e is [string,string]=>typeof e[1]==='string'))}catch{/* No saved identities. */}
  const bodies=new Map<string,string>(),active=new Set<string>();
  const remember=()=>io.storage.setItem(key,JSON.stringify(pending));
- const finish=(path:string)=>{delete pending[path];bodies.delete(path);remember()};
+ const finish=(path:string)=>{const id=pending[path];for(const [key,value] of Object.entries(pending)){if(value===id&&!key.startsWith('authorization:')){delete pending[key];bodies.delete(key)}}remember()};
  const terminal=(op:WebOperation)=>{
   const value=op.value as {outcome?:string;state?:string}|null;
   return op.state==='complete'&&!op.error?.startsWith('operation_unconfirmed')&&value?.outcome!=='unknown'&&value?.state!=='unknown';
  };
  const uncertain=(op?:WebOperation)=>Object.assign(io.failure('operation_unconfirmed'),op?.recovery?{botRecovery:op.recovery}:{});
- const markAuthorization=(id:string)=>{pending['authorization:'+connectPath]=id;remember()};
+ const connectionScope=(id='')=>connectPath+(id?'@'+id:'');
+ const markAuthorization=(id:string,profile='')=>{pending['authorization:'+connectionScope(profile)]=id;remember()};
  const settle=async(path:string,id:string,same:boolean)=>{
   const op=await io.receipt(id);
   if(!terminal(op))throw uncertain(op);
@@ -30,21 +31,27 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
  };
  return async(path:string,args:unknown[],read:boolean)=>{
   if(read)return (await io.post(path,{id:io.identity(),args},8000)).value;
+  const argument=args[0] as {id?:string;connection?:{id?:string}}|undefined;
+  const profile=path===authorizePath?argument?.connection?.id||'':argument?.id||'';
+  const connection=connectionScope(profile);
   let scope=path,afterAuthorization='';
+  if(path==='/api/v1/conversation/decide'&&profile)scope=path+'@'+profile;
+  if(['/api/v1/conversation/answer-question','/api/v1/conversation/dismiss-question'].includes(path)&&typeof args[0]==='string')scope=path+'@'+args[0];
+  if(['/api/v1/machines/recover-bot-work','/api/v1/machines/remove-machine'].includes(path)&&typeof args[0]==='string')scope=path+'@'+args[0];
   if(path===authorizePath){
    const request=args[0] as {originalOperationId?:string;connection?:{id?:string}};
    scope=path+'@'+(request.originalOperationId||request.connection?.id||'');
   }
   if(path===connectPath){
-   const remembered=pending['authorization:'+path];
+   const remembered=pending['authorization:'+connection];
    if(remembered){const op=await io.receipt(remembered);if(!op.authorizationConfirmed)throw uncertain(op);afterAuthorization=remembered;}
    for(let depth=0;depth<16;depth++){
-    scope=afterAuthorization?path+'@'+afterAuthorization:path;
+    scope=afterAuthorization?connection+'@'+afterAuthorization:connection;
     const prior=pending[scope];if(!prior)break;
     const op=await io.receipt(prior);
     if(!op.followingAuthorization)break;
     if(op.followingAuthorization===afterAuthorization)throw uncertain(op);
-    afterAuthorization=op.followingAuthorization;markAuthorization(afterAuthorization);
+    afterAuthorization=op.followingAuthorization;markAuthorization(afterAuthorization,profile);
     if(depth===15)throw uncertain(op);
    }
   }
@@ -54,13 +61,13 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
    const prior=pending[scope],body=JSON.stringify(args);
    if(prior){
     const value=await settle(scope,prior,bodies.get(scope)===body);
-    if(path===authorizePath)markAuthorization(prior);
+    if(path===authorizePath)markAuthorization(prior,profile);
     return value;
    }
    const id=io.identity();pending[scope]=id;bodies.set(scope,body);remember();
    try{
     const result=await io.post(path,{id,args,...(afterAuthorization?{afterAuthorization}:{})},120000);
-    if(terminal({state:'complete',value:result.value})){finish(scope);if(path===authorizePath)markAuthorization(id);}
+    if(terminal({state:'complete',value:result.value})){finish(scope);if(path===authorizePath)markAuthorization(id,profile);}
     return result.value;
    }catch(error){
     const code=(error as {code?:string})?.code;
@@ -68,9 +75,10 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
     let last:WebOperation|undefined;
     for(let attempt=0;attempt<3;attempt++){
      try{last=await io.receipt(id)}catch{/* Read again, never replay. */}
-     if(last&&terminal(last)){finish(scope);if(last.error)throw io.failure(last.error,rejectionDetail(last));if(path===authorizePath)markAuthorization(id);return last.value}
+     if(last&&terminal(last)){finish(scope);if(last.error)throw io.failure(last.error,rejectionDetail(last));if(path===authorizePath)markAuthorization(id,profile);return last.value}
      if(attempt<2)await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
     }
+    if(last?.recovery&&path===connectPath){const alias=connectionScope(last.recovery.profileId);if(!pending[alias]){pending[alias]=id;remember()}}
     if(last?.recovery)throw Object.assign(error instanceof Error?error:io.failure('operation_unconfirmed'),{botRecovery:last.recovery});
     throw error;
    }

@@ -44,6 +44,9 @@ try{
  await assert.rejects(client.transport('backend','ConnectBot',[args]),e=>e.code==='operation_rejected'&&e.detail==='new_pairing_code_required');
  await assert.rejects(client.transport('backend','ConnectBot',[{id:fresh.id,address:c.peer,name:'Renamed B',code:'known-refused-later-code'}]),e=>e.detail==='pairing_code_invalid');
  assert.equal(JSON.parse(saved.get('caelisbot.pending-operations'))['/api/v1/machines/connect-bot'],original.operationId);
+ const newGrant=await(await send(new URL('/audit/original-proof-recovery?revoke=1',c.origin))).json();
+ await client.transport('backend','ConnectBot',[{id:fresh.id,address:c.peer,name:'Renamed B',code:newGrant.code,reconnect:true}]);
+ const final=await(await send(new URL('/audit/original-proof-recovery',c.origin))).json();assert.equal(final.quiescent,true,'legitimate later pairing epoch reactivated old update block');
  assert(![...saved.values()].join('').includes(c.code));assert(![...saved.values()].join('').includes(fresh.code));
  console.log('Unknown no-grant pairing retained; same code refused; wrong fresh code corrected; explicit fresh authorization and reload/follow-up rename passed.');
 }finally{client.close()}

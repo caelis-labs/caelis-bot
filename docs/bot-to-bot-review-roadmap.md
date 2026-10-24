@@ -2,7 +2,7 @@
 > Codex/Mock-MCP A/B/React journey on clean exact SHA `de4b791c` (tree `cc9e1111`)
 > with native continuation and at-most-once counts.
 > See [scope and executable checks](worker-peer-url-forms.md). This does not close
-> final-head account/GUI and final review gates. Named B-only browser flows are
+> fixed-head automated and final review gates. Named B-only browser flows are
 > explicitly deferred for the first release; see the URL support decision.
 
 # Bot-to-Bot convergence and acceptance
@@ -93,7 +93,7 @@ localhost multistep/GET/JS/redirect/different-form-action pages, public login
 callbacks to B-loopback, and B-only certificates/browser state. These are real
 remaining limitations, not closed findings. No external-forward opener, automatic
 tunnels, general proxy or certificate/credential migration is added. This named
-scope decision does not waive other interaction, account, GUI or review gates.
+scope decision does not waive supported interaction, fixed-head automated or review gates.
 
 Candidate `8f203370` now also has two separate real-Runtime acceptance records:
 macOS **headless** A → Fedora x86_64 headless B with actual React and real Codex
@@ -119,9 +119,9 @@ attribution, nor proof a timed-out writer finished after the trace ended.
 
 Minimum roles: macOS desktop A → Linux headless B; macOS desktop A → macOS desktop B lifecycle; browser → headless A → B. At least one complete real Codex journey and one real Caelis journey, with interaction kinds matched to their existing local support. No Windows desktop expansion belongs in this PR; any advertised Windows role needs its own actual artifact evidence.
 
-Only isolated profiles/listeners may be modified. Existing authorised Fedora SSH can carry an isolated test after exact path/PID/config identification; no daily service/data/tunnel is replaced and credentials are never copied. Missing accounts/environments become specific blockers after all independent work is complete. A fixture is not a real Runtime/account or GUI result.
+Only isolated profiles/listeners may be modified. Existing authorised Fedora SSH can carry an isolated test after exact path/PID/config identification; no daily service/data/tunnel is replaced and credentials are never copied. Real accounts, physical machines and native GUI are nonblocking follow-up under the latest review scope; missing input does not authorize access. A fixture is not a real Runtime/account or GUI result.
 
-Merge readiness requires: all five new findings closed with negative/positive evidence; prior eight regressions; exact-source check/smoke/build/CI; application E2E; same-SHA candidate startup and representative real journeys; no local-to-remote degradation in the stated matrix; PR/docs matching evidence. Only then may the draft become ready. Merge and release remain unauthorised. Distribution signing/notarization and production upgrade remain release gates, not permission to modify daily installations.
+Merge readiness requires: all five new findings closed with negative/positive evidence; prior eight regressions; exact-source check/smoke/build/CI; application E2E; same-SHA candidate startup and the two actual-application journeys; no local-to-remote degradation in the stated matrix; PR/docs matching evidence. Only then may the draft become ready. Merge and release remain unauthorised. Distribution signing/notarization and production upgrade remain release gates, not permission to modify daily installations.
 
 ## Batch/source evidence
 
@@ -143,7 +143,7 @@ record is at `8f203370`; later changes include offline receipt load validation,
 readonly/disabled-optgroup/inert control rejection and test-only CI diagnostics.
 They need their own final-head affected-path evidence, not relabelled old evidence.
 Q22 isolated account/model input is unanswered; dependent real-account steps remain
-blocked without a repeated question. Keep Draft until remaining gates are met.
+unperformed without a repeated question. It is nonblocking follow-up; keep Draft until the automated/review gates are met.
 
 The whole-PR audit and newly reproduced A1–A3/S1–S2 boundaries are tracked in
 [the final audit closure map](worker-peer-final-audit.md). Repairs retain the
@@ -151,7 +151,7 @@ existing native binding/receipt authority; no deferred URL flow is counted as a
 fixed finding. The no-grant unknown Web pairing trap is covered by explicit
 fresh-code authorization on the original profile/proof, with old unknown and
 pending references retained, response-loss reconciliation and archive/restart
-coverage; it is separate from known bad-code correction. Exact frozen-head checks and remaining account/GUI gates are
+coverage; it is separate from known bad-code correction. Exact frozen-head checks and nonblocking account/GUI follow-up are
 reported separately from the earlier `8f203370` hardware record.
 
 A later clean `3bed7bd9` physical macOS-headless→Fedora journey passed using real
@@ -160,4 +160,20 @@ The same source's native GUI profile boot/configuration check succeeded, but
 visual acceptance was blocked by the native UI control pipe, independently of
 Q22. Its Linux CI exposed a canceled-SSE slot lifetime defect; the final audit
 map records the deterministic failure/fix and strict16 client-lifetime metric.
-These are source-bound evidence, not approval to waive final-head or GUI gates.
+These are source-bound evidence, not a claim of final-head or GUI acceptance.
+
+## Latest merge scope and health boundary
+
+The22:05 review adds F1–F4 plus independently reproduced local-isolation
+couplings. See the [closure map](worker-peer-final-audit.md#2205-follow-up-retained-authority-and-local-availability)
+for failing/passing tests. Remote is an execution environment only: its network,
+old unknown receipts, capacity, read/cleanup or bad reply cannot make local Bot
+chat, local task controls or resident health unavailable. Current local writes
+and bounded truly active mutations keep their existing safe drain semantics.
+
+The user explicitly removed real-account, physical-machine and native-GUI
+journeys as merge gates. They remain accurately labeled, unperformed follow-up
+where missing; Q22 is still unanswered and grants no account access. Required
+Ready gates are all findings closed, independent recheck, final exact-source
+check/smoke/build, affected race, both actual-application E2E commands and every
+selected Product check including Windows. No merge/release is authorized.

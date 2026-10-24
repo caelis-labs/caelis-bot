@@ -219,7 +219,7 @@
   "diagnosticsExportButton": "Export report",
   "backgroundTasks": "Background tasks",
   "maxBackgroundTasks": "Concurrent tasks",
-  "maxBackgroundTasksHelp": "Running tasks continue when this changes.",
+  "maxBackgroundTasksHelp": "Per work environment. Running tasks continue when this changes.",
   "externalTerminal": "Default terminal",
   "externalTerminalHelp": "Used to open background work.",
   "systemTerminal": "System default",

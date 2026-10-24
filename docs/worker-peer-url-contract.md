@@ -107,7 +107,9 @@ and changing formal services/tunnels remain unauthorised.
 The isolated real-account/model input (Q22) has not been supplied. Dependent real
 account steps remain blocked; no daily credentials/configuration may be copied
 and no unanswered question is inferred to be authorization. Scope deferral does
-not waive account/GUI, final review or exact-source validation gates.
+not waive final review or exact-source automated gates. The latest review scope
+explicitly makes physical-machine/account/native-GUI acceptance nonblocking
+follow-up; missing Q22 input remains unauthorised, not implicitly answered.
 
 Whole-PR original-receipt/source/Stop/storage/pairing repairs and the final-head
 versus older hardware evidence distinction are recorded in the

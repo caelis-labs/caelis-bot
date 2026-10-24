@@ -42,11 +42,13 @@ type disk struct {
 	Routes    map[string]string  `json:"routes"`
 	Runtimes  map[string]string  `json:"runtimes,omitempty"`
 	// Reservations have never dispatched a Worker. Legacy routes are owners.
-	Reservations map[string]bool `json:"reservations,omitempty"`
+	Reservations    map[string]bool   `json:"reservations,omitempty"`
+	ReservationKeys map[string]string `json:"reservationKeys,omitempty"`
 }
 type Service struct {
-	peerApprovalFingerprint string // cacheMu; presentation change evidence only
-	peerApprovalRevision    uint64 // cacheMu; monotonic, never native execution state
+	pairingActive           map[string]int // mu; live invocations only, never a receipt ledger
+	peerApprovalFingerprint string         // cacheMu; presentation change evidence only
+	peerApprovalRevision    uint64         // cacheMu; monotonic, never native execution state
 	loadErr                 error
 	request                 func(context.Context, profile, remotework.Request) (remotework.Response, error)
 	mu                      sync.Mutex
@@ -493,6 +495,7 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 	s.state.Routes = maps.Clone(old.Routes)
 	s.state.Runtimes = maps.Clone(old.Runtimes)
 	s.state.Reservations = maps.Clone(old.Reservations)
+	s.state.ReservationKeys = maps.Clone(old.ReservationKeys)
 	delete(s.state.Profiles, id)
 	// Confirmed unpair releases only undispatched preparation bindings.
 	for task, route := range s.state.Routes {
@@ -500,6 +503,7 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 			delete(s.state.Routes, task)
 			delete(s.state.Runtimes, task)
 			delete(s.state.Reservations, task)
+			delete(s.state.ReservationKeys, task)
 		}
 	}
 	if err := s.save(); err != nil {

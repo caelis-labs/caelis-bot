@@ -40,9 +40,9 @@ func botCheckResult(p profile, out workerpeer.Response, err error) profile {
 	return p
 }
 func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (api.Machine, error) {
-	return s.connectBot(ctx, in, nil)
+	return s.connectBot(ctx, in, nil, nil)
 }
-func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, authorization *api.BotConnectionReference) (api.Machine, error) {
+func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, authorization *api.BotConnectionReference, prepared *api.BotConnectionReference) (api.Machine, error) {
 	name := strings.TrimSpace(in.Name)
 	if len(name) > 80 {
 		return api.Machine{}, &api.ActionRejectedError{Code: "invalid_bot_name"}
@@ -69,6 +69,30 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 		id = "bot-" + rand.Text()
 	}
 	old, exists := s.state.Profiles[id]
+
+	rollback := old
+	firstProfile := !exists
+	if prepared != nil {
+		if !exists || prepared.Preparation == nil || prepared.ID != id || old.PairingEpoch != prepared.Pairing || s.botConnectionReference(old, prepared.Address).Proof != prepared.Proof || s.botConnectionReference(old, prepared.Address).Configuration != prepared.Preparation.Configuration {
+			s.mu.Unlock()
+			return old.View, &api.ActionRejectedError{Code: "original_bot_authorization_changed"}
+		}
+		m := prepared.Preparation
+		rollback.PairingEpoch, rollback.PairingCodeDigest, rollback.RetainPairingProof = m.PreviousPairing, m.PreviousCodeDigest, m.Retained
+		firstProfile = m.Created
+	}
+	if s.pairingActive == nil {
+		s.pairingActive = map[string]int{}
+	}
+	s.pairingActive[id]++
+	defer func() {
+		s.mu.Lock()
+		s.pairingActive[id]--
+		if s.pairingActive[id] == 0 {
+			delete(s.pairingActive, id)
+		}
+		s.mu.Unlock()
+	}()
 	if exists && old.View.ConnectionType != "bot" {
 		s.mu.Unlock()
 		return old.View, &api.ActionRejectedError{Code: "machine_connection_type_conflict"}
@@ -129,8 +153,8 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 	probe.Address = address
 	// Existing credentials can repair a changed reachable address, and recover
 	// a lost pairing response, without using another one-time code.
-	sameUnknownCode := pending.RetainPairingProof && pending.PairingCodeDigest != "" && pending.PairingCodeDigest == pairingCodeDigest(pending.Peer.Token, in.Code)
-	if strings.TrimSpace(in.Code) == "" || pending.Peer.Peer == "" || sameUnknownCode {
+	sameUnknownCode := prepared == nil && pending.RetainPairingProof && pending.PairingCodeDigest != "" && pending.PairingCodeDigest == pairingCodeDigest(pending.Peer.Token, in.Code)
+	if strings.TrimSpace(in.Code) == "" || prepared == nil && (pending.Peer.Peer == "" || sameUnknownCode) {
 		observed, readErr := workerpeer.Call(checkCtx, probe, workerpeer.Request{Action: "info"})
 		if readErr == nil && !workerpeer.Compatible(observed.Capabilities) {
 			readErr = errors.New("bot_worker_contract_incompatible")
@@ -157,8 +181,10 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 		}
 		// Retain the only proof across a crash or uncertain final persistence.
 		pending.RetainPairingProof = true
-		pending.PairingEpoch = rand.Text()
-		pending.PairingCodeDigest = pairingCodeDigest(pending.Peer.Token, in.Code)
+		if prepared == nil {
+			pending.PairingEpoch = rand.Text()
+			pending.PairingCodeDigest = pairingCodeDigest(pending.Peer.Token, in.Code)
+		}
 		if authorization != nil {
 			*authorization = s.botConnectionReference(pending, address)
 		}
@@ -180,7 +206,7 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 	if !ok || !sameBotConfiguration(current, pending) {
 		return current.View, errors.New("bot_connection_changed")
 	}
-	if !exists && err != nil && current.Peer.Peer == "" {
+	if firstProfile && !rollback.RetainPairingProof && err != nil && current.Peer.Peer == "" {
 		var rejected *api.ActionRejectedError
 		if errors.As(err, &rejected) {
 			bound := false
@@ -204,10 +230,10 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 	if exists && errors.As(err, &refusal) {
 		// A certified no-write refusal of this new intent must not erase the older
 		// uncertain attempt or fence correction with a different fresh code.
-		current.PairingEpoch, current.PairingCodeDigest = old.PairingEpoch, old.PairingCodeDigest
+		current.PairingEpoch, current.PairingCodeDigest = rollback.PairingEpoch, rollback.PairingCodeDigest
 	}
 	next := botCheckResult(current, workerpeer.Response{Peer: result.Peer, Capabilities: result.Capabilities}, err)
-	next.RetainPairingProof = old.RetainPairingProof
+	next.RetainPairingProof = rollback.RetainPairingProof
 	if err != nil && !errors.As(err, &refusal) {
 		next.RetainPairingProof = true
 	}
@@ -530,6 +556,11 @@ func (s *Service) DecideWork(ctx context.Context, in api.WorkDecision) error {
 		}
 		in.Decision.ID = ref.Native
 	}
+	// A peer control reply cannot retain this host's update drain for the Web
+	// ingress's longer general lifetime. This is the existing peer control/read
+	// deadline; cancellation preserves the original native request/receipt.
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	_, err = workerpeer.Call(ctx, c, workerpeer.Request{Action: "decision", Runtime: runtime, Decision: in})
 	return err
 }
@@ -897,6 +928,14 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 		s.mu.Unlock()
 		return api.Machine{}, errors.New("original_peer_proof_unavailable")
 	}
+	if ref.Preparation != nil && ref.Preparation.Rename {
+		if s.botConnectionReference(p, ref.Address).Configuration != ref.Configuration {
+			s.mu.Unlock()
+			return api.Machine{}, errors.New("original_bot_intent_unconfirmed")
+		}
+		s.mu.Unlock()
+		return p.View, nil
+	}
 	s.mu.Unlock()
 	probe := p.Peer
 	probe.Peer = ref.Peer
@@ -939,6 +978,9 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	next := botCheckResult(current, out, err)
 	next.Peer.Address, next.Peer.Peer, next.Identity = ref.Address, out.Peer, out.Peer
 	next.View.Address, next.View.PeerID = ref.Address, out.Peer
+	if ref.Preparation != nil {
+		next.View.Name = ref.Preparation.Name
+	}
 	s.state.Profiles[ref.ID] = next
 	if saveErr := s.save(); saveErr != nil {
 		s.state.Profiles[ref.ID] = current
@@ -987,7 +1029,7 @@ func (s *Service) AuthorizeBotConnection(ctx context.Context, ref api.BotConnect
 	in.ID = ref.ID
 	in.Reconnect = true
 	next := ref
-	v, err := s.connectBot(ctx, in, &next)
+	v, err := s.connectBot(ctx, in, &next, nil)
 	return v, next, err
 }
 
@@ -1008,4 +1050,15 @@ func reapPeerStreams(running map[string]peerSubscription, targets map[string]pro
 			stream.cancel()
 		}
 	}
+}
+
+// Routing classification only; native decision validation remains authoritative.
+func (s *Service) RemoteWorkApproval(id string) bool {
+	ref, ok := unscopedRef("worker-approval:", id)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.Routes[ref.Task] != ""
 }

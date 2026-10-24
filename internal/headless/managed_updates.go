@@ -78,7 +78,10 @@ func (h *managedHost) handler(next http.Handler) http.Handler {
 		if r.Method == http.MethodGet {
 			h.gate.RUnlock()
 		} else {
-			defer h.gate.RUnlock()
+			var once sync.Once
+			release := func() { once.Do(h.gate.RUnlock) }
+			defer release()
+			r = r.WithContext(websurface.WithReadAdmissionRelease(r.Context(), release))
 		}
 		next.ServeHTTP(w, r)
 	})

@@ -988,6 +988,20 @@ func (s *Session) recoverSelectedOperations(ctx context.Context, selected observ
 func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	s.mu.Lock()
 	j, exists := s.state.Operations[id]
+	// Principal-global legacy IDs cannot prove another source's receipt belongs
+	// to this foreign binding. Known outcomes stay readable; local/helper IDs and
+	// properly scoped foreign recovery are unchanged.
+	if exists && j.Outcome == "unknown" && s.workSourceIdentity != "" {
+		if j.Work == nil {
+			s.mu.Unlock()
+			return nil
+		}
+		w, owned := s.state.Workers[j.Work.TaskID]
+		if !owned || w.NativeScope == "" {
+			s.mu.Unlock()
+			return nil
+		}
+	}
 	c, generation := s.client, s.generation
 	s.mu.Unlock()
 	if !exists || j.Outcome != "unknown" {

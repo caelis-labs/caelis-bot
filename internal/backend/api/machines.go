@@ -111,14 +111,26 @@ type WorkerSharingController interface {
 // BotConnectionReference is a host-captured original proof reference, never a
 // credential or browser-supplied authority. Reads and explicit fresh authorization
 // resolve this reference at its existing machines owner; it never grants access.
+// Admission metadata contains only original intent/rollback correlation, never
+// the pairing code or bearer token. The machines owner alone consumes it.
+type BotConnectionPreparation struct {
+	PreviousPairing    string `json:"previousPairing,omitempty"`
+	PreviousCodeDigest string `json:"previousCodeDigest,omitempty"`
+	Configuration      string `json:"configuration"`
+	Name               string `json:"name"`
+	Retained           bool   `json:"retained,omitempty"`
+	Created            bool   `json:"created,omitempty"`
+	Rename             bool   `json:"rename,omitempty"`
+}
 type BotConnectionReference struct {
-	CodeDigest    string `json:"codeDigest,omitempty"`
-	Pairing       string `json:"pairing,omitempty"`
-	Configuration string `json:"configuration"`
-	ID            string `json:"id"`
-	Address       string `json:"address"`
-	Peer          string `json:"peer,omitempty"`
-	Proof         string `json:"proof"`
+	Preparation   *BotConnectionPreparation `json:"preparation,omitempty"`
+	CodeDigest    string                    `json:"codeDigest,omitempty"`
+	Pairing       string                    `json:"pairing,omitempty"`
+	Configuration string                    `json:"configuration"`
+	ID            string                    `json:"id"`
+	Address       string                    `json:"address"`
+	Peer          string                    `json:"peer,omitempty"`
+	Proof         string                    `json:"proof"`
 }
 type BotConnectionUnconfirmedError struct {
 	Reference BotConnectionReference
@@ -142,4 +154,12 @@ type BotConnectionAuthorizer interface {
 	BotAuthorizationReference(string) (BotConnectionReference, error)
 	AuthorizeBotConnection(context.Context, BotConnectionReference, BotConnectionInput) (Machine, BotConnectionReference, error)
 	ValidateBotAuthorizationCode(BotConnectionReference, string) error
+}
+
+// Host-only pre-admission seam on the existing machines pairing owner.
+type BotConnectionLifecycle interface {
+	PrepareBotConnection(BotConnectionInput, *BotConnectionReference) (BotConnectionReference, error)
+	ConnectPreparedBot(context.Context, BotConnectionReference, BotConnectionInput) (Machine, BotConnectionReference, error)
+	AbortPreparedBotConnection(BotConnectionReference) error
+	BotConnectionQuiescent(BotConnectionReference) bool
 }

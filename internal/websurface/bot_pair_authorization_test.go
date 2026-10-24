@@ -81,6 +81,12 @@ func testUnknownNoGrantAuthorization(t *testing.T, mode string) {
 	s.services.Backend.ConfigureMachines(m)
 	h.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/audit/original-proof-recovery" {
+			if r.URL.Query().Get("revoke") == "1" {
+				sources := peer.Status().Sources
+				if err := peer.Revoke(sources[0].ID); err != nil {
+					t.Error(err)
+				}
+			}
 			if r.URL.Query().Get("arm") == "before" {
 				nextFault.Store(1)
 			}
@@ -92,7 +98,7 @@ func testUnknownNoGrantAuthorization(t *testing.T, mode string) {
 				t.Fatal(e)
 			}
 			ms := m.Machines()
-			json.NewEncoder(w).Encode(map[string]any{"code": fresh.Code, "id": ms[0].ID, "grants": len(peer.Status().Sources)})
+			json.NewEncoder(w).Encode(map[string]any{"code": fresh.Code, "id": ms[0].ID, "grants": len(peer.Status().Sources), "quiescent": s.UpdateQuiescent()})
 			return
 		}
 		s.ServeHTTP(w, r)
@@ -123,9 +129,9 @@ func testUnknownNoGrantAuthorization(t *testing.T, mode string) {
 	cmd := exec.CommandContext(t.Context(), node, "testdata/bot-pair-authorization-client.mjs")
 	cmd.Stdin = bytes.NewReader(cfg)
 	out, err := cmd.CombinedOutput()
-	expected := int32(4)
+	expected := int32(5)
 	if mode == "before" {
-		expected = 5
+		expected = 6
 	}
 	if pairWrites.Load() != expected || len(peer.Status().Sources) != 1 {
 		t.Errorf("original pair effects %d", pairWrites.Load())
@@ -263,8 +269,8 @@ func TestInterruptedNewAuthorizationPreservesUnknownAndFreshRecovery(t *testing.
 	broken := child
 	broken.Owner = "other"
 	s.operations["explicit-after-host-crash"] = broken
-	if s.UpdateQuiescent() {
-		t.Fatal("other owner authorization allowed restart")
+	if !s.UpdateQuiescent() {
+		t.Fatal("historical remote authorization owner affected local restart")
 	}
 	s.operations["explicit-after-host-crash"] = child
 	// This unlinked route cannot manufacture a following authorization gate.

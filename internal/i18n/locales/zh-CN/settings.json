@@ -218,7 +218,7 @@
   "diagnosticsExportButton": "导出报告",
   "backgroundTasks": "后台任务",
   "maxBackgroundTasks": "同时运行数量",
-  "maxBackgroundTasksHelp": "调整不会停止正在运行的任务。",
+  "maxBackgroundTasksHelp": "分别限制每个工作环境；修改不会停止正在运行的任务。",
   "externalTerminal": "默认终端",
   "externalTerminalHelp": "打开后台工作时使用。",
   "systemTerminal": "跟随系统默认",

@@ -35,12 +35,14 @@ type TaskQuery struct {
 	Cursor string `json:"cursor,omitempty"`
 }
 type TaskSummary struct {
-	Locked  bool   `json:"locked"`
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Status  string `json:"status"`
-	Outcome string `json:"outcome,omitempty"`
-	Pinned  bool   `json:"pinned"`
+	Machine     string `json:"machine,omitempty"`
+	MachineName string `json:"machineName,omitempty"`
+	Locked      bool   `json:"locked"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	Outcome     string `json:"outcome,omitempty"`
+	Pinned      bool   `json:"pinned"`
 }
 type TaskPage struct {
 	Tasks                     []TaskSummary `json:"tasks"`

@@ -41,6 +41,7 @@ try{
  await assert.rejects(client.transport('backend','ConnectBot',[{...base,code:'correct-fixture'}]),error=>error.code==='operation_unconfirmed');
  assert.equal(writes().length,4,'edited content cannot replay or replace an unknown operation');
  assert.deepEqual(JSON.parse(saved.get('caelisbot.pending-operations')),before,'unknown retains its original Web operation ID');
- assert(![...saved.values()].join('').includes('fixture'),'browser storage must not retain request arguments or pairing material');
+ const persisted=[...saved.values()].join('');
+ for(const secret of [base.name,base.address,base.code,'correct-fixture','lost-fixture','uncertain-fixture'])assert(!persisted.includes(secret),'browser storage must not retain request arguments or pairing material');
  console.log('actual TypeScript transport + authenticated HTTP handler: correction, original lost-response receipt, and unknown proof passed');
 }finally{client.close();}
