@@ -116,6 +116,13 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			}
 			sum := sha256.Sum256([]byte(in.Channel + "\x00" + in.Conversation + "\x00" + in.ID + "\x00" + workID + "\x00" + itemID))
 			requestID := fmt.Sprintf("worker-answer-%x", sum[:])
+			// This reply has no file transfer. Keep a slow peer inside the
+			// existing Worker admission budget, not the general Web lifetime.
+			if state.Task.Machine != "" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, api.WorkerAdmissionTimeout)
+				defer cancel()
+			}
 			result, err := manager.SendTask(ctx, api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
 			if outcome != "accepted" && outcome != "rejected" {

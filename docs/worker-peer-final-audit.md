@@ -131,10 +131,21 @@ approval, execution or recovery authority is introduced.
 | I1/I2 local Manager I/O lock and global capacity couple remote faults into local controls | Short global ledger fence; live per-environment admission mutexes; remote I/O outside global fence. Unknown keeps capacity only in its frozen environment. Original stop generation/operation IDs stay authoritative. | `tasks.TestReviewRemoteReadCannotBlockExistingLocalStop`, `TestReviewUnknownRemoteCapacityCannotRejectLocalCreate`; held prepare/start/send/history allow local read/continue/stop/create and another peer, cancellation releases live locks, update pause prevents a new dispatch. |
 | I3/I4/I5 shared Web pending scope, historical remote decisions and remote journal quota affect local writes/update | Pending keys use original interaction/profile identity. Host-owned remote routing distinguishes effect certainty from historical quiescence; local and remote have bounded independent admission accounting in the same journal. | Actual TS scoped-pending tests; `websurface.TestReviewUnknownRemoteDecisionCannotGateLocalUpdate`, remote4096-receipt/local-submit regression. No unknown receipt is removed or marked successful. |
 | I6 definitely undispatched Web admission burns unused pairing code | Pairing domain CAS-aborts only the prepared intent after ingress save failed before invocation; old uncertain proof and newer intents survive. | `websurface.TestReviewKnownUndispatchedPairCanUseItsStillUnusedCode`, `machines.TestAbortingUndispatchedPairPreservesNewIntentAndOldUnknown`. |
-| I7 read-only POST observations unnecessarily retain HTTP write drain | Authenticated fixed `Read` actions release the existing host drain before I/O. Arbitrary paths/caller flags and writes cannot do so. Actual mutable calls still drain within bounded owner deadlines; remote decision uses existing8s control deadline. | `websurface.TestReadAdmissionReleasesOnlyAuthenticatedFixedReads`, headless admission lifecycle coverage; local/native unresolved writes retain their existing guard. |
+| I7 read-only POST observations unnecessarily retain HTTP write drain | Authenticated fixed `Read` actions release the existing host drain before I/O. Arbitrary paths/caller flags and writes cannot do so. Actual mutable calls still drain within bounded owner deadlines; remote decision uses existing8s control deadline. Remote asynchronous no-file answers use the existing25s Worker admission budget, preserving earlier caller cancellation and local behavior. | `websurface.TestReadAdmissionReleasesOnlyAuthenticatedFixedReads`, headless admission lifecycle coverage; local/native unresolved writes retain their existing guard. |
 
 The independent reviewer reproduced I1–I6 against the then-current candidate
 using isolated overlays, not mocked product APIs, and rechecks changed boundaries.
 Final-source `make check`, smoke, build, affected race, `make e2e-worker-peer`,
 `make e2e-worker-peer-real-url` and all Product checks must pass before Ready.
 Exact commit/evidence links belong in PR#221; pending CI is not a pass.
+
+The final deadline probe `app.TestWorkerAsyncAnswerUsesExistingRemoteAdmissionBudget`
+reproduced a remote async answer inheriting almost10minutes, then passed with the
+existing25s Worker budget. The earlier-parent and local paths remain unchanged;
+timeout retains the original answer operation as unknown and repeated reads do
+not send another native answer. This is a bounded dispatch fix, not a new budget.
+
+Cancelled environment admission uses the existing `rejectMessage` boundary:
+a never-admitted answer is typed rejected so the original question remains
+answerable; an already-recorded original request remains unknown. The same
+App/Manager test failed before this distinction and verifies no native replay.

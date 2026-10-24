@@ -792,7 +792,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	machine := m.taskEnvironment(in.ID)
 	release, guardErr := m.environmentOperation(ctx, machine)
 	if guardErr != nil {
-		return api.Task{}, guardErr
+		return m.rejectMessage(in, guardErr)
 	}
 	defer release()
 	m.op.Lock()
