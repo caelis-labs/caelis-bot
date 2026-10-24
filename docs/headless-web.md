@@ -228,3 +228,7 @@ selection, delayed reads, local retry, retained chat state, and read-only API us
 with synthetic data. Real Worker results are a separate acceptance check.
 No Bot skill guidance changes are needed: this only changes human presentation,
 not agent capabilities, tool contracts, permissions, or task workflows.
+
+Web 的 Bot 配对回包丢失由原连接 proof、目标身份和显式配对代次核对，原 Web 操作不重发。
+后来改址或新配对不能回填原未知结果，也不能由旧回执回滚当前路由。若原 proof 无法认证，
+原操作继续 unknown；本批未交付绕过它的新授权入口。详见[最终审计](worker-peer-final-audit.md)。

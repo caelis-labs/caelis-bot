@@ -415,11 +415,11 @@ func (m *Manager) markInflight(id string, active bool) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) localCodexInflight(id string) bool {
+func (m *Manager) codexInflight(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
-	return m.inflight[id] && r != nil && r.View.Machine == "" &&
+	return m.inflight[id] && r != nil &&
 		(r.Runtime == "codex" || r.Runtime == "" && r.Provider == "codex")
 }
 
@@ -693,7 +693,7 @@ func (m *Manager) owned(id string) error {
 	return nil
 }
 func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
-	if m.localCodexInflight(id) {
+	if m.codexInflight(id) {
 		// The adapter's ReadWork shares its submission lock. During an admitted
 		// submission, WorkStates is the non-dispatching live projection.
 		if err := m.owned(id); err != nil {
@@ -962,7 +962,7 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 }
 
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
-	if m.localCodexInflight(id) {
+	if m.codexInflight(id) {
 		// StopWork cancels the adapter's capacity wait before acquiring its
 		// submission lock. Do not wait behind this task's Manager submission.
 		if err := m.owned(id); err != nil {

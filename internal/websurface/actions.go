@@ -13,14 +13,15 @@ import (
 )
 
 type operation struct {
-	Digest string          `json:"digest"`
-	Owner  string          `json:"owner"`
-	State  string          `json:"state"`
-	Value  json.RawMessage `json:"value,omitempty"`
-	Error  string          `json:"error,omitempty"`
-	Detail string          `json:"detail,omitempty"`
-	At     int64           `json:"at"`
-	Native *nativeReceipt  `json:"native,omitempty"`
+	BotConnection *api.BotConnectionReference `json:"botConnection,omitempty"`
+	Digest        string                      `json:"digest"`
+	Owner         string                      `json:"owner"`
+	State         string                      `json:"state"`
+	Value         json.RawMessage             `json:"value,omitempty"`
+	Error         string                      `json:"error,omitempty"`
+	Detail        string                      `json:"detail,omitempty"`
+	At            int64                       `json:"at"`
+	Native        *nativeReceipt              `json:"native,omitempty"`
 }
 type actionRequest struct {
 	ID   string            `json:"id"`
@@ -204,6 +205,11 @@ func (s *Server) register(a action) {
 			record.Error = "operation_retired"
 		}
 		if e != nil {
+			var connection *api.BotConnectionUnconfirmedError
+			if a.Path == "/api/v1/machines/connect-bot" && errors.As(e, &connection) {
+				ref := connection.Reference
+				record.BotConnection = &ref
+			}
 			record.Error = "operation_unconfirmed"
 			var rejected *api.ActionRejectedError
 			if errors.As(e, &rejected) {

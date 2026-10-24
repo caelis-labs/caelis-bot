@@ -136,6 +136,9 @@ func (s *Session) ReadWorkOperation(ctx context.Context, q api.WorkOperationQuer
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.loadErr != nil {
+		return api.WorkOperation{}, s.loadErr
+	}
 	t := s.binding.Tasks[q.TaskID]
 	if t == nil {
 		return api.WorkOperation{}, errors.New("unknown Worker binding")

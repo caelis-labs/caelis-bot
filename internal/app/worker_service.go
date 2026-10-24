@@ -86,7 +86,7 @@ func (w *localWorkers) WorkApprovalURL(ctx context.Context, id, request string) 
 	return p.WorkApprovalURL(ctx, id, request)
 }
 func (w *localWorkers) ReadWorkOperation(ctx context.Context, in api.WorkOperationQuery) (api.WorkOperation, error) {
-	owner, err := w.target(ctx, in.TaskID)
+	owner, _, err := w.boundOwner(in.TaskID)
 	if err != nil {
 		return api.WorkOperation{}, err
 	}

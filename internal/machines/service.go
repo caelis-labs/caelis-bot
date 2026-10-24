@@ -25,12 +25,13 @@ import (
 )
 
 type profile struct {
-	Peer     workerpeer.Connection `json:"peer,omitempty"`
-	View     api.Machine           `json:"view"`
-	Key      string                `json:"key"`
-	Root     string                `json:"root"`
-	Helper   string                `json:"helper"`
-	Identity string                `json:"identity"`
+	PairingEpoch string                `json:"pairingEpoch,omitempty"`
+	Peer         workerpeer.Connection `json:"peer,omitempty"`
+	View         api.Machine           `json:"view"`
+	Key          string                `json:"key"`
+	Root         string                `json:"root"`
+	Helper       string                `json:"helper"`
+	Identity     string                `json:"identity"`
 }
 type disk struct {
 	Version   int                `json:"version"`

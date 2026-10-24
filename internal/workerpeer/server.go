@@ -19,6 +19,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 type Owner interface {
@@ -33,13 +35,13 @@ type Factory func(context.Context, string, string, string) (Owner, string, *api.
 type authenticatedGrant struct{ Peer, Hash string }
 type authenticatedGrantKey struct{}
 
-type originalReceiptReadKey struct{}
+type originalBindingOnlyKey struct{}
 
-// OriginalReceiptRead tells the owner factory this call loads only an existing
-// binding's durable receipt. It cannot prepare native work or resolve new model
-// defaults. Only the fixed authenticated receipt action sets this host context.
-func OriginalReceiptRead(ctx context.Context) bool {
-	v, _ := ctx.Value(originalReceiptReadKey{}).(bool)
+// OriginalBindingOnly resolves the existing source/runtime owner without current
+// model defaults or preparation. Only fixed authenticated receipt/guarded-stop
+// actions set this context; native stop still checks its original generation.
+func OriginalBindingOnly(ctx context.Context) bool {
+	v, _ := ctx.Value(originalBindingOnlyKey{}).(bool)
 	return v
 }
 
@@ -59,6 +61,7 @@ type registry struct {
 	Preparations map[string]map[string]bool   `json:"preparations,omitempty"` // no native start attempted
 }
 type Server struct {
+	stageMu sync.RWMutex
 	mu      sync.Mutex
 	root    string
 	state   registry
@@ -546,8 +549,8 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 			return fail(errors.New("worker_workspace_not_absolute"))
 		}
 	}
-	if in.Action == "url-operation" {
-		ctx = context.WithValue(ctx, originalReceiptReadKey{}, true)
+	if in.Action == "url-operation" || in.Action == "operation" || in.Action == "stop" {
+		ctx = context.WithValue(ctx, originalBindingOnlyKey{}, true)
 	}
 	owner, work, err := s.owner(ctx, peer, id, in.Runtime, in.Action == "prepare" || in.Action == "start")
 	if err != nil {
@@ -556,6 +559,17 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	// A durable original receipt is readable even when its native process or
 	// request is gone. Authenticated source/binding lookup above is still required;
 	// this read must not connect, recover, or substitute an execution owner.
+	if in.Action == "operation" {
+		p, ok := owner.(api.WorkOperationReader)
+		if !ok {
+			return fail(api.ErrWorkOperationUnsupported)
+		}
+		out.Operation, err = p.ReadWorkOperation(ctx, in.Query)
+		if err != nil {
+			return fail(err)
+		}
+		return
+	}
 	if in.Action == "url-operation" {
 		p, ok := owner.(api.WorkURLChallenge)
 		if !ok {
@@ -569,7 +583,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	}
 	if in.Action == "prepare" {
 		err = recoverNewWork(ctx, owner)
-	} else {
+	} else if in.Action != "stop" {
 		err = owner.Connect(ctx)
 	}
 	if err != nil {
@@ -634,10 +648,14 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		}
 	}
 	if in.Action == "start" || in.Action == "send" {
-		files, err := s.stage(peer, id, in.Files)
+		files, cleanup, err := s.stage(ctx, peer, id, in.Files)
 		if err != nil {
 			return fail(err)
 		}
+		// Both shared native adapters synchronously copy/retain accepted input
+		// before returning. These are only per-call transport bytes, including
+		// on rejection/cancellation/unknown; original native/A copies stay owned.
+		defer cleanup()
 		if in.Action == "start" {
 			in.Start.Files = files
 			in.Start.Machine = ""
@@ -755,26 +773,57 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 	}
 	return
 }
-func (s *Server) stage(peer, id string, files []api.WorkFileContent) ([]api.InputFile, error) {
+func (s *Server) stage(ctx context.Context, peer, id string, files []api.WorkFileContent) (out []api.InputFile, cleanup func(), err error) {
+	cleanup = func() {}
 	if len(files) > 8 {
-		return nil, errors.New("too_many_worker_files")
+		return nil, cleanup, errors.New("too_many_worker_files")
 	}
-	out := []api.InputFile{}
 	for _, file := range files {
-		if file.Name == "" || file.Name != filepath.Base(file.Name) || strings.ContainsAny(file.Name, "/\\\x00") || len(file.Data) > api.MaxWorkFileBytes {
-			return nil, errors.New("invalid_worker_file")
+		if file.Name == "" || file.Name == "." || file.Name == ".." || file.Name != filepath.Base(file.Name) || strings.ContainsAny(file.Name, "/\\\x00") || len(file.Data) > api.MaxWorkFileBytes {
+			return nil, cleanup, errors.New("invalid_worker_file")
 		}
-		dir := filepath.Join(s.root, "sources", sourceDir(peer), "inputs", id, tokenHash(file.Name+"\x00"+tokenHash(string(file.Data))))
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, err
+	}
+	if len(files) == 0 {
+		return []api.InputFile{}, cleanup, nil
+	}
+	if err = lockwait.RLock(ctx, &s.stageMu); err != nil {
+		return nil, cleanup, err
+	}
+	var once sync.Once
+	dir := ""
+	cleanup = func() {
+		once.Do(func() {
+			if dir != "" {
+				_ = os.RemoveAll(dir)
+			}
+			s.stageMu.RUnlock()
+		})
+	}
+	defer func() {
+		if err != nil {
+			cleanup()
 		}
-		path := filepath.Join(dir, file.Name)
-		if err := os.WriteFile(path, file.Data, 0600); err != nil {
-			return nil, err
+	}()
+	root := filepath.Join(s.root, "uploads")
+	if err = os.MkdirAll(root, 0700); err != nil {
+		return nil, cleanup, err
+	}
+	dir, err = os.MkdirTemp(root, sourceDir(peer)+"-"+id+"-")
+	if err != nil {
+		return nil, cleanup, err
+	}
+	for i, file := range files {
+		part := filepath.Join(dir, fmt.Sprint(i))
+		if err = os.Mkdir(part, 0700); err != nil {
+			return nil, cleanup, err
+		}
+		path := filepath.Join(part, file.Name)
+		if err = os.WriteFile(path, file.Data, 0600); err != nil {
+			return nil, cleanup, err
 		}
 		out = append(out, api.InputFile{Name: file.Name, Path: path})
 	}
-	return out, nil
+	return out, cleanup, nil
 }
 
 func (s *Server) releasePreparation(peer, id string) error {
@@ -856,4 +905,15 @@ func (s *Server) Close(ctx context.Context) error {
 		}
 	}
 	return err
+}
+
+// Reuse the existing attachment inventory/retention policy for interrupted
+// transport leftovers. Active calls retain the read fence until native input
+// ownership has transferred; cleanup never scans native owner or source files.
+func (s *Server) InputStorage(ctx context.Context, clean bool, trash func(string) error) (api.AttachmentStorage, error) {
+	if err := lockwait.WriteLock(ctx, &s.stageMu); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	defer s.stageMu.Unlock()
+	return workerfiles.PlainStorage(ctx, filepath.Join(s.root, "uploads"), nil, clean, trash)
 }

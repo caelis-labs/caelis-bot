@@ -94,3 +94,11 @@ func (s *Service) SaveWorkerSharing(in api.WorkerSharingInput) (api.WorkerSharin
 	}
 	return value, err
 }
+
+func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConnectionReference) (api.Machine, error) {
+	p, ok := s.machines.(api.BotConnectionReceiptReader)
+	if !ok {
+		return api.Machine{}, errors.New("bot_connection_receipt_unavailable")
+	}
+	return p.ReadBotConnectionReceipt(ctx, ref)
+}

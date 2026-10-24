@@ -163,8 +163,6 @@ func (s *Session) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Tas
 	s.step.Lock()
 	defer s.step.Unlock()
 	intent := workIntent{in.ID, in.RequestID, "stop", api.WorkFingerprint(in)}
-	op := "work-stop-" + digest([]byte(in.RequestID))
-	outcome, exists, err := s.originalWorkOperationLocked(ctx, op, intent)
 	s.mu.Lock()
 	w, owned := s.state.Workers[in.ID]
 	c := s.client
@@ -173,6 +171,8 @@ func (s *Session) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Tas
 	if !owned {
 		return api.Task{}, errors.New("task is not owned")
 	}
+	op := w.operationID("stop", in.RequestID)
+	outcome, exists, err := s.originalWorkOperationLocked(ctx, op, intent)
 	if err != nil {
 		return w.Task, err
 	}
@@ -185,6 +185,9 @@ func (s *Session) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Tas
 			return v, fmt.Errorf("original stop outcome is %s", outcome)
 		}
 		return v, nil
+	}
+	if err := s.workerWriteAllowed(w); err != nil {
+		return w.Task, err
 	}
 	if !connected || c == nil || w.Binding.SessionId == "" {
 		return w.Task, errors.New("original Worker owner is unavailable")
@@ -227,7 +230,13 @@ func (s *Session) DecideWork(ctx context.Context, in api.WorkDecision) error {
 	s.step.Lock()
 	defer s.step.Unlock()
 	intent := workIntent{in.TaskID, in.RequestID, "decision", api.WorkFingerprint(in)}
-	op := "work-decision-" + digest([]byte(in.RequestID))
+	s.mu.Lock()
+	w, owned := s.state.Workers[in.TaskID]
+	s.mu.Unlock()
+	if !owned {
+		return errors.New("task is not owned")
+	}
+	op := w.operationID("decision", in.RequestID)
 	outcome, exists, err := s.originalWorkOperationLocked(ctx, op, intent)
 	if err != nil {
 		return err
@@ -237,6 +246,9 @@ func (s *Session) DecideWork(ctx context.Context, in api.WorkDecision) error {
 			return nil
 		}
 		return fmt.Errorf("original decision outcome is %s", outcome)
+	}
+	if err := s.workerWriteAllowed(w); err != nil {
+		return err
 	}
 	return s.decideLocked(withWorkIntent(ctx, in.TaskID, in.RequestID, "decision", intent.Fingerprint), in.Decision, in.TaskID, op)
 }
@@ -258,6 +270,11 @@ func (s *Session) ReadWorkOperation(ctx context.Context, q api.WorkOperationQuer
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
+	if s.loadErr != nil {
+		err := s.loadErr
+		s.mu.Unlock()
+		return out, err
+	}
 	w, ok := s.state.Workers[q.TaskID]
 	s.mu.Unlock()
 	if !ok {
@@ -267,13 +284,13 @@ func (s *Session) ReadWorkOperation(ctx context.Context, q api.WorkOperationQuer
 	op := ""
 	switch q.Kind {
 	case "start":
-		op = "work-prompt-" + digest([]byte(q.RequestID))
+		op = w.operationID("prompt", q.RequestID)
 	case "send":
-		op = "work-send-" + digest([]byte(q.RequestID))
+		op = w.operationID("send", q.RequestID)
 	case "stop":
-		op = "work-stop-" + digest([]byte(q.RequestID))
+		op = w.operationID("stop", q.RequestID)
 	case "decision":
-		op = "work-decision-" + digest([]byte(q.RequestID))
+		op = w.operationID("decision", q.RequestID)
 	}
 	outcome, exists, err := s.originalWorkOperationLocked(ctx, op, intent)
 	if err != nil {

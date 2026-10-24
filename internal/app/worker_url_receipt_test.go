@@ -38,6 +38,24 @@ func (o *retainedURLReceiptOwner) ReadWorkURLSubmission(_ context.Context, task,
 	}
 	return api.WorkOperation{WorkOperationQuery: api.WorkOperationQuery{TaskID: task, RequestID: op, Kind: api.WorkURLSubmitKind, Fingerprint: "original-digest"}, Outcome: "unknown"}, nil
 }
+func (o *retainedURLReceiptOwner) ReadWorkOperation(_ context.Context, in api.WorkOperationQuery) (api.WorkOperation, error) {
+	o.reads++
+	return api.WorkOperation{WorkOperationQuery: in, Outcome: "accepted"}, nil
+}
+func TestRetainedOperationReceiptReadDoesNotConnect(t *testing.T) {
+	owner := &retainedURLReceiptOwner{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}}
+	w := &localWorkers{active: "caelis", resident: &workerFixture{runtime: "caelis"}, owners: map[string]retainedWorker{"codex": owner}, routes: map[string]string{"original-task": "codex"}}
+	in := api.WorkOperationQuery{TaskID: "original-task", RequestID: "original-send", Kind: "send", Fingerprint: "exact-digest"}
+	op, err := w.ReadWorkOperation(t.Context(), in)
+	if err != nil || op.Outcome != "accepted" || owner.connections != 0 || owner.reads != 1 {
+		t.Fatal(op, err, owner.connections, owner.reads)
+	}
+	in.TaskID = "unbound-task"
+	if _, err = w.ReadWorkOperation(t.Context(), in); err == nil || owner.reads != 1 {
+		t.Fatal("unbound receipt read", err, owner.reads)
+	}
+}
+
 func TestRetainedURLReceiptReadDoesNotRequireLiveNativeOwner(t *testing.T) {
 	owner := &retainedURLReceiptOwner{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}}
 	w := &localWorkers{active: "caelis", resident: &workerFixture{runtime: "caelis"}, owners: map[string]retainedWorker{"codex": owner}, routes: map[string]string{"original-task": "codex"}}
@@ -110,6 +128,11 @@ func TestForeignReceiptOwnerLoadIsIndependentOfResidentReadiness(t *testing.T) {
 	out, err := workerpeer.Call(t.Context(), conn, in)
 	if err != nil || out.Operation.Outcome != "unknown" || engine.modelReads != 0 {
 		t.Fatal("original receipt depended on resident readiness", out.Operation, err, factoryErr, engine.modelReads)
+	}
+	general := workerpeer.Request{Action: "operation", Query: api.WorkOperationQuery{TaskID: "original-task", RequestID: "original-op", Kind: api.WorkURLSubmitKind, Fingerprint: "original-digest"}}
+	out, err = workerpeer.Call(t.Context(), conn, general)
+	if err != nil || out.Operation.Outcome != "unknown" || engine.modelReads != 0 {
+		t.Fatal("generic receipt depended on resident readiness", out.Operation, err, factoryErr, engine.modelReads)
 	}
 	// Readiness/admission still consults B's current model, never this read-only mode.
 	if _, _, _, err = a.openForeignWorker(t.Context(), "new-source", "", filepath.Join(root, "new-source")); err == nil || engine.modelReads != 1 {

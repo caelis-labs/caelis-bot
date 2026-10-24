@@ -223,6 +223,15 @@ func TestWorkerURLReceiptDoesNotTrustUnreadableBinding(t *testing.T) {
 			} else if err != nil || op.Outcome != "accepted" {
 				t.Fatal("valid offline receipt unavailable", op, err)
 			}
+			op, err = s.ReadWorkOperation(t.Context(), api.WorkOperationQuery{TaskID: "original-task", RequestID: "original-operation", Kind: api.WorkURLSubmitKind, Fingerprint: "original-digest"})
+			if tc.wantError {
+				if err == nil || op.Outcome == "accepted" {
+					t.Fatal("generic receipt trusted unreadable binding", op, err)
+				}
+			} else if err != nil || op.Outcome != "accepted" {
+				t.Fatal("valid generic receipt unavailable", op, err)
+			}
+
 		})
 	}
 }

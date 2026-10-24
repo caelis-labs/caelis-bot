@@ -107,6 +107,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
+	if err := s.reconcileBotConnection(r.Context(), r.PathValue("id"), sessionID(r)); err != nil {
+		fail(w, 503, "receipt_unavailable")
+		return
+	}
 	s.mu.Lock()
 	v, ok, err := s.lookupOperation(r.PathValue("id"))
 	s.mu.Unlock()

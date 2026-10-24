@@ -54,7 +54,15 @@ func (a *Application) workerFileStorage(ctx context.Context, clean bool, trash f
 					return in, err
 				}
 				stage, err := workerfiles.PlainStorage(ctx, staging, paths, apply, trash)
-				return addAttachmentStorage(in, stage), err
+				in = addAttachmentStorage(in, stage)
+				if err != nil {
+					return in, err
+				}
+				if a.peer != nil && a.peer.server != nil {
+					peer, err := a.peer.server.InputStorage(ctx, apply, trash)
+					return addAttachmentStorage(in, peer), err
+				}
+				return in, nil
 			}
 			// Verify all namespaces before the first TrashFile effect. Each store
 			// rechecks its own files under its maintenance lock before moving them.

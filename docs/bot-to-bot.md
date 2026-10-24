@@ -335,3 +335,16 @@ real application usage/cleanup entry points. The 4f186371 application journey
 subsequently verifies upload-period UI Stop and B-offline copies. Remote URL
 completion, same-SHA real-machine/account/GUI and final independent review remain
 open; see the [current roadmap](bot-to-bot-review-roadmap.md).
+
+## Final independent audit
+
+See [closure, regression and compatibility map](worker-peer-final-audit.md) for
+the whole-PR review. Newly created foreign Caelis bindings freeze a native
+operation scope so equal caller IDs on a shared Core principal cannot adopt the
+same session. Older experimental unscoped foreign bindings retain original
+receipts/results but cannot receive new writes or automatic start advancement;
+local and legacy-helper operation derivation stays unchanged. B's per-call
+transport file copies are ephemeral; existing storage inventory covers interrupted
+leftovers without touching native/A originals. Web pair-response loss reconciles
+the original proof and pairing intent; a later grant/configuration cannot certify
+or overwrite the original unknown. A missing grant remains unknown, never replayed.

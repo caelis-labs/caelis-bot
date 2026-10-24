@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -385,5 +386,19 @@ func TestWorkServiceOpaqueRequestRemainsPendingAndInspectable(t *testing.T) {
 	}
 	if s.state.Views["work"].State.Approval.Active == nil {
 		t.Fatal("unsupported request was silently closed")
+	}
+}
+
+func TestReadWorkOperationRejectsPartiallyLoadedBinding(t *testing.T) {
+	q := api.WorkOperationQuery{TaskID: "task", RequestID: "original-request", Kind: "send", Fingerprint: "original-digest"}
+	intent := workIntent{q.TaskID, q.RequestID, q.Kind, q.Fingerprint}
+	op := "work-send-" + digest([]byte(q.RequestID))
+	s := &Session{loadErr: errors.New("unreadable-original-binding"), state: binding{Workers: map[string]worker{"task": {Task: api.Task{ID: "task"}}}, Operations: map[string]journal{op: {Work: &intent, Outcome: "accepted"}}}}
+	if got, err := s.ReadWorkOperation(t.Context(), q); err == nil || got.Outcome == "accepted" {
+		t.Fatal("partial binding certified receipt", got, err)
+	}
+	s.loadErr = nil
+	if got, err := s.ReadWorkOperation(t.Context(), q); err != nil || got.Outcome != "accepted" {
+		t.Fatal("valid offline receipt unavailable", got, err)
 	}
 }

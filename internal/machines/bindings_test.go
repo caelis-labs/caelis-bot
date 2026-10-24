@@ -106,11 +106,9 @@ func TestSwitchDefaultRetainsEveryOriginalNativeRoute(t *testing.T) {
 			if e != nil || before.Thread != after.Thread || after.Runtime != "codex" {
 				t.Fatal("terminal retargeted", e)
 			}
-			s.mu.Lock()
-			for _, runtime := range []string{"codex", "caelis"} {
-				s.refreshCacheLocked(t.Context(), in.Machine, s.state.Profiles[in.Machine], runtime)
+			for _, poll := range s.workPolls() {
+				s.pollWork(t.Context(), poll)
 			}
-			s.mu.Unlock()
 			if len(s.WorkStates()) != 2 || starts != 2 {
 				t.Fatal("old cache disappeared or duplicated dispatch")
 			}

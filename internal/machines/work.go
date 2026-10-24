@@ -94,26 +94,23 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return api.Task{}, e
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	runtime, e := s.bindLocked(in.TaskStart, in.ID, "")
 	if e != nil {
+		s.mu.Unlock()
 		return api.Task{}, e
 	}
-	// Crossing this fence makes the route an owner even if dispatch's outcome is
-	// unknown. Preparation cleanup must never release it after this point.
+	// Retain the original route before dispatch, even if the response is lost.
 	if s.state.Reservations[in.ID] {
 		delete(s.state.Reservations, in.ID)
 		if e = s.save(); e != nil {
 			s.state.Reservations[in.ID] = true
+			s.mu.Unlock()
 			return api.Task{}, e
 		}
 	}
 	p := s.state.Profiles[in.Machine]
-	r, e := s.call(ctx, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
-	r.Task.Machine = in.Machine
-	r.Task.MachineName = p.View.Name
-	s.refreshCacheLocked(ctx, in.Machine, p, runtime)
-	return r.Task, e
+	s.mu.Unlock()
+	return s.callWork(ctx, in.Machine, runtime, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
 }
 
 type workPoll struct {
@@ -217,18 +214,28 @@ func (s *Service) invalidateActivity(id, runtime string) {
 }
 func (s *Service) remote(ctx context.Context, id, action string, message api.TaskMessage) (api.Task, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	machine := s.state.Routes[id]
+	machine, runtime := s.state.Routes[id], s.state.Runtimes[id]
 	p, ok := s.state.Profiles[machine]
+	s.mu.Unlock()
 	if !ok {
 		return api.Task{}, errors.New("original_machine_unavailable")
 	}
-	r, e := s.call(ctx, p, remotework.Request{Action: action, Runtime: s.state.Runtimes[id], ID: id, Message: message})
-	r.Task.Machine = machine
-	r.Task.MachineName = p.View.Name
-	s.refreshCacheLocked(ctx, machine, p, s.state.Runtimes[id])
-	return r.Task, e
+	return s.callWork(ctx, machine, runtime, p, remotework.Request{Action: action, Runtime: runtime, ID: id, Message: message})
 }
+
+// A network write must not hold the route lock in front of its guarded Stop.
+// Refresh uses the existing profile/revision fence, so late results cannot
+// overwrite observations from a changed connection or another execution.
+func (s *Service) callWork(ctx context.Context, machine, runtime string, p profile, request remotework.Request) (api.Task, error) {
+	s.cacheMu.RLock()
+	revision := s.cacheRevision[machine+"\x00"+runtime]
+	s.cacheMu.RUnlock()
+	r, err := s.call(ctx, p, request)
+	r.Task.Machine, r.Task.MachineName = machine, p.View.Name
+	s.pollWork(ctx, workPoll{id: machine, runtime: runtime, profile: p, revision: revision})
+	return r.Task, err
+}
+
 func (s *Service) route(id string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -313,24 +320,6 @@ func (s *Service) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	}
 	r.Terminal.SSH, e = s.sshArgs(p, true)
 	return r.Terminal, e
-}
-func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, runtime string) {
-	r, e := s.call(ctx, p, remotework.Request{Action: "states", Runtime: runtime})
-	if e == nil {
-		s.cacheResponse(id, p.View.Name, runtime, r.States)
-		if p.View.Runtime == runtime && p.View.State == "offline" {
-			// Reachability alone is not readiness: recheck native account/model
-			// admission before making this machine available for new work.
-			_, _ = s.inspectLocked(ctx, id, p.View.Runtime)
-		}
-	} else {
-		if p.View.Runtime == runtime && (p.View.State != "offline" || p.View.Issue != e.Error()) {
-			p.View.State, p.View.Issue = "offline", e.Error()
-			s.state.Profiles[id] = p
-			_ = s.save()
-		}
-		s.invalidateActivity(id, runtime)
-	}
 }
 
 // Poll native facts, never a model. Observation cancellation leaves target owners

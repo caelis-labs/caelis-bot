@@ -107,3 +107,25 @@ type WorkerSharingController interface {
 	CreateWorkerPairing(context.Context) (WorkerSharing, error)
 	RevokeWorkerPeer(string) error
 }
+
+// BotConnectionReference is a host-captured original proof reference, never a
+// credential or browser-supplied authority. It permits only authenticated reads.
+type BotConnectionReference struct {
+	Pairing       string `json:"pairing,omitempty"`
+	Configuration string `json:"configuration"`
+	ID            string `json:"id"`
+	Address       string `json:"address"`
+	Peer          string `json:"peer,omitempty"`
+	Proof         string `json:"proof"`
+}
+type BotConnectionUnconfirmedError struct {
+	Reference BotConnectionReference
+	Cause     error
+}
+
+func (e *BotConnectionUnconfirmedError) Error() string { return e.Cause.Error() }
+func (e *BotConnectionUnconfirmedError) Unwrap() error { return e.Cause }
+
+type BotConnectionReceiptReader interface {
+	ReadBotConnectionReceipt(context.Context, BotConnectionReference) (Machine, error)
+}

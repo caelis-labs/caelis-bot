@@ -363,3 +363,10 @@ to B-loopback and B-only certificates/browser state. Those flows are deferred,
 not repaired; keep affected work blocked and explain the limitation. Do not ask
 the user to approve on the other Bot, invent a tunnel/proxy or claim arbitrary
 webpage equivalence.
+
+Older experimental foreign Caelis bindings without a frozen source domain may
+retain results and original receipts but cannot accept new writes or resume
+prepared work. Preserve their identity and uncertainty; do not migrate them,
+replay an operation or send an old decision to a new owner. A missing original
+pairing grant remains unknown until its original proof can be authenticated;
+never erase its pending operation or silently authorize another Bot instead.

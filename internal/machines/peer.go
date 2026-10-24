@@ -22,7 +22,7 @@ import (
 // Connection configuration is the generation fence for network results. Health
 // timestamps and worker defaults may change without changing this route/proof.
 func sameBotConfiguration(a, b profile) bool {
-	return a.Peer == b.Peer && a.View.ID == b.View.ID && a.View.Name == b.View.Name && a.View.Address == b.View.Address && a.View.Archived == b.View.Archived
+	return a.PairingEpoch == b.PairingEpoch && a.Peer == b.Peer && a.View.ID == b.View.ID && a.View.Name == b.View.Name && a.View.Address == b.View.Address && a.View.Archived == b.View.Archived
 }
 func botCheckResult(p profile, out workerpeer.Response, err error) profile {
 	p.View.CheckedAt = time.Now().UnixMilli()
@@ -132,6 +132,23 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 		if len(sourceName) > 80 || strings.ContainsAny(sourceName, "\r\n\t") {
 			sourceName = ""
 		}
+		// A fresh explicit pairing is a distinct authorization intent, even
+		// at the same address with the same proof. Persist its provenance before
+		// the write; a later grant cannot certify an older uncertain attempt.
+		s.mu.Lock()
+		current, exists := s.state.Profiles[id]
+		if !exists || !sameBotConfiguration(current, pending) {
+			s.mu.Unlock()
+			return current.View, errors.New("bot_connection_changed")
+		}
+		pending.PairingEpoch = rand.Text()
+		s.state.Profiles[id] = pending
+		if saveErr := s.save(); saveErr != nil {
+			s.state.Profiles[id] = current
+			s.mu.Unlock()
+			return current.View, saveErr
+		}
+		s.mu.Unlock()
 		result, err = workerpeer.PairNamed(checkCtx, address, in.Code, profileID, sourceName, pending.Peer.Token)
 	}
 	if err == nil && pending.Peer.Peer != "" && pending.Peer.Peer != result.Peer {
@@ -171,10 +188,16 @@ func (s *Service) ConnectBot(ctx context.Context, in api.BotConnectionInput) (ap
 	s.state.Profiles[id] = next
 	if saveErr := s.save(); saveErr != nil {
 		s.state.Profiles[id] = current
-		return current.View, saveErr
+		return current.View, &api.BotConnectionUnconfirmedError{Reference: s.botConnectionReference(pending, address), Cause: saveErr}
 	}
 	if err == nil {
 		s.renewBotObservationsLocked(id)
+	}
+	if err != nil {
+		var rejected *api.ActionRejectedError
+		if !errors.As(err, &rejected) {
+			return next.View, &api.BotConnectionUnconfirmedError{Reference: s.botConnectionReference(pending, address), Cause: err}
+		}
 	}
 	return next.View, err
 }
@@ -825,4 +848,71 @@ func (s *Service) needsPeerStream(id string) bool {
 		}
 	}
 	return true
+}
+
+func (s *Service) botConnectionReference(p profile, address string) api.BotConnectionReference {
+	configuration := api.WorkFingerprint(struct {
+		Address, Name string
+		Archived      bool
+	}{p.Peer.Address, p.View.Name, p.View.Archived})
+	return api.BotConnectionReference{Pairing: p.PairingEpoch, Configuration: configuration, ID: p.View.ID, Address: address, Peer: p.Peer.Peer, Proof: api.WorkFingerprint(struct{ Source, ID, Token string }{s.state.ProfileID, p.View.ID, p.Peer.Token})}
+}
+
+// Query only the retained original proof. Never pair, replace a token or treat
+// missing/revoked/unknown authority as rejection of the uncertain original write.
+func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConnectionReference) (api.Machine, error) {
+	s.mu.Lock()
+	p, exists := s.state.Profiles[ref.ID]
+	if !exists || p.PairingEpoch != ref.Pairing || p.View.ConnectionType != "bot" || p.Peer.Token == "" || s.botConnectionReference(p, ref.Address).Proof != ref.Proof {
+		s.mu.Unlock()
+		return api.Machine{}, errors.New("original_peer_proof_unavailable")
+	}
+	s.mu.Unlock()
+	probe := p.Peer
+	probe.Peer = ref.Peer
+	if ref.Peer == "" {
+		probe.Peer = p.Peer.Peer
+	}
+	sameConfiguration := ref.Configuration != "" && s.botConnectionReference(p, ref.Address).Configuration == ref.Configuration
+	if !sameConfiguration && ref.Peer == "" {
+		return api.Machine{}, errors.New("original_peer_grant_unconfirmed")
+	}
+	if sameConfiguration {
+		probe.Address = ref.Address
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	out, err := workerpeer.Call(readCtx, probe, workerpeer.Request{Action: "info"})
+	// The fixed authenticated response certifies the original grant, even if B's
+	// current worker needs setup. Authentication failures have no peer envelope.
+	if out.Contract != api.WorkerContract || out.Peer == "" {
+		if err == nil {
+			err = errors.New("original_peer_grant_unconfirmed")
+		}
+		return api.Machine{}, err
+	}
+	if ref.Peer != "" && ref.Peer != out.Peer || p.Peer.Peer != "" && p.Peer.Peer != out.Peer {
+		return api.Machine{}, errors.New("bot_peer_identity_changed")
+	}
+	if err == nil && !workerpeer.Compatible(out.Capabilities) {
+		err = errors.New("bot_worker_contract_incompatible")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.state.Profiles[ref.ID]
+	if !exists || current.PairingEpoch != ref.Pairing || s.botConnectionReference(current, ref.Address).Proof != ref.Proof || current.Peer.Peer != "" && current.Peer.Peer != out.Peer {
+		return api.Machine{}, errors.New("original_peer_grant_unconfirmed")
+	}
+	if !sameConfiguration || !sameBotConfiguration(current, p) {
+		return current.View, nil
+	}
+	next := botCheckResult(current, out, err)
+	next.Peer.Address, next.Peer.Peer, next.Identity = ref.Address, out.Peer, out.Peer
+	next.View.Address, next.View.PeerID = ref.Address, out.Peer
+	s.state.Profiles[ref.ID] = next
+	if saveErr := s.save(); saveErr != nil {
+		s.state.Profiles[ref.ID] = current
+		return current.View, saveErr
+	}
+	return next.View, nil
 }
