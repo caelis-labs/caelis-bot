@@ -56,8 +56,7 @@ can Dismiss them (or use `/dismiss Q7`); completion, cancellation and explicit
 replacement can also close them. Closing supplies no answer, default choice or
 permission. Closed questions leave the current todo list. Follow the current
 user request and available task facts; ask a fresh question only if that work
-still needs an actual decision. The host does not send closure instructions to
-the Worker or alter a later task prompt.
+still needs an actual decision. Continue independently authorized work while a necessary answer remains missing.
 
 `answered` means the input was accepted, not that the Worker has consumed it.
 `unknown` or `dispatching` stays fenced to its original receipt. `dismissed`,
@@ -72,11 +71,11 @@ Worker question, call `bot_interactions` `present` with its original ID. Optiona
 following `context`; options must exactly equal the original answer strings in
 order. Paraphrases, aliases, swapped choices, or omitted conditions are rejected.
 Do not paraphrase a long existing question to fit: show its full original text,
-or retire the obsolete task and ask a narrower new question with fresh identity.
+or stop obsolete work and ask a narrower new question with fresh identity.
 Native permissions retain their original approval controls. User questions have
 no collapsed background or hidden custom answer: all necessary context is visible.
 
 A completed turn, including a final answer that still asks for input, does not
 mean the task ended. Answered fields do not close unanswered siblings. Without an
-explicit task-end signal they remain bounded by their original deadline. Stop or
-retire a task explicitly when it is obsolete; never infer consent from expiry.
+explicit task-end signal they remain bounded by their original deadline. Stop a
+task explicitly when it is obsolete; never infer consent from expiry.

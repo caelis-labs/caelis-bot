@@ -1,8 +1,10 @@
 # Arrange future attention
 
-Use arrangements as a normal part of carrying a user's goal forward. Choose the
-smallest working path. You do not need a collector or CEL for a simple follow-up.
-The app runs timers and observations; you wake only when attention is due.
+Use arrangements to carry the user's goal forward within its authorization.
+Save the purpose and timing, then check the returned handle and next time before
+saying the follow-up is active. Choose the simplest working path: a plain timed
+wakeup needs no collector or CEL. At a wakeup, use the original purpose and current
+result to do the next useful thing; collected data is not new authority.
 
 ## One call for a plain wakeup
 
@@ -101,7 +103,7 @@ turn completes. Recurring/completion arrangements expire after 30 days unless
 `until` specifies a deadline (maximum one year). A queued wake expires after an
 hour. Remove the arrangement as soon as its purpose ends, then archive an unused
 event through `bot_event` `archive`. Unreferenced events automatically archive
-after 24 hours; terminal history retains up to 128 occurrences for seven days.
+after 24 hours.
 Uncertain receipts remain retained and prevent re-execution or event deletion.
 Do not recreate an uncertain collector to bypass that barrier.
 
@@ -110,41 +112,35 @@ collector runs at a time with a 15-second deadline and 16 KiB output limit. Star
 are at least five seconds apart. New event arrangements have a conservative
 wake-attempt budget of eight per rolling day and five minutes between attempts;
 per-arrangement cooldown defaults to one hour. These limits do not imply that a
-collector runs on every tick or that every check wakes you. Hiding the pet keeps
-scheduling alive; exiting stops it. Late recurring checks coalesce, and expired
-one-shots do not replay. A malformed result is not an empty successful result.
+collector runs on every tick or that every check wakes you. Late recurring checks
+coalesce, and expired one-shots do not replay. A malformed result is not an empty
+successful result.
 
 A maintenance wake means collection could not continue; it is not a business
 condition match. Read its original occurrence and decide whether a safe read can
 clarify the situation. Do not repeat an uncertain operation. Only a meaningful
 limitation or actual user decision belongs in your reply.
 
-If execution is unconfirmed, inspect its original occurrence. If the saved state
-is unavailable, preserve it; do not delete it to clear cooldowns or uncertainty.
-Normal transient issues do not belong in user chat. Explain only an actual
-limitation or decision that prevents the agreed work from continuing.
-
 Task events pin the original execution, not just its reusable task handle. If a
 continuation replaces that execution before observation, collection stops and a
 maintenance wake asks you to verify the original result. Never interpret the
 continuation's result as the original task's result or recreate an uncertain call.
-Temporary busy admission keeps the original occurrence queued within
-its expiry and rate budget. Cancellation prevents new wakes even when an in-flight
-collector later returns; any uncertain execution evidence remains available.
+Cancellation prevents new wakes; any uncertain execution evidence remains available.
 
+## Availability and delivery
 
 Explicit arrangements run without requiring an unlocked desktop or known native
 presence. Use a tested collector and an explicit CEL condition if this particular
 task depends on lock state; preserve unknown as unknown. Waking does not grant
 permission to use desktop input tools or bypass their lock/permission checks.
-Computer sleep pauses execution and app exit stops it; neither is merely locking
-the screen. Keep original authorization, busy admission, expiry and budgets.
+Hiding the pet keeps arrangements active. Computer sleep pauses execution and
+app exit stops it; locking the screen alone does neither. Keep the original
+authorization and saved timing; a busy Bot or exhausted budget can delay a wakeup.
 
-A new arrangement retains its trusted originating input for channel routing.
-Replies may reach the user's phone without desktop unlock, subject to the paired
-channel and its delivery window/budget. Do not claim delivery from registration
-or a completed Bot turn. Old records without source evidence are not re-attributed
-to a newer phone message; never recreate or replay uncertain work to repair routing.
+A phone reply needs the arrangement's original channel association and an available
+delivery window. Registration or a completed Bot turn does not prove delivery.
+Do not attribute an old arrangement to a newer phone message or recreate uncertain
+work to repair routing.
 
 Read results stay bounded. `events` and `arrangements` return summary pages;
 follow the top-level `nextCursor` with the same filters. A calendar list omits

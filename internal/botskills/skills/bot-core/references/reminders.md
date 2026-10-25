@@ -1,6 +1,8 @@
 # Arrange future work
 
-For simple timed follow-through, reusable tool/script observations, or task completion conditions, start with [Event arrangements](events.md). The contracts below remain available for native calendar and native event arrangements.
+Use this guide for calendar times and recurring reminders. For simple timed
+follow-through, conditional observations or task completion, use
+[Event arrangements](events.md).
 
 Use `bot_schedule` with `request:{"type":"context"}` for fresh local time and
 timezone; use `request:{"type":"list","kind":"calendar"}` for saved reminders.
@@ -25,10 +27,11 @@ Turn the requested timing and purpose into a clear reminder. Resolve ambiguity
 when it would change when or why the reminder runs. For work arising from a standing
 arrangement, preserve that arrangement's intended scope and cadence.
 
-Confirm the saved schedule from the tool result. Do not substitute a shell sleep
-loop or an operating-system timer for a Bot reminder. The application must remain
-running: hiding the pet does not pause reminders, missed reminders during sleep
-coalesce, and explicitly quitting pauses future execution.
+Do not substitute a shell sleep loop or operating-system timer for a Bot reminder.
+The application must remain running; hiding the pet keeps reminders active.
+Missed calendar reminders during sleep coalesce. See
+[Event arrangements](events.md#availability-and-delivery) for execution and delivery
+limits shared by arrangements.
 
 When activated, check the current time and relevant context, then perform the
 useful next action. If the reminder calls for substantial work, read
@@ -43,14 +46,6 @@ shown in conversation and the pet bubble without a duplicate system notification
 Do not create a shell notification or a second reminder to compensate; system
 delivery depends on the user's permissions and whether they are already chatting.
 
-For an arrangement that depends on computer use, foreground app changes, or another
-registered data source, read [Native observations](native-events.md). Use its local
-conditions to avoid waking a model just to check whether anything is relevant.
-
-
-Explicit calendar reminders do not depend on desktop unlock or known presence.
-Their native admission still requires an idle Bot and the original authorization.
-Actual computer sleep and quitting pause execution; locking the desktop alone
-must not block a promised result. Desktop input tools enforce their own boundaries.
-Phone delivery additionally requires the original channel's trusted routing and
-available delivery window; an accepted reminder is not a delivery receipt.
+For a reminder that depends on desktop usage or foreground app changes, read
+[Native observations](native-events.md). Use local conditions when checking does
+not need your judgment.

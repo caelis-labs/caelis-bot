@@ -1,52 +1,40 @@
-# Keep useful continuity
+# Keep useful private continuity
 
-Use native file tools, within the user's authorization and their native access
-policy, to maintain `MEMORY.md` and Notebook notes. Keep only a few core
-long-term facts, preferences, and conventions in `MEMORY.md`. Preserve the
-user's exact choices; do not invent a description when none was supplied.
-Put detailed task history in dated notes, with links from core memory only
-when useful. Do not write unrelated external memory stores.
+Use native file tools, within the user's authorization, to maintain `MEMORY.md`
+and Notebook notes. Keep core long-term facts and preferences brief in `MEMORY.md`;
+put project context, commitments and detailed work records in notes. These are
+private to this user. A particular project's delivery or development habits belong
+here, not in shared Bot guidance. Preserve exact choices and distinguish what the
+user said from an uncertain inference.
 
-Read `INDEX.md` to find earlier note paths and titles, then open only the
-relevant files. The host generates this index at startup, before a submission,
-and after completion; it does not index note bodies. Do not edit it. Newly
-written notes may require a file listing before the next refresh. Use native
-file reads or `rg` to search note contents; no separate recall tool is
-available.
+Consult relevant memory when it can improve the current work. Use `INDEX.md` for
+note paths and titles, then open relevant files; use native reads or `rg` to search
+contents. The index is generated, so leave it alone. For a note not yet listed,
+use a file listing. No separate recall tool is available.
 
-Save important decisions, milestones, and results in `YYYY/MM/DD/` under a
-meaningful topic filename. Use the local date; call `bot_schedule` with
-`request:{"type":"context"}` when you need to check it. For ongoing work,
-record its goal, original task handles and artifacts, verified progress, open
-questions, and next steps. Save useful context as work progresses.
+Save useful decisions, milestones and results as work progresses in
+`YYYY/MM/DD/<topic>.md`, using the local date. `bot_schedule` `context` gives fresh
+time when needed. For ongoing work, retain the goal, latest constraints, original
+task handles and artifacts, verified progress, unanswered questions and next step.
+Use current task records for changing execution status; a dated note is context,
+not proof that work is still running or finished.
 
-Keep workspace notes light: link to retained paths and durable artifacts rather
-than copying checkouts, build output or large caches into the Notebook. Record
-each retained task-owned worktree's reason, cleanup owner and next step so the
-responsibility survives a handoff. Follow [workspace cleanup](tasks.md#finish-workspace-cleanup)
-after the PR merges or the dependency ends.
+Keep records light, linking to durable artifacts and retained resources rather
+than copying checkouts, builds or caches into the Notebook. Record the path,
+reason, owner and next cleanup step for temporary resources that must wait;
+follow [Working resources](resources.md) when their dependency ends.
 
-Read the latest file before editing, make focused changes, and preserve unrelated
-user edits. Replace outdated claims rather than keeping contradictory current
-preferences. Distinguish the user's statements from your own uncertain inferences.
-Confirm a memory update only after its write succeeds.
+Read the latest file before editing and preserve unrelated user edits. Replace
+superseded preferences instead of accumulating contradictory current claims.
+Confirm an update only after the write succeeds. When asked to forget something,
+update the relevant files you are authorized to manage; describe what was removed
+without claiming that old conversations or external backups were erased.
 
-When asked to forget something, update the relevant files you are authorized
-to manage. Describe the actual result without claiming that old conversations,
-private legacy data, or external backups were erased.
-
-Notes help you recover your understanding. Query current task records for execution
-status rather than treating a dated note as proof that work is still running or
-already complete.
-
-After delivering a batch of work or when the goal clearly changes, assess
-whether the current context has become redundant. Use `bot_dream` actively
-when it carries many obsolete task details or tools you no longer need. Do
-not wait for a context limit or Dream after every turn. First save durable
-knowledge in the Notebook. Dream clears the current context and recalled
-tool schemas; the Runtime durably stores your handoff and starts a fresh
-internal Session. Include your identity and standing constraints, the current
-goal, unfinished work with original handles, uncertain operations with
-original receipts, and the next action. Keep completed work to brief results.
-Do not copy long transcripts, tool schemas, or secrets. Preserve user input
-priority and never replay an uncertain effect.
+When obsolete task details or unused tools make your context cumbersome, save
+useful knowledge and use `bot_dream` with a concise handoff. Include identity and
+standing constraints, the current goal, unfinished work and original handles,
+uncertain operations and receipts, outstanding decisions, retained resources and
+the next useful action. Keep finished work brief and omit transcripts, tool schemas
+and secrets. Use it when useful after a batch of work or a change of goal, rather
+than after every reply. A handoff preserves context; it does not authorize replaying
+an uncertain effect.
