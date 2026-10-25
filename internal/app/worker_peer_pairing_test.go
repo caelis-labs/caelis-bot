@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"net"
 	"net/http"
@@ -69,7 +70,10 @@ func TestBrokenPeerRegistryLeavesLocalApplicationAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := newTestEngine()
-	a, err := newApplication(root, Host{}, func(id string) (providerFactory, error) {
+	// This test owns a disposable root. Product diagnostics are deliberately
+	// asynchronous/nonblocking on Close; use the existing synchronous logger so
+	// the assertion's TempDir cleanup cannot race an unrelated diagnostic write.
+	a, err := newApplication(root, Host{Diagnostics: diagnosticlog.New(filepath.Join(root, "Logs"))}, func(id string) (providerFactory, error) {
 		return providerFactory{ID: id, Open: func(providerConfig) (api.Engine, error) { return engine, nil }}, nil
 	})
 	if err != nil {
@@ -134,7 +138,10 @@ func TestUnsupportedRegistryIsNotMigratedAndRefreshCannotDiscardIt(t *testing.T)
 		t.Fatal(err)
 	}
 	engine := newTestEngine()
-	a, err := newApplication(root, Host{}, func(id string) (providerFactory, error) {
+	// This test owns a disposable root. Product diagnostics are deliberately
+	// asynchronous/nonblocking on Close; use the existing synchronous logger so
+	// the assertion's TempDir cleanup cannot race an unrelated diagnostic write.
+	a, err := newApplication(root, Host{Diagnostics: diagnosticlog.New(filepath.Join(root, "Logs"))}, func(id string) (providerFactory, error) {
 		return providerFactory{ID: id, Open: func(providerConfig) (api.Engine, error) { return engine, nil }}, nil
 	})
 	if err != nil {
