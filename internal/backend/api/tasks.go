@@ -6,7 +6,9 @@ import "context"
 // Bot-owned work, never arbitrary provider conversations or UI sessions.
 // The application owns allocation/reporting; native mutation receipts stay in
 // WorkRuntime. A protocol adapter does not implement this product interface.
-// Start/Send require an active authorized secretary request, preserve its source,
+// Start and ordinary Send require an active authorized secretary request. Host-
+// validated original question answers retain their own scope while Bot is idle.
+// Inputs preserve their source,
 // and reject conflicting request IDs. An unknown outcome is not a retry grant.
 // Start validates an explicit workspace or allocates a private directory.
 // Stop addresses the exact active turn; read/list never adopt unrelated tasks.

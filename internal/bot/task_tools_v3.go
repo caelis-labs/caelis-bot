@@ -185,16 +185,12 @@ func collapsedTaskText(value string) string {
 	return value[:front] + fmt.Sprintf("[已折叠 %d bytes]", back-front) + value[back:]
 }
 
-func fullTaskValue(value map[string]any) api.ToolResult {
+func fullTaskValue(value map[string]any, q map[string]any) api.ToolResult {
 	encoded, _ := json.Marshal(value)
 	if len(encoded) > 7<<20 {
 		return compactError("message_too_large", errors.New("original native message exceeds the bounded tool transport; open the task in its native client"))
 	}
-	content := string(encoded)
-	if len(encoded) > 8<<10 {
-		content = "Read structuredContent for the complete native message."
-	}
-	return api.ToolResult{StructuredContent: value, Content: []map[string]string{{"type": "text", "text": content}}}
+	return boundedData(value, q)
 }
 
 func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolResult {
@@ -218,9 +214,9 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		}
 		// Paths and alias suggestions only. Read/write this exact file with native
 		// file tools under their normal permission policy, not an auto-approved tool.
-		return compactValue(map[string]any{"ok": true, "data": map[string]any{"path": v.Path, "userPath": v.UserPath, "systemPath": v.SystemPath, "revision": v.Revision, "hosts": v.Hosts, "issue": v.Issue}}, false)
+		return boundedData(map[string]any{"ok": true, "data": map[string]any{"path": v.Path, "userPath": v.UserPath, "systemPath": v.SystemPath, "revision": v.Revision, "hosts": v.Hosts, "issue": v.Issue}}, q)
 	case "environments":
-		return compactValue(map[string]any{"ok": true, "data": taskEnvironments(provider, r.engine.Snapshot().Connection)}, false)
+		return boundedData(map[string]any{"ok": true, "data": taskEnvironments(provider, r.engine.Snapshot().Connection)}, q)
 	case "list":
 		catalog, ok := provider.(api.TaskHistoryCatalog)
 		if !ok {
@@ -237,7 +233,22 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		if err != nil {
 			return compactError("invalid_or_unavailable_query", err)
 		}
-		return compactValue(map[string]any{"ok": true, "data": map[string]any{"tasks": page}}, false)
+		end := 0
+		for end < len(page) {
+			if end > 0 && len(encoded(page[:end+1])) > 16<<10 {
+				break
+			}
+			end++
+		}
+		data := map[string]any{"tasks": page[:end]}
+		limit := query.Limit
+		if limit == 0 {
+			limit = 20
+		}
+		if end < len(page) || len(page) == limit {
+			data["nextOffset"] = query.Offset + end
+		}
+		return compactValue(map[string]any{"ok": true, "data": data}, false)
 	case "read":
 		reader, ok := provider.(api.TaskConversationReader)
 		if !ok {
@@ -251,6 +262,7 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 				return compactError("invalid_arguments", errors.New("messageId cannot be combined with offset or limit"))
 			}
 		}
+
 		conversation, err := reader.ReadTaskConversation(bounded, str(q, "task"))
 		if err != nil {
 			return compactError("native_history_unreadable", errors.New("original Worker messages could not be read; retry this same task after the Runtime reconnects"))
@@ -258,7 +270,7 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		if id := str(q, "messageId"); id != "" {
 			for _, message := range conversation.Messages {
 				if message.ID == id {
-					return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "message": message}})
+					return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "message": message}}, q)
 				}
 			}
 			return compactError("message_not_found", errors.New("messageId is not a completed User or Assistant message in this task"))
@@ -277,7 +289,7 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		for i := range messages {
 			messages[i].Text = collapsedTaskText(messages[i].Text)
 		}
-		return compactValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "messages": messages}}, false)
+		return boundedData(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "messages": messages}}, q)
 	case "observe":
 		p, ok := provider.(api.TaskObserver)
 		if !ok {
@@ -287,7 +299,11 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		if err != nil {
 			return compactError("original_owner_unavailable", err)
 		}
-		return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"task": v.State.Task, "items": v.Items, "revision": v.Revision}})
+		data := map[string]any{"task": v.State.Task, "items": v.Items}
+		// Adapter counters may advance on a read with identical native facts.
+		// Page the content revision; keep the observer counter outside chunks.
+		data["revision"] = interactionFingerprint(data)
+		return fullTaskValue(map[string]any{"ok": true, "data": data, "nativeRevision": v.Revision}, q)
 	case "reconcile":
 		p, ok := provider.(api.TaskOperationReader)
 		if !ok {

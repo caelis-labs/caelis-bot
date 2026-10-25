@@ -31,7 +31,10 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 // WorkMessageRejection proves this invocation did not accept the message, before
 // dispatch or by definitive native rejection. A failed receipt lookup must not
 // settle an earlier dispatch. Task status and missing receipts are not proof.
-type WorkMessageRejection struct{ Cause error }
+type WorkMessageRejection struct {
+	Cause error
+	Code  string // Locally classified cause, never native error text.
+}
 
 func (e *WorkMessageRejection) Error() string { return e.Cause.Error() }
 func (e *WorkMessageRejection) Unwrap() error { return e.Cause }
@@ -195,7 +198,8 @@ type BackgroundResult struct {
 }
 type BackgroundResultProvider interface{ BackgroundResult(string) BackgroundResult }
 
-// QuestionClosure is host lifecycle context, never an answer or execution grant.
+// QuestionClosure is a retired peer compatibility shape. Receivers acknowledge
+// it without model input; question lifecycle belongs to the local host.
 // Only the adapter can validate the original call and native owner.
 type QuestionClosure struct {
 	ID, ItemID, CallID, Owner, WorkID, State, Reason string

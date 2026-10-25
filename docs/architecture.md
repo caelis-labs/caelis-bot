@@ -333,9 +333,9 @@ admission, not that the model has consumed the answer or resumed an old turn.
 These references are fenced to the original Codex thread and item schema and
 are never reused after an uncertain send. Codex async questions have a separate [24-hour lifecycle](design/async-question-lifecycle.md):
 answer, dismiss and expiry are durable and cached IM cards resolve against that ledger.
-Closing supplies no answer or authorization. A host clock expires them offline;
-original-owner closure context can steer an active turn once but never starts an idle
-Worker. `bot_interactions` can present the original Worker question directly, with
+Closing supplies no answer or authorization. A host clock expires them offline.
+Closures are local interaction state: they never steer a Worker or enter later
+model input. Worker start/continue receives the submitted prompt unchanged. `bot_interactions` can present the original Worker question directly, with
 one shared answer/close state and its task source. Native approvals keep the
 seven-day short-reference policy above; it never approves or closes their request.
 Codex async questions have no native
@@ -704,8 +704,8 @@ Bot-owned portable plugin packages and their reviewed source adapter are describ
 in [plugin-packages.md](plugin-packages.md). Package MCP services do not join the
 built-in automatic approval list.
 
-The native resident catalog contains `bot_tasks`, `bot_delegate`,
-`bot_schedule`, `bot_schedule_update`, `bot_gesture` and `bot_dream`, subject to
+The native resident catalog contains `bot_tasks`, `bot_delegate`, `bot_interactions`,
+`bot_schedule`, `bot_schedule_update`, `bot_event`, `bot_gesture` and `bot_dream`, subject to
 Runtime capabilities. Desktop World contributes one `exec` tool through its own
 MCP server when its built-in plugin is enabled. It is never included in the
 built-in automatic approval list. Typed requests use application-owned schemas
@@ -746,7 +746,9 @@ independent semantic owners.
 Base replies expose `ok`, bounded native `data`, retained `outcome`, and useful
 receipt-based `next` only where appropriate. Large structured replies avoid a
 second JSON copy; output overflow retains mutation identity and reports its
-budget limit rather than replaying. Task and arrangement lists are paged. Desktop
+budget limit rather than replaying. Task and arrangement lists are paged. Exact large reads use fingerprint-bound,
+lossless JSON chunks; calendar summary pages omit full saved prompts. See the
+[tool lifecycle audit](bot-tool-lifecycle.md) for bounds and retained evidence. Desktop
 receipts/pixels retain the public SDK's stricter projection contract.
 
 ## Skills and context handoff

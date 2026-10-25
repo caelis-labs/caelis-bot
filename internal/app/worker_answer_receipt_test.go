@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
@@ -30,7 +31,8 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 	for _, rejected := range []bool{true, false} {
 		t.Run(fmt.Sprint(rejected), func(t *testing.T) {
 			e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
-			a, root := fixtureApp(t, e, Host{})
+			logs := t.TempDir()
+			a, root := fixtureApp(t, e, Host{Diagnostics: diagnosticlog.New(logs)})
 			base := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 			owner := &answerReceiptOwner{workerFixture: base, err: errors.New("fixture lost receipt")}
 			if rejected {
@@ -55,6 +57,10 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 			a.observeWorkerQuestions(t.Context())
 			in := textchannel.Inbound{Channel: "telegram", Conversation: "fixture", ID: "original-callback", Text: "/answer Q1 1"}
 			feedback := a.textControl.Handle(t.Context(), in, api.Snapshot{})
+			diagnostic, logErr := os.ReadFile(filepath.Join(logs, "error.jsonl"))
+			if logErr != nil || !strings.Contains(string(diagnostic), "worker_question") || strings.Contains(string(diagnostic), owner.err.Error()) {
+				t.Fatal("answer failure lacks privacy-safe diagnostic", logErr)
+			}
 			q := a.textControl.AsyncButtonQuestions(item.ID)[0]
 			if rejected && (q.State != "" || !strings.Contains(feedback, "未提交")) || !rejected && (q.State != "unknown" || !strings.Contains(feedback, "待核对")) {
 				t.Fatal("incorrect current-answer outcome")

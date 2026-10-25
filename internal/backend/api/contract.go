@@ -118,6 +118,7 @@ type Item struct {
 	// Native async call metadata is host-only. QuestionCards carry only the
 	// presentation-safe short references registered by the shared controller.
 	AsyncCallID    string          `json:"-"`
+	AsyncExpiresAt int64           `json:"-"` // Fixed original Worker question deadline, host-only.
 	AsyncQuestions []AsyncQuestion `json:"-"`
 }
 

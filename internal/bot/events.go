@@ -85,7 +85,7 @@ func eventDefinition() api.ToolDefinition {
 		tc.Branch("script", script, "id", "label", "interpreter", "script", "outputSchema"),
 		tc.Branch("tool", tool, "id", "label", "server", "tool", "arguments", "outputSchema"),
 		tc.Branch("task", task, "id", "label", "task"),
-		tc.Branch("read", tc.Schema{"event": text(128)}, "event"),
+		tc.Branch("read", tc.Schema{"event": text(128), "cursor": tc.String("Opaque nextCursor for original JSON")}, "event"),
 		tc.Branch("archive", tc.Schema{"event": text(128)}, "event")))
 }
 func scheduleDefinitions() []api.ToolDefinition {
@@ -96,7 +96,7 @@ func scheduleDefinitions() []api.ToolDefinition {
 		req := schema["properties"].(map[string]any)["request"].(map[string]any)
 		branches := req["anyOf"].([]any)
 		if out[i].Name == "bot_schedule" {
-			branches = append(branches, tc.Branch("events", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("arrangements", tc.Schema{"archived": tc.Schema{"type": "boolean"}}), tc.Branch("read", tc.Schema{"handle": text(256)}, "handle"), tc.Branch("condition", tc.Schema{"event": text(128), "when": text(2048), "sample": tc.Schema{"type": "object", "additionalProperties": true}, "timeZone": text(128)}, "event", "when", "sample"))
+			branches = append(branches, tc.Branch("events", tc.Schema{"archived": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}), tc.Branch("arrangements", tc.Schema{"archived": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}), tc.Branch("read", tc.Schema{"handle": text(256), "cursor": tc.String("Opaque nextCursor for original JSON")}, "handle"), tc.Branch("condition", tc.Schema{"event": text(128), "when": text(2048), "sample": tc.Schema{"type": "object", "additionalProperties": true}, "timeZone": text(128)}, "event", "when", "sample"))
 			out[i].Description = "Read time, native observation sources, arrangements and original results, or test a pure CEL condition. Reads never execute collectors or wake Bot. History is opt-in. See bot-core events guide."
 		} else {
 			for _, kind := range []string{"after", "at", "interval", "completion"} {
@@ -144,7 +144,7 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 		if err != nil {
 			return compactError("event_unavailable", err)
 		}
-		return compactValue(map[string]any{"ok": true, "event": "event:" + v.ID, "data": v}, false)
+		return boundedData(map[string]any{"ok": true, "event": "event:" + v.ID, "data": v}, q)
 	}
 	if kind == "archive" {
 		err := r.events.ArchiveEvent(id, r.now())
@@ -221,7 +221,7 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 					items = append(items, map[string]any{"event": "event:" + v.ID, "label": v.Label, "kind": v.Kind, "archived": v.Archived})
 				}
 			}
-			return compactValue(map[string]any{"ok": true, "data": items}, false), true
+			return summaryPage(items, q, "event"), true
 		case "arrangements":
 			items := []map[string]any{}
 			for _, p := range s.Plans {
@@ -229,7 +229,7 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 					items = append(items, map[string]any{"automation": "schedule:" + p.ID, "event": "event:" + p.Event, "type": p.Kind, "next": p.Next, "expires": p.Expires, "status": p.Status, "issue": p.Issue, "latestOccurrence": latestOccurrence(s, p.ID)})
 				}
 			}
-			return compactValue(map[string]any{"ok": true, "data": items}, false), true
+			return summaryPage(items, q, "automation"), true
 		case "condition":
 			v, err := r.events.Event(strings.TrimPrefix(str(q, "event"), "event:"))
 			if err != nil {
@@ -252,13 +252,13 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 					p.OriginRequests = nil
 					p.GrantID = ""
 					p.LegacyVersion = ""
-					return compactValue(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, false), true
+					return boundedData(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, q), true
 				}
 			}
 			for _, o := range s.Occurrences {
 				if h == o.ID {
 					o.OriginRequests = nil
-					return compactValue(map[string]any{"ok": true, "data": o}, false), true
+					return boundedData(map[string]any{"ok": true, "data": o}, q), true
 				}
 			}
 			return fail(errors.New("handle unavailable or history retention elapsed"))

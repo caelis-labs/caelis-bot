@@ -163,6 +163,15 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 			migrated = true
 		}
 	}
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for id, q := range records {
+			if (closedAsync(q.State) || q.State == "answered") && q.ClosedAt == 0 {
+				q.ClosedAt = time.Now().Unix()
+				records[id] = q
+				migrated = true
+			}
+		}
+	}
 	for id, q := range s.state.AsyncQuestions {
 		if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) != nil {
 			q.Presentation = nil

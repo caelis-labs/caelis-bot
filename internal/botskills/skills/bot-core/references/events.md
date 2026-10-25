@@ -145,3 +145,11 @@ Replies may reach the user's phone without desktop unlock, subject to the paired
 channel and its delivery window/budget. Do not claim delivery from registration
 or a completed Bot turn. Old records without source evidence are not re-attributed
 to a newer phone message; never recreate or replay uncertain work to repair routing.
+
+Read results stay bounded. `events` and `arrangements` return summary pages;
+follow the top-level `nextCursor` with the same filters. A calendar list omits
+the saved prompt; read its exact `calendar:<id>` handle when needed. Large
+`read` and `sources` results use `data.encoding: "json-chunk"`: repeat the same
+request with `data.nextCursor`, collect every `data.json` chunk in offset order
+through `complete: true`, and verify the same SHA-256 before interpreting it.
+Reads never run collectors or replay a registration.

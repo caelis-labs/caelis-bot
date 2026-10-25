@@ -385,7 +385,12 @@ func (w *localWorkers) ReadWorkConversation(ctx context.Context, id string) ([]a
 	return reader.ReadWorkConversation(ctx, id)
 }
 func (w *localWorkers) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
-	if err := w.WorkAdmission(ctx); err != nil {
+	if api.WorkerQuestionAnswer(ctx) == "" {
+		if err := w.WorkAdmission(ctx); err != nil {
+			return api.Task{}, &api.WorkMessageRejection{Cause: err}
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		return api.Task{}, &api.WorkMessageRejection{Cause: err}
 	}
 	owner, err := w.target(ctx, in.ID)

@@ -146,3 +146,33 @@ func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 		t.Fatal("native replay revived question")
 	}
 }
+
+func TestWorkerAnswerUsesOriginalTaskWhenResidentAdmissionIsIdle(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
+	a, root := fixtureApp(t, e, Host{})
+	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
+	wireTestWorkers(t, a, pool)
+	manager, err := tasks.Open(filepath.Join(root, "idle-questions.json"), filepath.Join(root, "Tasks"), "codex", pool, owner, a.Backend.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.tasks = manager
+	work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "idle-original-start", Title: "Original", Prompt: "Original", Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := owner.states[work.ID]
+	item := api.Item{ID: "original-idle-question", TurnKey: "original-turn", Kind: "assistant", AsyncCallID: "original-call", AsyncQuestions: []api.AsyncQuestion{{Title: "Machine?"}}}
+	state.AsyncQuestions = []api.Item{item}
+	owner.states[work.ID] = state
+	a.observeWorkerQuestions(t.Context())
+	owner.reject = true // No resident activation may authorize new work.
+	feedback := a.textControl.Handle(t.Context(), textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: "idle-user-answer", Text: "/answer Q1 Wall"}, api.Snapshot{})
+	if !strings.Contains(feedback, "已提交") || owner.sends != 1 || !strings.Contains(owner.lastPrompt, `"answer":"Wall"`) {
+		t.Fatal("idle resident blocked original answer", feedback, owner.sends)
+	}
+	if _, err = manager.StartTask(t.Context(), api.TaskStart{RequestID: "idle-unauthorized-start", Title: "New", Prompt: "New", Workspace: root}); err == nil {
+		t.Fatal("new work bypassed activation")
+	}
+}

@@ -390,3 +390,11 @@ and a newly generated code from that Bot. This explicit action retains the
 original connection/source/proof and the old unknown; only its own confirmed
 receipt permits following connection actions. Never replay an uncertain pair or
 claim a missing/revoked grant proves its original write was rejected.
+
+For large reads, `data.encoding: "json-chunk"` means the exact original JSON is
+paged. Repeat the same operation and target with `data.nextCursor`, concatenate
+all `data.json` chunks in offset order through `complete: true`, and verify the
+same SHA-256. Restart the read if its revision changes. Task lists return
+`data.nextOffset`; keep the same filters. A cursor never submits Worker input.
+Your `bot_delegate` prompt is passed unchanged. Send the intended assignment
+without adding host lifecycle notices or instructions about closed questions.

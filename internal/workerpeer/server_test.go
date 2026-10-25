@@ -192,7 +192,7 @@ func peerFixture(t *testing.T) (*Server, *httptest.Server, map[string]*fixtureOw
 func pairFixture(t *testing.T, s *Server, h *httptest.Server, source string) Connection {
 	t.Helper()
 	proof := rand.Text() + rand.Text()
-	id := rand.Text()
+	id := NewPairingID()
 	r, err := RequestPairing(t.Context(), h.URL, id, source, "Fixture", proof, s.Status().Peer)
 	if err != nil || r.Status != "pending" {
 		t.Fatal(r, err)
@@ -281,7 +281,7 @@ func TestPairingCannotClaimExistingSourceAndRevocationIsExplicit(t *testing.T) {
 	if _, err := Call(t.Context(), a, Request{Action: "info"}); err == nil {
 		t.Fatal("revoked grant still active")
 	}
-	id := rand.Text()
+	id := NewPairingID()
 	r, err := RequestPairing(t.Context(), h.URL, id, "source-a", "Fixture", a.Token, s.Status().Peer)
 	if err != nil || r.Status != "pending" {
 		t.Fatal(r, err)

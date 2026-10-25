@@ -35,3 +35,9 @@ pages, lossless Unicode/choices, sent/unknown retention, changed-cursor rejectio
 save/load cleanup, repeated native polling, short-ID reuse and historical cards.
 The running installed Bot needs an upgrade/restart through the normal coordinated
 flow to receive this fix. Building this PR does not patch a running instance.
+
+Terminal display history is limited to 128 recycled generations for seven days;
+older entries keep compact binding/outcome/receipt tombstones. Cached IM cards
+retain their original display text and receive only lifecycle updates from a
+compacted tombstone. Unknown and dispatching originals are not compacted.
+Question closure never sends model input. See [the complete tool audit](bot-tool-lifecycle.md).

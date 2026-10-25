@@ -110,7 +110,10 @@ func Open(root string, factory Factory) (*Server, error) {
 	}
 	return s, nil
 }
-func (s *Server) save() error { return localstate.Write(filepath.Join(s.root, "peers.json"), s.state) }
+func (s *Server) save() error {
+	s.prunePairingRequests(time.Now().Unix())
+	return localstate.Write(filepath.Join(s.root, "peers.json"), s.state)
+}
 
 // ConfigureReadiness inspects the configured local Worker at approval. It
 // never creates a separate empty foreign execution owner.
