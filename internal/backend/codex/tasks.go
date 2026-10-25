@@ -489,7 +489,7 @@ func (s *Session) taskRejected(t *taskRecord, err error) (api.Task, error) {
 		t.Requests[t.StartRequest] = r
 	}
 	_ = s.save()
-	return t.View, err
+	return t.View, &api.WorkMessageRejection{Cause: err}
 }
 func definiteTaskRejection(err error) bool {
 	var native *NativeError

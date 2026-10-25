@@ -134,6 +134,9 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 		var rejected *api.WorkMessageRejection
 		if task.Outcome == "rejected" && errors.As(err, &rejected) {
 			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
+			if taskID == "" {
+				message = "Worker creation was definitively rejected; no Worker input was accepted. Check the selected workspace and native limits. For workspace errors, use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+			}
 		}
 		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
 			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
