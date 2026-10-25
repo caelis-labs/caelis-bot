@@ -261,8 +261,12 @@ is open; a preview is not a substitute for native conversation history.
 ## Work on a connected environment
 
 Use `bot_tasks` environments for the stable key, name and connection status.
-Settings lists both paired Bots and saved SSH helper connections. Their original
-adapters and capabilities remain authoritative; a shared list does not upgrade
+Settings lists both paired Bots and saved SSH helper connections.
+To pair Bots, direct the user to Add machine → IP / Bot on each machine. The
+target generates a six-digit one-time code; the initiator enters its address and
+optional port, or pastes the copied information. The reverse direction needs a
+separate code exchange. Use system SSH Host aliases through the SSH option.
+Their original adapters and capabilities remain authoritative; a shared list does not upgrade
 a legacy helper or authorize another machine. Never set up SSH, copy credentials
 or move an existing task just to repair a connection.
 Require a connected target and the user's direction before selecting a remote

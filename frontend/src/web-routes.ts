@@ -12,6 +12,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
  "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
  "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},
+ "backend.BeginWorkerPairing":{"path":"/api/v1/machines/begin-worker-pairing","read":false},
  "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
  "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},

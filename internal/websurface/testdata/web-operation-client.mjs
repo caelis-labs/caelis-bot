@@ -18,6 +18,11 @@ globalThis.document={addEventListener(){},removeEventListener(){}};
 globalThis.sessionStorage={getItem:key=>saved.get(key)??null,setItem:(key,value)=>saved.set(key,value)};
 const client=createWebTransport({csrf:configuration.csrf,version:'FIXTURE',capabilities:{reason:''}});
 try{
+ await assert.rejects(client.transport('backend','BeginWorkerPairing',[]),error=>error.code==='worker_not_ready');
+ const code=await client.transport('backend','BeginWorkerPairing',[]);
+ assert.equal(code.code,'123456','repairing local readiness permits a fresh code generation');
+ assert.equal(requests.filter(r=>r.path==='/api/v1/machines/begin-worker-pairing').length,2);
+ assert(!saved.get('caelisbot.pending-operations')?.includes('begin-worker-pairing'),'local replaceable code never poisons remote operation recovery');
  const base={id:'',name:'Fixture B',address:'http://127.0.0.1:12345',code:'wrong-fixture'};
  await assert.rejects(client.transport('backend','ConnectBot',[base]),error=>{
   assert.equal(error.code,'operation_rejected');assert.equal(error.detail,'pairing_code_invalid');assert.match(error.message,/pairing_code_invalid/);return true;

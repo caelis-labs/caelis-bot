@@ -619,6 +619,7 @@ export interface WorkerPeerSource {
   pairedAt: number;
 }
 export interface WorkerSharing {
+  addresses?: Array<string>;
   enabled: boolean;
   address: string;
   listen: string;

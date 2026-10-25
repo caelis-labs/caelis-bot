@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -201,7 +202,7 @@ func (a *Application) startWorkerPeer() error {
 	}
 	a.peer.mu.Lock()
 	defer a.peer.mu.Unlock()
-	if a.peer.mounted || a.peer.http != nil {
+	if a.peer.mounted && !a.peer.configuration.Dedicated || a.peer.http != nil {
 		return nil
 	}
 	if a.peer.configurationErr != nil {
@@ -223,9 +224,13 @@ func (a *Application) WorkerSharing() api.WorkerSharing {
 	if listen == "" {
 		listen = a.peer.configuration.Listen
 	}
-	listening, managed := a.peer.http != nil || a.peer.mounted, a.peer.mounted
+	listening, managed := a.peer.http != nil || a.peer.mounted, a.peer.mounted && a.peer.http == nil
+	addresses := peerNetworkAddresses(listen)
 	a.peer.mu.Unlock()
-	return api.WorkerSharing{Enabled: v.Enabled, Address: address, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources}
+	if address != "" && !slices.Contains(addresses, address) {
+		addresses = append([]string{address}, addresses...)
+	}
+	return api.WorkerSharing{Enabled: v.Enabled, ExpiresAt: v.ExpiresAt, Address: address, Addresses: addresses, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources}
 }
 func (a *Application) SetWorkerSharing(enabled bool) (api.WorkerSharing, error) {
 	if err := a.peer.server.Enable(enabled); err != nil {

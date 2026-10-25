@@ -82,6 +82,7 @@ type WorkerPeerSource struct {
 	PairedAt int64  `json:"pairedAt"`
 }
 type WorkerSharing struct {
+	Addresses []string           `json:"addresses,omitempty"`
 	Enabled   bool               `json:"enabled"`
 	Address   string             `json:"address"`
 	Listen    string             `json:"listen"`
@@ -91,6 +92,12 @@ type WorkerSharing struct {
 	Code      string             `json:"code,omitempty"`
 	ExpiresAt int64              `json:"expiresAt,omitempty"`
 	Sources   []WorkerPeerSource `json:"sources"`
+}
+
+// A user starts one short-lived code exchange from Add machine. This prepares
+// only the authenticated Worker listener, never the browser or resident surface.
+type WorkerPairingStarter interface {
+	BeginWorkerPairing(context.Context) (WorkerSharing, error)
 }
 type WorkerSharingInput struct {
 	Listen  string `json:"listen"`

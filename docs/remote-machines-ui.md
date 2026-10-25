@@ -7,22 +7,40 @@ the shared routing lock across SSH/network calls.
 
 Add has two methods:
 
-- **Bot connection**: paste connection information, or enter address + one-time
-  code. The authenticated target's machine name is presentation metadata only;
+- **IP / Bot**: paste connection information, or enter address + optional port
+  (bare hosts default to 9317) + the target's six-digit one-time code. The
+  authenticated target's machine name is presentation metadata only;
   an explicit local rename wins. It never changes the original pairing intent,
   identity, proof or task owner.
 - **SSH**: enter a system Host alias. Literal alias discovery is suggestions;
   OpenSSH interprets Include, Match, ProxyJump/ProxyCommand, identity/trust files.
   New alias connections use system trust with strict host verification. Existing
   app-pinned profiles keep their pins and bindings. Direct address setup remains
-  under a secondary action. The existing Linux helper path and its original
+  in the top method selector. Host aliases are visible selectable rows and remain
+  editable, including aliases absent from the suggestion inventory. The existing Linux helper path and its original
   capabilities remain unchanged; the shared list does not upgrade the helper.
 
-**Connect to this machine** is a secondary tab for allowing connections, copying
-connection information and revoking a named source. Listener/published-address
-configuration stays in details. Loopback information explicitly says it needs
-external forwarding or a reachable configured listener; Tailscale only supplies
-the network. A→B and B→A need separate handshakes/proofs; revocation is directional
+There is no local-sharing tab or global switch. On the target, open the same
+**Add machine → IP / Bot** panel and generate/copy its connection information.
+Generating a code prepares only the independently authenticated Worker listener;
+it never widens the browser/resident listener or grants execution. For a fresh
+loopback-only host this explicit action binds a peer-only listener on 9317,
+falling back to an OS-selected port only on address-in-use. The actual endpoint
+is persisted and included in the copied information. Local network-interface
+addresses can be selected; this is publication, not peer discovery or trust.
+Loopback remains an explicit option for externally prepared forwarding.
+
+The code uses cryptographic randomness, expires after five minutes, is consumed
+once and is invalidated after five wrong guesses. Generating a new code replaces
+the unused code. It does not clear an uncertain remote pairing, change its proof,
+or replay it. The Web action uses the existing authenticated/CSRF-protected Local
+boundary for this replaceable local code, separate from remote pairing receipts.
+A not-ready Worker can be corrected and retried without a permanent Web pending
+operation. Previously disabled grants remain revoked until explicitly reauthorized
+with their original proof; generating a code does not revive them.
+
+Named-source revocation is in the IP panel's authorization details. Tailscale only
+supplies the network. A→B and B→A need separate handshakes/proofs; revocation is directional
 and is not Stop. Existing unknown pairing recovery remains on its original
 operation and profile, with explicit fresh authorization when required.
 

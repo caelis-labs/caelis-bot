@@ -219,9 +219,12 @@ continuations are not revived. Q22 isolated account/model input is still missing
 dependent real-account acceptance stays blocked without a repeated question.
 
 Settings opens a compact remote-machine list, with Bot and SSH connections in
-one inventory. Add offers Bot connection information (or address and one-time
-code) and a system SSH Host alias. The secondary **Connect to this machine** tab
-owns inbound sharing, connection information and source revocation. A→B and B→A
+one inventory, with the heading and Add action aligned. Add offers IP/Bot
+information (or address, optional port and six-digit dynamic code) and visible
+system SSH Host aliases. There is no local-sharing tab or switch: the same IP
+panel generates/copies a target's one-time connection information and contains
+source revocation in details. Only that explicit action prepares a peer-only
+listener; it never opens the browser/resident surface. A→B and B→A
 require independent handshakes and proofs; revoking one leaves the other intact.
 Network reachability never implies authorization or native Worker readiness.
 Only fresh, authorized, native-ready observations display online.

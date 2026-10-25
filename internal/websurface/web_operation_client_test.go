@@ -36,7 +36,15 @@ func (f *rejectedConnectionFixture) ConnectBot(_ context.Context, in api.BotConn
 
 type rejectedEndpointFixture struct {
 	api.WorkerSharingController
-	calls atomic.Int32
+	calls     atomic.Int32
+	pairCalls atomic.Int32
+}
+
+func (f *rejectedEndpointFixture) BeginWorkerPairing(context.Context) (api.WorkerSharing, error) {
+	if f.pairCalls.Add(1) == 1 {
+		return api.WorkerSharing{}, &api.ActionRejectedError{Code: "worker_not_ready"}
+	}
+	return api.WorkerSharing{Enabled: true, Address: "http://127.0.0.1:29317", Code: "123456", ExpiresAt: 2_000_000_000}, nil
 }
 
 func (f *rejectedEndpointFixture) SetWorkerEndpoint(in api.WorkerSharingInput) (api.WorkerSharing, error) {
@@ -106,7 +114,7 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 		t.Fatalf("actual Web transport/handler chain failed: %v\n%s", err, output)
 	}
 	t.Log(strings.TrimSpace(string(output)))
-	if connections.calls.Load() != 4 || endpoint.calls.Load() != 2 || !dropped.Load() {
+	if connections.calls.Load() != 4 || endpoint.calls.Load() != 2 || endpoint.pairCalls.Load() != 2 || !dropped.Load() {
 		t.Fatal("client replayed known/unknown actions or skipped fixture effects", connections.calls.Load(), endpoint.calls.Load())
 	}
 	journal, err := os.ReadFile(filepath.Join(s.config.Directory, "operations.json"))

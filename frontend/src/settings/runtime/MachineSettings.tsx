@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n';
 import type { Machine, MachineInput, RuntimeMutationResult } from '../../backend/contract';
 import type { RuntimeSettingsClient } from './types';
 import { TeamSettings } from './TeamSettings';
-import {BotConnectionDialog,BotSharing} from './BotConnections';
+import {BotConnectionDialog} from './BotConnections';
 import {SettingsDialog} from './SettingsDialog';
 import {remoteMachineStatus} from './machine-status';
 import {DotsThreeIcon} from '@phosphor-icons/react/dist/csr/DotsThree';
@@ -19,7 +19,7 @@ const blank = (): MachineInput => ({id:'machine-'+Array.from(crypto.getRandomVal
 export function MachineSettings({standalone=false, call = backend, openTerminal = (id: string) => desktop('OpenMachineTerminal', id), active = true }: {standalone?:boolean;call?:Invoke;openTerminal?:(id:string)=>Promise<void>;active?:boolean}) {
  const {t} = useI18n();
  const [machines,setMachines]=useState<Machine[]>([]),[draft,setDraft]=useState<MachineInput|null>(null),[selected,setSelected]=useState<Machine|null>(null);
- const [tab,setTab]=useState<'remote'|'sharing'>('remote'),[adding,setAdding]=useState(false),[botEditor,setBotEditor]=useState<Machine|true|null>(null),[loaded,setLoaded]=useState(false),[listError,setListError]=useState(false);
+ const [adding,setAdding]=useState(false),[botEditor,setBotEditor]=useState<Machine|true|null>(null),[loaded,setLoaded]=useState(false),[listError,setListError]=useState(false);
  const [now,setNow]=useState(()=>Date.now());
  const generation=useRef(0),reading=useRef(false);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[step,setStep]=useState<'connection'|'work'>('connection');
@@ -64,16 +64,12 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
  const issue=(value:string)=>{if(value==='ssh_authentication_or_connection'&&draft?.sshConfig)return t('settings.machineConfigConnectFailed');const key=`settings.machineError_${value}`;const translated=t(key as Parameters<typeof t>[0]);return translated===key?t('settings.machineActionFailed'):translated;};
  const terminalLabel=selected?.setup?.state==='missing'?t('settings.machineOpenTerminal'):t('settings.machineOpenTUI');
  return <section className={`machine-section ${standalone?'machine-page':''}`}>
-  {standalone&&<h1>{t('settings.machines')}</h1>}
-  <div className="remote-tabs" role="tablist" aria-label={t('settings.remoteDirection')}><button role="tab" aria-selected={tab==='remote'} onClick={()=>setTab('remote')}>{t('settings.remoteMachinesTab')}</button><button role="tab" aria-selected={tab==='sharing'} onClick={()=>setTab('sharing')}>{t('settings.remoteSharingTab')}</button></div>
-  {tab==='sharing'?<BotSharing active={active} call={call}/>:<>
-   <div className="remote-toolbar"><span>{t('settings.remoteConnected')}</span><button className="remote-add" onClick={()=>setAdding(true)}>{t('settings.remoteAdd')}</button></div>
+   <div className="remote-toolbar">{standalone?<h1>{t('settings.machines')}</h1>:<h2>{t('settings.machines')}</h2>}<button className="remote-add" onClick={()=>setAdding(true)}>{t('settings.remoteAdd')}</button></div>
    {!loaded?<p className="machine-empty" role="status">{t('settings.remoteLoading')}</p>:machines.filter(v=>!v.archived).length===0?!listError&&<p className="remote-empty">{t('settings.remoteEmpty')}</p>:<ul className="machine-list remote-machine-list">{machines.filter(v=>!v.archived).map(v=>{
     const state=remoteMachineStatus(v,now);const edit=()=>v.connectionType==='bot'?setBotEditor(v):begin(v);
     return <li key={v.id}><button className="machine-row" onClick={edit}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span><strong>{v.name}</strong><small>{v.connectionType==='bot'?'Bot':'SSH'} · {v.address}</small></span><span className={`machine-status ${state==='online'?'ready':''}`}>{t(state==='online'?'settings.remoteOnline':state==='authorization'?'settings.remoteNeedsAuthorization':state==='setup'?'settings.remoteNeedsSetup':state==='unchecked'?'settings.remoteUnchecked':'settings.remoteOffline')}</span></button><button className="machine-more" aria-haspopup="dialog" aria-label={t('settings.remoteManage',{name:v.name})} onClick={edit}><DotsThreeIcon size={20}/></button></li>
    })}</ul>}
    {listError&&<p role="status" className="settings-note">{t('settings.remoteListUnavailable')} <button className="text-action" onClick={()=>void reload().catch(()=>{})}>{t('settings.machineRecheck')}</button></p>}
-  </>}
   {adding&&<SettingsDialog title={t('settings.remoteAdd')} onClose={()=>setAdding(false)} className="remote-add-dialog"><div className="remote-methods"><button onClick={()=>{setAdding(false);setBotEditor(true);}}><DesktopTowerIcon size={22}/><span><strong>{t('settings.remoteBotMethod')}</strong><small>{t('settings.remoteBotMethodNote')}</small></span><SettingsChevron/></button><button onClick={()=>{setAdding(false);begin();}}><span className="remote-ssh-icon" aria-hidden="true">&gt;_</span><span><strong>SSH</strong><small>{t('settings.remoteSSHMethodNote')}</small></span><SettingsChevron/></button></div></SettingsDialog>}
   {botEditor&&<BotConnectionDialog machines={machines} initial={botEditor===true?undefined:botEditor} call={call} onClose={()=>setBotEditor(null)} onSaved={()=>{setBotEditor(null);void reload().catch(()=>{});}} onChanged={reload}/>}
   {draft&&<div className="machine-editor-layer" onPointerDown={e=>{if(e.target===e.currentTarget)close();}}><div ref={editor} className="machine-editor" role="dialog" aria-modal="true" aria-labelledby="machine-editor-title" tabIndex={-1} onKeyDown={e=>{
@@ -87,9 +83,10 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
    {step==='connection'?<form id="machine-connection-form" onSubmit={e=>{e.preventDefault();connect();}}>
     {selected?.issue&&selected.issue!=='confirm_fingerprint'&&<p role="alert" className="inline-error">{issue(selected.issue)}</p>}
 
+    <div className="machine-source" role="group" aria-label={t('settings.machineConnectionDetails')}><button type="button" aria-pressed={!!draft.sshConfig} disabled={busy} onClick={()=>chooseSource(true)}>{t('settings.machineExistingSSH')}</button><button type="button" aria-pressed={!draft.sshConfig} disabled={busy} onClick={()=>chooseSource(false)}>{t('settings.machineUseAddress')}</button></div>
     {draft.sshConfig?<>
      <label>{t('settings.machineChooseSSH')}<input autoFocus required autoComplete="off" list="remote-ssh-hosts" placeholder={hostsLoading?t('settings.machineLoadingSSH'):'fedora'} value={draft.address} disabled={busy} onChange={e=>patch({address:e.target.value})}/></label>
-     {hostsError&&<p className="settings-note">{t('settings.machineSSHInventoryOptional')}</p>}
+     {hostsLoading?<p className="settings-note" role="status">{t('settings.machineLoadingSSH')}</p>:hosts.length?<div className="machine-host-list" role="group" aria-label={t('settings.machineExistingSSH')}>{hosts.map(host=><button key={host} type="button" disabled={busy} aria-pressed={draft.address===host} onClick={()=>patch({address:host})}><span className="remote-ssh-icon" aria-hidden="true">&gt;_</span><span>{host}</span><span className="machine-host-check" aria-hidden="true">{draft.address===host?'✓':''}</span></button>)}</div>:<p className="settings-note">{t(hostsError?'settings.machineSSHInventoryOptional':'settings.machineNoSSH')}</p>}
      <datalist id="remote-ssh-hosts">{hosts.map(host=><option key={host} value={host}/>)}</datalist>
      <p className="settings-note machine-config-note">{t('settings.machineReuseSSHNote')}</p>
     </>:<>
@@ -100,7 +97,6 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
     {draft.authentication!=='agent'&&<><label>{t(draft.authentication==='password'?'settings.machinePassword':'settings.machinePassphrase')}<input type="password" autoComplete="new-password" value={draft.secret} disabled={busy} onChange={e=>patch({secret:e.target.value})}/></label><label className="machine-remember"><input type="checkbox" checked={draft.remember} disabled={busy} onChange={e=>patch({remember:e.target.checked})}/>{t('settings.machineRemember')}</label></>}
     </>}
     <details className="machine-extra"><summary><SettingsChevron/>{t('settings.machineOptional')}</summary><label>{t('settings.machineName')}<input value={draft.name} maxLength={80} disabled={busy} onChange={e=>patch({name:e.target.value})}/></label>{draft.sshConfig&&<><label>{t('settings.machineConfigSecret')}<input type="password" autoComplete="new-password" value={draft.secret} disabled={busy} onChange={e=>patch({secret:e.target.value})}/></label><label className="machine-remember"><input type="checkbox" checked={draft.remember} disabled={busy} onChange={e=>patch({remember:e.target.checked})}/>{t('settings.machineRemember')}</label></>}</details>
-    <button type="button" className="text-action machine-source-toggle" disabled={busy} onClick={()=>chooseSource(!draft.sshConfig)}>{t(draft.sshConfig?'settings.machineUseAddress':'settings.machineUseAlias')}</button>
     {selected?.state==='trust'&&<div className="machine-fingerprint" role="status"><strong>{t('settings.machineTrustTitle')}</strong><p>{t('settings.machineTrustNote')}</p><code>{selected.fingerprint}</code></div>}
 
    </form>:<>

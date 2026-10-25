@@ -15,12 +15,13 @@ export async function faultRelay(address){
   }
   let selected,prefix='',upstream;
   upstream=http.request({hostname:target.hostname,port:target.port,path:incoming.url,method:incoming.method,headers:{...incoming.headers,host:target.host}},response=>{
+   if(incoming.url==='/worker/v1/pair')effects.push({kind:'pair-http-status',status:response.statusCode});
    if(selected?.kind==='drop'){
     response.resume();response.once('end',()=>{selected.responseLost=true;outgoing.destroy();});return;
    }
    outgoing.writeHead(response.statusCode,response.headers);response.pipe(outgoing);
   });
-  upstream.on('error',()=>outgoing.destroy());
+  upstream.on('error',error=>{effects.push({kind:'relay-upstream-error',code:error.code});outgoing.destroy()});
   incoming.on('data',chunk=>{
    if(!prefix){prefix=chunk.subarray(0,8192).toString();const action=prefix.match(/"action":"([^"]+)"/)?.[1];
     if(incoming.url==='/worker/v1/call'&&armed?.action===action){

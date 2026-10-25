@@ -41,6 +41,15 @@ func (s *Service) CreateWorkerPairing() (api.WorkerSharing, error) {
 	defer cancel()
 	return s.workerSharing.CreateWorkerPairing(ctx)
 }
+func (s *Service) BeginWorkerPairing() (api.WorkerSharing, error) {
+	p, ok := s.workerSharing.(api.WorkerPairingStarter)
+	if !ok {
+		return api.WorkerSharing{}, errors.New("worker_sharing_unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return p.BeginWorkerPairing(ctx)
+}
 func (s *Service) RevokeWorkerPeer(peer string) error {
 	if s.workerSharing == nil {
 		return errors.New("worker_sharing_unavailable")

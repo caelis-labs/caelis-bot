@@ -94,18 +94,17 @@ async function consent(c,choice){
 try{
  const provider=spawn(process.env.WORKER_PEER_PYTHON||'/usr/bin/python3',['-u',join(repo,'internal/workerurl/testdata/native_url_mcp.py')],{stdio:['ignore','pipe','pipe']});children.push(provider);let first='',err='';provider.stdout.on('data',v=>first+=v);provider.stderr.on('data',v=>err+=v);
  mock=await until('temporary MCP/model listener',()=>{assert.equal(provider.exitCode,null,err);try{return JSON.parse(first.split('\n')[0])}catch{}});
- const A=await launch('A'),B=await launch('B');relay=await faultRelay(B.url);
+ const A=await launch('A'),B=await launch('B');
  browser=await chromium.launch({executablePath:process.env.WORKER_PEER_CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
  const ac=await browser.newContext({viewport:{width:1280,height:1000}}),bc=await browser.newContext({viewport:{width:1280,height:1000}});a=await ac.newPage();b=await bc.newPage();
  const pageErrors=[];for(const p of [a,b])p.on('pageerror',v=>pageErrors.push(v.message));
  await a.goto(A.url);await b.goto(B.url);
  for(const page of [a,b])await until('actual Codex resident ready',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');return r.body.value.connection==='ready'});
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');
- await b.getByRole('tab',{name:'连接本机',exact:true}).click();
- const sharing=b.getByRole('switch',{name:'允许连接'});await sharing.click();await until('sharing enabled',()=>sharing.isChecked());
+ await b.getByRole('button',{name:'添加机器',exact:true}).click();await b.getByRole('button',{name:/^IP \/ Bot/}).click();
  await writeFile(join(artifacts,'B-worker-readiness.json'),JSON.stringify(await host(b,'/api/v1/connections/local-worker-selection'),null,2));
- await b.getByRole('button',{name:'生成配对信息',exact:true}).click();await until('pairing information or explicit refusal',async()=>{if(await b.getByRole('alert').isVisible())throw new Error(await b.getByRole('alert').textContent());return await b.locator('.remote-pairing-info code').isVisible()});const code=await b.locator('.remote-pairing-info code').textContent();assert.ok(code);
- await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^Bot 连接/}).click();await a.getByLabel('连接信息或地址',{exact:true}).fill(relay.url);await a.getByLabel('配对码',{exact:true}).fill(code);await a.getByLabel('机器名称',{exact:true}).fill('B real Codex');await a.getByRole('button',{name:'连接',exact:true}).click();await a.locator('.machine-row').filter({hasText:'B real Codex'}).waitFor();
+ await b.getByRole('button',{name:'生成 6 位授权码',exact:true}).click();await until('pairing information or explicit refusal',async()=>{if(await b.getByRole('alert').isVisible())throw new Error(await b.getByRole('alert').textContent());return await b.locator('.remote-pairing-info code').isVisible()});const code=await b.locator('.remote-pairing-info code').textContent();assert.match(code,/^[0-9]{6}$/);relay=await faultRelay('http://127.0.0.1:'+new URL(await b.getByLabel('Bot 地址',{exact:true}).inputValue()).port);
+ await a.getByRole('button',{name:'添加机器',exact:true}).click();await a.getByRole('button',{name:/^IP \/ Bot/}).click();await a.getByLabel('连接信息或地址',{exact:true}).fill(relay.url);await a.getByLabel('配对码',{exact:true}).fill(code);await a.locator('.remote-name summary').click();await a.getByLabel('机器名称',{exact:true}).fill('B real Codex');await a.getByRole('button',{name:'连接',exact:true}).click();await a.locator('.machine-row').filter({hasText:'B real Codex'}).waitFor();
  const profiles=(await host(a,'/api/v1/machines/machines')).body.value;const profile=profiles.find(v=>v.name==='B real Codex');assert.ok(profile);await control('/environment',{id:profile.id});
  evidence.steps.push('Actual A/B Apps and real Codex ready; paired via real React; model output calls actual bot_delegate');
  const success=await create(A,B,'SUCCESS');const dialog=await openPage(success);await dialog.getByLabel('Mock confirmation').fill('synthetic-confirmation');await dialog.getByRole('button',{name:'Complete original challenge',exact:true}).click();await dialog.getByText('网站已接收此提交。请处理原请求以继续。',{exact:true}).waitFor();

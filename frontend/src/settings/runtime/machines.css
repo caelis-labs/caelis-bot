@@ -60,13 +60,11 @@
 .machine-section.machine-page{margin:0;border:0;padding:0;max-width:760px}
 .machine-page h1{font-size:24px}
 
-/* Remote machines: one compact inventory, with inbound permissions secondary. */
-.remote-tabs{display:flex;gap:4px;margin:0 0 30px;align-items:center}
-.settings-window .remote-tabs button{border:0;background:transparent;color:var(--muted);padding:8px 12px;min-height:34px;border-radius:8px;font-size:13px}
-.settings-window .remote-tabs button[aria-selected=true]{background:var(--wash);color:var(--ink);font-weight:500}
-.remote-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;font-size:13px;font-weight:500}
+/* A single inventory: heading and action share one baseline. */
+.remote-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px}
+.machine-page .remote-toolbar h1,.remote-toolbar h2{margin:0;line-height:34px}
 .settings-window .remote-add{padding:8px 13px;min-height:34px;border-radius:8px}
-.remote-empty{margin:0;padding:32px 0;color:var(--muted);font-size:13px}
+.remote-empty{margin:0;padding:8px 0 20px;color:var(--muted);font-size:13px;line-height:1.6}
 .remote-machine-list{margin:0}
 .remote-machine-list>li{display:flex;align-items:center;border-bottom:1px solid var(--line);gap:6px}
 .settings-window .remote-machine-list .machine-row{border:0;padding:15px 0;flex:1;min-width:0;min-height:70px}
@@ -102,5 +100,24 @@
 .remote-endpoint-details{margin-top:24px;font-size:12px;color:var(--muted)}
 .remote-endpoint-details summary{cursor:pointer;padding:10px 0}
 .remote-endpoint-details .machine-connection-values{margin:8px 0 12px}
-@media(prefers-reduced-motion:no-preference){.remote-tabs button,.machine-more,.remote-methods>button{transition:background .14s ease,color .14s ease}}
-.settings-window .machine-source-toggle{display:block;margin:14px 0 0;padding:4px 0;font-size:12px;color:var(--muted)}
+.machine-source{display:flex;background:var(--wash);border-radius:8px;gap:4px}
+.settings-window .machine-source button{border:0;background:transparent;color:var(--muted)}
+.settings-window .machine-source button[aria-pressed=true]{background:var(--settings-bg,var(--bg));color:var(--ink);box-shadow:0 1px 3px #0001}
+.settings-window .machine-host-list button[aria-pressed=true]{background:var(--wash);color:var(--ink)}
+.remote-address-fields{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:12px}
+.settings-window .runtime-dialog.remote-bot-dialog{width:480px}
+.remote-bot-dialog .runtime-dialog-description{margin:8px 0 8px}
+.settings-window .runtime-dialog.remote-bot-dialog label{margin-top:12px}
+.settings-window .runtime-dialog.remote-bot-dialog .setup-end{margin-top:16px}
+.remote-name{margin:0 0 18px;font-size:12px;color:var(--muted)}
+.remote-name summary{cursor:pointer;margin-bottom:12px}
+.remote-pairing-step{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.remote-pairing-step>.settings-note{margin:0 0 12px;line-height:1.6;font-size:12px}
+.remote-pairing-step .remote-pairing-info{margin:12px 0 0;padding:12px}
+.remote-pairing-info label{margin:0 0 10px}
+.remote-code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px}
+.remote-code-row code{font-size:22px;letter-spacing:.15em;font-variant-numeric:tabular-nums}
+.remote-pairing-info>small{font-size:11px;color:var(--muted)}
+.remote-authorizations{margin-top:16px;font-size:12px}
+.remote-authorizations summary{cursor:pointer;color:var(--muted)}
+@media(prefers-reduced-motion:no-preference){.machine-more,.remote-methods>button{transition:background .14s ease,color .14s ease}}

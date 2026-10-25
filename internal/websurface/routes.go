@@ -17,6 +17,9 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},
 		{Path: "/api/v1/machines/set-worker-sharing", Function: b.SetWorkerSharing, Remote: true},
 		{Path: "/api/v1/machines/create-worker-pairing", Function: b.CreateWorkerPairing, Remote: true},
+		// Generating a replaceable local code never grants access. It has no
+		// remote execution receipt; authenticated pair still owns that effect.
+		{Path: "/api/v1/machines/begin-worker-pairing", Function: b.BeginWorkerPairing, Local: true},
 		{Path: "/api/v1/machines/revoke-worker-peer", Function: b.RevokeWorkerPeer, Remote: true},
 		{Path: "/api/v1/diagnostics/read", Function: b.DiagnosticReport, Read: true},
 		{Path: "/api/v1/conversation/snapshot", Function: b.Snapshot, Read: true, Composer: false},

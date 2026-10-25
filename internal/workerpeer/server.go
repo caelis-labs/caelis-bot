@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -61,15 +62,16 @@ type registry struct {
 	Preparations map[string]map[string]bool   `json:"preparations,omitempty"` // no native start attempted
 }
 type Server struct {
-	stageMu sync.RWMutex
-	mu      sync.Mutex
-	root    string
-	state   registry
-	factory Factory
-	ready   func(context.Context) error
-	owners  map[string]Owner
-	code    string
-	expires time.Time
+	stageMu      sync.RWMutex
+	mu           sync.Mutex
+	root         string
+	state        registry
+	factory      Factory
+	ready        func(context.Context) error
+	owners       map[string]Owner
+	code         string
+	codeAttempts int
+	expires      time.Time
 }
 type Sharing struct {
 	Enabled   bool                   `json:"enabled"`
@@ -123,10 +125,55 @@ func (s *Server) checkReadiness(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
+
+// BeginPairing replaces the removed global sharing switch with an explicit code
+// exchange. Reopening a formerly disabled environment must not revive grants
+// that were suspended by that switch. Keep their proofs/bindings for recovery.
+func (s *Server) PairingReadiness(ctx context.Context) error {
+	s.mu.Lock()
+	ready := s.ready
+	s.mu.Unlock()
+	if ready != nil {
+		if err := ready(ctx); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+func (s *Server) BeginPairing(ctx context.Context) (Sharing, error) {
+	if err := s.PairingReadiness(ctx); err != nil {
+		return Sharing{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.Enabled {
+		old := s.state.Grants
+		s.state.Grants = make(map[string]grant, len(old))
+		for id, g := range old {
+			g.Revoked = true
+			s.state.Grants[id] = g
+		}
+		s.state.Enabled = true
+		if err := s.save(); err != nil {
+			s.state.Enabled, s.state.Grants = false, old
+			return Sharing{}, err
+		}
+	}
+	code, err := pairingCode()
+	if err != nil {
+		return Sharing{}, err
+	}
+	s.code, s.codeAttempts = code, 0
+	s.expires = time.Now().Add(5 * time.Minute)
+	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
+}
 func (s *Server) Status() Sharing {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v := Sharing{Enabled: s.state.Enabled, Peer: s.state.Identity, Sources: []api.WorkerPeerSource{}}
+	if s.code != "" && time.Now().Before(s.expires) {
+		v.ExpiresAt = s.expires.Unix()
+	}
 	for peer, g := range s.state.Grants {
 		if g.Hash != "" && !g.Revoked {
 			v.Sources = append(v.Sources, api.WorkerPeerSource{ID: peer, Name: g.Name, PairedAt: g.PairedAt})
@@ -156,9 +203,21 @@ func (s *Server) Pairing(ctx context.Context) (Sharing, error) {
 	if !s.state.Enabled {
 		return Sharing{}, errors.New("worker_sharing_disabled")
 	}
-	s.code = rand.Text()
+	code, err := pairingCode()
+	if err != nil {
+		return Sharing{}, err
+	}
+	s.code, s.codeAttempts = code, 0
 	s.expires = time.Now().Add(5 * time.Minute)
 	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
+}
+
+func pairingCode() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 // Explicit recovery prepares new work only. The adapter alone can verify that
@@ -365,6 +424,14 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.code == "" || tokenHash(in.Code) != tokenHash(s.code) {
+		// A six-digit code is short-lived, single-use and has a fixed guess
+		// budget. Exhaustion affects this exchange only, never local health.
+		if s.code != "" {
+			s.codeAttempts++
+			if s.codeAttempts >= 5 {
+				s.code = ""
+			}
+		}
 		http.Error(w, "pairing_code_invalid", 403)
 		return
 	}

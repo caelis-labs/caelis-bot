@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
@@ -128,6 +129,12 @@ func (s *Server) register(a action) {
 					switch e.Error() {
 					case "worker_url_page_unsupported", "worker_url_page_unavailable":
 						code = e.Error()
+					}
+				}
+				if a.Path == "/api/v1/machines/begin-worker-pairing" {
+					code = "worker_not_ready"
+					if strings.HasPrefix(e.Error(), "worker_listener_") {
+						code = "worker_listener_unavailable"
 					}
 				}
 				fail(w, 503, code)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,8 +20,9 @@ import (
 )
 
 type peerListenerConfig struct {
-	Listen  string `json:"listen"`
-	Address string `json:"address,omitempty"`
+	Listen    string `json:"listen"`
+	Address   string `json:"address,omitempty"`
+	Dedicated bool   `json:"dedicated,omitempty"`
 }
 
 func readPeerListener(path string) (peerListenerConfig, error) {
@@ -70,6 +73,10 @@ func (a *Application) replacePeerListenerLocked(c peerListenerConfig) error {
 		return errors.New("worker_listener_unavailable")
 	}
 	c.Listen = ln.Addr().String()
+	if c.Dedicated && c.Address == "" {
+		addresses := peerNetworkAddresses(c.Listen)
+		c.Address = addresses[0]
+	}
 	if err = localstate.Write(filepath.Join(a.root, "WorkerPeers", "listener.json"), c); err != nil {
 		ln.Close()
 		return err
@@ -79,8 +86,13 @@ func (a *Application) replacePeerListenerLocked(c peerListenerConfig) error {
 	a.peer.http, a.peer.listen, a.peer.address = server, c.Listen, "http://"+c.Listen
 	a.peer.configuration, a.peer.configurationErr = c, nil
 	go func() {
-		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) && a.host.ReportError != nil {
-			a.host.ReportError(err)
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.peer.mu.Lock()
+			if a.peer.http == server {
+				a.peer.http = nil
+				a.peer.configurationErr = errors.New("worker_listener_unavailable")
+			}
+			a.peer.mu.Unlock()
 		}
 	}()
 	if old != nil {
@@ -95,7 +107,7 @@ func (a *Application) SetWorkerEndpoint(in api.WorkerSharingInput) (api.WorkerSh
 	}
 	enabled := a.peer.server.Status().Enabled
 	a.peer.mu.Lock()
-	if a.peer.mounted && c.Listen != a.peer.listen {
+	if a.peer.mounted && a.peer.http == nil && c.Listen != a.peer.listen {
 		err = errors.New("worker_listener_managed_headless")
 	} else if !a.peer.mounted && (a.peer.http != nil || enabled) && c.Listen != a.peer.listen {
 		err = a.replacePeerListenerLocked(c)
@@ -107,4 +119,54 @@ func (a *Application) SetWorkerEndpoint(in api.WorkerSharingInput) (api.WorkerSh
 	}
 	a.peer.mu.Unlock()
 	return a.WorkerSharing(), err
+}
+
+// Local interface enumeration is only publication, not discovery or trust.
+// All advertised addresses reach the same independently authenticated listener.
+func peerNetworkAddresses(listen string) []string {
+	host, port, _ := net.SplitHostPort(listen)
+	if ip := net.ParseIP(host); ip != nil && !ip.IsUnspecified() {
+		return []string{"http://" + net.JoinHostPort(host, port)}
+	}
+	addresses := []string{}
+	interfaces, _ := net.InterfaceAddrs()
+	for _, address := range interfaces {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err == nil && ip.To4() != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
+			addresses = append(addresses, "http://"+net.JoinHostPort(ip.String(), port))
+		}
+	}
+	slices.Sort(addresses)
+	addresses = slices.Compact(addresses)
+	// No network interface: loopback still works with an externally prepared
+	// tunnel. The UI explicitly labels it; it is never claimed cross-machine.
+	return append(addresses, "http://127.0.0.1:"+port)
+}
+
+func (a *Application) BeginWorkerPairing(ctx context.Context) (api.WorkerSharing, error) {
+	if err := a.peer.server.PairingReadiness(ctx); err != nil {
+		return a.WorkerSharing(), &api.ActionRejectedError{Code: "worker_not_ready"}
+	}
+	// Reuse a configured reachable listener. A fresh desktop or loopback-only
+	// headless host gets a peer-only listener on an OS-selected port, published
+	// in the copied information. Never widen the resident/browser listener.
+	a.peer.mu.Lock()
+	host, _, _ := net.SplitHostPort(a.peer.listen)
+	ip := net.ParseIP(host)
+	needsListener := a.peer.listen == "" || ip != nil && ip.IsLoopback() || host == "localhost"
+	var err error
+	if needsListener {
+		err = a.replacePeerListenerLocked(peerListenerConfig{Listen: "0.0.0.0:9317", Dedicated: true})
+		if err != nil && err.Error() == "worker_listener_in_use" {
+			err = a.replacePeerListenerLocked(peerListenerConfig{Listen: "0.0.0.0:0", Dedicated: true})
+		}
+	}
+	a.peer.mu.Unlock()
+	if err != nil {
+		return a.WorkerSharing(), err
+	}
+	v, err := a.peer.server.BeginPairing(ctx)
+	out := a.WorkerSharing()
+	out.Code, out.ExpiresAt = v.Code, v.ExpiresAt
+	return out, err
 }

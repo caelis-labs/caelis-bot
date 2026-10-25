@@ -55,7 +55,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'Machines':return structuredClone(remote.map(v=>v.state==='ready'?{...v,checkedAt:Date.now()}:v));
  case 'SSHConfigHosts':return ['fedora','build-host'];
  case 'ConnectBot':{
-  const input=args[0];if(input.code&&input.code!=='fixture-code')throw Error('pairing_code_invalid');
+  const input=args[0];if(input.code&&input.code!=='123456')throw Error('pairing_code_invalid');
   const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',state:'ready',checkedAt:Date.now(),issue:''};const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
  }
  case 'ConnectMachine':{const input=args[0];const v={...input,id:input.id||'machine-fixture-new',connectionType:'ssh',name:input.name||input.address,state:input.address==='missing'?'offline':'ready',issue:input.address==='missing'?'ssh_authentication_or_connection':'',runtime:'codex',available:['codex'],setup:{state:'ready'},work:{},models:[],checkedAt:Date.now()};const i=remote.findIndex(m=>m.id===v.id);if(i<0)remote.push(v);else remote[i]=v;return structuredClone(v);}
@@ -64,6 +64,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'WorkerSharing':return structuredClone(sharing);
  case 'SetWorkerSharing':sharing.enabled=args[0];return structuredClone(sharing);
  case 'CreateWorkerPairing':return {...structuredClone(sharing),code:'fixture-code',expiresAt:Math.floor(Date.now()/1000)+300};
+ case 'BeginWorkerPairing':sharing={...sharing,enabled:true,address:'http://100.64.0.5:9317',addresses:['http://100.64.0.5:9317','http://192.168.1.5:9317'],code:'123456',expiresAt:Math.floor(Date.now()/1000)+300};return structuredClone(sharing);
  case 'SaveWorkerSharing':sharing={...sharing,...args[0]};return structuredClone(sharing);
  case 'RevokeWorkerPeer':sharing.sources=sharing.sources.filter(s=>s.id!==args[0]);return;
  case 'CopyText':window.fixtureCopied=args[0];return;
