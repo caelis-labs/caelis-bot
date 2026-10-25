@@ -117,7 +117,7 @@ func (s *nativeServer) callBot(ctx context.Context, c *botMCP, thread, turn, ste
 		return nil, errors.New("real Bot tool omitted structuredContent")
 	}
 	if failed, _ := result["isError"].(bool); failed || structured["ok"] != true {
-		return nil, fmt.Errorf("real Bot tool %s refused: %v", tool, structured["error"])
+		return structured, fmt.Errorf("real Bot tool %s refused: %v", tool, structured["error"])
 	}
 	return structured, nil
 }

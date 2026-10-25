@@ -168,6 +168,7 @@ try{
  const [chooser]=await Promise.all([a.waitForEvent('filechooser'),a.getByRole('menuitem',{name:'添加文件',exact:true}).click()]);
  await chooser.setFiles(files);
  await a.locator('.attachments').getByText('quarterly-report.csv',{exact:true}).waitFor();
+ if(process.env.WORKER_PEER_FIRST_ADMISSION_LOSS==='1')relay.drop('start');
  await send(a,{action:'delegate',environment:'B synthetic',title:'Synthetic original CSV',scenario:'csv',steps:['question','opaque'],wait:true,expected});
  await until('A original interaction visible',async()=>{
   const option=a.getByRole('button',{name:/^Fixture A/});if(await option.isVisible()){await option.click();return true;}
@@ -185,6 +186,7 @@ try{
  await a.getByText(/Synthetic resident verified task/).first().waitFor({timeout:45000});
  const ledger=JSON.parse(await readFile(join(A.data,'tasks.json'),'utf8'));
  const task=Object.values(ledger.records).find(v=>v.view.title==='Synthetic original CSV');assert.ok(task);const taskID=task.view.id;
+ if(process.env.WORKER_PEER_FIRST_ADMISSION_LOSS==='1'){const originalOp=task.requests[0];await until('first original response lost',()=>relay.effects.some(v=>v.kind==='drop'&&v.task===taskID&&v.requestId===originalOp&&v.responseLost));assert.ok((await nativeStates(B.data)).some(v=>v.clientInputCounts[originalOp]===1));evidence.firstAdmissionLoss={task:taskID,operation:originalOp,responseLost:true,nativeInputs:1};}
  evidence.task=taskID;evidence.steps.push('Native approval reply confirmed; B executed once; A Agent used real bot_tasks read/file and native file read');
  await a.goto(A.url+'/#task/'+taskID);
  const artifact=a.locator('.web-task-pane .artifact-link').filter({hasText:'fixture-result.csv'}).first();await artifact.waitFor();await artifact.click();
@@ -211,13 +213,13 @@ try{
  // Lose a response only after B actually produced it; never forge an API reply.
  relay.drop('start');
  await send(a,{action:'delegate',environment:'B synthetic',title:'Lost response original',scenario:'csv',wait:false});
- await until('real create response lost',()=>relay.effects.some(v=>v.kind==='drop'&&v.responseLost));
  const lostLedger=await until('lost response original retained',async()=>{const d=JSON.parse(await readFile(join(A.data,'tasks.json'),'utf8'));return Object.values(d.records).find(v=>v.view.title==='Lost response original');});
  const lostID=lostLedger.view.id,lostOp=lostLedger.requests[0];
+ await until('real create response lost',()=>relay.effects.some(v=>v.kind==='drop'&&v.task===lostID&&v.requestId===lostOp&&v.responseLost));
  await until('one original native create effect',async()=>(await nativeStates(B.data)).some(v=>v.clientInputCounts[lostOp]===1));
  await send(a,{action:'reconcile',task:lostID,operation:lostOp});
  await a.getByText('Original operation reconciled: accepted ('+lostOp+')',{exact:true}).waitFor();
- assert.equal(relay.effects.filter(v=>v.kind==='drop').length,1);
+ assert.equal(relay.effects.filter(v=>v.kind==='drop').length,process.env.WORKER_PEER_FIRST_ADMISSION_LOSS==='1'?2:1);
  assert.ok((await nativeStates(B.data)).some(v=>v.clientInputCounts[lostOp]===1));
  evidence.steps.push('Actual peer create response lost after B acceptance; A reconciled the original op as accepted; native input effect exactly once');
 
@@ -279,6 +281,8 @@ finally{
  // A production App update/quit may detach a native Worker intentionally.
  // This test owns those synthetic children and must terminate them explicitly.
  const states=await nativeStates(root);
+ evidence.nativeCounts=states.map(v=>({build:v.build,effects:v.effectCounts,inputs:v.clientInputCounts}));
+ if(evidence.result==='failed')for(const app of apps){try{const ledger=JSON.parse(await readFile(join(app.data,'tasks.json'),'utf8'));const safe=Object.fromEntries(Object.entries(ledger.records||{}).map(([id,r])=>[id,{view:r.view,requests:r.requests,confirmedRequests:r.confirmedRequests,requestOutcomes:r.requestOutcomes,operations:r.operations}]));await writeFile(join(artifacts,app.name+'-failure-tasks.json'),JSON.stringify(safe,null,2));}catch{}}
  for(const state of states){
   const pid=state.fixturePid;if(!Number.isInteger(pid)||pid<=1)continue;
   let command,cwd;

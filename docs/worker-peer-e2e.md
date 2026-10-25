@@ -112,3 +112,12 @@ remain unperformed without another question and are nonblocking follow-up under
 the latest review scope. Final-head checks, affected application
 journeys and whole-PR independent audit are required; no merge or release is
 authorized by a successful test command.
+
+The controlled resident retains the original `bot_delegate` task/operation when
+admission returns `unconfirmed`. It queries only `bot_tasks reconcile` for that
+original receipt, continues only after native `accepted`, and leaves unknown,
+refusal or cancellation unconfirmed. It never retries delegation. Optional
+`WORKER_PEER_FIRST_ADMISSION_LOSS=1` loses the first start response as well as the
+later loss case; assertions correlate each fault with its own task/request ID and
+one native input. Failed runs retain sanitized task receipts/effect counts, not
+MCP credentials, before their owned processes and data are removed.

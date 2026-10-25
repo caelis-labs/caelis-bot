@@ -216,7 +216,19 @@ func (s *nativeServer) residentTurn(parent context.Context, thread, turn string,
 		}
 		delegated, err := s.callBot(ctx, c, thread, turn, "delegate", "bot_delegate", args)
 		if err != nil {
-			return err
+			// An actual native admission may be uncertain while the original
+			// Worker is already asking a question. Model the documented Agent
+			// contract: query that exact receipt, never repeat bot_delegate.
+			detail, _ := delegated["error"].(map[string]any)
+			original, _ := delegated["data"].(map[string]any)
+			taskID, _ := original["id"].(string)
+			operation, _ := original["requestId"].(string)
+			if detail["code"] != "unconfirmed" || taskID == "" || operation == "" {
+				return err
+			}
+			if err := s.reconcileFixtureAdmission(ctx, c, thread, turn, taskID, operation); err != nil {
+				return err
+			}
 		}
 		data, _ := delegated["data"].(map[string]any)
 		request.Task, _ = data["id"].(string)
@@ -356,4 +368,28 @@ func (s *nativeServer) verifyNativeFiles(thread, turn string, input []nativeInpu
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+// Only the test resident uses this read-only original-receipt loop. It is not
+// execution/approval state and cannot submit a replacement input.
+func (s *nativeServer) reconcileFixtureAdmission(ctx context.Context, c *botMCP, thread, turn, taskID, operation string) error {
+	for attempt := 0; attempt < 50; attempt++ {
+		checked, readErr := s.callBot(ctx, c, thread, turn, fmt.Sprintf("original-admission-%d", attempt), "bot_tasks", map[string]any{"request": map[string]any{"type": "reconcile", "task": taskID, "requestId": operation}})
+		if readErr != nil {
+			return readErr
+		}
+		receipt, _ := checked["data"].(map[string]any)
+		if receipt["outcome"] == "accepted" {
+			return nil
+		}
+		if receipt["outcome"] != "unknown" {
+			return fmt.Errorf("original admission refused: %v", receipt["outcome"])
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return errors.New("original admission remains unknown; no replacement or replay")
 }
