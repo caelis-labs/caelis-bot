@@ -4,7 +4,7 @@ This guide lists remaining scope and targeted checks. Resolved defect diaries ar
 
 | Area | Remaining check or limitation |
 | --- | --- |
-| Desktop World | Upstream DPI-unaware scaling, modal-provider stalls and post-effect errors: [DTW #36](https://github.com/caelis-labs/desktop-world/issues/36). Non-blocking for DTW v0.1.0; no general mixed-DPI, elevated-app or secure-desktop claim. |
+| Desktop World | Upstream DPI-unaware scaling, modal-provider stalls and post-effect errors: [DTW #36](https://github.com/caelis-labs/desktop-world/issues/36). Historically non-blocking for DTW v0.1.0; the v0.1.3 pin does not establish general mixed-DPI, elevated-app or secure-desktop support. |
 | Platform coverage | Windows 10 22H2, Server interactive desktops and combinations of monitors/DPI need separate native verification. Windows 11 and CI do not establish those results. |
 | Installed App updates | Component/install tests cover original receipts, custom paths and rollback. Full GUI App-to-App upgrade with active work, real accounts, low disk and interrupted downloads still needs targeted verification. |
 | Character and bubble | Verify hide/show, preserved reply expansion, multi-monitor position, scaling and cold-start second-instance recall on native windows. |

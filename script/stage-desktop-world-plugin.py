@@ -152,6 +152,7 @@ def verify_package(dest, spec, target):
     checked(dest / "LICENSING/DEPENDENCIES.json", spec["license_inventory_sha256"])
     for name in ("plugin.json", "mcp.json", "skills/desktop-world/SKILL.md",
                  "skills/desktop-world/api.d.ts", "skills/desktop-world/RECIPES.md",
+                 "skills/desktop-world/BROWSER.md",
                  "LICENSING/MPL-SOURCES.tar.gz", "LICENSING/THIRD-PARTY.md",
                  "LICENSING/DEPENDENCIES.json",
                  "LICENSING/rust-runtime-licenses/OFL-1.1.txt",

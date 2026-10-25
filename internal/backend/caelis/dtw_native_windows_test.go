@@ -29,8 +29,8 @@ func TestWindowsNativeDesktopWorldPluginDirectory(t *testing.T) {
 		t.Skip("set private Core, DevBot, Desktop World package and plugin store paths")
 	}
 	p, err := plugins.Load(packageRoot)
-	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.2" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
-		t.Fatalf("invalid installed v0.1.0 package: %v; skills=%d servers=%d issues=%v", err, len(p.Skills), len(p.Servers), p.Issues)
+	if err != nil || p.Manifest.Name != "desktop-world" || p.Manifest.Version != "0.1.3" || len(p.Skills) != 1 || len(p.Servers) != 1 || p.Servers[0].Type != "stdio" {
+		t.Fatalf("invalid installed v0.1.3 package: %v; skills=%d servers=%d issues=%v", err, len(p.Skills), len(p.Servers), p.Issues)
 	}
 	var saved struct {
 		Installed map[string]struct {
@@ -40,7 +40,7 @@ func TestWindowsNativeDesktopWorldPluginDirectory(t *testing.T) {
 	}
 	state, err := os.ReadFile(filepath.Join(pluginStore, "state.json"))
 	if err != nil || json.Unmarshal(state, &saved) != nil || !saved.Installed["desktop-world"].Enabled || filepath.Base(packageRoot) != saved.Installed["desktop-world"].Root {
-		t.Fatal("supplied v0.1.0 package is not the enabled generation", err)
+		t.Fatal("supplied v0.1.3 package is not the enabled generation", err)
 	}
 	// Run this opt-in test executable beside the same verified Plugins payload.
 	// A first-run settings window has not acquired the resident owner's lease.
@@ -120,7 +120,7 @@ func TestWindowsNativeDesktopWorldPluginDirectory(t *testing.T) {
 		return err == nil && detail.State == "connected" && len(detail.Tools) == 1
 	})
 	if detail.Tools[0].Name != "exec" {
-		t.Fatal("v0.1.0 must expose only exec", detail.Tools)
+		t.Fatal("v0.1.3 must expose only exec", detail.Tools)
 	}
 	var directory wire.SessionMCPStatus
 	sid := session.ConversationState().Session
@@ -134,13 +134,13 @@ func TestWindowsNativeDesktopWorldPluginDirectory(t *testing.T) {
 		}
 	}
 	if !ready {
-		t.Fatal("v0.1.0 Skill missing from native Core", directory.Skills)
+		t.Fatal("v0.1.3 Skill missing from native Core", directory.Skills)
 	}
 	if err := session.UpdateBotPlugins(ctx, plugins.Selection{Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err = session.BotPluginServer(ctx, name)
 	if err != nil || detail.State != "not_configured" || len(detail.Tools) != 0 {
-		t.Fatal("disabled v0.1.0 tool remained in Core", detail, err)
+		t.Fatal("disabled v0.1.3 tool remained in Core", detail, err)
 	}
 }

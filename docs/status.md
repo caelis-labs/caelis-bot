@@ -22,13 +22,13 @@ Intel Mac and Windows ARM64 packages are not published by the current workflows.
 
 ## Desktop World
 
-The source pins [Desktop World v0.1.0](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0) using a dedicated slim Plugin archive. The [pin](../resources/desktop-world/release.json) owns the archive, runtime, worker, BUILD and licensing digests. Bot v0.15.2 predates this dependency change; inspect the pin at the installed Bot tag when comparing versions.
+The source pins [Desktop World v0.1.3](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.3) using a dedicated slim Plugin archive. The [pin](../resources/desktop-world/release.json) owns the archive, runtime, worker, BUILD and licensing digests. This source upgrade is pending the next Bot release; inspect the pin at the installed Bot tag when comparing versions. DTW v0.1.3 uses CUA 0.38.0; both platform packages and their provenance are pinned separately.
 
-The v0.1.0 release includes `ACCEPTANCE.json` and checksums. Its macOS native checks ran on macOS 27.0.1; upstream CI used macOS 26. Clean macOS 14 first-launch permissions remain unverified and were explicitly excluded from the initial release scope. Bot's own CI uses `macos-15`; neither CI runner substitutes for that clean-machine test.
+Historical DTW v0.1.0 evidence includes `ACCEPTANCE.json` and checksums. Its macOS native checks ran on macOS 27.0.1; upstream CI used macOS 26. This does not qualify v0.1.3. Clean macOS 14 first-launch permissions remain unverified and were explicitly excluded from the initial release scope. Bot's own CI uses `macos-15`; neither CI runner substitutes for that clean-machine test.
 
 Bot's local Core/Codex integration checks cover Plugin discovery, the sole `exec` tool, disable revocation and isolated native operation. Synthetic-model checks are not real-account model acceptance. Codex's inspection API exposes PNG image envelopes without image bytes; actual PNG payloads require a separate Core/MCP check.
 
-Windows upstream DPI scaling, modal-provider stalls and errors after an input may have taken effect are tracked in [Desktop World #36](https://github.com/caelis-labs/desktop-world/issues/36). They do not block the v0.1.0 release and do not imply verified Windows GUI parity. Elevated applications, secure desktop and mixed-DPI input are not advertised as verified. Uncertain input must be reconciled using its original receipt, never blindly repeated.
+Windows upstream DPI scaling, modal-provider stalls and errors after an input may have taken effect are tracked in [Desktop World #36](https://github.com/caelis-labs/desktop-world/issues/36). They were non-blocking for the initial v0.1.0 release; this upgrade does not establish Windows GUI parity. Elevated applications, secure desktop and mixed-DPI input are not advertised as verified. Uncertain input must be reconciled using its original receipt, never blindly repeated.
 
 ## Reading verification claims
 

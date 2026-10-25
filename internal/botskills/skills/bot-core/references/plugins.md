@@ -25,6 +25,13 @@ not proof that a disabled plugin can still run. Follow Runtime tool approval
 and operating-system permission decisions separately; a package being enabled grants
 neither one.
 
+For browser work, load the plugin's linked browser guidance and follow its
+current discovery results and `next_call` suggestions. Runtime tool approval owns
+the decision; do not invent an extra download confirmation. After
+`runtime_context_reset`, observe again to obtain fresh handles. The reset does
+not renew permission or settle an uncertain action; retain its original receipt
+and never replay it to rebuild context.
+
 On Windows, inspect the original receipt and current UI before retrying an input
 that reports a foreground error; the input may already have taken effect. Follow
 the plugin's restrictions for DPI and modal dialogs. Do not issue guessed pixel

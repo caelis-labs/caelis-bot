@@ -9,7 +9,7 @@ profile 的会话共用命令、操作回执、审批与观察接口；没有 Ap
 Store 格式分别判断，不把发行版本号作为协议白名单。验证命令和证据范围见
 [开发与验证](development.md)；历史版本的结果不代替本次集成或发行制品验收。
 
-Desktop World v0.1.0 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
+Desktop World v0.1.3 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
 Codex、Caelis；旧 Go host 和 `bot_desktop_*` 工具已退役。MCP 工具遵循各自
 Runtime 的原生审批，不进入 Bot 内置工具免审名单。Bot App 的系统权限与
 Runtime 工具审批是两层独立边界。
@@ -318,7 +318,7 @@ Real model, long-running memory quality and cross-Runtime daily Notebook usage n
 
 ## Desktop World integration
 
-Both resident backends select the same reviewed v0.1.0 portable package through
+Both resident backends select the same reviewed v0.1.3 portable package through
 PluginManager. The package has one `exec` MCP server and an on-demand Skill.
 Bot validates the published archive, BUILD and complete licensing inventory,
 re-signs nested Mac executables with the Bot identity, and keeps user-disabled
