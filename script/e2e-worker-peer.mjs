@@ -46,7 +46,15 @@ async function launch(name){
  const app={name,data,child,url,log:()=>output};apps.push(app);return app;
 }
 async function shot(page,name){await page.screenshot({path:join(artifacts,`${name}.png`),fullPage:true});}
-async function send(page,request){const input=page.locator('[contenteditable="true"]').first();await input.fill('WORKER_PEER_FIXTURE '+JSON.stringify(request));await page.getByRole('button',{name:'发送',exact:true}).click();}
+async function send(page,request){
+ // These scripted instructions model independent model turns. The native
+ // fixture acknowledges steer but has no model to consume a second scenario
+ // during a running script; wait for original turns/reports, never replay.
+ const app=apps.find(v=>new URL(v.url).origin===new URL(page.url()).origin);
+ if(app)await until('original completed task reports delivered',async()=>{let d;try{d=JSON.parse(await readFile(join(app.data,'tasks.json'),'utf8'))}catch(error){if(error.code==='ENOENT')return true;throw error}return Object.values(d.records).every(v=>!['completed','failed','interrupted','cancelled'].includes(v.view.status)||['delivered','observed'].includes(v.reportState));});
+ let settled=0;await until('resident ready for independent fixture instruction',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');const v=r.body.value;settled=v.canSend&&!v.canInterrupt&&!v.canSteer&&!v.currentTurn?settled+1:0;return settled>=2});
+ const input=page.locator('[contenteditable="true"]').first();await input.fill('WORKER_PEER_FIXTURE '+JSON.stringify(request));await page.getByRole('button',{name:'发送',exact:true}).click();
+}
 async function nativeStates(data){const out=[];async function walk(dir){for(const d of await readdir(dir,{withFileTypes:true})){if(d.isDirectory())await walk(join(dir,d.name));else if(d.name==='state.json'&&dir.endsWith('.worker-peer-native-fixture')){try{out.push(JSON.parse(await readFile(join(dir,d.name),'utf8')));}catch{}}}}await walk(data);return out;}
 try{
  const A=await launch('A'),B=await launch('B');
@@ -157,6 +165,9 @@ try{
  const lostID=lostLedger.view.id,lostOp=lostLedger.requests[0];
  await until('real create response lost',()=>relay.effects.some(v=>v.kind==='drop'&&v.task===lostID&&v.requestId===lostOp&&v.responseLost));
  await until('one original native create effect',async()=>(await nativeStates(B.data)).some(v=>v.clientInputCounts[lostOp]===1));
+ // B completed the controlled task immediately. Wait for A's original
+ // completion report receipt before starting the separate reconciliation turn.
+ await until('lost task original report settled',async()=>{const d=JSON.parse(await readFile(join(A.data,'tasks.json'),'utf8'));const v=d.records[lostID];return ['delivered','observed'].includes(v?.reportState);});
  await send(a,{action:'reconcile',task:lostID,operation:lostOp});
  await a.getByText('Original operation reconciled: accepted ('+lostOp+')',{exact:true}).waitFor();
  assert.equal(relay.effects.filter(v=>v.kind==='drop').length,process.env.WORKER_PEER_FIRST_ADMISSION_LOSS==='1'?2:1);
