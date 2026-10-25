@@ -149,3 +149,34 @@ Cancelled environment admission uses the existing `rejectMessage` boundary:
 a never-admitted answer is typed rejected so the original question remains
 answerable; an already-recorded original request remains unknown. The same
 App/Manager test failed before this distinction and verifies no native replay.
+
+## Remote machine settings and interaction-budget follow-up
+
+The settings increment replaces the default sharing dashboard with a compact
+mixed Bot/SSH list and a secondary inbound-authorization tab. It restores adding
+system SSH aliases through the existing helper. Effective SSH routing/trust stays
+with OpenSSH; original task bindings and directional Bot proofs remain unchanged.
+See [UI behavior and synthetic native screenshot](remote-machines-ui.md).
+
+Independent negative/positive review additionally found and closed same-profile
+SSH pin-publication races, Bot address matching against SSH profiles, and a
+certified unsupported-platform refusal leaving a changed public pin/credential.
+Per-profile ephemeral serialization and restoration publish only that connection;
+network work is outside the shared route lock. Known non-dispatch SSH refusals
+use the existing typed rejection/receipt path; true effect uncertainty stays
+unknown, scoped to its original profile. Local and another peer control remain
+usable while SSH settings calls are held. No new execution or approval authority.
+
+The separate [interaction output-budget repair](interaction-output-budget.md)
+filters terminal todo entries, pages pending originals, and supplies lossless
+original-ID reads for large requests. It preserves sent/dispatching/unknown,
+original offers, receipt lookup and required historical display/de-duplication.
+Only redundant terminal closure-index display copies are compacted at save/load.
+Neither this repair nor a missing/expired question authorizes any pending request.
+The active user Dev instance must be updated through the coordinated normal flow
+before the budget repair takes effect; it was not restarted by these checks.
+
+New exact-head automated/CI evidence is reported in PR #221. Old green CI or dirty
+candidate evidence is not substituted for those gates. Real accounts and GUI
+business journeys remain separately labeled, nonblocking follow-up; bounded URL
+exclusions are unchanged. No merge, release or daily-service changes are made.

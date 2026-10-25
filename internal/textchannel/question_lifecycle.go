@@ -256,3 +256,25 @@ func validateQuestionPresentation(p api.QuestionPresentation, title string, opti
 	}
 	return nil
 }
+
+// Closed generations need binding/receipt/closure tombstones, not a second copy
+// of a large display payload. Keep one original wherever historical cards still
+// need it; never prune native history or uncertain dispatch evidence.
+func (s *Store) compactClosedQuestionCopies() bool {
+	changed := false
+	for key, q := range s.state.AsyncClosed {
+		if !closedAsync(q.State) && q.State != "answered" {
+			continue
+		}
+		current, ok := s.state.AsyncQuestions[q.ShortID]
+		if !ok || current.Fingerprint != q.Fingerprint || current.Index != q.Index || (!closedAsync(current.State) && current.State != "answered") {
+			continue
+		}
+		if q.Title != "" || len(q.Options) != 0 || q.Presentation != nil || q.TaskTitle != "" {
+			q.Title, q.Options, q.Presentation, q.TaskTitle = "", nil, nil, ""
+			s.state.AsyncClosed[key] = q
+			changed = true
+		}
+	}
+	return changed
+}

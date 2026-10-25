@@ -23,7 +23,7 @@ handle for follow-up. Discover the current tool schema before calling it.
 | `bot_tasks.request.type: read` | Read completed User and Assistant messages of one task. |
 | `bot_tasks.request.type: stop` | Stop that task's active work while retaining its handle and history. |
 | `bot_tasks.request.type: pin` | Show or hide that task's desktop card without running work. |
-| `bot_interactions.request.type: list/decide/answer/present` | Inspect and resolve native Worker approvals or questions. |
+| `bot_interactions.request.type: list/read/decide/answer/present` | Inspect and resolve native Worker approvals or questions. |
 
 The Host derives each submission ID from the original native tool invocation;
 you do not supply a requestId to `bot_delegate`. Two separate calls may send the
@@ -261,6 +261,10 @@ is open; a preview is not a substitute for native conversation history.
 ## Work on a connected environment
 
 Use `bot_tasks` environments for the stable key, name and connection status.
+Settings lists both paired Bots and saved SSH helper connections. Their original
+adapters and capabilities remain authoritative; a shared list does not upgrade
+a legacy helper or authorize another machine. Never set up SSH, copy credentials
+or move an existing task just to repair a connection.
 Require a connected target and the user's direction before selecting a remote
 environment. The task retains its original environment and native Runtime.
 For a paired Bot, questions, approvals and results return to this Bot's existing
