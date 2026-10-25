@@ -57,7 +57,7 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		if name == "" {
 			name = address
 		}
-		next = profile{PairingEpoch: rand.Text(), PairingName: sourceName, Peer: workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}, View: api.Machine{ID: id, Name: name, Address: address, ConnectionType: "bot", State: "authorization", PairingStatus: "unknown"}}
+		next = profile{PairingEpoch: workerpeer.NewPairingID(), PairingName: sourceName, Peer: workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}, View: api.Machine{ID: id, Name: name, Address: address, ConnectionType: "bot", State: "authorization", PairingStatus: "unknown"}}
 	} else {
 		if next.Peer.Token == "" {
 			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "original_peer_proof_required"}
@@ -77,7 +77,7 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		}
 		next.View.Archived = old.View.Archived && !in.Reconnect && in.ID != ""
 		if (in.Reconnect || old.View.Archived && in.ID == "") && (old.View.PairingStatus == "rejected" || old.View.PairingStatus == "expired" || old.View.PairingStatus == "revoked") {
-			next.PairingEpoch = rand.Text()
+			next.PairingEpoch = workerpeer.NewPairingID()
 			next.View.PairingStatus = "unknown"
 		}
 	}
@@ -213,6 +213,12 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 	} else {
 		next.View.State = "offline"
 		next.View.Issue = readErr.Error()
+		var rejected *api.ActionRejectedError
+		if errors.As(readErr, &rejected) && rejected.Code == "invalid_pairing_request" {
+			// A complete native refusal proves this intent was not admitted.
+			// Explicit Reconnect may replace this rejected ID, never unknown writes.
+			next.View.PairingStatus = "rejected"
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

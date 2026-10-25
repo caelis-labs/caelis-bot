@@ -29,7 +29,7 @@ func TestPairingRequestNeedsExplicitLocalDecisionAndSurvivesRestart(t *testing.T
 	}
 	h := httptest.NewServer(s)
 	defer h.Close()
-	id, proof := rand.Text(), rand.Text()+rand.Text()
+	id, proof := NewPairingID(), rand.Text()+rand.Text()
 	first, err := RequestPairing(t.Context(), h.URL, id, "source-a", "Machine A", proof, s.Status().Peer)
 	if err != nil || first.Status != "pending" {
 		t.Fatal(first, err)
@@ -98,7 +98,7 @@ func TestPairingRequestNeedsExplicitLocalDecisionAndSurvivesRestart(t *testing.T
 func TestPairingClosedIntentCannotReviveAtCapacityAndExpiryDoesNotApprove(t *testing.T) {
 	s, h, _ := peerFixture(t)
 	proof := rand.Text() + rand.Text()
-	id := rand.Text()
+	id := NewPairingID()
 	if _, err := RequestPairing(t.Context(), h.URL, id, "source", "Fixture", proof, s.Status().Peer); err != nil {
 		t.Fatal(err)
 	}
@@ -110,9 +110,13 @@ func TestPairingClosedIntentCannotReviveAtCapacityAndExpiryDoesNotApprove(t *tes
 		s.state.Requests[fmt.Sprint("closed-", i)] = pairingRequest{Source: fmt.Sprint("source-", i), Hash: tokenHash(proof), Name: "Fixture", ExpiresAt: 1, Status: "rejected"}
 	}
 	s.mu.Unlock()
-	if _, err := RequestPairing(t.Context(), h.URL, "new", "new-source", "Fixture", proof, s.Status().Peer); err == nil {
-		t.Fatal("capacity not bounded")
+	newID := NewPairingID()
+	if _, err := RequestPairing(t.Context(), h.URL, newID, "new-source", "Fixture", proof, s.Status().Peer); err != nil {
+		t.Fatal("closed history exhausted pairing admission", err)
 	}
+	s.mu.Lock()
+	delete(s.state.Requests, newID)
+	s.mu.Unlock()
 	r, err := RequestPairing(t.Context(), h.URL, id, "source", "Fixture", proof, s.Status().Peer)
 	if err != nil || r.Status != "rejected" {
 		t.Fatal("closed ID resurrected", r, err)
@@ -142,15 +146,16 @@ func TestPairingApprovalFailureIsLocalAndDoesNotCreateGrant(t *testing.T) {
 	s.ConfigureReadiness(func(ctx context.Context) error {
 		return &api.SetupBlockedError{Code: "worker_effort_unsupported", Message: "private path must not escape"}
 	})
-	r, err := RequestPairing(t.Context(), h.URL, "intent", "source", "Fixture", rand.Text()+rand.Text(), s.Status().Peer)
+	id := NewPairingID()
+	r, err := RequestPairing(t.Context(), h.URL, id, "source", "Fixture", rand.Text()+rand.Text(), s.Status().Peer)
 	if err != nil || r.Status != "pending" {
 		t.Fatal(r, err)
 	}
-	err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: "intent", Allow: true})
+	err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: id, Allow: true})
 	if api.WorkerReadinessCode(err) != "worker_effort_unsupported" || len(s.Status().Sources) != 0 {
 		t.Fatal("failed readiness granted source", err)
 	}
-	if err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: "intent", Allow: false}); err != nil {
+	if err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: id, Allow: false}); err != nil {
 		t.Fatal("reject depended on runtime readiness", err)
 	}
 }
@@ -191,5 +196,80 @@ func TestPairingBrowserOriginCannotRequestOrApprove(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != 403 || len(s.Status().Requests) != 0 {
 		t.Fatal("browser origin became pairing", w.Code)
+	}
+}
+
+func TestExpiredBoundedPairingsCleanUpWithoutRevivalOrLosingGrants(t *testing.T) {
+	s, h, _ := peerFixture(t)
+	proof := rand.Text() + rand.Text()
+	expired := "pair-1-old"
+	s.mu.Lock()
+	for i := 0; i < 300; i++ {
+		s.state.Requests[fmt.Sprintf("pair-1-old%d", i)] = pairingRequest{Source: "old", Hash: tokenHash(proof), ExpiresAt: 1, Status: "rejected"}
+	}
+	s.state.Requests[expired] = pairingRequest{Source: "approved", Hash: tokenHash(proof), ExpiresAt: 1, Status: "approved"}
+	s.state.Grants["approved"] = grant{Peer: "approved", Hash: tokenHash(proof), RequestID: expired}
+	s.state.Bindings["approved"] = map[string]string{"original-task": "codex"}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	r, err := ReadPairing(t.Context(), h.URL, expired, "approved", proof)
+	if err != nil || r.Status != "approved" {
+		t.Fatal("cleanup lost grant reconciliation", r, err)
+	}
+	if err = s.Revoke("approved"); err != nil {
+		t.Fatal(err)
+	}
+	r, err = ReadPairing(t.Context(), h.URL, expired, "approved", proof)
+	if err != nil || r.Status != "revoked" {
+		t.Fatal("cleanup revived grant", r, err)
+	}
+	r, err = RequestPairing(t.Context(), h.URL, "pair-1-old0", "old", "Fixture", proof, s.Status().Peer)
+	if err != nil || r.Status != "expired" || len(s.Status().Requests) != 0 {
+		t.Fatal("old ID recreated inbox", r, err)
+	}
+	r, err = RequestPairing(t.Context(), h.URL, NewPairingID(), "fresh", "Fixture", proof, s.Status().Peer)
+	if err != nil || r.Status != "pending" {
+		t.Fatal("closed history blocked new request", r, err)
+	}
+	reopened, err := Open(s.root, s.factory)
+	if err != nil || len(reopened.state.Requests) != 1 || !reopened.state.Grants["approved"].Revoked {
+		t.Fatal("cleanup not durable", err)
+	}
+}
+
+func TestNewLegacyPairingCannotCreateUncollectableHistory(t *testing.T) {
+	s, h, _ := peerFixture(t)
+	proof := rand.Text() + rand.Text()
+	for i := 0; i < 140; i++ {
+		if _, err := RequestPairing(t.Context(), h.URL, fmt.Sprint("legacy-new-", i), "source", "Fixture", proof, s.Status().Peer); err == nil {
+			t.Fatal("new legacy request admitted")
+		}
+	}
+	if len(s.state.Requests) != 0 {
+		t.Fatal("uncollectable legacy history grew")
+	}
+	// Original old requests still reconcile without changing their deadline.
+	s.mu.Lock()
+	s.state.Requests["legacy-existing"] = pairingRequest{Source: "source", Hash: tokenHash(proof), Name: "Fixture", ExpiresAt: 1, Status: "rejected"}
+	s.mu.Unlock()
+	r, err := RequestPairing(t.Context(), h.URL, "legacy-existing", "source", "Fixture", proof, s.Status().Peer)
+	if err != nil || r.Status != "rejected" || len(s.state.Requests) != 1 {
+		t.Fatal("original legacy receipt lost", r, err)
+	}
+}
+
+func TestPeerQuestionDeadlineSurvivesWireProjection(t *testing.T) {
+	item := api.Item{ID: "original-question", AsyncCallID: "original-call", AsyncExpiresAt: time.Now().Add(time.Hour).Unix(), AsyncQuestions: []api.AsyncQuestion{{Title: "Original?"}}}
+	original := api.WorkState{Task: api.Task{ID: "original-task"}, AsyncQuestions: []api.Item{item}}
+	bytes, _ := json.Marshal(encodeState(original))
+	var wire State
+	if json.Unmarshal(bytes, &wire) != nil {
+		t.Fatal("invalid peer question JSON")
+	}
+	decoded := decodeState(wire)
+	if decoded.AsyncQuestions[0].AsyncExpiresAt != item.AsyncExpiresAt || decoded.AsyncQuestions[0].AsyncCallID != item.AsyncCallID {
+		t.Fatal("peer lost original question deadline")
 	}
 }

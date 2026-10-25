@@ -2,16 +2,40 @@ package workerpeer
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+// NewPairingID binds a new temporary handshake to an immutable deadline.
+// After cleanup an old ID is still expired, so it cannot recreate an inbox item.
+func NewPairingID() string {
+	return "pair-" + strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10) + "-" + rand.Text()
+}
+func pairingDeadline(id string) (int64, bool) {
+	if !strings.HasPrefix(id, "pair-") {
+		return 0, false
+	}
+	stamp, nonce, ok := strings.Cut(strings.TrimPrefix(id, "pair-"), "-")
+	n, err := strconv.ParseInt(stamp, 10, 64)
+	return n, ok && nonce != "" && err == nil && n > 0
+}
+func (s *Server) prunePairingRequests(now int64) {
+	for id, request := range s.state.Requests {
+		// Legacy random IDs need a small receipt tombstone to prevent revival.
+		if deadline, bounded := pairingDeadline(id); bounded && deadline <= now && request.ExpiresAt <= now {
+			delete(s.state.Requests, id)
+		}
+	}
+}
 
 // These are connection intents in the existing authorization registry, never
 // execution receipts. Pending intents contain only a hash, not a bearer token.
@@ -71,6 +95,7 @@ func (s *Server) pairingRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bot_peer_identity_changed", 409)
 		return
 	}
+	s.prunePairingRequests(time.Now().Unix())
 	value, exists := s.state.Requests[in.ID]
 	hash := tokenHash(token)
 	// Both an original pending request and an existing/revoked source require
@@ -87,9 +112,32 @@ func (s *Server) pairingRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "original_peer_proof_required", 403)
 		return
 	}
+	if !exists {
+		if deadline, bounded := pairingDeadline(in.ID); bounded && deadline <= time.Now().Unix() {
+			status := "expired"
+			if g, ok := s.state.Grants[in.Source]; ok && g.RequestID == in.ID && g.Hash == hash {
+				status = "approved"
+				if g.Revoked {
+					status = "revoked"
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PairingReceipt{Contract: api.WorkerContract, ID: in.ID, Peer: s.state.Identity, Name: machineDisplayName(), Status: status})
+			return
+		}
+	}
 	if !exists && !in.Read {
-		pending := 0
+		// Only existing random IDs may use the legacy idempotent path. New
+		// handshakes need a recoverable deadline so closed records can retire.
+		if _, bounded := pairingDeadline(in.ID); !bounded {
+			http.Error(w, "invalid_pairing_request", 400)
+			return
+		}
+		pending, retained := 0, 0
 		for _, v := range s.state.Requests {
+			if v.ExpiresAt > time.Now().Unix() {
+				retained++
+			}
 			if requestStatus(v) == "pending" {
 				pending++
 				if v.Source == in.Source {
@@ -98,12 +146,19 @@ func (s *Server) pairingRequest(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if pending >= 16 || len(s.state.Requests) >= 128 {
+		if pending >= 16 || retained >= 128 {
 			http.Error(w, "pairing_requests_full", 429)
 			return
 		}
 		address, _, _ := net.SplitHostPort(r.RemoteAddr)
 		value = pairingRequest{Source: in.Source, Hash: hash, Name: name, Address: address, ExpiresAt: time.Now().Add(5 * time.Minute).Unix(), Status: "pending"}
+		if deadline, bounded := pairingDeadline(in.ID); bounded {
+			if deadline > time.Now().Add(6*time.Minute).Unix() {
+				http.Error(w, "invalid_pairing_request", 400)
+				return
+			}
+			value.ExpiresAt = min(value.ExpiresAt, deadline)
+		}
 		s.state.Requests[in.ID] = value
 		if err := s.save(); err != nil {
 			delete(s.state.Requests, in.ID)

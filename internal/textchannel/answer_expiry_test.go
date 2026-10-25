@@ -41,7 +41,7 @@ func TestExpiredAnswerPersistsAndPublishesClosureBeforeReturning(t *testing.T) {
 			t.Fatal("expired input did not return expired feedback")
 		}
 	}
-	if calls != 0 || updates != 1 || len(s.PendingQuestionClosures()) != 1 {
+	if calls != 0 || updates != 1 || len(s.PendingQuestionClosures()) != 0 {
 		t.Fatal("expired input dispatched, repeated its update, or lost closure")
 	}
 }

@@ -286,8 +286,11 @@ func (s *Service) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if s.route(in.ID) == "" {
 		return s.local.SendWork(ctx, in)
 	}
-	if e := s.local.WorkAdmission(ctx); e != nil {
-		return api.Task{}, e
+
+	if api.WorkerQuestionAnswer(ctx) == "" {
+		if err := s.local.WorkAdmission(ctx); err != nil {
+			return api.Task{}, &api.WorkMessageRejection{Cause: err}
+		}
 	}
 	return s.remote(ctx, in.ID, "send", in)
 }

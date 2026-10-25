@@ -54,15 +54,14 @@ are not a fresh instruction or authorization.
 Ordinary async questions have a 24-hour window from first observation. The user
 can Dismiss them (or use `/dismiss Q7`); completion, cancellation and explicit
 replacement can also close them. Closing supplies no answer, default choice or
-permission. Keep steps needing the missing input explicitly blocked and explain
-what is needed; only independent, already authorized work may continue. Do not
-re-ask an expired or dismissed question automatically. If the user resumes that
-work, check whether it is still relevant before asking a new question.
+permission. Closed questions leave the current todo list. Follow the current
+user request and available task facts; ask a fresh question only if that work
+still needs an actual decision. The host does not send closure instructions to
+the Worker or alter a later task prompt.
 
 `answered` means the input was accepted, not that the Worker has consumed it.
 `unknown` or `dispatching` stays fenced to its original receipt. `dismissed`,
-`expired` and `superseded` are final for that generation. A host lifecycle notice
-is context, never an answer or a new instruction to resume work. Native approvals
+`expired` and `superseded` are final for that generation. Native approvals
 and required elicitation forms have separate rules: never timeout-approve them.
 
 Keep user questions immediately decidable: name the object in a short complete

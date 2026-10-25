@@ -7,6 +7,9 @@ Decision record, 2026-10-18. Base: bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42.
 - This policy applies only to completed `request_user_input_async` items. Native
   approvals, elicitation forms, secrets and permissions retain native decisions.
 - An unanswered async question is valid for 24 hours from first observation.
+  Worker questions carry the original adapter's fixed deadline through peer
+  observations into the Host card. Delayed first import takes that deadline,
+  never another fresh window; legacy questions without it keep their saved expiry.
   A persisted deadline never extends on reopen, replay, reconnect or restart.
   Legacy undated questions receive one 24-hour migration window.
 - Persist pending, dispatching, answered, unknown, dismissed, expired and
@@ -36,11 +39,13 @@ Decision record, 2026-10-18. Base: bb00cd465a8a756eb5b4274b6bcb6a7a5abbaf42.
 - Closing supplies no answer, default option, permission or new work request.
   Required information remains missing. The Bot and Worker must keep dependent
   steps blocked and name the missing input; independent authorized work may proceed.
-- Notify the original Codex owner of closure as host context, never in a question
-  answer envelope. Persist that context before delivery. An active original turn
-  may receive one steer; an idle/finished task is not started to send a notice.
-  The original owner also receives retained closure context on its next authorized
-  input. Unknown notice delivery is not replayed as a new input.
+- Closing updates the local interaction ledger only. Do not notify or steer the
+  Worker, retain closure context for a later input, or modify a submitted prompt.
+  The retired peer closure operation acknowledges without effects. Legacy
+  `questionClosures` input context is ignored and omitted on the next normal save.
+- Host-validated original question answer delivery targets the existing Worker owner independently of the resident
+  Bot's turn. New task creation retains its separate native activation check.
+  Rejected input remains answerable; unknown input keeps its original receipt.
 - The Bot can present the original Worker question to the user using its original
   handle. This provides source-task context and one shared answer/close state.
   Do not create another resident async question to paraphrase the same request.

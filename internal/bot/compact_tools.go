@@ -101,7 +101,9 @@ func compactValue(value map[string]any, failed bool) api.ToolResult {
 	b, _ := json.Marshal(value)
 	if len(b) > 31<<10 {
 		retained := map[string]any{}
-		if data, ok := value["data"].(map[string]any); ok {
+		var data map[string]any
+		_ = json.Unmarshal(encoded(value["data"]), &data)
+		if data != nil {
 			for _, key := range []string{"id", "requestId", "status", "outcome", "enabled"} {
 				if v, exists := data[key]; exists {
 					retained[key] = v
@@ -156,6 +158,15 @@ func compact(out api.ToolResult, next map[string]any) api.ToolResult {
 func encoded(v any) json.RawMessage           { b, _ := json.Marshal(v); return b }
 func str(m map[string]any, key string) string { s, _ := m[key].(string); return s }
 func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[string]any) api.ToolResult {
+	if name == "bot_schedule" && str(q, "type") == "read" && strings.HasPrefix(str(q, "handle"), "calendar:") {
+		id := strings.TrimPrefix(str(q, "handle"), "calendar:")
+		for _, s := range r.State().Schedules {
+			if s.Runtime == r.provider && s.ID == id {
+				return boundedData(map[string]any{"ok": true, "data": s}, q)
+			}
+		}
+		return compactError("unavailable", errors.New("original calendar arrangement unavailable"))
+	}
 	if out, handled := r.eventSchedule(ctx, name, q); handled {
 		return out
 	}
@@ -167,11 +178,11 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		case "list":
 			return r.schedulePage(q)
 		case "sources":
-			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "clock": r.Clock(), "nativeAvailable": r.nativeErr == nil, "desktopObservationsAvailable": r.nativeSample != nil}
+			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "nativeAvailable": r.nativeErr == nil, "desktopObservationsAvailable": r.nativeSample != nil}
 			if r.events != nil {
 				data["policy"] = r.events.Snapshot().Policy
 			}
-			return compactValue(map[string]any{"ok": true, "data": data}, false)
+			return boundedData(map[string]any{"ok": true, "data": data, "clock": r.Clock()}, q)
 		case "test":
 			trigger := q["trigger"].(map[string]any)
 			matched, err := scheduledata.Test(ctx, str(trigger, "condition"), str(trigger, "timeZone"), q["event"].(map[string]any), r.now())
@@ -242,6 +253,7 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		if query != "" && !strings.Contains(strings.ToLower(s.ID+" "+s.Label), query) {
 			continue
 		}
+		s.Prompt = "" // Read the exact calendar handle for the saved full context.
 		items = append(items, map[string]any{"automation": "calendar:" + s.ID, "kind": "calendar", "id": s.ID, "label": s.Label, "next": s.Next, "enabled": s.Enabled, "schedule": s})
 	}
 	if kind != "calendar" && r.events != nil {
@@ -331,6 +343,7 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 	return []*api.ToolConnection{
 		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
 		r.previousCompactToolConnection(),
+		{Host: priorLifecycleTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorPresenceTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},

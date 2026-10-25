@@ -29,7 +29,7 @@ func TestPeerOnlyListenerAcceptsRequestsWithoutOpeningWorkerExecution(t *testing
 	}
 	base := "http://127.0.0.1:" + port
 	proof := rand.Text() + rand.Text()
-	id := rand.Text()
+	id := workerpeer.NewPairingID()
 	r, err := workerpeer.RequestPairing(t.Context(), base, id, "source", "Fixture", proof, a.peer.server.Status().Peer)
 	if err != nil || r.Status != "pending" {
 		t.Fatal(r, err)

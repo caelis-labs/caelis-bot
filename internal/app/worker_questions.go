@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
@@ -45,27 +45,7 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 			}
 		}
 	}
-	for _, notice := range a.textControl.PendingQuestionClosures() {
-		var receiver api.QuestionClosureReceiver
-		if notice.WorkID != "" {
-			if a.machines != nil {
-				receiver = a.machines
-			} else {
-				receiver = a.localWork
-			}
-		} else {
-			receiver, _ = a.currentEngine().(api.QuestionClosureReceiver)
-		}
-		if receiver == nil {
-			continue
-		}
-		delivery, cancel := context.WithTimeout(ctx, 2*time.Second)
-		err := receiver.ReceiveQuestionClosure(delivery, notice)
-		cancel()
-		if err == nil {
-			_ = a.textControl.QuestionClosureRecorded(notice.ID)
-		}
-	}
+
 }
 
 func (a *Application) WorkerQuestions() []api.WorkerQuestion {
@@ -79,7 +59,9 @@ func (a *Application) WorkerQuestions() []api.WorkerQuestion {
 	}
 	out := []api.WorkerQuestion{}
 	for _, q := range a.textControl.WorkerAsyncQuestions() {
-		if !activeItems[q.ItemID] {
+		// Uncertain answers reconcile their original input receipt even after
+		// native temporary question payloads leave the observation window.
+		if !activeItems[q.ItemID] && q.State != "unknown" && q.State != "dispatching" {
 			continue
 		}
 		out = append(out, api.WorkerQuestion{ID: q.ShortID, TaskID: q.WorkID, TaskTitle: titles[q.WorkID], Title: q.Title, Options: q.Options, State: q.State, Reason: q.Reason, ExpiresAt: q.ExpiresAt})
@@ -123,14 +105,34 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 				ctx, cancel = context.WithTimeout(ctx, api.WorkerAdmissionTimeout)
 				defer cancel()
 			}
-			result, err := manager.SendTask(ctx, api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
+			result, err := manager.SendTask(api.WithWorkerQuestionAnswer(ctx, question.AsyncCallID), api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
 			if outcome != "accepted" && outcome != "rejected" {
 				outcome = "unknown"
 			}
 			message := ""
 			if err != nil {
-				message = "暂时无法提交到原任务。"
+				reason := "native_failure"
+				var rejected *api.WorkMessageRejection
+				if errors.As(err, &rejected) {
+					reason = "input_rejected"
+					if rejected.Code == "owner_unavailable" || rejected.Code == "original_receipt_unresolved" || rejected.Code == "original_question_unavailable" || rejected.Code == "activation_required" {
+						reason = rejected.Code
+					}
+				}
+				if errors.Is(err, context.DeadlineExceeded) {
+					reason = "timeout"
+				}
+				if errors.Is(err, context.Canceled) {
+					reason = "cancelled"
+				}
+				a.host.Diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "worker_question", Code: "answer_" + outcome,
+					Reason: reason, Item: requestID, Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
+				if outcome == "rejected" {
+					message = "请确认原任务已连接，再用此问题卡片提交回答。"
+				} else {
+					message = "请先核对原任务是否收到回答，暂勿重复提交。"
+				}
 			}
 			return api.Receipt{ID: in.ID, Outcome: outcome, Message: message}, err
 		}

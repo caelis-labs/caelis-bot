@@ -9,6 +9,7 @@ const Prefix = "/worker/v1/"
 type Item struct {
 	api.Item
 	AsyncCallID    string              `json:"asyncCallId,omitempty"`
+	AsyncExpiresAt int64               `json:"asyncExpiresAt,omitempty"`
 	AsyncQuestions []api.AsyncQuestion `json:"asyncQuestions,omitempty"`
 }
 type Approval struct {
@@ -28,9 +29,9 @@ type Observation struct {
 	Owner     api.WorkCapabilities `json:"owner"`
 }
 
-func encodeItem(v api.Item) Item { return Item{v, v.AsyncCallID, v.AsyncQuestions} }
+func encodeItem(v api.Item) Item { return Item{v, v.AsyncCallID, v.AsyncExpiresAt, v.AsyncQuestions} }
 func decodeItem(v Item) api.Item {
-	v.Item.AsyncCallID, v.Item.AsyncQuestions = v.AsyncCallID, v.AsyncQuestions
+	v.Item.AsyncCallID, v.Item.AsyncQuestions, v.Item.AsyncExpiresAt = v.AsyncCallID, v.AsyncQuestions, v.AsyncExpiresAt
 	return v.Item
 }
 func encodeState(v api.WorkState) State {

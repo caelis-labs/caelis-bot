@@ -205,6 +205,15 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		if s.state.AsyncRetired[fingerprint] {
 			// A late replay of the old schema must not overwrite the newer
 			// live card in the IM log under the same item ID.
+			current := s.asyncButtonQuestionsLocked(item.ID, previousActive)
+			for _, q := range current {
+				if q.Title == "" {
+					// This older schema cannot reconstruct the compact newer
+					// original. Publish nothing; the existing IM row remains.
+					s.mu.Unlock()
+					return api.Item{}, nil
+				}
+			}
 			item.Text = s.asyncCardTextLocked(item.ID, previousActive)
 			item.QuestionCards = nil
 			for _, q := range s.asyncButtonQuestionsLocked(item.ID, previousActive) {
@@ -233,6 +242,15 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 			return item, err
 		}
 		s.state.AsyncQuestions[id] = asyncQuestion{ShortID: id, ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index, IssuedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(asyncQuestionMaxAge).Unix()}
+		createdQuestion := s.state.AsyncQuestions[id]
+		if item.AsyncExpiresAt > 0 {
+			createdQuestion.ExpiresAt = min(createdQuestion.ExpiresAt, item.AsyncExpiresAt)
+			s.state.AsyncQuestions[id] = createdQuestion
+		}
+		if asyncExpired(createdQuestion) {
+			s.closeAsyncLocked(id, createdQuestion, "expired", "deadline")
+		}
+
 		created = append(created, id)
 	}
 	// Retire display identity even when an answer is unknown or dispatching.
@@ -249,8 +267,21 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 			}
 		}
 	}
+	deadlineChanged := false
+	if item.AsyncExpiresAt > 0 {
+		for id, q := range s.state.AsyncQuestions {
+			if q.ItemID == item.ID && q.Fingerprint == fingerprint && q.ExpiresAt > item.AsyncExpiresAt {
+				q.ExpiresAt = item.AsyncExpiresAt
+				s.state.AsyncQuestions[id] = q
+				deadlineChanged = true
+				if q.State == "" && asyncExpired(q) {
+					s.closeAsyncLocked(id, q, "expired", "deadline")
+				}
+			}
+		}
+	}
 	s.state.AsyncActive[item.ID] = fingerprint
-	if len(created) > 0 || !hadActive || previousActive != fingerprint {
+	if deadlineChanged || len(created) > 0 || !hadActive || previousActive != fingerprint {
 		if err := s.save(); err != nil {
 			rollback()
 			if hadActive {
@@ -262,10 +293,21 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 			return item, err
 		}
 	}
-	item.Text = s.asyncCardTextLocked(item.ID, fingerprint)
+	// A compact terminal record keeps lifecycle, while a replay of this exact
+	// native fingerprint supplies its original display without re-storing it.
+	entries := s.asyncQuestionsLocked(item.ID, fingerprint)
+	for i := range entries {
+		q := &entries[i].Question
+		if q.Title == "" && q.Index >= 0 && q.Index < len(item.AsyncQuestions) {
+			q.Title = item.AsyncQuestions[q.Index].Title
+			q.Options = append([]string(nil), item.AsyncQuestions[q.Index].Options...)
+		}
+	}
+	item.Text = asyncCardEntriesText(entries, false)
 	item.QuestionCards = nil
-	for _, q := range s.asyncButtonQuestionsLocked(item.ID, fingerprint) {
-		item.QuestionCards = append(item.QuestionCards, questionCard(q))
+	for _, entry := range entries {
+		q := entry.Question
+		item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{ShortID: entry.ID, Fingerprint: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented}))
 	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
@@ -308,8 +350,11 @@ func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 	return s.asyncCardTextForLocked(itemID, fingerprint, false)
 }
 func (s *Store) asyncCardTextForLocked(itemID, fingerprint string, presentedOnly bool) string {
+	return asyncCardEntriesText(s.asyncQuestionsLocked(itemID, fingerprint), presentedOnly)
+}
+func asyncCardEntriesText(entries []indexedAsyncQuestion, presentedOnly bool) string {
 	var lines []string
-	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
+	for _, entry := range entries {
 		id, q := entry.ID, entry.Question
 		if presentedOnly && !q.Presented {
 			continue

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
@@ -43,7 +44,7 @@ func TestWorkerAsyncAnswerUsesExistingRemoteAdmissionBudget(t *testing.T) {
 				maximum = time.Second
 			}
 			engine := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
-			a, root := fixtureApp(t, engine, Host{})
+			a, root := fixtureApp(t, engine, Host{Diagnostics: diagnosticlog.New(t.TempDir())})
 			fixture := &workerFixture{runtime: "codex", states: map[string]api.WorkState{"original-work": {Task: api.Task{ID: "original-work", Machine: machine, Status: "working"}, Runtime: "codex", ExecutionKey: "original-turn", AsyncQuestions: []api.Item{{ID: "original-item", AsyncCallID: "original-call"}}}}}
 			pool := workPool(root, "codex", map[string]*workerFixture{"codex": fixture})
 			wireTestWorkers(t, a, pool)

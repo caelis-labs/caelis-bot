@@ -52,9 +52,33 @@ type taskRecord struct {
 	StopPendingStatus  string `json:"stopPendingStatus,omitempty"` // authoritative original native terminal status
 }
 type workerAsyncQuestion struct {
-	Run       string              `json:"run"`
-	CallID    string              `json:"callId"`
-	Questions []api.AsyncQuestion `json:"questions"`
+	ObservedAt int64               `json:"observedAt,omitempty"`
+	Digest     string              `json:"digest,omitempty"` // Payload tombstone; native transcript stays authoritative.
+	Run        string              `json:"run"`
+	CallID     string              `json:"callId"`
+	Questions  []api.AsyncQuestion `json:"questions"`
+}
+
+// Worker question payloads are a temporary observation cache, separate from
+// original input receipts and the native transcript. Keep only a digest after
+// its fixed lifetime; reconnect/replay cannot give the same call a new deadline.
+func compactWorkerQuestions(t *taskRecord) {
+	if t == nil {
+		return
+	}
+	for key, q := range t.AsyncQuestions {
+		if q.ObservedAt == 0 {
+			q.ObservedAt = time.Now().Unix()
+		}
+		if q.Digest == "" {
+			payload, _ := json.Marshal(q.Questions)
+			q.Digest = opaque(string(payload))
+		}
+		if time.Since(time.Unix(q.ObservedAt, 0)) >= 24*time.Hour {
+			q.Questions = nil
+		}
+		t.AsyncQuestions[key] = q
+	}
 }
 
 func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) bool {
@@ -72,12 +96,17 @@ func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) 
 		t.AsyncQuestions = map[string]workerAsyncQuestion{}
 	}
 	key := opaque(run, item.ID)
+	payload, _ := json.Marshal(questions)
+	fingerprint := opaque(string(payload))
 	if old, ok := t.AsyncQuestions[key]; ok && old.Run == run && old.CallID == item.ID {
+		if old.Digest == fingerprint && old.ObservedAt > 0 && time.Since(time.Unix(old.ObservedAt, 0)) >= 24*time.Hour {
+			return false
+		}
 		if slices.EqualFunc(old.Questions, questions, func(a, b api.AsyncQuestion) bool { return a.Title == b.Title && slices.Equal(a.Options, b.Options) }) {
 			return false
 		}
 	}
-	t.AsyncQuestions[key] = workerAsyncQuestion{Run: run, CallID: item.ID, Questions: questions}
+	t.AsyncQuestions[key] = workerAsyncQuestion{Run: run, CallID: item.ID, Questions: questions, ObservedAt: time.Now().Unix(), Digest: fingerprint}
 	return true
 }
 
@@ -93,20 +122,6 @@ type taskReceipt struct {
 	PriorResult       string `json:"priorResult,omitempty"`
 	PriorSuppressed   bool   `json:"priorSuppressed,omitempty"`
 	Phase             string `json:"phase,omitempty"`
-}
-
-// Keep the existing Bot prompt-admission bound independent of native control
-// traffic. Legacy receipts predate Kind and count conservatively as prompts.
-// Decisions and stops retain their original ID/digest/outcome in Requests, but
-// their history must not prevent a user from continuing or stopping this task.
-func promptReceiptCount(t *taskRecord) int {
-	n := 0
-	for _, r := range t.Requests {
-		if r.Kind == "" || r.Kind == "start" || r.Kind == "send" {
-			n++
-		}
-	}
-	return n
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -197,9 +212,16 @@ func (s *Session) workStatesLocked() []api.WorkState {
 		}
 		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
+			if len(question.Questions) == 0 || question.ObservedAt > 0 && time.Since(time.Unix(question.ObservedAt, 0)) >= 24*time.Hour {
+				continue
+			}
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
-			state.AsyncQuestions = append(state.AsyncQuestions, api.Item{ID: "worker-question:" + opaque(t.Thread, key), TurnKey: opaque(t.Thread, question.Run), Kind: "assistant", Status: "completed", AsyncCallID: question.CallID, AsyncQuestions: append([]api.AsyncQuestion(nil), question.Questions...)})
+			expiry := int64(0)
+			if question.ObservedAt > 0 {
+				expiry = question.ObservedAt + int64(24*time.Hour/time.Second)
+			}
+			state.AsyncQuestions = append(state.AsyncQuestions, api.Item{ID: "worker-question:" + opaque(t.Thread, key), TurnKey: opaque(t.Thread, question.Run), Kind: "assistant", Status: "completed", AsyncCallID: question.CallID, AsyncExpiresAt: expiry, AsyncQuestions: append([]api.AsyncQuestion(nil), question.Questions...)})
 		}
 		sort.Slice(state.AsyncQuestions, func(i, j int) bool { return state.AsyncQuestions[i].ID < state.AsyncQuestions[j].ID })
 		out = append(out, state)
@@ -506,14 +528,31 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return v, &api.WorkMessageRejection{Cause: errors.New("原 owner 已关闭，不能向新连接重发或续接旧任务")}
 	}
-	if err := s.taskAdmission(); err != nil {
+	// Answering a validated original question is an interaction, independent
+	// of resident activation. Ordinary continuation keeps native admission.
+	if callID := api.WorkerQuestionAnswer(ctx); callID != "" {
+		found := false
+		for _, q := range t.AsyncQuestions {
+			if q.CallID == callID && len(q.Questions) > 0 {
+				found = true
+			}
+		}
+		if !found {
+			s.mu.Unlock()
+			return api.Task{}, &api.WorkMessageRejection{Code: "original_question_unavailable", Cause: errors.New("original Worker question unavailable")}
+		}
+		if s.closed || s.closing || s.client == nil || s.client.Err() != nil || s.state.Connection != "ready" {
+			s.mu.Unlock()
+			return api.Task{}, &api.WorkMessageRejection{Code: "owner_unavailable", Cause: api.ErrRecoveryPending}
+		}
+	} else if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
-		return api.Task{}, &api.WorkMessageRejection{Cause: err}
+		return api.Task{}, &api.WorkMessageRejection{Code: "activation_required", Cause: err}
 	}
-	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" || promptReceiptCount(t) >= 100 {
+	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" {
 		v := t.View
 		s.mu.Unlock()
-		return v, &api.WorkMessageRejection{Cause: errors.New("请先核对该任务；结果未知的操作不会重复发送")}
+		return v, &api.WorkMessageRejection{Code: "original_receipt_unresolved", Cause: errors.New("请先核对该任务；结果未知的操作不会重复发送")}
 	}
 	s.mu.Unlock()
 	return s.sendTask(ctx, t, in, true)
@@ -554,7 +593,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	}
 	params := map[string]any{"threadId": t.Thread, "clientUserMessageId": in.RequestID}
 	// Provenance stays in the binding. The worker receives the actual assignment.
-	text := s.questionClosureContextLocked(t.Thread) + in.Prompt
+	text := in.Prompt
 	s.mu.Unlock()
 	input, inputErr := s.prepareInput(api.Submission{Text: text}, in.Files, nil)
 	if inputErr != nil {

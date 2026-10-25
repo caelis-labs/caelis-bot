@@ -228,3 +228,35 @@ func TestUndispatchedIntentCanCorrectAddressAndSendOriginalOnce(t *testing.T) {
 		t.Fatal("original operation replaced or dispatched twice")
 	}
 }
+
+func TestDefinitivelyRejectedLegacyPairingCanExplicitlyReconnect(t *testing.T) {
+	target := newDualPeerTarget(t)
+	s, err := Open(t.TempDir(), inert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: target.http.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	original := s.state.Profiles[ref.ID]
+	original.PairingEpoch = "legacy-undispatched"
+	original.View.PairingStatus = "unknown"
+	original.Peer.Peer = target.peer.Status().Peer
+	s.state.Profiles[ref.ID] = original
+	s.mu.Unlock()
+	_, _, err = s.ConnectPreparedBot(t.Context(), s.botConnectionReference(original, target.http.URL), api.BotConnectionInput{ID: ref.ID, Address: target.http.URL})
+	var rejected *api.ActionRejectedError
+	if !errors.As(err, &rejected) || s.state.Profiles[ref.ID].View.PairingStatus != "rejected" {
+		t.Fatal("definite legacy refusal kept unknown state", err)
+	}
+	next, err := s.PrepareBotConnection(api.BotConnectionInput{ID: ref.ID, Address: target.http.URL, Reconnect: true}, nil)
+	if err != nil || next.Pairing == original.PairingEpoch || s.state.Profiles[ref.ID].Peer.Token != original.Peer.Token {
+		t.Fatal("explicit reconnect lost proof or kept rejected ID", err)
+	}
+	value, _, err := s.ConnectPreparedBot(t.Context(), next, api.BotConnectionInput{ID: ref.ID, Address: target.http.URL, Reconnect: true})
+	if err != nil || value.PairingStatus != "pending" {
+		t.Fatal("legacy reconnect cannot create timed request", value, err)
+	}
+}

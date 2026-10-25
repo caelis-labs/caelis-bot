@@ -24,9 +24,8 @@ import (
 )
 
 type binding struct {
-	QuestionClosures map[string]retainedQuestionClosure `json:"questionClosures,omitempty"`
-	ToolLayout       int                                `json:"toolLayout,omitempty"`
-	Artifacts        map[string]string                  `json:"artifacts,omitempty"`
+	ToolLayout int               `json:"toolLayout,omitempty"`
+	Artifacts  map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
 	OwnerEndpoint string                `json:"ownerEndpoint,omitempty"`
@@ -239,6 +238,7 @@ func NewSession(opts SessionOptions) *Session {
 	// Older adapter task records carry typed report identities. The product task
 	// ledger is imported separately because it can derive a different report ID.
 	for _, task := range s.binding.Tasks {
+		compactWorkerQuestions(task)
 		settlePreparedTask(task)
 		if task != nil && task.ReportID != "" {
 			s.binding.HostReports[task.ReportID] = true
@@ -424,6 +424,7 @@ func (s *Session) publishSnapshot() {
 	for i := range out.Items {
 		out.Items[i].AsyncCallID = s.state.Items[i].AsyncCallID
 		out.Items[i].AsyncQuestions = s.state.Items[i].AsyncQuestions
+		out.Items[i].AsyncExpiresAt = s.state.Items[i].AsyncExpiresAt
 	}
 	for i := range out.Approvals {
 		out.Approvals[i].TaskID = s.state.Approvals[i].TaskID
@@ -465,6 +466,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		for i := range out.Items {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
 			out.Items[i].AsyncQuestions = snapshot.Items[i].AsyncQuestions
+			out.Items[i].AsyncExpiresAt = snapshot.Items[i].AsyncExpiresAt
 		}
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
@@ -482,6 +484,9 @@ func (s *Session) save() error {
 	if s.loadErr != nil {
 		s.retryStopTerminalSaveLocked()
 		return s.loadErr
+	}
+	for _, task := range s.binding.Tasks {
+		compactWorkerQuestions(task)
 	}
 	if err := localstate.Write(s.opts.StateFile, s.binding); err != nil {
 		s.retryStopTerminalSaveLocked()
@@ -1089,16 +1094,6 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	// A pre-dispatch failure can retry the same submission ID. Start from the
 	// quote length each time before the private context seed is added.
 	s.binding.ContextInputs[in.ID] = len(in.ModelQuotePrefix())
-	if closure := s.questionClosureContextLocked(threadID); closure != "" {
-		for _, part := range input {
-			if part["type"] == "text" {
-				text, _ := part["text"].(string)
-				part["text"] = closure + text
-				s.binding.ContextInputs[in.ID] += len(closure)
-				break
-			}
-		}
-	}
 	input, err = s.prepareContextLocked(ctx, in.ID, input)
 	if err != nil {
 		s.mu.Unlock()

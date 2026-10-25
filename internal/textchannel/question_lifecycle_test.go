@@ -75,8 +75,8 @@ func TestExpiryRunsOfflineWithoutNativePermissionDecision(t *testing.T) {
 	if projected[0].QuestionCards[0].State != "expired" || decisions != 0 || len(s.state.Prompts) != 1 {
 		t.Fatal(projected, decisions, s.state.Prompts)
 	}
-	if len(s.PendingQuestionClosures()) != 1 {
-		t.Fatal("closure not queued")
+	if len(s.PendingQuestionClosures()) != 0 {
+		t.Fatal("closure unexpectedly queued Worker input")
 	}
 }
 func TestQuestionDismissRacesAnswerAndCannotEraseUnknown(t *testing.T) {
@@ -209,7 +209,7 @@ func TestExpiredSlotArchivesClosureBeforeNumberReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	old, _ := s.ProjectQuestions([]api.Item{card})
-	if old[0].QuestionCards[0].State != "expired" || len(s.PendingQuestionClosures()) != 1 {
+	if old[0].QuestionCards[0].State != "expired" || len(s.PendingQuestionClosures()) != 0 {
 		t.Fatal("expiry lost while reusing number", old)
 	}
 }
@@ -268,5 +268,28 @@ func TestOldSchemaReplayCannotEraseTheNewLiveCard(t *testing.T) {
 	replay, _ := s.AsyncCard(old, "owner")
 	if len(replay.QuestionCards) != 1 || replay.QuestionCards[0].Binding != current.QuestionCards[0].Binding || replay.QuestionCards[0].Title != next.AsyncQuestions[0].Title || replay.QuestionCards[0].State != "" {
 		t.Fatal("late old item erased the live card", replay)
+	}
+}
+
+func TestDelayedWorkerObservationSharesOriginalDeadline(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	item := lifecycleQuestion()
+	deadline := time.Now().Add(4 * time.Hour).Unix() // Source first observed it 20h ago.
+	item.AsyncExpiresAt = deadline
+	card, err := s.AsyncWorkCard(item, "original-owner", "original-task")
+	if err != nil || card.QuestionCards[0].ExpiresAt != deadline {
+		t.Fatal("late observation extended native deadline", err)
+	}
+	if _, err = s.AsyncWorkCard(item, "original-owner", "original-task"); err != nil || s.state.AsyncQuestions["Q1"].ExpiresAt != deadline {
+		t.Fatal("replay extended deadline", err)
+	}
+	// An already expired source cannot flash a fresh actionable card.
+	old := item
+	old.ID = "expired-original"
+	old.AsyncCallID = "expired-call"
+	old.AsyncExpiresAt = time.Now().Add(-time.Second).Unix()
+	closed, err := s.AsyncWorkCard(old, "original-owner", "original-task")
+	if err != nil || closed.QuestionCards[0].State != "expired" {
+		t.Fatal("late source revived an expired question", err)
 	}
 }

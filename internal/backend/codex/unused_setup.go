@@ -14,7 +14,7 @@ func (s *Session) CanLeaveUnsubmittedSetup() bool {
 		len(b.PendingApprovalIDs) == 0 && b.CapacityStopRequest == "" && b.StopState == "" &&
 		len(b.StopRuns) == 0 && b.ToolRenewal == nil && !b.TrustWriteUnknown &&
 		len(b.LostOwners) == 0 && len(b.LostOwnerTasks) == 0 && len(b.PastThreads) == 0 &&
-		len(b.QuestionClosures) == 0 && len(b.HostReportTurns) == 0 && len(b.ScheduledOrigins) == 0 &&
+		len(b.HostReportTurns) == 0 && len(b.ScheduledOrigins) == 0 &&
 		b.CapacityStopThread == "" && b.CapacityStopTurn == "" && !b.CapacityStopAccepted &&
 		b.CapacityStopPhase == "" && b.CapacityStopStatus == "" &&
 		len(b.Scheduled) == 0 && len(b.HostReports) == 0 && len(b.BackgroundResults) == 0

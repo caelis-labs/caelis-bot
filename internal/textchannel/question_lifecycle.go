@@ -110,8 +110,15 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 				}
 			}
 			if ok {
-				card.State, card.Reason, card.ExpiresAt, card.TaskTitle = q.State, q.Reason, q.ExpiresAt, q.TaskTitle
-				card.Title, card.Context, card.Options = q.Title, "", append([]string(nil), q.Options...)
+				card.State, card.Reason, card.ExpiresAt = q.State, q.Reason, q.ExpiresAt
+				if q.TaskTitle != "" {
+					card.TaskTitle = q.TaskTitle
+				}
+				// The IM card already holds its original display. A compact
+				// terminal tombstone updates lifecycle only, never erases it.
+				if q.Title != "" {
+					card.Title, card.Context, card.Options = q.Title, "", append([]string(nil), q.Options...)
+				}
 				if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) == nil {
 					card.Title, card.Context, card.Options = q.Presentation.Title, q.Presentation.Context, append([]string(nil), q.Presentation.Options...)
 				}
@@ -206,43 +213,9 @@ func (s *Store) PresentedQuestion(itemID string) bool {
 	return false
 }
 
-func (s *Store) PendingQuestionClosures() []api.QuestionClosure {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []api.QuestionClosure
-	for key, q := range s.state.AsyncClosed {
-		if !closedAsync(q.State) || q.Notified {
-			continue
-		}
-		out = append(out, api.QuestionClosure{ID: key, ItemID: q.ItemID, CallID: q.CallID, Owner: q.Owner, WorkID: q.WorkID, State: q.State, Reason: q.Reason, Index: q.Index})
-	}
-	slices.SortFunc(out, func(a, b api.QuestionClosure) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
-	return out
-}
-func (s *Store) QuestionClosureRecorded(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	q, ok := s.state.AsyncClosed[id]
-	if !ok || q.Notified {
-		return nil
-	}
-	old := q
-	q.Notified = true
-	s.state.AsyncClosed[id] = q
-	if err := s.save(); err != nil {
-		s.state.AsyncClosed[id] = old
-		return err
-	}
-	return nil
-}
+// PendingQuestionClosures is a retired compatibility read. Closing a temporary
+// interaction never sends model input or queues a notification to a Worker.
+func (s *Store) PendingQuestionClosures() []api.QuestionClosure { return nil }
 
 // A presentation may split the original title into a heading and following
 // context, but it cannot rewrite, remove or reorder a single semantic byte.
@@ -262,12 +235,38 @@ func validateQuestionPresentation(p api.QuestionPresentation, title string, opti
 // need it; never prune native history or uncertain dispatch evidence.
 func (s *Store) compactClosedQuestionCopies() bool {
 	changed := false
+	history := []string{}
 	for key, q := range s.state.AsyncClosed {
 		if !closedAsync(q.State) && q.State != "answered" {
 			continue
 		}
 		current, ok := s.state.AsyncQuestions[q.ShortID]
-		if !ok || current.Fingerprint != q.Fingerprint || current.Index != q.Index || (!closedAsync(current.State) && current.State != "answered") {
+		if !ok || current.Fingerprint != q.Fingerprint || current.Index != q.Index {
+			history = append(history, key)
+		}
+	}
+	slices.SortFunc(history, func(a, b string) int {
+		x, y := s.state.AsyncClosed[a], s.state.AsyncClosed[b]
+		if x.ClosedAt != y.ClosedAt {
+			if x.ClosedAt > y.ClosedAt {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	recent := map[string]bool{}
+	for _, key := range history[:min(128, len(history))] {
+		q := s.state.AsyncClosed[key]
+		if q.ClosedAt > time.Now().Add(-shortIDMaxAge).Unix() {
+			recent[key] = true
+		}
+	}
+	for key, q := range s.state.AsyncClosed {
+		if !closedAsync(q.State) && q.State != "answered" {
+			continue
+		}
+		if recent[key] {
 			continue
 		}
 		if q.Title != "" || len(q.Options) != 0 || q.Presentation != nil || q.TaskTitle != "" {
