@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.18.3](https://github.com/caelis-labs/caelis-bot/compare/v0.18.2...v0.18.3) (2026-10-26)
+
+### Remote connections
+
+* Connect to another running Bot by address or SSH Host with asynchronous approval on the target. The initiating Bot keeps task output, history, files, questions and approvals; the target retains its own accounts, models and isolated execution. Each direction requires separate authorization. SSH supplies a network channel only; it does not install or configure the remote Bot. SSH convenience is available on macOS/Linux; Windows supports direct Bot connections. ([#221](https://github.com/caelis-labs/caelis-bot/pull/221))
+
+### Bug Fixes
+
+* Preserve original Worker prompts and deliver host-validated answers to the original Worker even while the main Bot is idle. Bound question and pairing retention and large tool reads while preserving history, callback compatibility, original request identities and uncertain receipts without replay. ([#225](https://github.com/caelis-labs/caelis-bot/pull/225))
+
+### Assistant guidance
+
+* Refine bot-core around a continuing personal assistant: follow the user's goal and latest corrections, arrange future work, track Workers, verify results and finish delivery. Add guidance for reusing and reclaiming workspaces, test data, caches and intermediate artifacts according to ownership and active dependencies. This updates packaged guidance; it does not add automatic garbage collection. ([#227](https://github.com/caelis-labs/caelis-bot/pull/227))
+
+### Bundled dependencies
+
+* Upgrade the bundled Desktop World Plugin to v0.1.3 with CUA 0.38.0. Include browser discovery/`next_call` and idle context-reset guidance while retaining the single `exec` interface, existing authorization and original-receipt recovery. No global Desktop World installation is required. ([#228](https://github.com/caelis-labs/caelis-bot/pull/228))
+
 ## [0.18.2](https://github.com/caelis-labs/caelis-bot/compare/v0.18.1...v0.18.2) (2026-10-22)
 
 
