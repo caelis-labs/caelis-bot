@@ -45,3 +45,15 @@ type SSHConnections interface {
 	AnswerSSH(SSHAnswer) error
 	StopSSHConnection(SSHTarget) error
 }
+
+// Scope is a host-owned selector, never an arbitrary client file path.
+type SSHConfigurationDocument struct {
+	Kind   string `json:"kind"`
+	Text   string `json:"text"`
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+}
+type SSHConfigurationFiles interface {
+	ReadSSHConfiguration(string) (SSHConfigurationDocument, error)
+	PrepareSSHConfigurationEdit(string) (SSHConfigurationDocument, error)
+}

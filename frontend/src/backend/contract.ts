@@ -418,6 +418,12 @@ export interface SSHConfiguration {
   hosts: Array<string>;
   issue?: string;
 }
+export interface SSHConfigurationDocument {
+  kind: string;
+  text: string;
+  path: string;
+  exists: boolean;
+}
 export interface SSHConfigurationSave {
   text: string;
   revision: string;

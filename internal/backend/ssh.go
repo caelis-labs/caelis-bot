@@ -58,3 +58,17 @@ func (s *Service) StopSSHConnection(in api.SSHTarget) error {
 	}
 	return v.StopSSHConnection(in)
 }
+func (s *Service) ReadSSHConfiguration(kind string) (api.SSHConfigurationDocument, error) {
+	p, ok := s.machines.(api.SSHConfigurationFiles)
+	if !ok {
+		return api.SSHConfigurationDocument{}, errors.New("ssh_unavailable")
+	}
+	return p.ReadSSHConfiguration(kind)
+}
+func (s *Service) PrepareSSHConfigurationEdit(kind string) (api.SSHConfigurationDocument, error) {
+	p, ok := s.machines.(api.SSHConfigurationFiles)
+	if !ok {
+		return api.SSHConfigurationDocument{}, errors.New("ssh_unavailable")
+	}
+	return p.PrepareSSHConfigurationEdit(kind)
+}

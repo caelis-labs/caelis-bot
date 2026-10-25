@@ -33,108 +33,112 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
-	captureMenuChanged     func()
-	pluginSnapshot         func(context.Context) (plugins.Snapshot, error)
-	pluginAction           func(context.Context, string, string) (plugins.Snapshot, error)
-	pluginConnection       func(context.Context, string, string, string, bool) (plugins.Snapshot, error)
-	pluginOAuthStart       func(context.Context, string) (plugins.Snapshot, error)
-	pluginOAuthCancel      func(context.Context, string) (plugins.Snapshot, error)
-	pluginSkillDetail      func(context.Context, string, string) (plugins.SkillDetail, error)
-	pluginServerDetail     func(context.Context, string, string, bool) (plugins.ServerDetail, error)
-	telegram               *telegram.Bridge
-	weixin                 *weixin.Bridge
-	openExternalURL        func(string) error
-	capture                captureState
-	permissionGuide        permissionGuide
-	featureGuide           permissionGuide
-	workerTaskView         func(context.Context, string) (bool, error)
-	workerTaskSelection    string
-	taskPreferences        func() tasks.Preferences
-	saveTaskPreferences    func(tasks.Preferences) (tasks.Preferences, error)
-	terminalChoices        func() []taskterminal.Choice
-	removeTaskPin          func(string) error
-	lockTaskPin            func(string, bool) error
-	clearTaskPins          func() error
-	moveTaskPin            func(string, string) error
-	observeTaskTerminal    func(context.Context, string)
-	taskWindows            taskWindowController
-	taskWindowEvents       map[string]taskterminal.WindowEvent
-	taskWindowPrompt       string
-	displayMu              sync.Mutex
-	displaySaveMu          sync.Mutex
-	displayFile            string
-	display                DisplayState
-	displayChanged         func(DisplayState)
-	languageMu             sync.Mutex
-	languageSaveMu         sync.Mutex
-	languageFile           string
-	systemLanguages        []string
-	language               LanguageState
-	languageChanged        func(LanguageState)
-	taskPreviews           []api.TaskPreview
-	taskPreviewJSON        string
-	taskError              func(string, error)
-	needsIntroduction      func() bool
-	content                *contentpack.Registry
-	pickContentFile        func() (string, error)
-	contentChanged         func(contentpack.Appearance)
-	contentImportMu        sync.Mutex
-	taskShortcutFile       string
-	taskShortcut           ShortcutState
-	shortcutFile           string
-	shortcut               ShortcutState
-	surfaceReady           func(string, uint64)
-	ready                  chan struct{}
-	mu                     sync.Mutex
-	native                 driver
-	store                  preferences
-	placement              Placement
-	started                bool
-	stopped                bool
-	pickFiles              func() ([]string, error)
-	filesChanged           func()
-	readClipboard          func() ([]string, []byte, error)
-	picking                bool
-	files                  []draftFile
-	nextFile               uint64
-	selectionFile          string
-	selectionError         error
-	openHistory            func()
-	openArtifactPreview    func()
-	artifactPreview        ArtifactPreviewSelection
-	artifactPreviewRequest uint64
-	recallWindows          func()
-	closeHistory           func()
-	historyVisible         func() bool
-	historyCanHide         func() bool
-	petChatCanHide         func() bool
-	activate               func()
-	openSettings           func()
-	focusSettings          func()
-	closeSettings          func()
-	settingsVisible        func() bool
-	settingsSection        string
-	characterActivity      string
-	openReleasePage        func() error
-	updatePreferences      func() UpdatePreferences
-	setAutomaticUpdates    func(bool) error
-	checkNativeUpdates     func() error
-	installNativeUpdate    func() error
-	loginAtLogin           loginAtLoginController
-	loginAtLoginMu         sync.Mutex
-	pickRuntimeCLI         func() (string, error)
-	copyText               func(string) bool
-	storage                func() (api.AttachmentStorage, error)
-	cleanStorage           func(context.Context) (api.AttachmentStorage, error)
-	diagnosticReport       func() ([]byte, error)
-	presentationWarning    func(string)
-	presentationWarnings   map[string]bool
-	saveDiagnosticPath     func() (string, error)
-	resolveArtifact        func(string) (string, error)
-	resolveArtifactCopy    func(string) (api.TaskFileCopy, error)
-	openArtifactFile       func(string) error
-	saveArtifactPath       func(string) (string, error)
-	exportMu               sync.Mutex
+	readSSHConfiguration    func(string) (api.SSHConfigurationDocument, error)
+	prepareSSHConfiguration func(string) (api.SSHConfigurationDocument, error)
+	openConfigurationFile   func(string) error
+	revealConfigurationFile func(string) error
+	captureMenuChanged      func()
+	pluginSnapshot          func(context.Context) (plugins.Snapshot, error)
+	pluginAction            func(context.Context, string, string) (plugins.Snapshot, error)
+	pluginConnection        func(context.Context, string, string, string, bool) (plugins.Snapshot, error)
+	pluginOAuthStart        func(context.Context, string) (plugins.Snapshot, error)
+	pluginOAuthCancel       func(context.Context, string) (plugins.Snapshot, error)
+	pluginSkillDetail       func(context.Context, string, string) (plugins.SkillDetail, error)
+	pluginServerDetail      func(context.Context, string, string, bool) (plugins.ServerDetail, error)
+	telegram                *telegram.Bridge
+	weixin                  *weixin.Bridge
+	openExternalURL         func(string) error
+	capture                 captureState
+	permissionGuide         permissionGuide
+	featureGuide            permissionGuide
+	workerTaskView          func(context.Context, string) (bool, error)
+	workerTaskSelection     string
+	taskPreferences         func() tasks.Preferences
+	saveTaskPreferences     func(tasks.Preferences) (tasks.Preferences, error)
+	terminalChoices         func() []taskterminal.Choice
+	removeTaskPin           func(string) error
+	lockTaskPin             func(string, bool) error
+	clearTaskPins           func() error
+	moveTaskPin             func(string, string) error
+	observeTaskTerminal     func(context.Context, string)
+	taskWindows             taskWindowController
+	taskWindowEvents        map[string]taskterminal.WindowEvent
+	taskWindowPrompt        string
+	displayMu               sync.Mutex
+	displaySaveMu           sync.Mutex
+	displayFile             string
+	display                 DisplayState
+	displayChanged          func(DisplayState)
+	languageMu              sync.Mutex
+	languageSaveMu          sync.Mutex
+	languageFile            string
+	systemLanguages         []string
+	language                LanguageState
+	languageChanged         func(LanguageState)
+	taskPreviews            []api.TaskPreview
+	taskPreviewJSON         string
+	taskError               func(string, error)
+	needsIntroduction       func() bool
+	content                 *contentpack.Registry
+	pickContentFile         func() (string, error)
+	contentChanged          func(contentpack.Appearance)
+	contentImportMu         sync.Mutex
+	taskShortcutFile        string
+	taskShortcut            ShortcutState
+	shortcutFile            string
+	shortcut                ShortcutState
+	surfaceReady            func(string, uint64)
+	ready                   chan struct{}
+	mu                      sync.Mutex
+	native                  driver
+	store                   preferences
+	placement               Placement
+	started                 bool
+	stopped                 bool
+	pickFiles               func() ([]string, error)
+	filesChanged            func()
+	readClipboard           func() ([]string, []byte, error)
+	picking                 bool
+	files                   []draftFile
+	nextFile                uint64
+	selectionFile           string
+	selectionError          error
+	openHistory             func()
+	openArtifactPreview     func()
+	artifactPreview         ArtifactPreviewSelection
+	artifactPreviewRequest  uint64
+	recallWindows           func()
+	closeHistory            func()
+	historyVisible          func() bool
+	historyCanHide          func() bool
+	petChatCanHide          func() bool
+	activate                func()
+	openSettings            func()
+	focusSettings           func()
+	closeSettings           func()
+	settingsVisible         func() bool
+	settingsSection         string
+	characterActivity       string
+	openReleasePage         func() error
+	updatePreferences       func() UpdatePreferences
+	setAutomaticUpdates     func(bool) error
+	checkNativeUpdates      func() error
+	installNativeUpdate     func() error
+	loginAtLogin            loginAtLoginController
+	loginAtLoginMu          sync.Mutex
+	pickRuntimeCLI          func() (string, error)
+	copyText                func(string) bool
+	storage                 func() (api.AttachmentStorage, error)
+	cleanStorage            func(context.Context) (api.AttachmentStorage, error)
+	diagnosticReport        func() ([]byte, error)
+	presentationWarning     func(string)
+	presentationWarnings    map[string]bool
+	saveDiagnosticPath      func() (string, error)
+	resolveArtifact         func(string) (string, error)
+	resolveArtifactCopy     func(string) (api.TaskFileCopy, error)
+	openArtifactFile        func(string) error
+	saveArtifactPath        func(string) (string, error)
+	exportMu                sync.Mutex
 }
 
 func (s *Service) CopyText(text string) error {

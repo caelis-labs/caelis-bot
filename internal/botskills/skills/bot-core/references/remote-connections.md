@@ -10,7 +10,7 @@ a helper or manage B's models or credentials.
 Use `bot_tasks` with `request.type="ssh_config"` to obtain the actual Bot SSH file
 path, its revision, read-only user/system paths and literal Host suggestions. This
 read does not execute SSH configuration. The file is the same one edited in
-Settings → Remote machines → Add → SSH → SSH configuration. No second JSON model
+Settings → Remote machines → SSH configuration. No second JSON model
 of SSH settings exists. Suggestions omit patterns and dynamic Includes; an exact
 Host alias may still be entered manually.
 
@@ -39,12 +39,16 @@ Keep specific entries above general defaults. Never copy private key bytes,
 passwords, access tokens or a user's entire SSH directory into this file, a
 Notebook note, chat, or tool output. Reference an existing key path or ssh-agent;
 do not change user/system config files as a shortcut. If an external editor has
-changed the file, reload and reconcile the new text before writing. The UI saves
-atomically against the revision it read and refuses stale drafts.
+changed the file, reload and reconcile the new text before writing. The UI opens the chosen file in the system default text editor. Save there and
+return to Bot to refresh Host suggestions. Do not overwrite another editor's
+changes; read the current file before an authorized native-tool edit.
 
-The UI performs bounded syntax diagnostics without executing `Match exec`,
-ProxyCommand or local commands. That is not proof that a live login, executable
-condition, dynamic Include or jump is usable. Do not run `ssh -G` on an unreviewed
+Preview shows the selected original file read-only and does not evaluate
+Includes or execute `Match exec`, ProxyCommand or local commands. Use the More
+menu to reveal its location. The System SSH row is the current user's
+`~/.ssh/config`; `/etc/ssh/ssh_config` still supplies system-wide defaults but is
+not an administrative editor. Native SSH checks usable syntax and authentication
+when connecting. A readable preview is not proof of a working login or jump. Do not run `ssh -G` on an unreviewed
 configuration as an automatic preview: `Match exec` can execute even with `-G`.
 Executable SSH configuration is local code; actual connection requires the
 user's requested connection scope. A direct native file edit is picked up on

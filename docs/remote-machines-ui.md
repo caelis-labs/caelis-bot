@@ -1,14 +1,15 @@
 # Remote machines
 
 The existing Settings breadcrumb owns the title. One aligned toolbar shows the
-known machine count, Check and a visible **+** Add machine button with a tooltip
-and accessible label. A **Pairing requests** bell appears only for pending,
+secondary **SSH configuration** and a visible primary **+** Add machine button
+with a tooltip and accessible label. Per-machine checks live in the row menu. A **Pairing requests** bell appears only for pending,
 unexpired requests. No hero, repeated large heading, scattered footer actions,
 account/server dashboard, sharing switch, verification code or helper execution. The SSH choice is network transport only;
 see [SSH channels](ssh-connections.md).
 
 Add is a short dialog: Address/SSH choice, then address or configured Host and a
-narrow optional Bot port on one row. SSH configuration has one secondary editor. Empty inputs
+optional Bot port inside Connection options. Address and SSH share the same
+small dialog; confirmed pending delivery stays in that dialog. Empty inputs
 have placeholders; “Default 9317” is not a submitted value. The target name is read
 from the original peer receipt; an established machine can be renamed in its same
 settings dialog. There is no one-field accordion or duplicate name label.
@@ -27,7 +28,7 @@ incoming requests; it performs no network request. Page-entry/manual checks are
 bounded, max three concurrent. Pending authorization is never polled in background
 or offered for delegation.
 
-B's second dialog shows the self-reported name, observed address and proof-bound
+The pairing-request dialog shows the self-reported name, observed address and proof-bound
 fingerprint, with Decline/Allow. Names and loopback addresses are not identity
 proof. Only B's authenticated local user may decide; the reverse direction needs
 its own authorization. Handled/expired requests leave the inbox. Source revocation
@@ -54,31 +55,43 @@ a missing Runtime/login/model/effort. Its one-time cold cleanup belongs to that
 Dev upgrade, outside product code. Nonempty, malformed or incompatible state
 remains fail-closed, with its contents and original effects preserved.
 
+## SSH configuration
+
+The header opens two concise entries: Bot SSH configuration and the current
+user's system SSH configuration. Preview reads the selected configuration without
+starting SSH. Edit opens that scoped file in the native text editor; returning to
+the App refreshes the Host index. File location is available in each row's menu.
+The Web surface supports preview; editing happens on the machine hosting the Bot.
+No in-App text copy is saved over an external editor's changes. OpenSSH priority,
+Include/Match behavior and executable-configuration limits live in
+[SSH channels](ssh-connections.md) and the Bot's conditional reference.
+
 ## Validation
 
-Actual native AppKit/WKWebView screenshots cover light/dark at 1280×900 and 900×680:
-empty/list/Add/pending/incoming/unknown/read failure/reception failure/approval
-recovery. Data transport is explicitly synthetic; this is native rendering evidence,
-not native Runtime or account acceptance. Independent visual review checks all 36
-images and rechecks changed error/loading images. Browser acceptance uses actual
-React controls and verifies geometry, request entry visibility, no pending polling,
-original unknown checks, explicit read recovery and local freshness deadlines.
+Actual native AppKit/WKWebView screenshots cover light/dark at 1280×900,
+900×680 and 620×720: empty/list/Add/SSH selection/configuration/preview/pending/
+authentication/incoming requests. The settings transport is synthetic; these are
+native rendering checks, not Runtime or account acceptance. The actual React
+browser matrix also covers the row menus, scoped editor dispatch, original unknown
+checks, read recovery, local freshness deadlines and deferred SSH callbacks.
+Independent review checks alignment, hierarchy, spacing and the two themes.
 
 Use existing cached Chrome/Playwright (no install):
 
 ```sh
 WORKER_PEER_PLAYWRIGHT_MODULE=/path/to/existing/playwright/index.mjs node script/remote-machines-ui.mjs
-BOT_REMOTE_UI_MATRIX=1 BOT_SETTINGS_PREVIEW_ROOT=/private/tmp/owned-preview BOT_SETTINGS_PREVIEW_EVIDENCE=/private/tmp/owned-evidence bash script/desktop-settings-preview.sh
+BOT_REMOTE_NEXT_UI_MATRIX=1 BOT_SETTINGS_PREVIEW_ROOT=/private/tmp/owned-preview BOT_SETTINGS_PREVIEW_EVIDENCE=/private/tmp/owned-evidence bash script/desktop-settings-preview.sh
 ```
 
 Actual A/B HTTP/React application and real installed Codex + isolated Mock MCP
 journeys are separate acceptance commands documented in [worker-peer-e2e.md](worker-peer-e2e.md).
 The bounded URL contract and its explicit first-version exclusions are unchanged.
-No user Dev/formal instance is restarted by the preview or tests. The coordinator
-applies the verified candidate to the isolated Dev after receiving the handoff.
+Preview/tests do not restart user instances. A separately authorized Dev update
+uses the validated candidate and preserves its existing data; the release App is
+untouched. The development-default profile selector is documented in SSH channels.
 
 ![Native empty, synthetic data](images/remote-machines-empty-native.png)
 ![Native compact list, synthetic data](images/remote-machines-native.png)
 ![Native Add machine, synthetic data](images/remote-machine-add-native.png)
 ![Native pairing request, synthetic data](images/remote-machine-request-native.png)
-![Native reception error, synthetic data](images/remote-machines-error-native.png)
+![Native SSH configuration list, synthetic data](images/remote-machine-ssh-config-native.png)

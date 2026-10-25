@@ -52,6 +52,9 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		return nil, err
 	}
 	back := core.Backend
+	s.readSSHConfiguration = back.ReadSSHConfiguration
+	s.prepareSSHConfiguration = back.PrepareSSHConfigurationEdit
+	s.revealConfigurationFile = host.RevealFile
 	s.workerTaskView = func(ctx context.Context, id string) (bool, error) {
 		owned := false
 		for _, task := range back.WorkerTasks() {

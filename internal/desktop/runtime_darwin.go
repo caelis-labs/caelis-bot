@@ -33,6 +33,9 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
+	if err := prepareDevelopmentProfileEnvironment(); err != nil {
+		return err
+	}
 	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
 	if err := runtimeenv.Install(env); err != nil {
 		envErr = err
@@ -132,6 +135,7 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
+	s.openConfigurationFile = func(path string) error { return exec.Command("/usr/bin/open", "-t", path).Run() }
 	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
 
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }

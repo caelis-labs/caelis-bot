@@ -2,8 +2,9 @@
 
 SSH is a network convenience for the existing Bot-to-Bot environment. It does not
 execute work, install helpers, configure remote models, or authorize a source.
-Choose Address or SSH in Add machine, select a Host alias, complete any native SSH
-prompt, then send the normal one-way request. B must approve A separately. The
+Choose Address or SSH in Add machine, search/select a Host alias (or enter one), complete any native SSH
+prompt, then send the normal one-way request. The original dialog shows pending
+approval only after confirmed delivery, without waiting continuously. B must approve A separately. The
 optional UI port is B's Bot port, default 9317, not SSH's login port.
 
 ## Configuration authority
@@ -11,8 +12,9 @@ optional UI port is B's Bot port, default 9317, not SSH's login port.
 The actual editable file is `<Bot data>/Machines/SSH/config` (private directory,
 0600/private ACL file). UI and native Bot file tools edit that same standard
 OpenSSH file. `bot_tasks {request:{type:"ssh_config"}}` returns its actual path,
-revision and literal Host suggestions; it cannot write or authenticate. System
-files and keys are never copied or modified by this feature.
+revision and literal Host suggestions; it cannot write or authenticate. Keys are never copied. System files are not modified automatically; an explicit
+Edit action may open the current user’s `~/.ssh/config` in the native text editor.
+The App never opens the administrator’s system-wide configuration for editing.
 
 Invocation precedence is Bot private file, `~/.ssh/config`, then
 `/etc/ssh/ssh_config`. First applicable value wins; multiple-valued options retain
@@ -94,11 +96,24 @@ outputs. It is not a real-account or physical cross-machine claim.
 acceptance, including ProxyJump and spaced identity paths. Unit tests cover inert
 Include/Match preview, original-address reuse, config CAS, special-file refusal,
 slow/cancelled transport isolation, and key-header exclusion. React and native
-AppKit/WKWebView matrices cover light/dark at large and compact sizes; their
+AppKit/WKWebView matrices cover light/dark at large, compact and narrow sizes; their
 settings transport is synthetic and is labeled separately from application E2E.
 
 Native AppKit/WKWebView screenshots (synthetic settings transport):
 
 ![SSH Host selection](images/remote-machine-ssh-native.png)
 
-![Shared SSH configuration editor](images/remote-machine-ssh-config-native.png)
+![SSH configuration list](images/remote-machine-ssh-config-native.png)
+
+
+## Daily development data
+
+Normal development launches may select a dedicated persistent data/home through
+`<UserConfigDir>/Caelis Bot Dev/active-profile.json`. Release/onboarding do not
+read this selector; explicit `CAELIS_BOT_DATA_DIR` test roots always win. The small
+file contains only `dataDirectory` and optional `codexHome`, both absolute existing
+directories. It is not an account, machine, or execution registry. Invalid selection
+fails closed rather than silently adopting a different profile. The private Runtime
+home is applied before login-shell environment recovery. Existing data is never
+merged automatically. A one-time user-authorized relocation retains the original
+files and, when needed, a compatibility path; other profiles stay untouched.

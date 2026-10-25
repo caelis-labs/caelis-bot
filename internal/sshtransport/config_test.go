@@ -164,3 +164,25 @@ func TestInertIndexAndValidationNeverMirrorPrivateKeyFile(t *testing.T) {
 		}
 	}
 }
+func TestScopedDocumentsAndExternalEditorDoNotOverwriteConfiguration(t *testing.T) {
+	v := fixtureTransport(t)
+	if _, e := v.Document("../private"); e == nil {
+		t.Fatal("arbitrary path read")
+	}
+	if _, e := v.PrepareEdit("/etc/passwd"); e == nil {
+		t.Fatal("arbitrary path prepared")
+	}
+	d, e := v.PrepareEdit("bot")
+	if e != nil || !d.Exists || d.Text != "" {
+		t.Fatal(d, e)
+	}
+	put(t, v.path(), "Host external-edit\n HostName 127.0.0.1\n")
+	d, e = v.PrepareEdit("bot")
+	if e != nil || !strings.Contains(d.Text, "external-edit") {
+		t.Fatal("editor preparation overwrote file", d, e)
+	}
+	a, e := v.Configuration()
+	if e != nil || len(a.Hosts) != 1 || a.Hosts[0] != "external-edit" {
+		t.Fatal("external save not indexed", a, e)
+	}
+}

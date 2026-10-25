@@ -92,3 +92,9 @@ func (s *Service) checkedSSHAddress(ctx context.Context, address, peer string) (
 	}
 	return a, nil
 }
+func (s *Service) ReadSSHConfiguration(kind string) (api.SSHConfigurationDocument, error) {
+	return s.ssh.Document(kind)
+}
+func (s *Service) PrepareSSHConfigurationEdit(kind string) (api.SSHConfigurationDocument, error) {
+	return s.ssh.PrepareEdit(kind)
+}

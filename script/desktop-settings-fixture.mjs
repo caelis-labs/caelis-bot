@@ -60,6 +60,9 @@ export const Call={ByName:async(name,...args)=>{
  case 'ShortcutSettings':case 'TaskShortcutSettings':return {shortcut:{enabled:true,key:method==='TaskShortcutSettings'?'KeyT':'Space',control:true,shift:true,alt:false,meta:false},registered:true,message:''};
  case 'TelegramStatus':return {enabled:false,bot:'',owner:'',paired:false,candidate:'',pairURL:'',issue:''};
  case 'WeixinStatus':return {phase:'unconfigured'};
+ case 'ReadSSHConfiguration':if(window.fixtureSSHReadFailure)throw Error('ssh_config_unreadable');return {kind:args[0],exists:true,path:args[0]==='bot'?sshConfig.path:sshConfig.userPath,text:sshConfig.text};
+ case 'EditSSHConfiguration':window.fixtureSSHEdit=args[0];return;
+ case 'RevealSSHConfiguration':window.fixtureSSHReveal=args[0];return;
  case 'SSHConfiguration':return structuredClone(sshConfig);
  case 'SaveSSHConfiguration':if(window.fixtureSSHConflict)throw Error('ssh_config_changed');sshConfig={...sshConfig,text:args[0].text,revision:'2'};return structuredClone(sshConfig);
  case 'StartSSHConnection':if(params.get('ssh')==='late-start'&&!window.fixtureSSHStarted){window.fixtureSSHStarted=true;sshStatus={state:'failed',issue:'ssh_connection_failed'};await new Promise((resolve,reject)=>window.fixtureSSHStartRelease=()=>reject(Error('late old start')))}if(params.get('ssh')==='same-start'&&!window.fixtureSSHStarted){window.fixtureSSHStarted=true;sshStatus={state:'authentication',prompt:{id:'ssh-original-prompt',text:'Key passphrase:',confirm:false}};await new Promise(resolve=>window.fixtureSSHStartRelease=resolve);return {state:'connecting'}}sshStatus={state:'authentication',prompt:{id:'ssh-original-prompt',text:['password','late-start','late-answer','same-start','late-answer-error'].includes(params.get('ssh'))?'Key passphrase:':"The authenticity of host 192.168.1.25 cannot be established.\nED25519 key fingerprint is SHA256:fixture-only.\nAre you sure you want to continue connecting (yes/no)?",confirm:!['password','late-start','late-answer','same-start','late-answer-error'].includes(params.get('ssh'))}};return structuredClone(sshStatus);
@@ -70,7 +73,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'ConnectBot':{
   if(params.get('connectError'))throw Error(params.get('connectError'));
   const input=args[0];
-  const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:''};const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
+  const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:''};if(params.get('connectedIssue')){v.pairingStatus='approved';v.state='offline';v.issue=params.get('connectedIssue')}const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
  }
  case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
  case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}

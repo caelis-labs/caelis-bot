@@ -28,7 +28,6 @@
 .settings-window .remote-bot-dialog label{display:flex;flex-direction:column;gap:8px;margin:0 0 18px;font-size:12px;color:var(--muted)}
 .settings-window .remote-bot-dialog input{width:100%;height:38px;min-height:38px;padding:8px 10px;font-size:13px;color:var(--ink);border-radius:7px}
 .settings-window .remote-bot-dialog input::placeholder{color:var(--muted);opacity:.7}
-.remote-endpoint-fields{display:grid;grid-template-columns:minmax(0,1fr) 94px;gap:12px}
 .remote-dialog-status{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.6}
 .settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:22px}
 .settings-window .remote-dialog-footer>button,.settings-window .remote-request-actions>button{font-size:12px;min-height:32px;padding:7px 12px;border-radius:7px}
@@ -64,23 +63,48 @@
 .remote-methods{display:flex;gap:4px;margin:0 0 20px;padding:3px;background:var(--wash);border-radius:8px;width:fit-content}
 .settings-window .remote-methods button{border:0;background:transparent;color:var(--muted);min-width:70px;padding:6px 14px;font-size:12px;min-height:30px;border-radius:6px}
 .settings-window .remote-methods button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px #0001}
-.remote-ssh-options{display:flex;align-items:baseline;justify-content:space-between;gap:16px;font-size:12px;color:var(--muted);margin:-4px 0 18px}
-.remote-ssh-options button{font-size:12px;white-space:nowrap}
 .remote-ssh-auth{border-top:1px solid var(--line);padding-top:14px;margin-top:12px}
 .remote-ssh-auth pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;max-height:150px;overflow:auto;font-family:inherit}
 .settings-window .remote-ssh-auth .remote-dialog-footer{margin:12px 0 20px}
 .settings-window .remote-ssh-config-dialog{width:560px;max-width:calc(100vw - 40px);padding:24px}
 .settings-window .remote-ssh-config-dialog .runtime-dialog-heading{margin-bottom:20px}
 .settings-window .remote-ssh-config-dialog .runtime-dialog-heading h2{font-size:17px;line-height:24px;margin:0}
-.remote-config-path{display:grid;gap:6px;font-size:12px;color:var(--muted);margin-bottom:12px}
-.remote-config-path code,.remote-config-details code{font-size:11px;overflow-wrap:anywhere}
-.settings-window .remote-ssh-config-dialog textarea{display:block;width:100%;height:210px;min-height:120px;resize:vertical;padding:12px;border-radius:7px;font:12px/1.65 ui-monospace,SFMono-Regular,monospace;color:var(--ink);background:var(--surface);border:1px solid var(--line);tab-size:2}
-.remote-config-details{font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6}
-.remote-config-details summary{cursor:pointer}
-.remote-config-details code{display:block;margin-bottom:4px}
 @media(max-height:700px){.settings-window .remote-ssh-config-dialog textarea{height:150px}}
-.settings-window .remote-bot-dialog select{width:100%;height:40px;min-height:40px;padding:8px 10px;font-size:13px;color:var(--ink);border-radius:7px}
 
-.settings-window .remote-bot-dialog select{box-sizing:border-box}
-.settings-window .remote-ssh-options .remote-config-button{min-height:28px;padding:4px 9px;font-size:12px;border-radius:6px}
 .settings-window .remote-bot-dialog input{box-sizing:border-box}
+/* Remote settings use the shared shell header, selector, menus and dialog. */
+.settings-page-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}
+.settings-window .remote-primary-actions .remote-ssh-entry{min-height:32px;padding:5px 9px;font-size:12px}
+.settings-window .remote-primary-actions .remote-add{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.settings-window .remote-primary-actions .remote-add:hover{background:var(--caelis-action-hover)}
+.settings-window .remote-bot-dialog{width:400px}
+.remote-add-body{min-height:152px}
+.remote-connection-options{font-size:12px;color:var(--muted)}
+.remote-connection-options summary{cursor:pointer;margin:4px 0 12px;width:fit-content}
+.settings-window .remote-connection-options label{width:112px;margin:0}
+.remote-connection-state{padding:12px 0;color:var(--muted);font-size:12px;line-height:1.6}
+.remote-connection-state strong{font-size:14px;font-weight:500;color:var(--ink)}
+.remote-connection-state p{margin:8px 0 0}
+.settings-window .remote-bot-dialog .settings-select-trigger{height:40px;min-height:40px;text-align:left;justify-content:space-between;font-size:13px}
+.settings-window .remote-bot-dialog .settings-select{width:100%}
+.settings-window .remote-ssh-config-dialog{width:500px}
+.remote-config-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.remote-config-list li{display:flex;align-items:center;gap:6px;min-height:66px;border-bottom:1px solid var(--line)}
+.remote-config-list li>strong{flex:1;font-size:13px;font-weight:500}
+.settings-window .remote-config-list button{font-size:12px;min-height:30px;padding:5px 10px}
+.remote-config-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;min-height:150px;overflow:auto;margin:0;padding:12px;background:var(--wash);border-radius:7px;font:12px/1.7 ui-monospace,SFMono-Regular,monospace}
+.settings-window .settings-action-menu{padding:4px;width:168px;border-radius:8px}
+.settings-action-menu .runtime-dialog-heading{display:none}
+.settings-window .settings-action-menu button{display:block;width:100%;text-align:left;font-size:12px;min-height:32px;padding:6px 10px;border:0;background:transparent;border-radius:5px}
+.settings-window .settings-action-menu button:hover{background:var(--wash)}
+@media(max-width:700px){.settings-window .remote-ssh-config-dialog{width:400px}.settings-page-actions{gap:4px}.settings-window .settings-toolbar:has(.remote-primary-actions){gap:4px}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs{padding-right:0}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs li:first-child{display:none}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs li:last-child>span[aria-hidden]{display:none}}
+
+.settings-window{--remote-gutter:32px}
+.settings-window .settings-toolbar:has(.remote-primary-actions){padding-left:var(--remote-gutter);padding-right:max(var(--remote-gutter),calc(100% - 760px - var(--remote-gutter)))}
+.settings-window .remote-connection-options summary{list-style:none;display:flex;align-items:center;gap:6px}
+.remote-connection-options summary::before{content:'›';display:inline-block;font-size:16px;line-height:16px;transition:transform .12s}
+.remote-connection-options[open] summary::before{transform:rotate(90deg)}
+.settings-window .remote-bot-dialog .settings-select-trigger{color:var(--ink)}
+.settings-window .remote-bot-dialog .settings-select-trigger[data-placeholder=true]{color:var(--muted)}
+@media(max-width:800px){.settings-window{--remote-gutter:24px}}
+@media(max-width:680px){.web-settings .settings-window{--remote-gutter:16px}}

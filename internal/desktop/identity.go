@@ -3,11 +3,19 @@ package desktop
 import (
 	"crypto/sha256"
 	"fmt"
+	"path/filepath"
 )
 
 func applicationInstanceID(root string) string {
 	_, id := applicationIdentity()
 	if buildChannel != "release" && customInstanceProfile(root) {
+		// Native assembly creates the directory before instance registration. A
+		// retained alias and its physical target must own the same instance lock;
+		// this affects only lock identity, never persisted task/owner paths.
+		root = filepath.Clean(root)
+		if canonical, err := filepath.EvalSymlinks(root); err == nil {
+			root = canonical
+		}
 		digest := sha256.Sum256([]byte(root))
 		return fmt.Sprintf("%s.fixture.%x", id, digest[:8])
 	}

@@ -419,3 +419,65 @@ func (t *Transport) Save(ctx context.Context, in api.SSHConfigurationSave) (api.
 	}
 	return t.configuration()
 }
+
+func (t *Transport) documentPath(kind string) (string, error) {
+	switch kind {
+	case "bot":
+		return t.path(), nil
+	case "system":
+		return filepath.Join(t.home, ".ssh", "config"), nil
+	}
+	return "", errors.New("ssh_config_scope_invalid")
+}
+func (t *Transport) Document(kind string) (api.SSHConfigurationDocument, error) {
+	path, e := t.documentPath(kind)
+	if e != nil {
+		return api.SSHConfigurationDocument{}, e
+	}
+	v := api.SSHConfigurationDocument{Kind: kind, Path: path}
+	b, e := readConfig(path)
+	if os.IsNotExist(e) {
+		return v, nil
+	}
+	if e != nil {
+		return v, errors.New("ssh_config_unreadable")
+	}
+	v.Text = string(b)
+	v.Exists = true
+	return v, nil
+}
+func (t *Transport) PrepareEdit(kind string) (api.SSHConfigurationDocument, error) {
+	path, e := t.documentPath(kind)
+	if e != nil {
+		return api.SSHConfigurationDocument{}, e
+	}
+	// Explicit editor action creates only a missing chosen file. Existing files,
+	// permissions and Includes are left to the user's default editor.
+	if _, e = os.Stat(path); os.IsNotExist(e) {
+		if _, statErr := os.Stat(filepath.Dir(path)); os.IsNotExist(statErr) {
+			e = localstate.EnsurePrivateDirectory(filepath.Dir(path))
+		} else {
+			e = statErr
+		}
+		if e != nil {
+			return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
+		}
+		f, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if e == nil {
+			e = localstate.ProtectOpenFile(f)
+			if e == nil {
+				e = f.Sync()
+			}
+			closeErr := f.Close()
+			if e == nil {
+				e = closeErr
+			}
+			if e != nil {
+				return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
+			}
+		} else if !os.IsExist(e) {
+			return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
+		}
+	}
+	return t.Document(kind)
+}

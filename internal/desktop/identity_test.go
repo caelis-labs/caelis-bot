@@ -42,8 +42,37 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 			t.Fatal("unexpected application identity")
 		}
 		path, err := applicationDataDirectory()
-		if err != nil || path != filepath.Join(config, tc.name) {
+		expected := filepath.Join(config, tc.name)
+		if p, e := developmentDefault(config); e == nil && p.DataDirectory != "" {
+			expected = p.DataDirectory
+		}
+		if err != nil || path != expected {
 			t.Fatal("wrong default profile", err)
 		}
+	}
+}
+func TestDevelopmentAliasAndPhysicalProfileShareOneInstance(t *testing.T) {
+	old := buildChannel
+	t.Cleanup(func() { buildChannel = old })
+	buildChannel = "development"
+	root := t.TempDir()
+	actual := filepath.Join(root, "Daily")
+	os.MkdirAll(actual, 0700)
+	alias := filepath.Join(root, "old-profile")
+	if e := os.Symlink(actual, alias); e != nil {
+		t.Skipf("OS does not permit symlink fixture: %v", e)
+	}
+	t.Setenv("CAELIS_BOT_DATA_DIR", actual)
+	if applicationInstanceID(actual) != applicationInstanceID(alias) {
+		t.Fatal("alias can create second writer on same profile")
+	}
+	other := filepath.Join(root, "another")
+	os.MkdirAll(other, 0700)
+	if applicationInstanceID(other) == applicationInstanceID(actual) {
+		t.Fatal("independent profiles share a lock")
+	}
+	buildChannel = "release"
+	if applicationInstanceID(alias) != "dev.caelis.bot" {
+		t.Fatal("release identity adopted profile")
 	}
 }

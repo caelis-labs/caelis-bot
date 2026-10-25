@@ -1,5 +1,6 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.ReadSSHConfiguration":{"path":"/api/v1/machines/ssh-document","read":true},
  "backend.SSHConfiguration":{"path":"/api/v1/machines/ssh-config","read":true},
  "backend.SaveSSHConfiguration":{"path":"/api/v1/machines/ssh-config-save","read":true},
  "backend.StartSSHConnection":{"path":"/api/v1/machines/ssh-start","read":true},

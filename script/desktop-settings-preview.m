@@ -58,11 +58,12 @@
 
 // Own synthetic WKWebView acceptance only; never attaches to a user's window.
 - (void)remoteMatrix:(NSUInteger)index {
- NSArray *states=getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
- if(index>=states.count*4){[@"passed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-result.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
- NSUInteger group=index/states.count;NSString *theme=group/2?@"dark":@"light",*size=group%2?@"compact":@"large",*state=states[index%states.count];
- [self.settings setContentSize:group%2?NSMakeSize(900,680):NSMakeSize(1280,900)];
- self.settings.appearance=[NSAppearance appearanceNamed:group/2?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];
+ NSArray *states=getenv("BOT_REMOTE_NEXT_UI_MATRIX")?@[@"empty",@"list",@"add",@"ssh-add",@"ssh-config",@"ssh-preview",@"pending-add",@"ssh-auth",@"incoming"]:getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+ NSUInteger sizes=getenv("BOT_REMOTE_NEXT_UI_MATRIX")?3:2;
+ if(index>=states.count*sizes*2){[@"passed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-result.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
+ NSUInteger group=index/states.count;NSString *theme=group/sizes?@"dark":@"light",*size=group%sizes==2?@"narrow":group%sizes?@"compact":@"large",*state=states[index%states.count];
+ [self.settings setContentSize:group%sizes==2?NSMakeSize(620,720):group%sizes?NSMakeSize(900,680):NSMakeSize(1280,900)];
+ self.settings.appearance=[NSAppearance appearanceNamed:group/sizes?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];
  NSString *machines=[@[@"list",@"pending",@"unknown"] containsObject:state]?state:[state isEqual:@"list-error"]?@"error":@"empty";
  NSString *extra=[state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"]?@"&inbox=pending":@"";
  if([state isEqual:@"approval-recovery"])extra=[extra stringByAppendingString:@"&pairingError=worker_login_required"];
@@ -75,26 +76,32 @@
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
   [self.settingsWeb evaluateJavaScript:@"!!document.querySelector('.remote-add') && !document.querySelector('.remote-empty[role=status]')" completionHandler:^(id value,NSError *error){
    if(![value boolValue]){if(attempt<100){[self remoteReady:index attempt:attempt+1];return;}[@"load failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
-   NSArray *states=getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+   NSArray *states=getenv("BOT_REMOTE_NEXT_UI_MATRIX")?@[@"empty",@"list",@"add",@"ssh-add",@"ssh-config",@"ssh-preview",@"pending-add",@"ssh-auth",@"incoming"]:getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
    NSString *state=states[index%states.count];NSString *script=@"true";
    if([state hasPrefix:@"ssh-"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),50);setTimeout(()=>{const state=location.search.includes('SSH_CONFIG');},100)";
-   if([state isEqual:@"ssh-config"]||[state isEqual:@"ssh-error"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),30);setTimeout(()=>document.querySelector('.remote-ssh-options button').click(),100)";
-   if([state isEqual:@"ssh-auth"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),30);setTimeout(()=>{const el=document.querySelector('.remote-endpoint-fields select');el.value='fedora';el.dispatchEvent(new Event('change',{bubbles:true}));},100);setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),150)";
+   if([state isEqual:@"ssh-config"]||[state isEqual:@"ssh-error"])script=@"document.querySelector('.remote-ssh-entry').click()";
+   if([state isEqual:@"ssh-auth"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),30);setTimeout(()=>{const trigger=document.querySelector('.remote-bot-dialog [aria-label=\"SSH 连接\"]');trigger.click();const choose=()=>{const item=document.getElementById(trigger.getAttribute('aria-controls'))?.querySelector('[role=menuitemradio]');if(item){item.click();setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),50)}else setTimeout(choose,40)};choose();},100)";
+   if([state isEqual:@"ssh-preview"])script=@"document.querySelector('.remote-ssh-entry').click();setTimeout(()=>document.querySelector('.remote-config-list li button').click(),80)";
+   if([state isEqual:@"pending-add"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>{const el=document.querySelector('.remote-bot-dialog input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'192.168.1.25');el.dispatchEvent(new Event('input',{bubbles:true}));},60);setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),120)";
    if([state isEqual:@"add"])script=@"document.querySelector('.remote-add').click()";
    if([state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"])script=@"document.querySelector('.remote-inbox-action').click()";
    if([state isEqual:@"unknown"])script=@"document.querySelector('.machine-row').click()";
    [self.settingsWeb evaluateJavaScript:script completionHandler:^(id ignored,NSError *err){
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
      if([state isEqual:@"approval-recovery"]){[self.settingsWeb evaluateJavaScript:@"document.querySelector('.remote-request-actions .primary').click()" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
-     else if([state isEqual:@"ssh-error"]){[self.settingsWeb evaluateJavaScript:@"window.fixtureSSHConflict=true;const el=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,el.value+'# edited\\n');el.dispatchEvent(new Event('input',{bubbles:true}));setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),40)" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
-     else [self remoteSnapshot:index state:state];
+     else if([state isEqual:@"ssh-error"]){[self.settingsWeb evaluateJavaScript:@"window.fixtureSSHReadFailure=true;document.querySelector('.remote-config-list li button').click()" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
+     else [self remoteSnapshotReady:index state:state attempt:0];
     });
    }];
   }];
  });
 }
+- (void)remoteSnapshotReady:(NSUInteger)index state:(NSString *)state attempt:(NSUInteger)attempt {
+ NSString *selector=[state isEqual:@"ssh-auth"]?@".remote-ssh-auth":[state isEqual:@"ssh-preview"]?@".remote-config-preview":[state isEqual:@"pending-add"]?@".remote-connection-state":[state isEqual:@"ssh-config"]?@".remote-config-list":@".settings-toolbar";
+ [self.settingsWeb evaluateJavaScript:[NSString stringWithFormat:@"!!document.querySelector('%@')",selector] completionHandler:^(id value,NSError *error){if([value boolValue]){[self remoteSnapshot:index state:state];return;}if(attempt>=80){[[NSString stringWithFormat:@"target state did not render: %@",state] writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshotReady:index state:state attempt:attempt+1];});}];
+}
 - (void)remoteSnapshot:(NSUInteger)index state:(NSString *)state {
- NSUInteger group=index/(getenv("BOT_SSH_UI_MATRIX")?4:9);NSString *name=[NSString stringWithFormat:@"native-%@-%@-%@",group/2?@"dark":@"light",group%2?@"compact":@"large",state];
+ NSUInteger sizes=getenv("BOT_REMOTE_NEXT_UI_MATRIX")?3:2, group=index/(getenv("BOT_REMOTE_NEXT_UI_MATRIX")?9:getenv("BOT_SSH_UI_MATRIX")?4:9);NSString *name=[NSString stringWithFormat:@"native-%@-%@-%@",group/sizes?@"dark":@"light",group%sizes==2?@"narrow":group%sizes?@"compact":@"large",state];
  [self.settingsWeb takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image,NSError *error){
   if(!image){[@"snapshot failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
   NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];[[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".png"]] atomically:YES];

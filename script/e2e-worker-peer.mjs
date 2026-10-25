@@ -90,14 +90,14 @@ try{
  }
 
  async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();
-  if(address.startsWith('ssh://')){const u=new URL(address);await page.getByRole('button',{name:'SSH',exact:true}).click();await page.locator('.remote-endpoint-fields select').selectOption(u.hostname);await page.getByLabel('Bot 端口',{exact:true}).fill(u.port);await page.getByRole('button',{name:'发送连接请求',exact:true}).click();
+  if(address.startsWith('ssh://')){const u=new URL(address);await page.getByRole('button',{name:'SSH',exact:true}).click();await page.getByRole('button',{name:'SSH 连接',exact:true}).click();await page.getByRole('menuitemradio',{name:u.hostname,exact:true}).click();await page.locator('.remote-connection-options summary').click();await page.getByLabel('Bot 端口',{exact:true}).fill(u.port);await page.getByRole('button',{name:'连接',exact:true}).click();
    const trust=page.getByRole('button',{name:'信任此主机',exact:true});await trust.waitFor();assert.ok((await page.locator('.remote-ssh-auth').innerText()).includes(sshTest.fingerprint));await shot(page,'A-native-SSH-fingerprint');await trust.click();
-  }else{await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'发送连接请求',exact:true}).click()}
-  await page.locator('.runtime-dialog').waitFor({state:'hidden'});
+  }else{await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'连接',exact:true}).click()}
+  await page.getByText('请求已送达，请在对方 Bot 中批准。',{exact:true}).waitFor();await page.locator('.runtime-close').click();await page.locator('.runtime-dialog').waitFor({state:'hidden'});
  }
 
- async function approve(page){await page.getByRole('button',{name:'重新检查',exact:true}).click();await page.locator('.remote-inbox-action').click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
- async function check(page,name,rename){await page.locator('.machine-row').filter({hasText:name}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();if(rename){await page.getByLabel('机器名称',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存连接',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}else await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:rename||name}).locator('.machine-status.ready').waitFor();}
+ async function approve(page){await page.reload();await page.locator('.remote-inbox-action').click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
+ async function check(page,name,rename){const label=name.replace(/^ssh:\/\//,'SSH · ').replace(/^https?:\/\//,'').replace(/:9317$/,'');await page.locator('.machine-row').filter({hasText:label}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();if(rename){await page.getByLabel('机器名称',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存连接',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}else await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:rename||label}).locator('.machine-status.ready').waitFor();}
  await submit(a,connectionAddress,'B synthetic');
  const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.address===connectionAddress);assert.equal(originalConnection.pairingStatus,'pending');
  assert.equal(Object.keys(JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8')).grants).length,0,'submitting a request never grants authority');
@@ -113,8 +113,8 @@ try{
  await b.locator('.remote-authorizations summary').click();await b.locator('.remote-source-list').getByRole('button',{name:'撤销授权',exact:true}).click();
  await until('B revoke confirmed',async()=>await b.locator('.remote-source-list li').count()===0);
  await host(a,'/api/v1/machines/inspect-machine',[originalConnection.id,'']);assert.equal((await host(b,'/api/v1/machines/inspect-machine',[reverse.id,''])).body.value.state,'ready','one-way revoke leaves reverse authorization intact');
- await a.getByRole('button',{name:'重新检查',exact:true}).click();await until('revoked visible',async()=>(await a.locator('.machine-row').filter({hasText:'B synthetic'}).innerText()).includes('授权已撤销'));
- await a.locator('.machine-row').filter({hasText:'B synthetic'}).click();await a.getByRole('button',{name:'发送连接请求',exact:true}).click();await a.locator('.runtime-dialog').waitFor({state:'hidden'});await approve(b);await check(a,'B synthetic');
+ await a.reload();await until('revoked visible',async()=>(await a.locator('.machine-row').filter({hasText:'B synthetic'}).innerText()).includes('授权已撤销'));
+ await a.locator('.machine-row').filter({hasText:'B synthetic'}).click();await a.getByRole('button',{name:'连接',exact:true}).click();await a.getByText('请求已送达，请在对方 Bot 中批准。',{exact:true}).waitFor();await a.locator('.runtime-close').click();await approve(b);await check(a,'B synthetic');
  evidence.directionalAuthorization={separateRequests:true,separateProofs:true,nonblockingPending:true,lazyARead:true,revokeOnlyOneDirection:true};
  evidence.steps.push('Actual React A submits and returns immediately; no B grant before local B approval. A checks the original request manually. Reverse direction requires independent approval; revoke changes one direction only.');
  await shot(a,'A-paired');
