@@ -70,12 +70,12 @@ try{
  for(const page of [a,b])await until('configured resident native ready',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');return r.status===200&&r.body.value.connection==='ready';});
  // Further steps drive visible controls, not substitute product HTTP responses.
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');debugPage=a;debugB=b;
- await b.locator('.remote-empty').waitFor();await b.screenshot({path:join(output,'B-empty-remote-list.png')});
- await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^SSH /}).click();
+ await b.locator('.remote-empty').waitFor();await shot(b,'B-empty-remote-list');
+ await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^SSH/}).click();
  await a.getByLabel('SSH 主机别名',{exact:true}).fill('wildcard-alias-not-in-suggestions');
  assert.equal(await a.getByRole('button',{name:'连接',exact:true}).isEnabled(),true,'native aliases need not occur in the suggestion inventory');
  assert.equal(await a.getByLabel('SSH 主机别名',{exact:true}).inputValue(),'wildcard-alias-not-in-suggestions');
- await a.screenshot({path:join(output,'A-ssh-alias.png')});await a.getByRole('button',{name:'取消',exact:true}).click();
+ await shot(a,'A-ssh-alias');await a.getByRole('button',{name:'取消',exact:true}).click();
  await b.getByRole('tab',{name:'连接本机',exact:true}).click();
  const sharing=b.getByRole('switch',{name:'允许连接'});
  await sharing.click();await until('B sharing enabled',()=>sharing.isChecked());
