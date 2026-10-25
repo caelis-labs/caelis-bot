@@ -180,3 +180,21 @@ New exact-head automated/CI evidence is reported in PR #221. Old green CI or dir
 candidate evidence is not substituted for those gates. Real accounts and GUI
 business journeys remain separately labeled, nonblocking follow-up; bounded URL
 exclusions are unchanged. No merge, release or daily-service changes are made.
+
+The final follow-up review also reproduced SSH ProxyCommand children retaining
+stderr after their parent was cancelled. Owned local transport groups and a
+bounded drain now close that path; the same native probe returns promptly,
+children exit and an unrelated sentinel survives. Process-status verification
+fails explicitly on permission errors rather than treating empty output as exit.
+Bad SSH output is retained within the existing 8 MiB response limit while read.
+
+Windows run `40161104688` at `aa701a88` reached the Codex **package** 180-second
+watchdog after 179.30 seconds of completed top-level tests. The named last case
+had run only about one second; its cleanup stack was not proof of a 180-second
+request or persistence deadlock. The 255-native-decision receipt regression alone
+used 56.01 seconds. Windows now runs that complete stress case and the remaining
+Codex cases in two disjoint invocations, each retaining the original 180-second
+limit. All cases, actual native traffic, durable writes and assertions remain;
+no business timeout or persistence guarantee is relaxed. Other packages and the
+original workerpeer diagnostic trace retain their previous contract. Final CI
+must still pass; this diagnosis is not a substitute for its result.
