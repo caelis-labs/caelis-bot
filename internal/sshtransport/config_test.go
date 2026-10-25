@@ -3,6 +3,7 @@ package sshtransport
 import (
 	"context"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,7 +60,7 @@ func TestConfigurationIsInertAndSaveChecksRevision(t *testing.T) {
 		t.Fatal("validation executed Match exec")
 	}
 	info, _ := os.Stat(v.path())
-	if info.Mode().Perm() != 0600 {
+	if !localstate.HasPrivateMode(v.path(), info, 0600) {
 		t.Fatal(info.Mode())
 	}
 	put(t, v.path(), "# external edit\n")
@@ -89,7 +90,7 @@ func TestSystemSSHResolvesPriorityAndRelativeSystemIncludes(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, s := range []string{"user bot-user\n", "hostname 127.0.0.2\n", "port 2222\n", "proxyjump jump\n", "serveraliveinterval 37\n", "clearallforwardings yes\n", "controlmaster false\n"} {
-		if !strings.Contains(string(b), s) {
+		if !strings.Contains(strings.ReplaceAll(string(b), "\r\n", "\n"), s) {
 			t.Fatalf("missing %q in ssh -G", s)
 		}
 	}
