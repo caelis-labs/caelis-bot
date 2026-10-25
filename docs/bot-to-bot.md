@@ -85,13 +85,14 @@ uncertain delivery is queried against the original target/proof rather than repl
 as another intent. The inbox/identity retention is bounded; capacity affects only
 remote pairing, never local chat or Worker health.
 
-There are no verification codes, sharing switch, account center, old helper/SSH
-execution environment, installation/tunnel management or experiment migration.
+There are no verification codes, sharing switch, account center, legacy helper
+execution environment, remote installation or experiment migration.
 `/worker/v1/identity` is a public, non-native identity declaration; `/pair` submits or
 reads a proof-bound request. `/call` and `/events` always require a granted source,
 including loopback/SSH. Browser Origins are rejected and redirects never receive
 credentials. Plain HTTP relies on protected external transport, not pairing for
-encryption. SSH forwarding/Tailscale remain outside Bot.
+encryption. Tailscale remains outside Bot. Optional standard [SSH channels](ssh-connections.md)
+provide connectivity only, with no helper execution or additional task authority.
 
 The desktop App owns a peer-only listener, default 9317 with OS port fallback on
 conflict. It persists the actual endpoint. A reachable headless listener is reused;

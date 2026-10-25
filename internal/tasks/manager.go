@@ -1111,3 +1111,14 @@ func (m *Manager) ObserveTaskExecution(id string) (api.Task, string, error) {
 	v.Result = ""
 	return v, r.Execution, nil
 }
+
+// SSH configuration is a host file, never a Worker capability or a grant.
+func (m *Manager) SSHConfiguration() (api.SSHConfiguration, error) {
+	p, ok := m.work.(interface {
+		SSHConfiguration() (api.SSHConfiguration, error)
+	})
+	if !ok {
+		return api.SSHConfiguration{}, errors.New("ssh_unavailable")
+	}
+	return p.SSHConfiguration()
+}

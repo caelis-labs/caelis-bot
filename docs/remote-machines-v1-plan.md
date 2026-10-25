@@ -10,8 +10,9 @@ Remote environments are other running Bots. The first version has one flow:
    connection is offered for delegation. A never waits continuously for approval.
 
 A→B does not authorize B→A. There are no verification codes, account center, sharing
-switch, SSH/helper environment or automatic discovery. SSH forwarding and Tailscale
-may supply external connectivity; connectivity never grants execution.
+switch, helper environment or automatic discovery. Standard SSH channels can supply
+connectivity through the same Bot protocol; Tailscale remains external. Connectivity
+never grants execution. See [SSH channels](ssh-connections.md).
 
 A's existing task manager remains the product task authority. B's native adapter
 owns execution, with authenticated source/task/file/interaction isolation. B shows

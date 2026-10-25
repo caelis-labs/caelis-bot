@@ -14,7 +14,7 @@ func taskDefinitions() []api.ToolDefinition {
 	query := tc.Schema{"query": tc.String("Search task title, original assignment or handle"), "status": tc.String("Exact status filter"), "createdAfter": tc.String("Inclusive RFC3339 timestamp with timezone"), "createdBefore": tc.String("Exclusive RFC3339 timestamp with timezone"), "offset": tc.Integer(0, 1000000), "limit": tc.Integer(1, 50), "order": tc.Enum("asc", "desc")}
 	return []api.ToolDefinition{
 		tc.Definition("bot_tasks", "List all retained Bot-owned tasks by creation time (newest first), list connected execution environments, read completed User/Assistant Worker messages, stop an exact task without deleting it, or pin an expired card for the user. The file operation returns a checked A-local copy with SHA-256 and cache freshness; read it with native file/image tools. Cached bytes are not proof of remote latest content. Reads never consume messages or continue work. Missing native history is an error. Local is the Runtime hosting this Bot; remote selection requires the user's direction.", tc.Request(
-			tc.Branch("environments", tc.Schema{}), tc.Branch("list", query),
+			tc.Branch("environments", tc.Schema{}), tc.Branch("ssh_config", tc.Schema{}), tc.Branch("list", query),
 			tc.Branch("read", tc.Schema{"task": text(256), "offset": tc.Integer(0, 1000000), "limit": tc.Integer(1, 20), "messageId": text(512)}, "task"),
 			tc.Branch("observe", tc.Schema{"task": text(256)}, "task"),
 			tc.Branch("reconcile", tc.Schema{"task": text(256), "requestId": requestID()}, "task", "requestId"),

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
@@ -138,6 +139,12 @@ func (s *Server) register(a action) {
 					}
 				}
 
+				if strings.HasPrefix(a.Path, "/api/v1/machines/ssh-") {
+					switch e.Error() {
+					case "ssh_config_changed", "ssh_config_syntax", "ssh_config_unreadable", "ssh_config_size", "ssh_config_save_failed", "ssh_config_save_unconfirmed", "ssh_platform_unsupported", "ssh_not_installed", "ssh_target_invalid", "ssh_prompt_expired", "ssh_answer_invalid", "ssh_closed":
+						code = e.Error()
+					}
+				}
 				fail(w, 503, code)
 				return
 			}

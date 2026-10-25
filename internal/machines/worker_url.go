@@ -41,7 +41,7 @@ func (s *Service) ReadWorkURL(ctx context.Context, task, id string) (api.WorkURL
 	if err != nil {
 		return api.WorkURLPage{}, err
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "url-page", Runtime: runtime, ID: task, Ref: id})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "url-page", Runtime: runtime, ID: task, Ref: id})
 	return out.URLPage, err
 }
 func (s *Service) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmission) (api.WorkOperation, error) {
@@ -59,7 +59,7 @@ func (s *Service) SubmitWorkURL(ctx context.Context, in api.WorkURLSubmission) (
 	if err != nil {
 		return api.WorkOperation{}, err
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "url-submit", Runtime: runtime, URLSubmission: in})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "url-submit", Runtime: runtime, URLSubmission: in})
 	return out.Operation, err
 }
 func (s *Service) ReadWorkURLSubmission(ctx context.Context, task, id, request string) (api.WorkOperation, error) {
@@ -77,6 +77,6 @@ func (s *Service) ReadWorkURLSubmission(ctx context.Context, task, id, request s
 	if err != nil {
 		return api.WorkOperation{}, err
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "url-operation", Runtime: runtime, ID: task, Ref: id, Query: api.WorkOperationQuery{RequestID: request}})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "url-operation", Runtime: runtime, ID: task, Ref: id, Query: api.WorkOperationQuery{RequestID: request}})
 	return out.Operation, err
 }

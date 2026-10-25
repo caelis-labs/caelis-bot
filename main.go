@@ -5,6 +5,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/headless"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
 	"io/fs"
@@ -18,6 +19,12 @@ import (
 var assets embed.FS
 
 func main() {
+	if handled, err := sshtransport.RunAskpass(os.Args); handled {
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "pair") {
 		webAssets, err := fs.Sub(assets, "frontend/dist")
 		if err == nil {

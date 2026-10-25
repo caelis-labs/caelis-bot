@@ -7,6 +7,7 @@ import {resolve,join,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {deflateSync} from 'node:zlib';
+import {sshFixture} from './worker-peer-ssh-fixture.mjs';
 import {faultRelay} from './worker-peer-e2e-relay.mjs';
 import {urlContractJourney,host} from './worker-peer-url-contract.mjs';
 
@@ -40,6 +41,7 @@ async function launch(name){
 
 
  const env={...process.env};for(const key of Object.keys(env))if(/TOKEN|SECRET|API_KEY|PASSWORD|CREDENTIAL|AUTHORIZATION/i.test(key))delete env[key];Object.assign(env,{CODEX_BIN:join(repo,'.cache/worker-peer-e2e/bin/native'),CODEX_HOME:join(data,'empty-codex-home'),CAELIS_CODEX_SOCKET:'',WORKER_PEER_NATIVE_FIXTURE:'1',WORKER_PEER_FIXTURE_ROOT:root});
+ if(process.argv.includes('--ssh')){env.HOME=join(data,'empty-home');await mkdir(env.HOME,{mode:0o700})}
  const child=spawn(join(repo,'.cache/worker-peer-e2e/bin/bot'),['serve','--data-dir',data,'--listen','127.0.0.1:0'],{cwd:data,env,stdio:['ignore','pipe','pipe']});children.push(child);
  let output='';child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);
  const url=await until(`App ${name} actual listener`,()=>{assert.equal(child.exitCode,null,output);return output.match(/CaelisBot: (http:\/\/[^\s]+)/)?.[1];});
@@ -78,17 +80,32 @@ try{
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');debugPage=a;debugB=b;
  await b.locator('.remote-empty').waitFor();await shot(b,'B-empty-remote-list');
  relay=await faultRelay(B.url);
- async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'发送连接请求',exact:true}).click();await page.locator('.runtime-dialog').waitFor({state:'hidden'});}
+ let connectionAddress=relay.url,sshTest;
+ if(process.argv.includes('--ssh')){
+  sshTest=await sshFixture(root,children);
+  const current=(await host(a,'/api/v1/machines/ssh-config')).body.value;
+  const saved=await host(a,'/api/v1/machines/ssh-config-save',[{text:sshTest.config,revision:current.revision}]);assert.equal(saved.status,200);
+  connectionAddress='ssh://e2e-bot:'+new URL(relay.url).port;
+  evidence.ssh={build:'system OpenSSH (version recorded by test runner)',generatedFixtureKeys:true,actualBrowserPrompt:true};
+ }
+
+ async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();
+  if(address.startsWith('ssh://')){const u=new URL(address);await page.getByRole('button',{name:'SSH',exact:true}).click();await page.locator('.remote-endpoint-fields select').selectOption(u.hostname);await page.getByLabel('Bot 端口',{exact:true}).fill(u.port);await page.getByRole('button',{name:'发送连接请求',exact:true}).click();
+   const trust=page.getByRole('button',{name:'信任此主机',exact:true});await trust.waitFor();assert.ok((await page.locator('.remote-ssh-auth').innerText()).includes(sshTest.fingerprint));await shot(page,'A-native-SSH-fingerprint');await trust.click();
+  }else{await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'发送连接请求',exact:true}).click()}
+  await page.locator('.runtime-dialog').waitFor({state:'hidden'});
+ }
+
  async function approve(page){await page.getByRole('button',{name:'重新检查',exact:true}).click();await page.locator('.remote-inbox-action').click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
  async function check(page,name,rename){await page.locator('.machine-row').filter({hasText:name}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();if(rename){await page.getByLabel('机器名称',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存连接',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}else await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:rename||name}).locator('.machine-status.ready').waitFor();}
- await submit(a,relay.url,'B synthetic');
- const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.address===relay.url);assert.equal(originalConnection.pairingStatus,'pending');
+ await submit(a,connectionAddress,'B synthetic');
+ const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.address===connectionAddress);assert.equal(originalConnection.pairingStatus,'pending');
  assert.equal(Object.keys(JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8')).grants).length,0,'submitting a request never grants authority');
  await shot(a,'A-pending-independent');await approve(b);
  // B approval is not a continuous A operation; A stays pending until its
  // explicit check. Local chat/Worker remain independent throughout.
  assert.equal((await host(a,'/api/v1/machines/machines')).body.value[0].pairingStatus,'pending');
- await check(a,relay.url,'B synthetic');
+ await check(a,connectionAddress,'B synthetic');
  await submit(b,A.url,'A reverse');await approve(a);await check(b,A.url,'A reverse');
  const reverse=(await host(b,'/api/v1/machines/machines')).body.value.find(v=>v.name==='A reverse');
  const aRoutes=JSON.parse(await readFile(join(A.data,'Machines','machines.json'),'utf8')),bRoutes=JSON.parse(await readFile(join(B.data,'Machines','machines.json'),'utf8'));

@@ -58,7 +58,7 @@
 
 // Own synthetic WKWebView acceptance only; never attaches to a user's window.
 - (void)remoteMatrix:(NSUInteger)index {
- NSArray *states=@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+ NSArray *states=getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
  if(index>=states.count*4){[@"passed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-result.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
  NSUInteger group=index/states.count;NSString *theme=group/2?@"dark":@"light",*size=group%2?@"compact":@"large",*state=states[index%states.count];
  [self.settings setContentSize:group%2?NSMakeSize(900,680):NSMakeSize(1280,900)];
@@ -75,14 +75,18 @@
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
   [self.settingsWeb evaluateJavaScript:@"!!document.querySelector('.remote-add') && !document.querySelector('.remote-empty[role=status]')" completionHandler:^(id value,NSError *error){
    if(![value boolValue]){if(attempt<100){[self remoteReady:index attempt:attempt+1];return;}[@"load failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
-   NSArray *states=@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+   NSArray *states=getenv("BOT_SSH_UI_MATRIX")?@[@"ssh-add",@"ssh-config",@"ssh-auth",@"ssh-error"]:@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
    NSString *state=states[index%states.count];NSString *script=@"true";
+   if([state hasPrefix:@"ssh-"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),50);setTimeout(()=>{const state=location.search.includes('SSH_CONFIG');},100)";
+   if([state isEqual:@"ssh-config"]||[state isEqual:@"ssh-error"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),30);setTimeout(()=>document.querySelector('.remote-ssh-options button').click(),100)";
+   if([state isEqual:@"ssh-auth"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>document.querySelector('.remote-methods button:last-child').click(),30);setTimeout(()=>{const el=document.querySelector('.remote-endpoint-fields select');el.value='fedora';el.dispatchEvent(new Event('change',{bubbles:true}));},100);setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),150)";
    if([state isEqual:@"add"])script=@"document.querySelector('.remote-add').click()";
    if([state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"])script=@"document.querySelector('.remote-inbox-action').click()";
    if([state isEqual:@"unknown"])script=@"document.querySelector('.machine-row').click()";
    [self.settingsWeb evaluateJavaScript:script completionHandler:^(id ignored,NSError *err){
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
      if([state isEqual:@"approval-recovery"]){[self.settingsWeb evaluateJavaScript:@"document.querySelector('.remote-request-actions .primary').click()" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
+     else if([state isEqual:@"ssh-error"]){[self.settingsWeb evaluateJavaScript:@"window.fixtureSSHConflict=true;const el=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,el.value+'# edited\\n');el.dispatchEvent(new Event('input',{bubbles:true}));setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),40)" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
      else [self remoteSnapshot:index state:state];
     });
    }];
@@ -90,11 +94,11 @@
  });
 }
 - (void)remoteSnapshot:(NSUInteger)index state:(NSString *)state {
- NSUInteger group=index/9;NSString *name=[NSString stringWithFormat:@"native-%@-%@-%@",group/2?@"dark":@"light",group%2?@"compact":@"large",state];
+ NSUInteger group=index/(getenv("BOT_SSH_UI_MATRIX")?4:9);NSString *name=[NSString stringWithFormat:@"native-%@-%@-%@",group/2?@"dark":@"light",group%2?@"compact":@"large",state];
  [self.settingsWeb takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image,NSError *error){
   if(!image){[@"snapshot failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
   NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];[[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".png"]] atomically:YES];
-  [self.settingsWeb evaluateJavaScript:@"JSON.stringify({text:document.querySelector('.settings-main').innerText,dialog:document.querySelector('.remote-bot-dialog,.remote-requests-dialog')?.innerText,overflow:document.documentElement.scrollWidth>innerWidth,calls:fixtureCalls})" completionHandler:^(id value,NSError *error){if(value)[value writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];[self remoteMatrix:index+1];}];
+  [self.settingsWeb evaluateJavaScript:@"JSON.stringify({text:document.querySelector('.settings-main').innerText,dialog:document.querySelector('.remote-bot-dialog,.remote-requests-dialog,.remote-ssh-config-dialog')?.innerText,overflow:document.documentElement.scrollWidth>innerWidth,calls:fixtureCalls})" completionHandler:^(id value,NSError *error){if(value)[value writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];[self remoteMatrix:index+1];}];
  }];
 }
 - (void)startCapture:(id)sender { /* Synthetic fixture never captures the screen. */ }

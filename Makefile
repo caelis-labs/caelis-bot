@@ -53,3 +53,7 @@ e2e-worker-peer:
 # Opt-in real installed Codex + isolated mock model/MCP; no download/account.
 e2e-worker-peer-real-url:
 	bash script/e2e-worker-peer-real-url.sh
+
+.PHONY: e2e-worker-peer-ssh
+e2e-worker-peer-ssh:
+	bash script/e2e-worker-peer.sh --ssh

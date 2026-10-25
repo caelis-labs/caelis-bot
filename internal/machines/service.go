@@ -9,6 +9,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"maps"
 	"os"
@@ -34,6 +35,7 @@ type disk struct {
 	ReservationKeys map[string]string  `json:"reservationKeys,omitempty"`
 }
 type Service struct {
+	ssh                     *sshtransport.Transport
 	pairingActive           map[string]int
 	peerApprovalFingerprint string
 	peerApprovalRevision    uint64
@@ -54,6 +56,7 @@ func Open(root string, local api.WorkRuntime) (*Service, error) {
 		return nil, errors.New("machine store requires absolute path")
 	}
 	s := &Service{root: root, local: local, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 2, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}, Runtimes: map[string]string{}, Reservations: map[string]bool{}, ReservationKeys: map[string]string{}}}
+	s.ssh = sshtransport.New(filepath.Join(root, "SSH"))
 	data, err := os.ReadFile(filepath.Join(root, "machines.json"))
 	if err == nil {
 		if json.Unmarshal(data, &s.state) != nil || s.state.Version != 2 || s.state.ProfileID == "" || s.state.Profiles == nil || s.state.Routes == nil || s.state.Runtimes == nil {
@@ -129,9 +132,16 @@ func sameConnectionConfiguration(a, b profile) bool { return sameBotConfiguratio
 func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.Machine, error) {
 	return s.inspectBot(ctx, id, false, true)
 }
-func (s *Service) RemoveMachine(ctx context.Context, id string) error {
+func (s *Service) RemoveMachine(ctx context.Context, id string) (result error) {
 	s.mu.Lock()
 	p, ok := s.state.Profiles[id]
+	defer func() {
+		if result == nil {
+			if target, ok := sshtransport.Target(p.Peer.Address); ok {
+				_ = s.ssh.Stop(target)
+			}
+		}
+	}()
 	if !ok {
 		s.mu.Unlock()
 		return errors.New("machine_unknown")
@@ -167,7 +177,7 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 	// B can reject/expire its inbox item. An approved source is unpaired first.
 	if p.View.PairingStatus == "approved" {
 		c, cancel := context.WithTimeout(ctx, 8*time.Second)
-		_, err := workerpeer.Call(c, p.Peer, workerpeer.Request{Action: "unpair"})
+		_, err := s.peerCall(c, p.Peer, workerpeer.Request{Action: "unpair"})
 		cancel()
 		if err != nil {
 			return errors.New("peer_unpair_unconfirmed")

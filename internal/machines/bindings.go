@@ -93,7 +93,7 @@ func (s *Service) ReleaseWorkPreparation(id string) error {
 	if p.View.ConnectionType == "bot" {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		if _, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "release_preparation", ID: id, Runtime: runtime}); err != nil {
+		if _, err := s.peerCall(ctx, p.Peer, workerpeer.Request{Action: "release_preparation", ID: id, Runtime: runtime}); err != nil {
 			return err
 		}
 	}

@@ -4,9 +4,11 @@ The existing Settings breadcrumb owns the title. One aligned toolbar shows the
 known machine count, Check and a visible **+** Add machine button with a tooltip
 and accessible label. A **Pairing requests** bell appears only for pending,
 unexpired requests. No hero, repeated large heading, scattered footer actions,
-account/server dashboard, sharing switch, verification code or SSH/helper path.
+account/server dashboard, sharing switch, verification code or helper execution. The SSH choice is network transport only;
+see [SSH channels](ssh-connections.md).
 
-Add is a short dialog: address and a narrow optional port on one row. Empty inputs
+Add is a short dialog: Address/SSH choice, then address or configured Host and a
+narrow optional Bot port on one row. SSH configuration has one secondary editor. Empty inputs
 have placeholders; “Default 9317” is not a submitted value. The target name is read
 from the original peer receipt; an established machine can be renamed in its same
 settings dialog. There is no one-field accordion or duplicate name label.

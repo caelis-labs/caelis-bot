@@ -87,7 +87,7 @@ func (s *Service) call(ctx context.Context, p profile, in workerpeer.Request) (p
 		in.Action = "info"
 	}
 	if in.Action == "start" {
-		caps, err := workerpeer.Call(ctx, p.Peer, workerpeer.Request{Action: "admission", ID: in.Start.ID, Runtime: in.Runtime})
+		caps, err := s.peerCall(ctx, p.Peer, workerpeer.Request{Action: "admission", ID: in.Start.ID, Runtime: in.Runtime})
 		if err != nil {
 			return peerWorkResponse{}, err
 		}
@@ -95,7 +95,7 @@ func (s *Service) call(ctx context.Context, p profile, in workerpeer.Request) (p
 			return peerWorkResponse{}, errors.New("original_worker_contract_incompatible")
 		}
 	}
-	out, err := workerpeer.Call(ctx, p.Peer, in)
+	out, err := s.peerCall(ctx, p.Peer, in)
 	if err != nil {
 		return peerWorkResponse{}, err
 	}
@@ -199,7 +199,7 @@ func (s *Service) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 	if err != nil {
 		return api.WorkObservation{}, err
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "observe", ID: id, Runtime: runtime})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "observe", ID: id, Runtime: runtime})
 	if err != nil {
 		return api.WorkObservation{}, err
 	}
@@ -231,7 +231,7 @@ func (s *Service) ValidateWorkFiles(ctx context.Context, id string, files []api.
 	if err != nil {
 		return err
 	}
-	_, err = workerpeer.Call(ctx, c, workerpeer.Request{Action: "validate_files", ID: id, Runtime: runtime, Message: api.TaskMessage{Files: files}})
+	_, err = s.peerCall(ctx, c, workerpeer.Request{Action: "validate_files", ID: id, Runtime: runtime, Message: api.TaskMessage{Files: files}})
 	return err
 }
 func (s *Service) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
@@ -251,7 +251,7 @@ func (s *Service) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Tas
 		}
 		return s.remote(ctx, in.ID, "stop", api.TaskMessage{})
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "stop", Runtime: runtime, Stop: in})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "stop", Runtime: runtime, Stop: in})
 	out.Task.Machine = s.route(in.ID)
 	s.mu.Lock()
 	out.Task.MachineName = s.state.Profiles[out.Task.Machine].View.Name
@@ -281,7 +281,7 @@ func (s *Service) DecideWork(ctx context.Context, in api.WorkDecision) error {
 	// deadline; cancellation preserves the original native request/receipt.
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	_, err = workerpeer.Call(ctx, c, workerpeer.Request{Action: "decision", Runtime: runtime, Decision: in})
+	_, err = s.peerCall(ctx, c, workerpeer.Request{Action: "decision", Runtime: runtime, Decision: in})
 	return err
 }
 func (s *Service) WorkApprovalURL(ctx context.Context, id, request string) (string, error) {
@@ -302,7 +302,7 @@ func (s *Service) WorkApprovalURL(ctx context.Context, id, request string) (stri
 		}
 		request = ref.Native
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "url", ID: id, Runtime: runtime, Ref: request})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "url", ID: id, Runtime: runtime, Ref: request})
 	if err == nil {
 		u, parseErr := url.Parse(out.URL)
 		if parseErr != nil {
@@ -327,7 +327,7 @@ func (s *Service) ReadWorkOperation(ctx context.Context, in api.WorkOperationQue
 	if err != nil {
 		return api.WorkOperation{}, api.ErrWorkOperationUnsupported
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "operation", Runtime: runtime, Query: in})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "operation", Runtime: runtime, Query: in})
 	return out.Operation, err
 }
 func (s *Service) ReadWorkFile(ctx context.Context, id, ref string) (api.WorkFileContent, error) {
@@ -342,7 +342,7 @@ func (s *Service) ReadWorkFile(ctx context.Context, id, ref string) (api.WorkFil
 	if err != nil {
 		return api.WorkFileContent{}, err
 	}
-	out, err := workerpeer.Call(ctx, c, workerpeer.Request{Action: "file", Runtime: runtime, ID: id, Ref: ref})
+	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "file", Runtime: runtime, ID: id, Ref: ref})
 	return out.File, err
 }
 func (s *Service) ReceiveQuestionClosure(ctx context.Context, in api.QuestionClosure) error {
@@ -363,7 +363,7 @@ func (s *Service) ReceiveQuestionClosure(ctx context.Context, in api.QuestionClo
 		}
 		in.ItemID = ref.Native
 	}
-	_, err = workerpeer.Call(ctx, c, workerpeer.Request{Action: "closure", Runtime: runtime, Closure: in})
+	_, err = s.peerCall(ctx, c, workerpeer.Request{Action: "closure", Runtime: runtime, Closure: in})
 	return err
 }
 
@@ -484,7 +484,7 @@ func (s *Service) peerStreams(ctx context.Context) {
 				defer streams.Done()
 				defer close(done)
 				for streamCtx.Err() == nil {
-					err := workerpeer.Watch(streamCtx, p.Peer, id, func(v api.WorkObservation) { s.applyPeerObservation(id, p, runtime, v) })
+					err := s.peerWatch(streamCtx, p.Peer, id, func(v api.WorkObservation) { s.applyPeerObservation(id, p, runtime, v) })
 					if streamCtx.Err() != nil {
 						return
 					}
@@ -554,7 +554,7 @@ func (s *Service) observePeerFallback(ctx context.Context, targets map[string]pr
 		reads.Go(func() {
 			readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			out, err := workerpeer.Call(readCtx, p.Peer, workerpeer.Request{Action: "observe", ID: id, Runtime: runtime})
+			out, err := s.peerCall(readCtx, p.Peer, workerpeer.Request{Action: "observe", ID: id, Runtime: runtime})
 			if err == nil {
 				s.applyPeerObservation(id, p, runtime, workerpeer.DecodeObservation(out.Observation))
 			}

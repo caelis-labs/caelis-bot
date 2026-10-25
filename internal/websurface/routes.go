@@ -9,6 +9,13 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/tasks/worker-conversation", Function: b.WorkerTaskConversation, Read: true},
 		{Path: "/api/v1/tasks/worker-observation", Function: b.WorkerTaskObservation, Read: true},
 		{Path: "/api/v1/files/worker-copy", Function: b.WorkerFileCopy, Read: true},
+		{Path: "/api/v1/machines/ssh-config", Function: b.SSHConfiguration, Read: true},
+		{Path: "/api/v1/machines/ssh-config-save", Function: b.SaveSSHConfiguration, Local: true},
+		{Path: "/api/v1/machines/ssh-start", Function: b.StartSSHConnection, Local: true},
+		{Path: "/api/v1/machines/ssh-status", Function: b.SSHConnectionStatus, Read: true},
+		// Credentials are transient. Never put SSHAnswer in the Web operation journal.
+		{Path: "/api/v1/machines/ssh-answer", Function: b.AnswerSSH, Local: true},
+		{Path: "/api/v1/machines/ssh-stop", Function: b.StopSSHConnection, Local: true},
 		{Path: "/api/v1/machines/connect-bot", Function: s.connectBot, Remote: true},
 		{Path: "/api/v1/machines/recover-bot-work", Function: b.RecoverBotWork, Remote: true},
 		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},

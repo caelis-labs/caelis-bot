@@ -402,6 +402,40 @@ export interface RuntimeTeamSet {
   available: boolean;
   problem: string;
 }
+export interface SSHAnswer {
+  host: string;
+  port: number;
+  id: string;
+  value: string;
+  cancel: boolean;
+}
+export interface SSHConfiguration {
+  path: string;
+  userPath: string;
+  systemPath: string;
+  text: string;
+  revision: string;
+  hosts: Array<string>;
+  issue?: string;
+}
+export interface SSHConfigurationSave {
+  text: string;
+  revision: string;
+}
+export interface SSHConnectionStatus {
+  state: string;
+  issue?: string;
+  prompt?: SSHPrompt | null;
+}
+export interface SSHPrompt {
+  id: string;
+  text: string;
+  confirm: boolean;
+}
+export interface SSHTarget {
+  host: string;
+  port: number;
+}
 export interface ScreenImage {
   id: string;
   role: string;

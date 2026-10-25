@@ -22,7 +22,7 @@ func (s *Service) botConnectionReference(p profile, address string) api.BotConne
 // Persist identity and the exact connection intent before external delivery.
 // This does not contact B, create native work, or wait for human authorization.
 func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConnectionReference) (api.BotConnectionReference, error) {
-	address, err := workerpeer.Address(in.Address)
+	address, err := botEndpoint(in.Address)
 	if err != nil {
 		return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "invalid_bot_address"}
 	}
@@ -36,7 +36,7 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		return api.BotConnectionReference{}, s.loadErr
 	}
 	id := in.ID
-	if id == "" {
+	if _, exists := s.state.Profiles[id]; !exists {
 		for key, p := range s.state.Profiles {
 			if p.View.Address == address {
 				id = key
@@ -126,7 +126,7 @@ func (s *Service) ConnectPreparedBot(ctx context.Context, ref api.BotConnectionR
 	var receipt workerpeer.PairingReceipt
 	var err error
 	if p.Peer.Peer == "" {
-		identity, probeErr := workerpeer.PeerIdentity(c, ref.Address)
+		identity, probeErr := s.peerIdentity(c, ref.Address)
 		if probeErr != nil {
 			err = &api.ActionRejectedError{Code: probeErr.Error()}
 		} else {
@@ -153,9 +153,9 @@ func (s *Service) ConnectPreparedBot(ctx context.Context, ref api.BotConnectionR
 	if err != nil {
 		// No pairing write follows a failed identity pin.
 	} else if ref.Address != p.Peer.Address || ref.Preparation != nil && ref.Preparation.Read {
-		receipt, err = workerpeer.ReadPairing(c, ref.Address, p.PairingEpoch, source, p.Peer.Token)
+		receipt, err = s.pairRead(c, ref.Address, p.PairingEpoch, source, p.Peer.Token, p.Peer.Peer)
 	} else {
-		receipt, err = workerpeer.RequestPairing(c, p.Peer.Address, p.PairingEpoch, source, p.PairingName, p.Peer.Token, p.Peer.Peer)
+		receipt, err = s.pairRequest(c, p.Peer.Address, p.PairingEpoch, source, p.PairingName, p.Peer.Token, p.Peer.Peer)
 	}
 	if err != nil && ref.Preparation != nil && ref.Preparation.Created {
 		var rejected *api.ActionRejectedError
@@ -202,7 +202,7 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 			next.View.RemoteName = receipt.Name
 		}
 		if receipt.Status == "approved" {
-			out, err := workerpeer.Call(ctx, next.Peer, workerpeer.Request{Action: "info"})
+			out, err := s.peerCall(ctx, next.Peer, workerpeer.Request{Action: "info"})
 			if err == nil && !workerpeer.Compatible(out.Capabilities) {
 				err = errors.New("bot_worker_contract_incompatible")
 			}
@@ -253,7 +253,7 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	}
 	c, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	receipt, err := workerpeer.ReadPairing(c, ref.Address, p.PairingEpoch, source, p.Peer.Token)
+	receipt, err := s.pairRead(c, ref.Address, p.PairingEpoch, source, p.Peer.Token, p.Peer.Peer)
 	if err == nil && ref.Peer != "" && receipt.Peer != ref.Peer {
 		return machineView(p), errors.New("bot_peer_identity_changed")
 	}
@@ -270,7 +270,7 @@ func (s *Service) inspectBot(ctx context.Context, id string, recoverWork, renew 
 	if recoverWork && p.View.PairingStatus == "approved" {
 		c, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
-		_, err := workerpeer.Call(c, p.Peer, workerpeer.Request{Action: "recover"})
+		_, err := s.peerCall(c, p.Peer, workerpeer.Request{Action: "recover"})
 		if err != nil {
 			return p.View, err
 		}

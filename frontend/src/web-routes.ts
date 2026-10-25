@@ -1,5 +1,11 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.SSHConfiguration":{"path":"/api/v1/machines/ssh-config","read":true},
+ "backend.SaveSSHConfiguration":{"path":"/api/v1/machines/ssh-config-save","read":true},
+ "backend.StartSSHConnection":{"path":"/api/v1/machines/ssh-start","read":true},
+ "backend.SSHConnectionStatus":{"path":"/api/v1/machines/ssh-status","read":true},
+ "backend.AnswerSSH":{"path":"/api/v1/machines/ssh-answer","read":true},
+ "backend.StopSSHConnection":{"path":"/api/v1/machines/ssh-stop","read":true},
  "backend.DecideWorkerPairing":{"path":"/api/v1/machines/decide-worker-pairing","read":false},
  "backend.WorkerTasks":{"path":"/api/v1/tasks/worker-list","read":true},
  "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},

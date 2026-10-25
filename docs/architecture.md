@@ -610,9 +610,11 @@ The explicit settings refresh reopens only a failed original registry or prepare
 a missing listener; healthy peer identity/owners are never replaced. Local one-shot
 UI deadlines expire readiness/request presentation without network polling.
 
-The old SSH/helper executable, installer, credentials/configuration editor and
+The old SSH/helper executable, installer, legacy credentials editor and
 remote-terminal wrapping are removed. There is no experimental-data migration or
-old code authorization graph. SSH/Tailscale remain external network transport only.
+old code authorization graph. A new network-only [SSH channel](ssh-connections.md)
+reuses standard system/private OpenSSH configuration and the same Bot peer protocol;
+Tailscale stays external. No helper execution or second task authority returns.
 
 For established connections, native task routes/runtime/owner/request IDs persist
 before execution. Unknown results reconcile original receipts; they never choose

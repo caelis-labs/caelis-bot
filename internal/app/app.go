@@ -857,6 +857,9 @@ func (a *Application) Close() error {
 		a.mu.Lock()
 		a.closed = true
 		a.closeErr = errors.Join(a.closeErr, a.closeWorkerPeer())
+		if a.machines != nil {
+			a.machines.Close()
+		}
 		if a.startupCancel != nil {
 			a.startupCancel()
 		}
