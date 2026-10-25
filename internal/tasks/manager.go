@@ -42,6 +42,7 @@ type record struct {
 	CompletedAt         int64                              `json:"completedAt,omitempty"`
 	ActiveAt            int64                              `json:"activeAt,omitempty"`
 	Pinned              *bool                              `json:"pinned,omitempty"`
+	ExplicitPin         bool                               `json:"explicitPin,omitempty"`
 	OriginalPrompt      string                             `json:"originalPrompt,omitempty"`
 	View                api.Task                           `json:"view"`
 	Provider            string                             `json:"provider"`

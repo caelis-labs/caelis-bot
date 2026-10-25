@@ -74,3 +74,20 @@ or success. This batch does not change the bounded URL support contract.
 The active user Dev bundle/data directory is not a test fixture. A new candidate
 is built in a separate output root; updating/reopening the user's window requires
 coordination. No daily service, SSH configuration, account or existing task moves.
+
+## Task dock follow-up
+
+The default dock contains running/uncertain work and recent completed work.
+Confirmed `failed`/`rejected` results leave the default watchlist immediately,
+including creation rejection with no native binding and a failure observed before
+the product's next refresh. Polling and restart cannot reinsert them. History,
+failure results and original operation receipts remain queryable; hiding never
+stops work or claims completion. `unknown`/`unconfirmed` are not failures and do
+not age out on the failure path. Ordinary completed retention remains 30 minutes.
+
+The existing lock is explicit intent. New explicit Pin calls also retain their
+display intent separately from automatic creation pins. Existing locked records
+remain locked; legacy `pinned: true` alone cannot prove a manual request and does
+not keep a failed default card resident. Explicitly pinning a failed history item
+can restore it, with the existing retention/lock behavior. This is presentation
+metadata in the existing task manager, not another execution authority.

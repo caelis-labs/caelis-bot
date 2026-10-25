@@ -381,7 +381,7 @@ int main(void) {
 OBJC
 clang -fobjc-arc -fblocks -I "$BOT_ROOT/internal/desktop" -framework Cocoa -framework QuartzCore -weak_framework ScreenCaptureKit "$directory/main.m" "$BOT_ROOT/internal/desktop/permission_capture_darwin.m" -o "$directory/fixture"
 if [[ "${BOT_TASK_DOCK_LIVE:-}" == 1 ]]; then
-  bundle="$BOT_ROOT/dist/Caelis Task Preview.app"
+  bundle="${BOT_TASK_PREVIEW_ROOT:-$BOT_ROOT/dist}/Caelis Task Preview.app"
   # Replace only our disposable preview process, never the daily Bot or terminals.
   for preview_pid in $(pgrep -x fixture || true); do
     if [[ "$(ps -ww -p "$preview_pid" -o comm=)" == "$bundle/Contents/MacOS/fixture" ]]; then

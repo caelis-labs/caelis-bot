@@ -257,6 +257,10 @@ lock and close controls; opening the card connects to the original Worker.
 Closing a client or clearing an unlocked card does not stop its work. Read the
 original task's messages through `bot_tasks`, regardless of whether its terminal
 is open; a preview is not a substitute for native conversation history.
+Confirmed failed/rejected tasks leave the default watchlist automatically but
+remain in task history. Do not treat disappearance as completion or cancellation.
+Unknown/unconfirmed work stays uncertain. Explicit pins/locks retain the user's
+display intent; do not repin failed tasks merely to keep a failure card visible.
 
 ## Work on a connected environment
 

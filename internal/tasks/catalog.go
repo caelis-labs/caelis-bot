@@ -126,6 +126,15 @@ func summary(r *record) api.TaskSummary {
 	return api.TaskSummary{Machine: r.View.Machine, MachineName: r.View.MachineName, ID: r.View.ID, Title: r.View.Title, Status: r.View.Status, Outcome: r.View.Outcome, Locked: r.Locked, Pinned: r.Pinned != nil && *r.Pinned}
 }
 
+// Failure is a searchable result, not a default dock card. Uncertain receipts
+// remain visible: a failed-looking transport response is not native rejection.
+func watchFailure(status, outcome string) bool {
+	return (status == "failed" || status == "rejected") && outcome != "unknown" && outcome != "unconfirmed"
+}
+func watchSettled(status, outcome string) bool {
+	return (terminal(status) || status == "rejected") && outcome != "unknown" && outcome != "unconfirmed"
+}
+
 // Legacy records acquire stable pagination order once. Only old unfinished work
 // is migrated into the watchlist; historical records remain searchable.
 func (m *Manager) metadataLocked() {
@@ -144,13 +153,17 @@ func (m *Manager) metadataLocked() {
 			r.Sequence = m.state.Sequence
 		}
 		if r.Pinned == nil {
-			p := !terminal(r.View.Status)
+			p := !watchSettled(r.View.Status, r.View.Outcome)
 			r.Pinned = &p
 		}
 		if !m.owns(r) {
 			continue
 		}
-		if !terminal(r.View.Status) {
+		if watchFailure(r.View.Status, r.View.Outcome) && !r.Locked && !r.ExplicitPin {
+			pin := false
+			r.Pinned = &pin
+		}
+		if !watchSettled(r.View.Status, r.View.Outcome) {
 			r.CompletedAt = 0
 		} else if r.CompletedAt == 0 {
 			r.CompletedAt = m.now().UnixMilli()
@@ -158,6 +171,7 @@ func (m *Manager) metadataLocked() {
 		if !r.Locked && r.CompletedAt > 0 && m.now().Sub(time.UnixMilli(r.CompletedAt)) >= CompletedRetention {
 			pin := false
 			r.Pinned = &pin
+			r.ExplicitPin = false
 		}
 	}
 }
@@ -245,17 +259,18 @@ func (m *Manager) PinTask(id string, pinned bool) (api.TaskSummary, error) {
 	}
 	m.mu.Lock()
 	r := m.state.Records[id]
-	if *r.Pinned == pinned {
+	if *r.Pinned == pinned && r.ExplicitPin == pinned {
 		out := summary(r)
 		m.mu.Unlock()
 		return out, nil
 	}
 	previous := *r
 	r.Pinned = &pinned
+	r.ExplicitPin = pinned
 	if !pinned {
 		r.Locked = false
 	}
-	if pinned && terminal(r.View.Status) {
+	if pinned && watchSettled(r.View.Status, r.View.Outcome) {
 		r.CompletedAt = m.now().UnixMilli()
 	}
 	err := m.write()
@@ -263,8 +278,9 @@ func (m *Manager) PinTask(id string, pinned bool) (api.TaskSummary, error) {
 		*r = previous
 	}
 	out := summary(r)
+	changed := *previous.Pinned != pinned || watchFailure(r.View.Status, r.View.Outcome)
 	m.mu.Unlock()
-	if err == nil {
+	if err == nil && changed {
 		m.notifyWatchlist()
 	}
 	return out, err
@@ -321,18 +337,20 @@ func (m *Manager) ClearTasks() error {
 		return err
 	}
 	m.mu.Lock()
-	previous := map[string]*bool{}
+	previous := map[string]record{}
 	for id, r := range m.state.Records {
 		if m.owns(r) && !r.Locked && r.Pinned != nil && *r.Pinned {
-			previous[id] = r.Pinned
+			previous[id] = *r
 			pin := false
 			r.Pinned = &pin
+			r.ExplicitPin = false
 		}
 	}
 	err := m.write()
 	if err != nil {
-		for id, pin := range previous {
-			m.state.Records[id].Pinned = pin
+		for id, old := range previous {
+			m.state.Records[id].Pinned = old.Pinned
+			m.state.Records[id].ExplicitPin = old.ExplicitPin
 		}
 	}
 	m.mu.Unlock()

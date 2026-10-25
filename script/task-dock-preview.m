@@ -131,6 +131,19 @@
     [self.controls center];[self.controls makeKeyAndOrderFront:nil];[self place];[self reset];
     NSUInteger count=[NSProcessInfo.processInfo.environment[@"BOT_TASK_PREVIEW_TASKS"] integerValue];
     for(NSUInteger i=3;i<count;i++)[self add];
+    // Optional actual Manager projection from the Go regression. No native
+    // filtering/reclassification is duplicated here; only synthetic windows.
+    NSString *projection=NSProcessInfo.processInfo.environment[@"BOT_TASK_PREVIEW_PROJECTION"];
+    if(projection.length){
+        NSArray *items=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:projection] options:0 error:nil];
+        NSCAssert([items isKindOfClass:NSArray.class],@"Manager projection must be an array");
+        [self.history removeAllObjects];self.manualOrder=YES;self.sequence=items.count;
+        for(NSUInteger i=0;i<items.count;i++){
+            NSMutableDictionary *item=[items[i] mutableCopy];item[@"order"]=@(items.count-i);item[@"hidden"]=@NO;
+            [self.history addObject:item];
+        }
+        [self.dock collapse];[self refresh];[self.dock expand];
+    }
     NSString *capture=NSProcessInfo.processInfo.environment[@"BOT_TASK_PREVIEW_CAPTURE"];
     if(capture.length){
         [self.dock.window.contentView display];
