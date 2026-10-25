@@ -51,17 +51,27 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		t.Fatal("invalid bundled metadata")
 	}
 	catalog := Instructions(p)
+	_, skillBody, hasBody := strings.Cut(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n---\n")
 	if strings.Contains(catalog, "bot-dream") {
 		t.Fatal("retired maintenance skill remained in catalog")
 	}
-	if !strings.Contains(catalog, description) || !strings.Contains(catalog, p) || strings.Contains(catalog, "# Restore your context") || strings.Contains(catalog, "MEMORY.md") {
+	if !hasBody || !strings.Contains(catalog, description) || !strings.Contains(catalog, p) || strings.Contains(catalog, strings.TrimSpace(skillBody)) || strings.Contains(catalog, "MEMORY.md") {
 		t.Fatal("metadata missing or body eagerly injected", catalog)
 	}
 	links := regexp.MustCompile(`\]\((references/[^)]+)\)`).FindAllSubmatch(body, -1)
-	if len(links) != 14 || !strings.Contains(string(body), "references/interactions.md") || !strings.Contains(string(body), "references/recovery.md") || !strings.Contains(string(body), "references/weixin-setup.md") || !strings.Contains(string(body), "references/plugins.md") || strings.Contains(string(body), "bot_desktop_") || strings.Contains(string(body), "Desktop World") {
+	references, err := os.ReadDir(filepath.Join(filepath.Dir(p), "references"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != len(references) || strings.Contains(string(body), "bot_desktop_") || strings.Contains(string(body), "Desktop World") {
 		t.Fatal("missing progressive routes")
 	}
+	routed := make(map[string]bool)
 	for _, link := range links {
+		if routed[string(link[1])] {
+			t.Fatalf("duplicate progressive route: %s", link[1])
+		}
+		routed[string(link[1])] = true
 		if _, err := os.ReadFile(filepath.Join(filepath.Dir(p), string(link[1]))); err != nil {
 			t.Fatal(err)
 		}

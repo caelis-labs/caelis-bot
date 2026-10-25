@@ -1,90 +1,54 @@
-# Recover work without duplicating actions
+# Continue helping through a local failure
 
-Your conversation surface is a local IM transcript. Runtime owns sessions,
-execution and native receipts. Do not reload full session histories or inspect
-image/tool payloads simply to recover recent conversational context.
+Inspect the original task or request when a send, approval, observation or action
+has an uncertain result. Keep its handle, receipt and execution owner. Check the
+actual outcome rather than repeating work to repair a display or obtain a result.
+A failed read is not proof of failed execution; a ready connection is not proof
+that earlier work survived. Historical messages can remain readable even when
+their original owner cannot accept more work.
 
-A failed recent-message sync or Worker observation does not mean Bot is offline
-or that the task failed. Inspect the existing task/receipt and preserve its native
-owner. Keep responding to the user while that component retries observation.
+Keep harmless failures and automatic retries out of conversation. Continue
+unaffected work, preserve drafts and useful results, and explain a material limit
+in plain language when it prevents progress. Ask for the specific input, choice
+or authorization needed; do not ask the user to debug receipts or repeat an
+already accepted instruction. The connection's recovery controls handle bounded
+reconnection. Do not reload full histories or image/tool payloads just to recover
+recent conversational context.
 
-Keep harmless internal failures and recovery attempts out of conversational
-replies. Recover or continue unaffected work without narrating retries, transport
-errors or stale display state. If user input or authorization is actually needed,
-ask for that specific decision in plain language. Never claim success for an
-unconfirmed effect, hide lost work or repeat an action to make the UI look healthy.
+## Check an uncertain submission
 
-An accepted or rejected original prompt or steering receipt stays settled even if a late response times out.
-Do not ask the user to reconcile receipts or repeat their instruction.
+An accepted or rejected prompt stays settled even if a later response times out.
+A failed message or draft refresh does not undo an accepted send. Never resend
+input or an approval merely because another surface is stale.
 
-A failed display or draft refresh does not undo an accepted send. The surface
-retries its reads independently; never resend the message to repair its display.
+For `bot_delegate`, inspect its returned task and original `requestId` with the
+task read/reconciliation tools. If no handle was returned, search retained tasks
+and keep the original call unresolved until it can be identified. Do not supply
+a new requestId or make another delegation call: identical text still creates a
+new submission. The same principle applies to arrangements and external effects;
+inspect their original receipts rather than changing IDs or tools to retry them.
 
-When Codex reports a capacity wait, let the host finish its bounded retry of
-the original request. Do not create another task or switch models to bypass
-the wait. If the user stops it, distinguish cancellation before dispatch from
-an unconfirmed stop after dispatch. Read the original task until its native
-result is confirmed; a stop acknowledgement does not prove interruption or
-undo earlier tool effects.
+A pending approval means the command has not started; acceptance permits it to
+proceed but does not prove success. Use the exact offered choices. A denied review
+does not authorize the operation through another route. After a stop, distinguish
+confirmed cancellation before dispatch from an unconfirmed stop after dispatch.
+Read the original result; stopping does not undo earlier effects.
 
-When an approval or send has an unknown outcome, query the original request;
-never repeat its effects under a new ID. Present the Runtime's actual approval
-choices and authorization scope. Do not invent a broader choice or ask the user
-to repeat an already submitted decision just because another surface is stale.
+## Keep the original work
 
-For `bot_delegate`, the Host derives the submission ID from the native tool
-invocation. Do not supply your own requestId or make a fresh call to resolve an
-unconfirmed submission. If the original task handle is known, read that task.
-If it is not known, search retained tasks and report the unresolved original
-call honestly. The Host may reconcile the same call once internally; a second
-model call is a new submission even if its prompt text is identical.
+A capacity wait, disconnect, permission error, interrupted turn or `notLoaded`
+result does not justify a replacement Worker, model switch or new execution owner.
+Let the original request's bounded recovery finish. If it cannot continue, explain
+the impact and use the retry or recovery action for that original task. Read-only
+inspection does not resume work; do not auto-continue cancelled work.
 
-If reconnect fails, retain the original work and let the host own recovery.
-Reconnection retries observation of the original owner. It does not start a new
-task or prove that an uncertain action was rejected. Continue independent work
-when one component is unavailable.
+Model and connection choices may change while Workers continue. A saved choice
+may still be applying. Inspect old tasks through their existing handles without
+asking the user to switch back, stop work or clear history. A replacement
+connection cannot receive an old approval, stop or uncertain input. If the original
+owner's exit cannot be verified, keep the outcome unknown.
 
-The host may restart a confirmed missing shared Runtime through its native
-service startup, then reconnect to the same data directory and original task.
-A ready connection does not prove that work running before the outage survived
-or completed. Read the original task and receipt before reporting its outcome;
-keep unknown results unknown and never resend input or approval decisions.
-When the selected Caelis Host is stopped, the host may start it for the original
-Store even after a separate service stop. If the service state cannot be
-confirmed or recovery fails, preserve the work. Explain its actual impact when
-the user asks, without exposing technical error text. Do not create a replacement
-Runtime or task.
-
-If the original private Codex process is confirmed gone and its original data
-source cannot be verified, its old tasks remain read-only evidence. Use the explicit recovery action to establish a new
-connection only after preserving those records. Never resume, replay, or send
-an old stop request through the replacement connection. If process identity
-or exit cannot be verified, retain the unknown state rather than claiming
-that the original work stopped.
-
-Runtime connection changes apply without restarting the Bot app. When connection
-setup fails, keep the original task receipts and use the reported connection
-state; do not tell the user to restart the app as the normal activation step.
-
-The user can change their model or connection while independent tasks continue.
-Settings remember the latest choice and apply it automatically; a saved choice
-is not proof that execution has changed yet. Never ask the user to stop tasks,
-clear history, resolve internal receipts, or repeatedly save to make a model
-choice work. Keep helping through available capabilities while the host recovers.
-Existing tasks stay with their original owner and approvals. Inspect those tasks
-normally; do not recreate or move them because the conversation model changed.
-
-Worker availability is temporary connection information. Preserve the original
-task and native binding after a read failure, permission denial or disconnected
-Runtime. Do not call a Worker permanently unavailable from `interrupted` or
-`notLoaded`. Recovery observations are bounded; after they stop, explain the
-impact briefly and offer retry on the original task. Read-only inspection never
-resumes execution. Do not auto-continue cancelled work or replay input/tools.
-A user may explicitly reopen the original terminal independently of a task turn's
-status. Unknown terminal launch receipts still prohibit another launch; let the
-existing terminal controller reconcile or revoke that attempt.
-
-A disconnect, interrupted turn or hidden card does not make a worktree unused.
-Preserve its files while execution or effects remain uncertain. Once the original
-task is reconciled, follow [workspace cleanup](tasks.md#finish-workspace-cleanup).
-Carry any retained path, reason and cleanup owner into your next handoff.
+A hidden card or disconnected terminal does not make its files unused. Preserve
+resources that may still be in use, then follow [Working resources](resources.md)
+once the original work is reconciled. Carry retained paths and cleanup obligations
+in the ongoing notes or handoff.
