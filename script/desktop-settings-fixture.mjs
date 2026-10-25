@@ -75,7 +75,7 @@ export const Call={ByName:async(name,...args)=>{
   const input=args[0];
   const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:''};if(params.get('connectedIssue')){v.pairingStatus='approved';v.state='offline';v.issue=params.get('connectedIssue')}const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
  }
- case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
+ case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectHold){window.fixtureInspectHold=false;await new Promise(resolve=>window.fixtureInspectRelease=resolve);throw Error('late private observation error')}if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
  case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}
  case 'DecideWorkerPairing':if(window.fixturePairingError)throw Error(window.fixturePairingError);sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;
  case 'RefreshWorkerSharing':case 'WorkerSharing':return structuredClone(sharing);

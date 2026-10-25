@@ -21,6 +21,7 @@ export function MachineSettings({standalone=false,call=backend,active=true}:{sta
  const [sshConfig,setSSHConfig]=useState(false),[menu,setMenu]=useState<{machine:Machine;anchor:HTMLElement}>();
  const [revoking,setRevoking]=useState(''),[sourceError,setSourceError]=useState<''|'read'|'revoke'>('');
  const generation=useRef(0),sourceGeneration=useRef(0),sourceMutation=useRef(false),refreshing=useRef(false),refreshCycle=useRef(0);
+ const inspections=useRef<Record<string,number>>({});
  const reload=async(check=false)=>{
   const epoch=++generation.current;
   try{
@@ -34,7 +35,7 @@ export function MachineSettings({standalone=false,call=backend,active=true}:{sta
  };
  const readSharing=async()=>{if(sourceMutation.current)return;const epoch=++sourceGeneration.current;try{const value=await call<WorkerSharing>('RefreshWorkerSharing');if(sourceGeneration.current===epoch){setSharing(value);setSourceError('')}}catch{if(sourceGeneration.current===epoch)setSourceError('read')}};
  const refresh=async()=>{if(refreshing.current)return;const cycle=++refreshCycle.current;refreshing.current=true;setChecking(true);try{await Promise.all([reload(true),readSharing()])}finally{if(refreshCycle.current===cycle){refreshing.current=false;setChecking(false)}}};
- const inspectOne=async(id:string)=>{const epoch=generation.current;try{const fresh=await call<Machine>('InspectMachine',id,'');if(generation.current===epoch){setMachines(old=>old.map(v=>v.id===id?fresh:v));setUnread(old=>({...old,[id]:false}))}}catch{if(generation.current===epoch)setUnread(old=>({...old,[id]:true}))}};
+ const inspectOne=async(id:string)=>{const epoch=generation.current,ticket=(inspections.current[id]||0)+1;inspections.current[id]=ticket;const current=()=>generation.current===epoch&&inspections.current[id]===ticket;try{const fresh=await call<Machine>('InspectMachine',id,'');if(current()){setMachines(old=>old.map(v=>v.id===id?fresh:v));setUnread(old=>({...old,[id]:false}))}}catch{if(current())setUnread(old=>({...old,[id]:true}))}};
  useEffect(()=>{if(active)void refresh();return()=>{generation.current++;sourceGeneration.current++;refreshCycle.current++;refreshing.current=false}},[active,call]);
  useEffect(()=>{const focus=()=>{if(active&&!document.hidden)void refresh()};window.addEventListener('focus',focus);window.addEventListener('settings-focus',focus);return()=>{window.removeEventListener('focus',focus);window.removeEventListener('settings-focus',focus)}},[active,call]);
  const revoke=async(id:string)=>{if(sourceMutation.current)return;sourceMutation.current=true;sourceGeneration.current++;setRevoking(id);setSourceError('');try{await call('RevokeWorkerPeer',id);setSharing(old=>old?{...old,sources:old.sources.filter(v=>v.id!==id)}:old)}catch{setSourceError('revoke')}finally{sourceGeneration.current++;sourceMutation.current=false;setRevoking('')}};
