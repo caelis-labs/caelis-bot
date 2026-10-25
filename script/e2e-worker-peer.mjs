@@ -37,6 +37,12 @@ async function launch(name){
  await writeFile(join(data,'runtime-profiles/caelis.json'),JSON.stringify({version:1,runtime:'caelis',cliPath:join(data,'absent-caelis'),caelisStore:join(data,'empty-caelis-store')}),{mode:0o600});
  await json('execution.json',{model:'worker-peer-synthetic',effort:'medium',serviceTier:'',approvalMode:'auto'});
  await json('bot-initialization.json',{version:1,id:`synthetic-introduction-${name}`,status:'accepted',runtime:'codex'});
+ if(name==='A'){
+  await mkdir(join(data,'Machines'),{mode:0o700});
+  const id='machine-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  await writeFile(join(data,'Machines','machines.json'),JSON.stringify({version:1,profileId:'fixture-source-A',profiles:{[id]:{view:{id,name:'Existing SSH',address:'build-host',connectionType:'ssh',state:'offline',runtime:'codex'}}},routes:{}}),{mode:0o600});
+ }
+
  const env={...process.env};for(const key of Object.keys(env))if(/TOKEN|SECRET|API_KEY|PASSWORD|CREDENTIAL|AUTHORIZATION/i.test(key))delete env[key];Object.assign(env,{CODEX_BIN:join(repo,'.cache/worker-peer-e2e/bin/native'),CODEX_HOME:join(data,'empty-codex-home'),CAELIS_CODEX_SOCKET:'',WORKER_PEER_NATIVE_FIXTURE:'1',WORKER_PEER_FIXTURE_ROOT:root});
  const child=spawn(join(repo,'.cache/worker-peer-e2e/bin/bot'),['serve','--data-dir',data,'--listen','127.0.0.1:0'],{cwd:data,env,stdio:['ignore','pipe','pipe']});children.push(child);
  let output='';child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);
@@ -64,12 +70,20 @@ try{
  for(const page of [a,b])await until('configured resident native ready',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');return r.status===200&&r.body.value.connection==='ready';});
  // Further steps drive visible controls, not substitute product HTTP responses.
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');debugPage=a;debugB=b;
- const sharing=b.getByRole('checkbox',{name:'允许其他 Bot 使用此工作环境'});
+ await b.locator('.remote-empty').waitFor();await b.screenshot({path:join(output,'B-empty-remote-list.png')});
+ await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^SSH /}).click();
+ await a.getByLabel('SSH 主机别名',{exact:true}).fill('wildcard-alias-not-in-suggestions');
+ assert.equal(await a.getByRole('button',{name:'连接',exact:true}).isEnabled(),true,'native aliases need not occur in the suggestion inventory');
+ assert.equal(await a.getByLabel('SSH 主机别名',{exact:true}).inputValue(),'wildcard-alias-not-in-suggestions');
+ await a.screenshot({path:join(output,'A-ssh-alias.png')});await a.getByRole('button',{name:'取消',exact:true}).click();
+ await b.getByRole('tab',{name:'连接本机',exact:true}).click();
+ const sharing=b.getByRole('switch',{name:'允许连接'});
  await sharing.click();await until('B sharing enabled',()=>sharing.isChecked());
  await b.getByRole('button',{name:'生成配对信息',exact:true}).click();
- const code=await b.locator('.machine-guide code').textContent();assert.ok(code);
- await a.getByRole('button',{name:'添加 Bot',exact:true}).click();
- await a.getByLabel('Bot 地址',{exact:true}).fill(relay.url);
+ const code=await b.locator('.remote-pairing-info code').textContent();assert.ok(code);
+ await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^Bot 连接/}).click();
+ await a.getByLabel('连接信息或地址',{exact:true}).fill('build-host');
+ await a.getByLabel('连接信息或地址',{exact:true}).fill(relay.url);
  await a.getByLabel('配对码',{exact:true}).fill('wrong-synthetic-code');
  await a.getByLabel('机器名称',{exact:true}).fill('B synthetic');
  await a.getByRole('button',{name:'连接',exact:true}).click();
@@ -84,7 +98,7 @@ try{
  const beforeGrant=JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8'));assert.equal(Object.keys(beforeGrant.grants).length,0);
  const connections=(await host(a,'/api/v1/machines/machines')).body.value;const originalConnection=connections.find(v=>v.connectionType==='bot');assert.ok(originalConnection?.id);
  await b.getByRole('button',{name:'生成配对信息',exact:true}).click();
- const freshCode=await until('new pairing code rendered',async()=>{const next=await b.locator('.machine-guide code').textContent();return next&&next!==code?next:false;});
+ const freshCode=await until('new pairing code rendered',async()=>{const next=await b.locator('.remote-pairing-info code').textContent();return next&&next!==code?next:false;});
  await a.getByRole('button',{name:'生成新配对码后重新授权',exact:true}).click();
  assert.equal(await a.getByLabel('配对码',{exact:true}).inputValue(),'');
  await a.getByLabel('配对码',{exact:true}).fill(code);
@@ -111,6 +125,33 @@ try{
  const current=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.id===originalConnection.id);assert.equal(current.name,'B synthetic');assert.equal(current.peerId,Object.values(afterGrant.grants).length?afterGrant.identity:'');
  evidence.pairRecovery={originalOperation:originalPair,connection:originalConnection.id,originalOutcome:'unknown',followingAuthorization:originalReceipt.followingAuthorization,grantEffects:1,oldCodeReplayed:false,reloadAndRename:true};
  evidence.steps.push('Real React wrong code corrected; pre-B lost pair remains unknown with zero grant; same code refused; fresh-code error corrected; new authorization response lost after actual grant, original child receipt reconciled; reload and later edits keep original connection/proof and old pending');
+ // Reciprocal networking does not create reciprocal authorization. Add the
+ // reverse direction independently, then revoke just A -> B and restore it.
+ await a.getByRole('tab',{name:'连接本机',exact:true}).click();
+ const aSharing=a.getByRole('switch',{name:'允许连接'});await aSharing.click();await until('A sharing enabled',()=>aSharing.isChecked());
+ await a.getByRole('button',{name:'生成配对信息',exact:true}).click();
+ const reverseCode=await a.locator('.remote-pairing-info code').textContent();assert.ok(reverseCode);
+ const aBefore=JSON.parse(await readFile(join(A.data,'WorkerPeers','peers.json'),'utf8'));assert.equal(Object.keys(aBefore.grants).length,0,'A -> B must not grant B -> A');
+ await b.getByRole('tab',{name:'远程机器',exact:true}).click();
+ await b.getByRole('button',{name:'添加远程机器',exact:true}).click();await b.getByRole('button',{name:/^Bot 连接/}).click();
+ await b.getByLabel('连接信息或地址',{exact:true}).fill(JSON.stringify({address:A.url,code:reverseCode}));
+ await b.getByLabel('机器名称',{exact:true}).fill('A reverse');await b.getByRole('button',{name:'连接',exact:true}).click();
+ await b.locator('.runtime-dialog').waitFor({state:'hidden'});await b.locator('.machine-row').filter({hasText:'A reverse'}).locator('.machine-status.ready').waitFor();
+ const reverse=(await host(b,'/api/v1/machines/machines')).body.value.find(v=>v.name==='A reverse');assert.ok(reverse);
+ const aRoutes=JSON.parse(await readFile(join(A.data,'Machines','machines.json'),'utf8')),bRoutes=JSON.parse(await readFile(join(B.data,'Machines','machines.json'),'utf8'));
+ assert.notEqual(aRoutes.profiles[originalConnection.id].peer.token,bRoutes.profiles[reverse.id].peer.token,'directions must not share bearer proof');
+ assert.ok(aRoutes.profiles['machine-ABCDEFGHIJKLMNOPQRSTUVWXYZ'],'Bot correction must not adopt or replace SSH profile');
+ await b.getByRole('tab',{name:'连接本机',exact:true}).click();await b.locator('.remote-source-list').getByRole('button',{name:'撤销授权',exact:true}).click();await until('B confirmed revoke completed',async()=>await b.locator('.remote-source-list li').count()===0);
+ const revoked=JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8'));assert.ok(Object.values(revoked.grants).every(g=>g.revoked),'original source grant not revoked');
+ await host(a,'/api/v1/machines/inspect-machine',[originalConnection.id,'']);
+ const unchanged=(await host(b,'/api/v1/machines/inspect-machine',[reverse.id,''])).body.value;assert.equal(unchanged.state,'ready','revoke A -> B must leave B -> A authorized');
+ await a.getByRole('tab',{name:'远程机器',exact:true}).click();await until('revoked direction shown accurately',async()=>(await a.locator('.machine-row').filter({hasText:'B synthetic'}).innerText()).includes('需授权'));
+ await b.getByRole('button',{name:'生成配对信息',exact:true}).click();const restoredCode=await b.locator('.remote-pairing-info code').textContent();
+ await a.locator('.machine-row').filter({hasText:'B synthetic'}).click();await a.getByLabel('配对码',{exact:true}).fill(restoredCode);await a.getByRole('button',{name:'授权连接',exact:true}).click();
+ await a.locator('.runtime-dialog').waitFor({state:'hidden'});await a.locator('.machine-row').filter({hasText:'B synthetic'}).locator('.machine-status.ready').waitFor();
+ evidence.directionalAuthorization={separateHandshakes:true,separateProofs:true,revokeOnlyOneDirection:true,originalForwardProfileRestored:true,sshAliasCorrectionPreservesType:true};
+ evidence.steps.push('Actual A/B React independently pairs both directions; one-way revoke leaves reverse authorized; fresh code restores original forward proof/profile. Bot address typo matching saved SSH alias never adopts SSH identity');
+
  await shot(a,'A-paired');
  await a.getByRole('button',{name:'关闭设置',exact:true}).click();
  await a.locator('[data-settings-panel]').waitFor({state:'hidden'});

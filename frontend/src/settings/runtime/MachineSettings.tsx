@@ -6,18 +6,24 @@ import { useI18n } from '../../i18n';
 import type { Machine, MachineInput, RuntimeMutationResult } from '../../backend/contract';
 import type { RuntimeSettingsClient } from './types';
 import { TeamSettings } from './TeamSettings';
-import {BotConnections} from './BotConnections';
+import {BotConnectionDialog,BotSharing} from './BotConnections';
+import {SettingsDialog} from './SettingsDialog';
+import {remoteMachineStatus} from './machine-status';
+import {DotsThreeIcon} from '@phosphor-icons/react/dist/csr/DotsThree';
 import { runtimeSettingsClient, ConfigurationError } from './client';
 import {ModelPicker, ModelSummary} from './ModelPicker';
 import {SettingsChevron, DesktopTowerIcon, XIcon, ArrowClockwiseIcon, ArrowSquareOutIcon} from '../../SettingsIcons';
 
 type Invoke = typeof backend;
-const blank = (): MachineInput => ({id:'',name:'',address:'',port:22,user:'',authentication:'agent',sshConfig:true,privateKey:'',secret:'',remember:false,trustFingerprint:''});
+const blank = (): MachineInput => ({id:'machine-'+Array.from(crypto.getRandomValues(new Uint8Array(26)),v=>'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'[v&31]).join(''),name:'',address:'',port:22,user:'',authentication:'agent',sshConfig:true,privateKey:'',secret:'',remember:false,trustFingerprint:''});
 export function MachineSettings({standalone=false, call = backend, openTerminal = (id: string) => desktop('OpenMachineTerminal', id), active = true }: {standalone?:boolean;call?:Invoke;openTerminal?:(id:string)=>Promise<void>;active?:boolean}) {
  const {t} = useI18n();
  const [machines,setMachines]=useState<Machine[]>([]),[draft,setDraft]=useState<MachineInput|null>(null),[selected,setSelected]=useState<Machine|null>(null);
+ const [tab,setTab]=useState<'remote'|'sharing'>('remote'),[adding,setAdding]=useState(false),[botEditor,setBotEditor]=useState<Machine|true|null>(null),[loaded,setLoaded]=useState(false),[listError,setListError]=useState(false);
+ const [now,setNow]=useState(()=>Date.now());
+ const generation=useRef(0),reading=useRef(false);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[step,setStep]=useState<'connection'|'work'>('connection');
- const [hosts,setHosts]=useState<string[]>([]),[hostsLoading,setHostsLoading]=useState(false),[hostsError,setHostsError]=useState(false),[hostSearch,setHostSearch]=useState('');
+ const [hosts,setHosts]=useState<string[]>([]),[hostsLoading,setHostsLoading]=useState(false),[hostsError,setHostsError]=useState(false);
  const hostsGeneration=useRef(0);
  const [removeAsk,setRemoveAsk]=useState(false),[editingModel,setEditingModel]=useState(false),[sshOpen,setSSHOpen]=useState(false);
  const modelAnchor=useRef<HTMLElement|null>(null);
@@ -25,9 +31,9 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
  const working=useRef(false),editor=useRef<HTMLDivElement>(null),advancedGeneration=useRef(0);
  const removeCancel=useRef<HTMLButtonElement>(null);
  const savedMachine=!!draft&&machines.some(v=>v.id===draft.id);
- const reload=async()=>setMachines((await call<Machine[]>('Machines')).filter(machine=>machine.connectionType!=='bot'));
- useEffect(()=>{if(active)void reload().catch(()=>{});},[active,call]);
- useEffect(()=>{if(!active||draft)return;const timer=window.setInterval(()=>void reload().catch(()=>{}),4000);return()=>window.clearInterval(timer);},[active,!!draft,call]);
+ const reload=async()=>{if(reading.current)return;reading.current=true;const current=generation.current;try{const result=await call<Machine[]>('Machines');if(current===generation.current){setMachines(result);setLoaded(true);setListError(false);}}catch(cause){if(current===generation.current){setLoaded(true);setListError(true)}throw cause}finally{reading.current=false}};
+ useEffect(()=>{if(active)void reload().catch(()=>setLoaded(true));return()=>{generation.current++;};},[active,call]);
+ useEffect(()=>{if(!active||draft)return;const timer=window.setInterval(()=>{setNow(Date.now());void reload().catch(()=>{});},4000);return()=>window.clearInterval(timer);},[active,!!draft,call]);
  const loadHosts=async()=>{const generation=++hostsGeneration.current;setHostsLoading(true);setHostsError(false);try{const value=await call<string[]>('SSHConfigHosts');if(generation===hostsGeneration.current)setHosts(value);}catch{if(generation===hostsGeneration.current){setHosts([]);setHostsError(true);}}finally{if(generation===hostsGeneration.current)setHostsLoading(false);}};
  useEffect(()=>{if(draft&&step==='connection')void loadHosts();return()=>{hostsGeneration.current++;};},[!!draft,step,call]);
  useEffect(()=>{
@@ -44,11 +50,10 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
  const resetAdvanced=()=>{advancedGeneration.current++;setAdvancedBusy(false);setAdvanced(false);};
  const close=()=>{if(busy||terminalBusy)return;resetAdvanced();setDraft(null);setSelected(null);setSSHOpen(false);setEditingModel(false);setRemoveAsk(false);setError('');};
  const patch=(value:Partial<MachineInput>)=>{setDraft(d=>d?{...d,...value,trustFingerprint:''}:d);setSelected(v=>v&&(v.state==='trust'||v.state==='offline')?{...v,state:'offline',issue:''}:v);setError('');};
- const begin=(v?:Machine)=>{resetAdvanced();setSelected(v??null);setDraft(v?{...blank(),...v,sshConfig:!!v.sshConfig,secret:'',trustFingerprint:''}:blank());setHostSearch('');setStep(v&&v.state!=='offline'?'work':'connection');setError('');setSSHOpen(false);setEditingModel(false);setRemoveAsk(false);};
- const chooseSource=(sshConfig:boolean)=>{if(draft?.sshConfig===sshConfig)return;patch({sshConfig,address:'',port:22,user:'',authentication:'agent',privateKey:'',secret:'',remember:false});setHostSearch('');};
- const visibleHosts=hosts.filter(host=>host.toLowerCase().includes(hostSearch.trim().toLowerCase()));
+ const begin=(v?:Machine)=>{resetAdvanced();setSelected(v??null);setDraft(v?{...blank(),...v,sshConfig:!!v.sshConfig,secret:'',trustFingerprint:''}:blank());setStep(v&&v.state!=='offline'?'work':'connection');setError('');setSSHOpen(false);setEditingModel(false);setRemoveAsk(false);};
+ const chooseSource=(sshConfig:boolean)=>{if(draft?.sshConfig===sshConfig)return;patch({sshConfig,address:'',port:22,user:'',authentication:'agent',privateKey:'',secret:'',remember:false});};
  const accept=(v:Machine)=>{setSelected(v);setDraft(d=>d?{...d,id:v.id||d.id,secret:['trust','offline'].includes(v.state)||v.issue?d.secret:'',port:v.port||d.port,address:v.address||d.address,user:v.user||d.user}:d);if(v.state!=='trust'&&v.state!=='offline'&&!v.issue)setStep('work');};
- const action=async(fn:()=>Promise<Machine>)=>{if(working.current)return;working.current=true;setBusy(true);setError('');try{accept(await fn());await reload();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{working.current=false;setBusy(false);}};
+ const action=async(fn:()=>Promise<Machine>)=>{if(working.current)return;working.current=true;setBusy(true);setError('');try{accept(await fn());await reload();}catch(e){setError((e as {detail?:string})?.detail||(e instanceof Error?e.message:String(e)));}finally{working.current=false;setBusy(false);}};
  const connect=()=>{if(!draft)return;const input=selected?.state==='trust'?{...draft,trustFingerprint:selected.fingerprint}:draft;setDraft(input);void action(()=>call<Machine>('ConnectMachine',input));};
  const remove=async()=>{if(!draft||!savedMachine||working.current||terminalBusy)return;const id=draft.id;working.current=true;setBusy(true);setError('');try{await call('RemoveMachine',id);setMachines(v=>v.filter(machine=>machine.id!==id));setDraft(null);setSelected(null);setRemoveAsk(false);void reload().catch(()=>{});}catch(e){setRemoveAsk(false);setError(e instanceof Error?e.message:String(e));}finally{working.current=false;setBusy(false);}};
  const refresh=(runtime=selected?.runtime??'')=>{if(selected){resetAdvanced();void action(()=>call<Machine>('InspectMachine',selected.id,runtime));}};
@@ -59,25 +64,33 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
  const issue=(value:string)=>{if(value==='ssh_authentication_or_connection'&&draft?.sshConfig)return t('settings.machineConfigConnectFailed');const key=`settings.machineError_${value}`;const translated=t(key as Parameters<typeof t>[0]);return translated===key?t('settings.machineActionFailed'):translated;};
  const terminalLabel=selected?.setup?.state==='missing'?t('settings.machineOpenTerminal'):t('settings.machineOpenTUI');
  return <section className={`machine-section ${standalone?'machine-page':''}`}>
-  {standalone&&<><h1>{t('settings.machines')}</h1><p className="settings-page-intro">{t('settings.machinePageIntro')}</p></>}
-  <BotConnections active={active} call={call}/>
-  {!!machines.length&&<div className="runtime-section-title"><div><h2>{t('settings.botLegacyConnections')}</h2><p className="settings-note">{t('settings.botLegacyNote')}</p></div></div>}
-  {!!machines.length&&<ul className="machine-list">{machines.map(v=><li key={v.id}><button className="machine-row" onClick={()=>begin(v)}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span><strong>{v.name}</strong><small>{v.runtime?v.runtime==='caelis'?'Caelis':'Codex':v.address}</small></span><span className={`machine-status ${v.state==='ready'?'ready':''}`}>{status(v)}</span><SettingsChevron/></button></li>)}</ul>}
+  {standalone&&<h1>{t('settings.machines')}</h1>}
+  <div className="remote-tabs" role="tablist" aria-label={t('settings.remoteDirection')}><button role="tab" aria-selected={tab==='remote'} onClick={()=>setTab('remote')}>{t('settings.remoteMachinesTab')}</button><button role="tab" aria-selected={tab==='sharing'} onClick={()=>setTab('sharing')}>{t('settings.remoteSharingTab')}</button></div>
+  {tab==='sharing'?<BotSharing active={active} call={call}/>:<>
+   <div className="remote-toolbar"><span>{t('settings.remoteConnected')}</span><button className="remote-add" onClick={()=>setAdding(true)}>{t('settings.remoteAdd')}</button></div>
+   {!loaded?<p className="machine-empty" role="status">{t('settings.remoteLoading')}</p>:machines.filter(v=>!v.archived).length===0?!listError&&<p className="remote-empty">{t('settings.remoteEmpty')}</p>:<ul className="machine-list remote-machine-list">{machines.filter(v=>!v.archived).map(v=>{
+    const state=remoteMachineStatus(v,now);const edit=()=>v.connectionType==='bot'?setBotEditor(v):begin(v);
+    return <li key={v.id}><button className="machine-row" onClick={edit}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span><strong>{v.name}</strong><small>{v.connectionType==='bot'?'Bot':'SSH'} · {v.address}</small></span><span className={`machine-status ${state==='online'?'ready':''}`}>{t(state==='online'?'settings.remoteOnline':state==='authorization'?'settings.remoteNeedsAuthorization':state==='setup'?'settings.remoteNeedsSetup':state==='unchecked'?'settings.remoteUnchecked':'settings.remoteOffline')}</span></button><button className="machine-more" aria-haspopup="dialog" aria-label={t('settings.remoteManage',{name:v.name})} onClick={edit}><DotsThreeIcon size={20}/></button></li>
+   })}</ul>}
+   {listError&&<p role="status" className="settings-note">{t('settings.remoteListUnavailable')} <button className="text-action" onClick={()=>void reload().catch(()=>{})}>{t('settings.machineRecheck')}</button></p>}
+  </>}
+  {adding&&<SettingsDialog title={t('settings.remoteAdd')} onClose={()=>setAdding(false)} className="remote-add-dialog"><div className="remote-methods"><button onClick={()=>{setAdding(false);setBotEditor(true);}}><DesktopTowerIcon size={22}/><span><strong>{t('settings.remoteBotMethod')}</strong><small>{t('settings.remoteBotMethodNote')}</small></span><SettingsChevron/></button><button onClick={()=>{setAdding(false);begin();}}><span className="remote-ssh-icon" aria-hidden="true">&gt;_</span><span><strong>SSH</strong><small>{t('settings.remoteSSHMethodNote')}</small></span><SettingsChevron/></button></div></SettingsDialog>}
+  {botEditor&&<BotConnectionDialog machines={machines} initial={botEditor===true?undefined:botEditor} call={call} onClose={()=>setBotEditor(null)} onSaved={()=>{setBotEditor(null);void reload().catch(()=>{});}} onChanged={reload}/>}
   {draft&&<div className="machine-editor-layer" onPointerDown={e=>{if(e.target===e.currentTarget)close();}}><div ref={editor} className="machine-editor" role="dialog" aria-modal="true" aria-labelledby="machine-editor-title" tabIndex={-1} onKeyDown={e=>{
    if((e.target as HTMLElement).closest('.runtime-dialog'))return;
    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(removeAsk&&!busy)setRemoveAsk(false);else close();}
    if(e.key==='Tab'){const nodes=[...editor.current!.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,a[href]')].filter(n=>!n.closest('[inert]')&&n.getClientRects().length);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===editor.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}
   }}>
-   <header><div><h2 id="machine-editor-title">{selected?.name||t('settings.machineAdd')}</h2><p>{step==='connection'?t('settings.machineConnectStep'):t('settings.machineWorkStep')}</p></div><button disabled={busy||terminalBusy} aria-label={t('common.close')} onClick={close}><XIcon size={16} aria-hidden="true"/></button></header>
+   <header><div><h2 id="machine-editor-title">{selected?.name||t('settings.machineAdd')}</h2><p>{step==='connection'?t('settings.remoteSSHMethodNote'):t('settings.machineWorkStep')}</p></div><button disabled={busy||terminalBusy} aria-label={t('common.close')} onClick={close}><XIcon size={16} aria-hidden="true"/></button></header>
    <div className="machine-editor-body" inert={removeAsk}>
    {error&&<p role="alert" className="inline-error">{issue(error)}</p>}
    {step==='connection'?<form id="machine-connection-form" onSubmit={e=>{e.preventDefault();connect();}}>
     {selected?.issue&&selected.issue!=='confirm_fingerprint'&&<p role="alert" className="inline-error">{issue(selected.issue)}</p>}
-    <div className="runtime-segments machine-source" role="group" aria-label={t('settings.machineConnectionSource')}><button type="button" aria-pressed={draft.sshConfig} disabled={busy} onClick={()=>chooseSource(true)}>{t('settings.machineExistingSSH')}</button><button type="button" aria-pressed={!draft.sshConfig} disabled={busy} onClick={()=>chooseSource(false)}>{t('settings.machineNewSSH')}</button></div>
+
     {draft.sshConfig?<>
-     <div className="machine-host-heading"><strong>{t('settings.machineChooseSSH')}</strong><button className="text-action" type="button" disabled={busy||hostsLoading} aria-label={t('settings.machineRefreshSSH')} title={t('settings.machineRefreshSSH')} onClick={()=>void loadHosts()}><ArrowClockwiseIcon size={15} aria-hidden="true"/></button></div>
-     <input className="machine-host-search" type="search" aria-label={t('settings.machineSearchSSH')} placeholder={t('settings.machineSearchSSH')} autoComplete="off" value={hostSearch} disabled={busy} onChange={e=>setHostSearch(e.target.value)}/>
-     {hostsLoading?<p className="machine-host-message" role="status">{t('settings.machineLoadingSSH')}</p>:hostsError?<p className="machine-host-message inline-error" role="alert">{t('settings.machineError_ssh_config_read_failed')}</p>:!visibleHosts.length?<p className="machine-host-message" role="status">{t(hosts.length?'settings.machineNoMatchingSSH':'settings.machineNoSSH')}</p>:<div className="machine-host-list" role="radiogroup" aria-label={t('settings.machineChooseSSH')}>{visibleHosts.map(host=><button type="button" key={host} role="radio" aria-checked={draft.address===host} tabIndex={draft.address===host||(!visibleHosts.includes(draft.address)&&host===visibleHosts[0])?0:-1} disabled={busy} onClick={()=>patch({address:host,user:'',port:22,privateKey:'',secret:'',remember:false})} onKeyDown={e=>{if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;e.preventDefault();const index=visibleHosts.indexOf(host),next=e.key==='Home'?0:e.key==='End'?visibleHosts.length-1:(index+(e.key==='ArrowDown'?1:-1)+visibleHosts.length)%visibleHosts.length;patch({address:visibleHosts[next],user:'',port:22,privateKey:'',secret:'',remember:false});(e.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();}}><DesktopTowerIcon size={16} aria-hidden="true"/><span>{host}</span><span className="machine-host-check" aria-hidden="true">{draft.address===host?'✓':''}</span></button>)}</div>}
+     <label>{t('settings.machineChooseSSH')}<input autoFocus required autoComplete="off" list="remote-ssh-hosts" placeholder={hostsLoading?t('settings.machineLoadingSSH'):'fedora'} value={draft.address} disabled={busy} onChange={e=>patch({address:e.target.value})}/></label>
+     {hostsError&&<p className="settings-note">{t('settings.machineSSHInventoryOptional')}</p>}
+     <datalist id="remote-ssh-hosts">{hosts.map(host=><option key={host} value={host}/>)}</datalist>
      <p className="settings-note machine-config-note">{t('settings.machineReuseSSHNote')}</p>
     </>:<>
     <label>{t('settings.machineAuth')}<SettingsSelect value={draft.authentication} disabled={busy} onChange={e=>patch({authentication:e.target.value,secret:'',remember:false})}><option value="agent">{t('settings.machineAuthAgent')}</option><option value="key">{t('settings.machineAuthKey')}</option><option value="password">{t('settings.machineAuthPassword')}</option></SettingsSelect></label>
@@ -87,6 +100,7 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
     {draft.authentication!=='agent'&&<><label>{t(draft.authentication==='password'?'settings.machinePassword':'settings.machinePassphrase')}<input type="password" autoComplete="new-password" value={draft.secret} disabled={busy} onChange={e=>patch({secret:e.target.value})}/></label><label className="machine-remember"><input type="checkbox" checked={draft.remember} disabled={busy} onChange={e=>patch({remember:e.target.checked})}/>{t('settings.machineRemember')}</label></>}
     </>}
     <details className="machine-extra"><summary><SettingsChevron/>{t('settings.machineOptional')}</summary><label>{t('settings.machineName')}<input value={draft.name} maxLength={80} disabled={busy} onChange={e=>patch({name:e.target.value})}/></label>{draft.sshConfig&&<><label>{t('settings.machineConfigSecret')}<input type="password" autoComplete="new-password" value={draft.secret} disabled={busy} onChange={e=>patch({secret:e.target.value})}/></label><label className="machine-remember"><input type="checkbox" checked={draft.remember} disabled={busy} onChange={e=>patch({remember:e.target.checked})}/>{t('settings.machineRemember')}</label></>}</details>
+    <button type="button" className="text-action machine-source-toggle" disabled={busy} onClick={()=>chooseSource(!draft.sshConfig)}>{t(draft.sshConfig?'settings.machineUseAddress':'settings.machineUseAlias')}</button>
     {selected?.state==='trust'&&<div className="machine-fingerprint" role="status"><strong>{t('settings.machineTrustTitle')}</strong><p>{t('settings.machineTrustNote')}</p><code>{selected.fingerprint}</code></div>}
 
    </form>:<>
@@ -106,7 +120,7 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
     {selected?.issue&&<p role="alert" className="inline-error">{issue(selected.issue)}</p>}
    </>}
    </div>
-   {removeAsk?<footer className="machine-removal-confirm" role="group" aria-label={t('settings.machineRemoveTitle')}><div><strong>{t('settings.machineRemoveTitle')}</strong><p>{t('settings.machineRemoveNote')}</p></div><div className="machine-actions"><button ref={removeCancel} disabled={busy} onClick={()=>setRemoveAsk(false)}>{t('common.cancel')}</button><button className="machine-remove-primary" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemoveConfirm')}</button></div></footer>:<footer>{savedMachine?<button className="text-action machine-remove" disabled={busy||terminalBusy} onClick={()=>{setError('');setRemoveAsk(true);}}>{t('settings.machineRemove')}</button>:<span>{busy?t('settings.machineChecking'):step==='connection'?(draft.sshConfig?draft.address:''):selected?.state==='ready'?t('settings.machineCanStart'):t('settings.machineCanContinueLater')}</span>}<div className="machine-actions"><button disabled={busy||terminalBusy} onClick={close}>{step==='connection'?t('common.cancel'):selected?.state==='ready'?t('settings.machineDone'):t('settings.machineLater')}</button>{step==='connection'&&<button type="submit" form="machine-connection-form" className="primary" disabled={busy||selected?.issue==='host_key_changed'||(draft.sshConfig&&(hostsLoading||!hosts.includes(draft.address)))}>{busy?t('settings.machineConnecting'):selected?.state==='trust'?t('settings.machineTrust'):t('settings.machineConnect')}</button>}</div></footer>}
+   {removeAsk?<footer className="machine-removal-confirm" role="group" aria-label={t('settings.machineRemoveTitle')}><div><strong>{t('settings.machineRemoveTitle')}</strong><p>{t('settings.machineRemoveNote')}</p></div><div className="machine-actions"><button ref={removeCancel} disabled={busy} onClick={()=>setRemoveAsk(false)}>{t('common.cancel')}</button><button className="machine-remove-primary" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemoveConfirm')}</button></div></footer>:<footer>{savedMachine?<button className="text-action machine-remove" disabled={busy||terminalBusy} onClick={()=>{setError('');setRemoveAsk(true);}}>{t('settings.machineRemove')}</button>:<span>{busy?t('settings.machineChecking'):step==='connection'?(draft.sshConfig?draft.address:''):selected?.state==='ready'?t('settings.machineCanStart'):t('settings.machineCanContinueLater')}</span>}<div className="machine-actions"><button disabled={busy||terminalBusy} onClick={close}>{step==='connection'?t('common.cancel'):selected?.state==='ready'?t('settings.machineDone'):t('settings.machineLater')}</button>{step==='connection'&&<button type="submit" form="machine-connection-form" className="primary" disabled={busy||selected?.issue==='host_key_changed'||!draft.address.trim()}>{busy?t('settings.machineConnecting'):selected?.state==='trust'?t('settings.machineTrust'):t('settings.machineConnect')}</button>}</div></footer>}
   </div></div>}
   {editingModel && selected && <ModelPicker anchor={modelAnchor.current} inherited title={t('settings.machineWorkModel')} value={selected.work} models={selected.models??[]} runtimeDefault={selected.runtimeDefault} onClose={()=>setEditingModel(false)} onReload={async()=>accept(await call<Machine>('InspectMachine',selected.id,selected.runtime))} onSave={async selection=>{accept(await call<Machine>('SaveMachineModel',{id:selected.id,selection}));await reload().catch(()=>{});}}/>}
  </section>;

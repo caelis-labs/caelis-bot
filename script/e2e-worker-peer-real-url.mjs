@@ -101,10 +101,11 @@ try{
  await a.goto(A.url);await b.goto(B.url);
  for(const page of [a,b])await until('actual Codex resident ready',async()=>{const r=await host(page,'/api/v1/conversation/snapshot');return r.body.value.connection==='ready'});
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');
- const sharing=b.getByRole('checkbox',{name:'允许其他 Bot 使用此工作环境'});await sharing.click();await until('sharing enabled',()=>sharing.isChecked());
+ await b.getByRole('tab',{name:'连接本机',exact:true}).click();
+ const sharing=b.getByRole('switch',{name:'允许连接'});await sharing.click();await until('sharing enabled',()=>sharing.isChecked());
  await writeFile(join(artifacts,'B-worker-readiness.json'),JSON.stringify(await host(b,'/api/v1/connections/local-worker-selection'),null,2));
- await b.getByRole('button',{name:'生成配对信息',exact:true}).click();await until('pairing information or explicit refusal',async()=>{if(await b.getByRole('alert').isVisible())throw new Error(await b.getByRole('alert').textContent());return await b.locator('.machine-guide code').isVisible()});const code=await b.locator('.machine-guide code').textContent();assert.ok(code);
- await a.getByRole('button',{name:'添加 Bot',exact:true}).click();await a.getByLabel('Bot 地址',{exact:true}).fill(relay.url);await a.getByLabel('配对码',{exact:true}).fill(code);await a.getByLabel('机器名称',{exact:true}).fill('B real Codex');await a.getByRole('button',{name:'连接',exact:true}).click();await a.locator('.machine-row').filter({hasText:'B real Codex'}).waitFor();
+ await b.getByRole('button',{name:'生成配对信息',exact:true}).click();await until('pairing information or explicit refusal',async()=>{if(await b.getByRole('alert').isVisible())throw new Error(await b.getByRole('alert').textContent());return await b.locator('.remote-pairing-info code').isVisible()});const code=await b.locator('.remote-pairing-info code').textContent();assert.ok(code);
+ await a.getByRole('button',{name:'添加远程机器',exact:true}).click();await a.getByRole('button',{name:/^Bot 连接/}).click();await a.getByLabel('连接信息或地址',{exact:true}).fill(relay.url);await a.getByLabel('配对码',{exact:true}).fill(code);await a.getByLabel('机器名称',{exact:true}).fill('B real Codex');await a.getByRole('button',{name:'连接',exact:true}).click();await a.locator('.machine-row').filter({hasText:'B real Codex'}).waitFor();
  const profiles=(await host(a,'/api/v1/machines/machines')).body.value;const profile=profiles.find(v=>v.name==='B real Codex');assert.ok(profile);await control('/environment',{id:profile.id});
  evidence.steps.push('Actual A/B Apps and real Codex ready; paired via real React; model output calls actual bot_delegate');
  const success=await create(A,B,'SUCCESS');const dialog=await openPage(success);await dialog.getByLabel('Mock confirmation').fill('synthetic-confirmation');await dialog.getByRole('button',{name:'Complete original challenge',exact:true}).click();await dialog.getByText('网站已接收此提交。请处理原请求以继续。',{exact:true}).waitFor();

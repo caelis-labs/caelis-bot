@@ -139,6 +139,7 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
+  remoteName?: string;
   checkedAt?: number;
   archived?: boolean;
   connectionType?: string;

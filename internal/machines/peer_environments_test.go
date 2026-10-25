@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNewTaskEnvironmentsDoNotAdvertiseLegacyHelper(t *testing.T) {
+func TestTaskEnvironmentsOfferBothConnectionsWithoutMovingOriginalTasks(t *testing.T) {
 	s, err := Open(t.TempDir(), inert{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -15,8 +15,8 @@ func TestNewTaskEnvironmentsDoNotAdvertiseLegacyHelper(t *testing.T) {
 	s.state.Routes["old-task"] = "legacy"
 	s.state.Runtimes["old-task"] = "codex"
 	items := s.TaskMachines()
-	if len(items) != 1 || items[0].ID != "bot-peer" {
-		t.Fatal("legacy helper offered for new work", items)
+	if len(items) != 2 {
+		t.Fatal("explicit SSH and Bot environments missing", items)
 	}
 	if s.route("old-task") != "legacy" || len(s.Machines()) != 2 {
 		t.Fatal("legacy owner or repair settings removed")

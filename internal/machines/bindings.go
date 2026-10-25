@@ -101,7 +101,7 @@ func (s *Service) ReleaseWorkPreparation(id string) error {
 	defer s.mu.Unlock()
 	// A late acknowledgement can release only this unchanged undispatched lease.
 	current := s.state.Profiles[machine]
-	if !s.state.Reservations[id] || s.state.Routes[id] != machine || s.state.Runtimes[id] != runtime || s.state.ReservationKeys[id] != key || !sameBotConfiguration(current, p) {
+	if !s.state.Reservations[id] || s.state.Routes[id] != machine || s.state.Runtimes[id] != runtime || s.state.ReservationKeys[id] != key || !sameConnectionConfiguration(current, p) {
 		return nil
 	}
 	delete(s.state.Routes, id)

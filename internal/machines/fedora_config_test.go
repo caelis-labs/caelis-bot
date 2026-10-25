@@ -28,13 +28,8 @@ func TestFedoraSSHConfigConnection(t *testing.T) {
 	}
 	input := api.MachineInput{Address: host, SSHConfig: true, User: "ignored-stale-user", Port: 1, Authentication: "key", PrivateKey: "/ignored-stale-key"}
 	node, err := s.ConnectMachine(t.Context(), input)
-	if err != nil || node.State != "trust" || !node.SSHConfig {
-		t.Fatalf("host-key confirmation %s %s %v", node.State, node.Issue, err)
-	}
-	input.ID, input.TrustFingerprint = node.ID, node.Fingerprint
-	node, err = s.ConnectMachine(t.Context(), input)
 	if err != nil || node.State == "offline" || node.Issue != "" || !node.SSHConfig || node.User == input.User || node.Port == input.Port {
-		t.Fatalf("configured-Host authentication %s %s %v", node.State, node.Issue, err)
+		t.Fatalf("system-configured Host authentication %s %s %v", node.State, node.Issue, err)
 	}
 	if !slices.Contains(node.Available, "codex") || !slices.Contains(node.Available, "caelis") {
 		t.Fatal("remote runtimes not discovered")
@@ -53,5 +48,5 @@ func TestFedoraSSHConfigConnection(t *testing.T) {
 	if err := again.RemoveMachine(t.Context(), node.ID); err != nil {
 		t.Fatal("disposable controller cleanup", err)
 	}
-	t.Log("configured Host discovery, fingerprint, native authentication, runtime detection and reopen passed; no model call")
+	t.Log("configured Host discovery, native system trust/authentication, runtime detection and reopen passed; no model call")
 }

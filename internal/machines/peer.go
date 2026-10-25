@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
@@ -27,6 +28,9 @@ func sameBotConfiguration(a, b profile) bool {
 func botCheckResult(p profile, out workerpeer.Response, err error) profile {
 	p.View.CheckedAt = time.Now().UnixMilli()
 	p.View.State, p.View.Issue = "offline", ""
+	if validPeerDisplayName(out.Name) {
+		p.View.RemoteName = out.Name
+	}
 	if err != nil {
 		p.View.Issue = err.Error()
 		if p.View.Issue == "worker_not_ready" {
@@ -160,7 +164,7 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 			readErr = errors.New("bot_worker_contract_incompatible")
 		}
 		if readErr == nil {
-			result = workerpeer.PairResult{Connection: workerpeer.Connection{Address: address, Peer: observed.Peer, Token: probe.Token}, Capabilities: observed.Capabilities}
+			result = workerpeer.PairResult{Name: observed.Name, Connection: workerpeer.Connection{Address: address, Peer: observed.Peer, Token: probe.Token}, Capabilities: observed.Capabilities}
 		} else if strings.TrimSpace(in.Code) == "" || sameUnknownCode {
 			err = readErr
 		}
@@ -239,6 +243,9 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 	}
 	if err == nil {
 		next.Peer, next.Identity = result.Connection, result.Peer
+		if validPeerDisplayName(result.Name) {
+			next.View.RemoteName = result.Name
+		}
 		next.View.Name, next.View.Address, next.View.Archived = name, address, false
 	}
 	if authorization != nil && err == nil {
@@ -258,7 +265,7 @@ func (s *Service) connectBot(ctx context.Context, in api.BotConnectionInput, aut
 			return next.View, &api.BotConnectionUnconfirmedError{Reference: s.botConnectionReference(pending, address), Cause: err}
 		}
 	}
-	return next.View, err
+	return machineView(next), err
 }
 func (s *Service) inspectBot(ctx context.Context, id string, recoverWork, renewObservations bool) (api.Machine, error) {
 	s.mu.Lock()
@@ -327,14 +334,14 @@ func (s *Service) RecoverBotWork(ctx context.Context, id string) (api.Machine, e
 
 // Empty connections need freshness too. This bounded read-only check has its
 // own cadence and never holds the route lock during network or native readiness.
-func (s *Service) observeBotProfiles(ctx context.Context) {
+func (s *Service) observeMachineProfiles(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		s.mu.Lock()
 		ids := []string{}
 		for id, p := range s.state.Profiles {
-			if p.View.ConnectionType == "bot" && (p.View.CheckedAt == 0 || time.Since(time.UnixMilli(p.View.CheckedAt)) >= 30*time.Second) {
+			if (p.View.ConnectionType == "bot" || p.Helper != "" && p.View.Runtime != "") && (p.View.CheckedAt == 0 || time.Since(time.UnixMilli(p.View.CheckedAt)) >= 30*time.Second) {
 				ids = append(ids, id)
 			}
 		}
@@ -350,7 +357,15 @@ func (s *Service) observeBotProfiles(ctx context.Context) {
 			}
 			checks.Go(func() {
 				defer func() { <-limit }()
-				_, _ = s.inspectBot(ctx, id, false, false)
+				p, ok := s.machineProfile(id)
+				if !ok {
+					return
+				}
+				if p.View.ConnectionType == "bot" {
+					_, _ = s.inspectBot(ctx, id, false, false)
+				} else {
+					_, _ = s.inspectSSH(ctx, id, p.View.Runtime, false)
+				}
 			})
 		}
 		checks.Wait()
@@ -980,6 +995,9 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	next.View.Address, next.View.PeerID = ref.Address, out.Peer
 	if ref.Preparation != nil {
 		next.View.Name = ref.Preparation.Name
+		if validPeerDisplayName(out.Name) {
+			next.View.RemoteName = out.Name
+		}
 	}
 	s.state.Profiles[ref.ID] = next
 	if saveErr := s.save(); saveErr != nil {
@@ -1061,4 +1079,18 @@ func (s *Service) RemoteWorkApproval(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.state.Routes[ref.Task] != ""
+}
+
+func validPeerDisplayName(name string) bool {
+	return strings.TrimSpace(name) != "" && len(name) <= 80 && !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+// RemoteName is optional display metadata. Keep the persisted original intent
+// name unchanged, so a dropped pair reply still reconciles its original proof.
+func machineView(p profile) api.Machine {
+	v := p.View
+	if v.ConnectionType == "bot" && v.Name == v.Address && validPeerDisplayName(v.RemoteName) {
+		v.Name = v.RemoteName
+	}
+	return v
 }

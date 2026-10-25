@@ -1,7 +1,7 @@
 // Opaque IDs only persist. Arguments (including credentials) stay in memory.
 // Every subsequent invocation first reads its original receipt; a changed body
 // must never inherit that receipt's value or silently dispatch a second effect.
-const rejectionDetails=new Set(['pairing_code_invalid','pairing_code_expired','peer_authorization_revoked','peer_authentication_required','original_peer_proof_required','worker_sharing_disabled','worker_not_ready','bot_worker_contract_incompatible','bot_peer_identity_changed','invalid_bot_address','worker_listener_invalid','worker_reachable_address_required','worker_listener_managed_headless','invalid_bot_name','machine_connection_type_conflict','new_pairing_code_required','original_pairing_code_unavailable','original_bot_authorization_changed']);
+const rejectionDetails=new Set(['pairing_code_invalid','pairing_code_expired','peer_authorization_revoked','peer_authentication_required','original_peer_proof_required','worker_sharing_disabled','worker_not_ready','bot_worker_contract_incompatible','bot_peer_identity_changed','invalid_bot_address','worker_listener_invalid','worker_reachable_address_required','worker_listener_managed_headless','invalid_bot_name','machine_connection_type_conflict','new_pairing_code_required','original_pairing_code_unavailable','original_bot_authorization_changed','invalid_name','machine_has_tasks','target_environment','unsupported_platform']);
 export function safeWebRejectionDetail(value:unknown){return typeof value==='string'&&rejectionDetails.has(value)?value:undefined;}
 type BotRecovery={operationId:string;profileId:string;canAuthorize:boolean};
 type WebOperation={state:string;error?:string;detail?:string;value?:unknown;recovery?:BotRecovery;followingAuthorization?:string;authorizationConfirmed?:boolean};
@@ -35,6 +35,7 @@ export function createWebOperations(io:{storage:Storage;identity:()=>string;post
   const profile=path===authorizePath?argument?.connection?.id||'':argument?.id||'';
   const connection=connectionScope(profile);
   let scope=path,afterAuthorization='';
+  if(['/api/v1/machines/connect-machine','/api/v1/machines/save-machine-model','/api/v1/machines/change-machine-team'].includes(path)&&profile)scope=path+'@'+profile;
   if(path==='/api/v1/conversation/decide'&&profile)scope=path+'@'+profile;
   if(['/api/v1/conversation/answer-question','/api/v1/conversation/dismiss-question'].includes(path)&&typeof args[0]==='string')scope=path+'@'+args[0];
   if(['/api/v1/machines/recover-bot-work','/api/v1/machines/remove-machine'].includes(path)&&typeof args[0]==='string')scope=path+'@'+args[0];

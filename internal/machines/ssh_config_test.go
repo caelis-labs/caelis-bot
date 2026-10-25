@@ -115,3 +115,51 @@ func TestProxyJumpDestinationThroughNativeOpenSSH(t *testing.T) {
 		}
 	}
 }
+
+func TestConfiguredAliasPreservesNativeMultiJumpIncludeAndKnownHostPolicy(t *testing.T) {
+	if _, e := os.Stat("/usr/bin/ssh"); e != nil {
+		t.Skip("native OpenSSH unavailable")
+	}
+	root := t.TempDir()
+	included := filepath.Join(root, "hosts.conf")
+	config := filepath.Join(root, "config")
+	if e := os.WriteFile(config, []byte("Include "+included+"\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(included, []byte("Host build-*\n HostName 192.0.2.44\n User native-user\n Port 2222\n IdentityFile /synthetic/native-key\n ProxyJump jump-one,jump-two\n UserKnownHostsFile /synthetic/native-known-hosts\n HostKeyAlias native-server\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	in := api.MachineInput{Address: "build-unlisted", SSHConfig: true, Port: 1, User: "stale-user", Authentication: "key", PrivateKey: "/unused/stale-key"}
+	v, j, e := resolveWithConfig(t.Context(), in, config)
+	if e != nil || j != "jump-one,jump-two" || v.User != "native-user" || v.Port != 2222 {
+		t.Fatal("native included wildcard/multi-jump not consumed", e)
+	}
+	s, e := Open(t.TempDir(), inert{}, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	args, e := s.sshArgs(profile{View: api.Machine{ID: "native-config", Address: in.Address, SSHConfig: true, Authentication: "agent", Port: 9999, User: "stale-user"}}, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, flag := range []string{"-p", "-l", "-i"} {
+		for _, arg := range args {
+			if arg == flag {
+				t.Fatal("form overrode system settings", flag)
+			}
+		}
+	}
+	b, e := exec.CommandContext(t.Context(), "/usr/bin/ssh", append([]string{"-G", "-F", config}, args...)...).Output()
+	for _, proof := range []string{"user native-user\n", "port 2222\n", "identityfile /synthetic/native-key\n", "proxyjump jump-one,jump-two\n", "userknownhostsfile /synthetic/native-known-hosts\n", "hostkeyalias native-server\n", "stricthostkeychecking true\n"} {
+		if e != nil || !contains(b, []byte(proof)) {
+			t.Fatal("effective native SSH configuration lost", proof, e)
+		}
+	}
+	// ProxyCommand is also OpenSSH-owned; the App does not reinterpret/execute it.
+	if e := os.WriteFile(included, []byte("Host build-*\n HostName 192.0.2.44\n ProxyCommand ssh -W %h:%p jump-one\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if _, _, e = resolveWithConfig(t.Context(), in, config); e != nil {
+		t.Fatal("native ProxyCommand rejected", e)
+	}
+}

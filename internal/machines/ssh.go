@@ -63,22 +63,8 @@ func validate(v api.MachineInput) error {
 	return nil
 }
 func resolve(ctx context.Context, v api.MachineInput) (api.MachineInput, string, error) {
-	if v.SSHConfig {
-		hosts, err := configuredSSHHosts()
-		if err != nil {
-			return v, "", err
-		}
-		found := false
-		for _, host := range hosts {
-			if strings.EqualFold(host, v.Address) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return v, "", errors.New("ssh_config_host_missing")
-		}
-	}
+	// The literal Host inventory is suggestions only. Wildcard/Match/Include
+	// aliases and effective routes belong to native OpenSSH, not that inventory.
 	return resolveWithConfig(ctx, v, "")
 }
 
@@ -124,13 +110,13 @@ func resolveWithConfig(ctx context.Context, v api.MachineInput, config string) (
 			}
 		case "proxyjump":
 			if f[1] != "none" {
-				if strings.Contains(f[1], ",") {
+				if !v.SSHConfig && strings.Contains(f[1], ",") {
 					return v, jump, errors.New("unsupported_ssh_route")
 				}
 				jump = f[1]
 			}
 		case "proxycommand":
-			if f[1] != "none" {
+			if !v.SSHConfig && f[1] != "none" {
 				return v, jump, errors.New("unsupported_ssh_route")
 			}
 		}
@@ -267,7 +253,15 @@ func (s *Service) sshArgs(p profile, tty bool) ([]string, error) {
 	if tty {
 		a = []string{"-tt"}
 	}
-	a = append(a, "-p", strconv.Itoa(p.View.Port), "-l", p.View.User, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+sshConfigPath(filepath.Join(d, "known_hosts")), "-o", "GlobalKnownHostsFile=/dev/null", "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=12", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ControlPath="+filepath.Join(controlDir, p.View.ID+".sock"), "-o", "UpdateHostKeys=no")
+	if !p.View.SSHConfig || p.Key != "" {
+		a = append(a, "-p", strconv.Itoa(p.View.Port), "-l", p.View.User)
+	}
+	// Existing app-pinned profiles keep their original proof. New configured
+	// aliases use the system's known-host policy/files without copying keys.
+	if !p.View.SSHConfig || p.Key != "" {
+		a = append(a, "-o", "UserKnownHostsFile="+sshConfigPath(filepath.Join(d, "known_hosts")), "-o", "GlobalKnownHostsFile=/dev/null")
+	}
+	a = append(a, "-o", "StrictHostKeyChecking=yes", "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=12", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ControlPath="+filepath.Join(controlDir, p.View.ID+".sock"), "-o", "UpdateHostKeys=no")
 	switch p.View.Authentication {
 	case "agent":
 		batch := "yes"

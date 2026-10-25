@@ -22,7 +22,9 @@
  WKWebView *web=[[WKWebView alloc] initWithFrame:window.contentView.bounds configuration:config];web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;window.contentView=web;
  if(settings)self.settingsWeb=web;else self.chatWeb=web;
 
- [web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[self.url stringByAppendingFormat:@"?surface=%@&chrome=native",settings?@"settings":@"chat"]]]];
+ const char *machines=getenv("BOT_SETTINGS_PREVIEW_MACHINES");
+ NSString *extra=machines?[NSString stringWithFormat:@"&section=machines&machines=%s",machines]:@"";
+ [web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[self.url stringByAppendingFormat:@"?surface=%@&chrome=native%@",settings?@"settings":@"chat",extra]]]];
  return window;
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {

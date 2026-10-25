@@ -334,6 +334,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out = s.dispatch(r.Context(), peer, in)
 		out.Contract, out.Peer = api.WorkerContract, identity
+		out.Name = machineDisplayName()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -421,7 +422,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	s.code = ""
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(PairResult{Connection: Connection{Peer: s.state.Identity, Token: token}, Capabilities: caps})
+	_ = json.NewEncoder(w).Encode(PairResult{Name: machineDisplayName(), Connection: Connection{Peer: s.state.Identity, Token: token}, Capabilities: caps})
 }
 func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Response) {
 	fail := func(err error) Response {
@@ -912,4 +913,14 @@ func (s *Server) InputStorage(ctx context.Context, clean bool, trash func(string
 	}
 	defer s.stageMu.Unlock()
 	return workerfiles.PlainStorage(ctx, filepath.Join(s.root, "uploads"), nil, clean, trash)
+}
+
+// Optional display metadata, not identity or authorization. Older peers omit it.
+func machineDisplayName() string {
+	name, _ := os.Hostname()
+	name = strings.TrimSpace(name)
+	if len(name) > 80 || strings.ContainsFunc(name, unicode.IsControl) {
+		return ""
+	}
+	return name
 }

@@ -129,7 +129,7 @@ func TestNativeSSHAuthentication(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			b, err := s.command(ctx, profile{View: view}, "printf auth-proof", nil)
+			b, err := s.command(ctx, profile{View: view, Key: key}, "printf auth-proof", nil)
 			if mode == "untrusted-host" {
 				if err == nil || err.Error() != "ssh_host_verification_failed" {
 					t.Fatal("host verification failure must be rejected and distinguished from authentication", err)

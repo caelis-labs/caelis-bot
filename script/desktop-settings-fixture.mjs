@@ -9,6 +9,10 @@ const experiments={supported:true,revision:'1',features:['async_compact','mcp_ca
 const files=[{id:'fixture-file',name:'fixture-notes.txt',size:32,type:'text/plain',image:false,unavailable:false}];
 const option={model:'fixture/model',name:'Saved Model',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],default:false,imageInput:false};
 const selections=[];
+const remote=params.get('machines')==='list'?[{id:'bot-fixture',name:'Fedora',address:'http://fedora.test:9317',connectionType:'bot',state:'ready',checkedAt:Date.now(),issue:''},{id:'machine-fixture',name:'Build server',address:'build-host',sshConfig:true,connectionType:'ssh',state:'offline',checkedAt:Date.now(),issue:'ssh_authentication_or_connection',runtime:'codex',setup:{state:'ready'}},{id:'bot-revoked',name:'Mac Studio',address:'http://studio.test:9317',connectionType:'bot',state:'offline',checkedAt:Date.now(),issue:'peer_authorization_revoked'}]:[];
+let sharing={enabled:false,address:'http://127.0.0.1:29317',listen:'127.0.0.1:29317',listening:true,peer:'synthetic-local',sources:[{id:'synthetic-source-A',name:'MacBook Air',pairedAt:1}]};
+window.fixtureMachines=remote;
+
 const plugins={revision:1,items:['stable','target','notes'].map((id,i)=>({id,title:['Stable Tools','New Plugin','Notes Skill'][i],version:'1.0',description:'Synthetic local regression fixture',installed:i!==1,enabled:i!==1,status:i!==1?'enabled':'available',skills:i===2?[{id:'notes',name:'Notes'}]:[],mcpServers:i===2?[]:[{id:'tools',name:'Tools'}]}))};
 window.fixtureMenuData=(count=2,nativeCount=2,fileCount=0)=>{
  plugins.items=Array.from({length:count},(_,i)=>({id:'menu-'+i,title:'Plugin '+i+' — 长名称排版',description:'用于检查插件菜单描述的可读性、可点击区域和滚动边界，不执行任何外部操作。',installed:true,enabled:true,status:'enabled'}));
@@ -48,7 +52,22 @@ export const Call={ByName:async(name,...args)=>{
  case 'ShortcutSettings':case 'TaskShortcutSettings':return {shortcut:{enabled:true,key:method==='TaskShortcutSettings'?'KeyT':'Space',control:true,shift:true,alt:false,meta:false},registered:true,message:''};
  case 'TelegramStatus':return {enabled:false,bot:'',owner:'',paired:false,candidate:'',pairURL:'',issue:''};
  case 'WeixinStatus':return {phase:'unconfigured'};
- case 'Machines':return [];
+ case 'Machines':return structuredClone(remote.map(v=>v.state==='ready'?{...v,checkedAt:Date.now()}:v));
+ case 'SSHConfigHosts':return ['fedora','build-host'];
+ case 'ConnectBot':{
+  const input=args[0];if(input.code&&input.code!=='fixture-code')throw Error('pairing_code_invalid');
+  const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',state:'ready',checkedAt:Date.now(),issue:''};const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
+ }
+ case 'ConnectMachine':{const input=args[0];const v={...input,id:input.id||'machine-fixture-new',connectionType:'ssh',name:input.name||input.address,state:input.address==='missing'?'offline':'ready',issue:input.address==='missing'?'ssh_authentication_or_connection':'',runtime:'codex',available:['codex'],setup:{state:'ready'},work:{},models:[],checkedAt:Date.now()};const i=remote.findIndex(m=>m.id===v.id);if(i<0)remote.push(v);else remote[i]=v;return structuredClone(v);}
+ case 'InspectMachine':case 'RecoverBotWork':return structuredClone(remote.find(v=>v.id===args[0]));
+ case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}
+ case 'WorkerSharing':return structuredClone(sharing);
+ case 'SetWorkerSharing':sharing.enabled=args[0];return structuredClone(sharing);
+ case 'CreateWorkerPairing':return {...structuredClone(sharing),code:'fixture-code',expiresAt:Math.floor(Date.now()/1000)+300};
+ case 'SaveWorkerSharing':sharing={...sharing,...args[0]};return structuredClone(sharing);
+ case 'RevokeWorkerPeer':sharing.sources=sharing.sources.filter(s=>s.id!==args[0]);return;
+ case 'CopyText':window.fixtureCopied=args[0];return;
+
  case 'UpdatePreferences':return {available:true,automatic:false,waiting:false};
  case 'ChatSnapshot':return {changed:true,snapshot};
  case 'Snapshot':case 'ComposerSnapshot':case 'SnapshotSummary':return snapshot;

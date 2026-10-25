@@ -16,12 +16,12 @@ func (s *Service) TaskMachines() []api.TaskMachine {
 	defer s.mu.Unlock()
 	out := []api.TaskMachine{}
 	for _, p := range s.state.Profiles {
-		// New product delegation uses Bot peers. Legacy helper profiles remain
-		// addressable only through already retained task bindings and setup repair.
-		if p.View.ConnectionType != "bot" || p.View.Archived {
+		// Both explicit connection types are environments. Original tasks keep
+		// their frozen route/runtime when settings or connectivity change.
+		if p.View.Archived {
 			continue
 		}
-		out = append(out, api.TaskMachine{ID: p.View.ID, Name: p.View.Name, Runtime: p.View.Runtime, Ready: botProfileReady(p.View)})
+		out = append(out, api.TaskMachine{ID: p.View.ID, Name: machineView(p).Name, Runtime: p.View.Runtime, Ready: p.View.State == "ready" && (p.View.ConnectionType != "bot" || botProfileReady(p.View))})
 	}
 	return out
 }
@@ -77,7 +77,7 @@ func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id st
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Routes[id] != in.Machine || s.state.Runtimes[id] != runtime || s.state.Reservations[id] != reserved || s.state.ReservationKeys[id] != key || !sameBotConfiguration(s.state.Profiles[in.Machine], p) {
+	if s.state.Routes[id] != in.Machine || s.state.Runtimes[id] != runtime || s.state.Reservations[id] != reserved || s.state.ReservationKeys[id] != key || !sameConnectionConfiguration(s.state.Profiles[in.Machine], p) {
 		return "", errors.New("work_preparation_changed")
 	}
 	if reserved && p.View.ConnectionType == "bot" && len(r.Available) == 1 {
@@ -189,7 +189,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) uint64 {
 		return poll.revision
 	}
 	if err == nil {
-		s.cacheResponse(poll.id, p.View.Name, poll.runtime, r.States)
+		s.cacheResponse(poll.id, machineView(p).Name, poll.runtime, r.States)
 		if recheck {
 			next := inspectedProfile(p, poll.runtime, inspected, inspectErr)
 			s.state.Profiles[poll.id] = next
@@ -245,7 +245,7 @@ func (s *Service) callWork(ctx context.Context, machine, runtime string, p profi
 	revision := s.cacheRevision[machine+"\x00"+runtime]
 	s.cacheMu.RUnlock()
 	r, err := s.call(ctx, p, request)
-	r.Task.Machine, r.Task.MachineName = machine, p.View.Name
+	r.Task.Machine, r.Task.MachineName = machine, machineView(p).Name
 	s.pollWork(ctx, workPoll{id: machine, runtime: runtime, profile: p, revision: revision})
 	return r.Task, err
 }
@@ -341,7 +341,7 @@ func (s *Service) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 func (s *Service) Observe(ctx context.Context) {
 	var background sync.WaitGroup
 	background.Go(func() { s.peerStreams(ctx) })
-	background.Go(func() { s.observeBotProfiles(ctx) })
+	background.Go(func() { s.observeMachineProfiles(ctx) })
 	defer background.Wait()
 	type observation struct {
 		budget   sharedruntime.ObservationBudget

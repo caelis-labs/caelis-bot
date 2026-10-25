@@ -218,13 +218,25 @@ Confirmed invalidation and unknown prior effects remain separate; dead native
 continuations are not revived. Q22 isolated account/model input is still missing;
 dependent real-account acceptance stays blocked without a repeated question.
 
-New-task environments list only local and Bot peer profiles; the old SSH add
-entry is retired. Existing SSH helper profiles and original history paths remain
-intact, with their saved setup repair and native continuation routes. The
-previous same-protocol/different-`messages` capability failure motivates explicit
-owner capabilities; no migration, takeover or helper-management expansion is
-included. No discovery, scheduler, cluster, forwarding, Notebook/database sync,
-remote install, A-owned B configuration or general file sync is implemented.
+Settings opens a compact remote-machine list, with Bot and SSH connections in
+one inventory. Add offers Bot connection information (or address and one-time
+code) and a system SSH Host alias. The secondary **Connect to this machine** tab
+owns inbound sharing, connection information and source revocation. A→B and B→A
+require independent handshakes and proofs; revoking one leaves the other intact.
+Network reachability never implies authorization or native Worker readiness.
+Only fresh, authorized, native-ready observations display online.
+
+New-task environments include local, Bot and existing SSH helper profiles.
+System SSH interprets Include, ProxyJump/ProxyCommand, identities and trust files;
+Bot's alias inventory is suggestions only. Newly added alias connections preserve
+system host verification; saved app-pinned profiles keep their original pins.
+The app-built legacy helper remains the SSH execution path, with its existing
+Linux target limitations and original task/history routes. It does not acquire
+Bot peer interaction parity by appearing in the same list. The previous
+same-protocol/different-`messages` failure still motivates actual owner capability
+checks. No task migration or takeover is added. Bot peer networking remains
+external: no discovery, scheduler, cluster, tunnel management, Notebook/database
+sync, A-owned B configuration or general file sync is implemented.
 
 ## Connection maintenance
 

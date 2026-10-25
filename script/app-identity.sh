@@ -11,4 +11,4 @@ case "$BOT_BUILD_CHANNEL" in
   release) BOT_APP_NAME='Caelis Bot'; BOT_APP_ID=dev.caelis.bot ;;
   *) echo 'Unsupported Bot build channel.' >&2; exit 1 ;;
 esac
-BOT_BUNDLE="$BOT_ROOT/dist/$BOT_APP_NAME.app"
+BOT_BUNDLE="${BOT_BUILD_OUTPUT_ROOT:-$BOT_ROOT/dist}/$BOT_APP_NAME.app"

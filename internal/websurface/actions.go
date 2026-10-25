@@ -331,7 +331,7 @@ func (s *Server) register(a action) {
 // Error text and remote response bodies are never a source of Web diagnostics.
 func safeRejectionDetail(code string) string {
 	switch code {
-	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless", "invalid_bot_name", "machine_connection_type_conflict", "new_pairing_code_required", "original_pairing_code_unavailable", "original_bot_authorization_changed":
+	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless", "invalid_bot_name", "machine_connection_type_conflict", "new_pairing_code_required", "original_pairing_code_unavailable", "original_bot_authorization_changed", "invalid_name", "machine_has_tasks", "target_environment", "unsupported_platform":
 		return code
 	}
 	return ""

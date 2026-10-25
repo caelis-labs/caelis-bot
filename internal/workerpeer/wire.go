@@ -87,6 +87,7 @@ type Request struct {
 	Ref           string                 `json:"ref,omitempty"`
 }
 type Response struct {
+	Name         string                        `json:"name,omitempty"`
 	Contract     int                           `json:"contract"`
 	Peer         string                        `json:"peer"`
 	Rejected     bool                          `json:"rejected,omitempty"`
@@ -113,6 +114,7 @@ type PairRequest struct {
 	Name  string `json:"name,omitempty"`
 }
 type PairResult struct {
+	Name string `json:"name,omitempty"`
 	Connection
 	Capabilities api.WorkCapabilities `json:"capabilities"`
 }

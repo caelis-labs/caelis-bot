@@ -91,3 +91,20 @@ test('inflight remote question answer leaves another original question usable',a
  assert.equal(await invoke(path,['Q-local','local-binding','answer','original-local-answer'],false),'recorded');
  release();await remote;assert.equal(posts.length,2);
 });
+
+test('known SSH refusal permits correction; unknown remains original and isolated per connection',async()=>{
+ const f=fixture(),path='/api/v1/machines/connect-machine';
+ f.setReply(async b=>{f.receipts.set(b.id,{state:'complete',error:'operation_rejected',detail:'unsupported_platform'});throw f.failure('operation_rejected')});
+ await assert.rejects(f.call(path,[{id:'ssh-one',address:'mac'}],false),e=>e.detail==='unsupported_platform');
+ f.setReply(async()=>({value:{id:'ssh-one',state:'ready'}}));
+ assert.equal((await f.call(path,[{id:'ssh-one',address:'fedora'}],false)).state,'ready');
+ assert.equal(f.posts.length,2);
+ f.setReply(async()=>{throw f.failure('network')});
+ await assert.rejects(f.call(path,[{id:'ssh-one',address:'uncertain'}],false));
+ const original=f.posts[2].id;
+ f.setReply(async()=>({value:{id:'ssh-two',state:'ready'}}));
+ assert.equal((await f.call(path,[{id:'ssh-two',address:'second'}],false)).id,'ssh-two');
+ await assert.rejects(f.call(path,[{id:'ssh-one',address:'changed'}],false),e=>e.code==='operation_unconfirmed');
+ assert.equal(f.posts.length,4);
+ assert.equal(JSON.parse(f.saved.get('caelisbot.pending-operations'))[path+'@ssh-one'],original);
+});

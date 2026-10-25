@@ -57,7 +57,7 @@ func TestEmptyBotProfileHasBoundedReadinessAndFreshness(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
-	go func() { s.observeBotProfiles(ctx); close(done) }()
+	go func() { s.observeMachineProfiles(ctx); close(done) }()
 	waitPeerTest(t, func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()

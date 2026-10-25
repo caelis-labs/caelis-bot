@@ -16,6 +16,7 @@ type MachineInput struct {
 	TrustFingerprint string `json:"trustFingerprint"`
 }
 type Machine struct {
+	RemoteName     string                 `json:"remoteName,omitempty"`
 	CheckedAt      int64                  `json:"checkedAt,omitempty"`
 	Archived       bool                   `json:"archived,omitempty"`
 	ConnectionType string                 `json:"connectionType,omitempty"`
