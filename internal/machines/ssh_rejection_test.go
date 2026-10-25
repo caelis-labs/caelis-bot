@@ -2,6 +2,7 @@ package machines
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,9 @@ import (
 )
 
 func TestSSHKnownRejectionDoesNotDispatchOrReplaceBinding(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ssh"); err != nil {
+		t.Skip("native Unix SSH unavailable; typed name refusal is covered by authenticated Web handler on all platforms")
+	}
 	s, err := Open(t.TempDir(), inert{}, func(string) ([]byte, error) {
 		t.Fatal("rejected connection reached helper installation")
 		return nil, nil
