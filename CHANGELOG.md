@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.3](https://github.com/caelis-labs/caelis-bot/compare/v0.18.2...v0.18.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* preserve Worker prompts and bound Bot interaction lifecycles ([#225](https://github.com/caelis-labs/caelis-bot/issues/225)) ([270e7a2](https://github.com/caelis-labs/caelis-bot/commit/270e7a2ce15e00ae27df31c564db2e7ecd22b607))
+* upgrade bundled Desktop World to v0.1.3 ([#228](https://github.com/caelis-labs/caelis-bot/issues/228)) ([867bf4e](https://github.com/caelis-labs/caelis-bot/commit/867bf4e14182528ee39d90182e83e87bbf32c7e4))
+
 ## [0.18.2](https://github.com/caelis-labs/caelis-bot/compare/v0.18.1...v0.18.2) (2026-10-22)
 
 
