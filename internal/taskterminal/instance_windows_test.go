@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"golang.org/x/sys/windows"
 )
