@@ -22,6 +22,8 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
+	life     context.Context
+	cancel   context.CancelFunc
 	runtime  *Runtime
 	listener *localipc.Listener
 	token    string
@@ -162,6 +164,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 		return nil, e
 	}
 	b := &Bridge{runtime: r, listener: listener, token: rand.Text(), done: make(chan struct{})}
+	b.life, b.cancel = context.WithCancel(context.Background())
 	go func() {
 		defer close(b.done)
 		for {
@@ -185,12 +188,20 @@ func Serve(r *Runtime) (*Bridge, error) {
 				if req.Name == "bot_dream" {
 					_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 				} else if req.Name == "bot_delegate" && req.Version == 2 {
-					_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
+					_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
 				}
 				var out api.ToolResult
 				var invocation api.ToolInvocation
 				if req.Version == 2 {
 					callCtx := context.Background()
+					if req.Name == "bot_delegate" {
+						ctx, cancel := context.WithTimeout(b.life, delegationBridgeTimeout(req.Arguments))
+						defer cancel()
+						callCtx = ctx
+						// One request per connection. Caller loss cancels preparation
+						// and transport; it never settles an already dispatched effect.
+						go func() { _, _ = io.Copy(io.Discard, conn); cancel() }()
+					}
 					if runtime, ok := r.engine.(api.ConversationRuntime); ok {
 						state := runtime.ConversationState()
 						invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn, TurnKey: state.TurnKey}
@@ -233,7 +244,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	return config
 }
 func (b *Bridge) Close() {
-	b.once.Do(func() { _ = b.listener.Close(); <-b.done; b.wg.Wait() })
+	b.once.Do(func() { b.cancel(); _ = b.listener.Close(); <-b.done; b.wg.Wait() })
 }
 func toolSpecs() []any {
 	str := func(description string) map[string]any {
@@ -378,7 +389,7 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 	if req.Name == "bot_dream" {
 		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 	} else if req.Name == "bot_delegate" && req.Version == 2 {
-		_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
 	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
 		return forwardFailure(req, "Bot request not confirmed; retain the original receipt"), true
@@ -388,6 +399,16 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 		return forwardFailure(req, "Bot result unconfirmed; inspect the original state, never create a replacement request"), true
 	}
 	return out, false
+}
+
+func delegationBridgeTimeout(raw json.RawMessage) time.Duration {
+	var input struct {
+		Attachments []json.RawMessage `json:"attachments"`
+	}
+	if json.Unmarshal(raw, &input) == nil && len(input.Attachments) > 0 {
+		return api.WorkerBridgeTimeout
+	}
+	return api.WorkerAdmissionTimeout + 10*time.Second
 }
 
 func forwardFailure(req toolRequest, message string) toolResult {

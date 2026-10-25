@@ -1,9 +1,10 @@
 import {createCSRFFetch} from './web-csrf';
-import {createWebOperations} from './web-operations';
+import {createWebOperations,safeWebRejectionDetail} from './web-operations';
 import {createManagedUpdateClient,type UpdateIntent} from './managed-update-client';
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
-import type {ChatUpdate,Snapshot} from './backend/contract';
+import type {ChatUpdate} from './backend/contract';
+import {pairingReadiness} from './settings/runtime/pairing-errors';
 import {createNavigationGuard,parseWebRoute,webRouteHash,taskToggleRoute,type WebNavigation} from './web-navigation';
 import {settingsHasModal} from './context-navigation';
 export type {WebNavigation} from './web-navigation';
@@ -45,13 +46,21 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const restoreNavigation=()=>navigation(parseWebRoute(location.hash),true).catch(()=>window.dispatchEvent(new Event('web-navigation-failed')));
  window.addEventListener('popstate',restoreNavigation);
  window.addEventListener('hashchange',restoreNavigation);
- class HTTPFailure extends Error{constructor(readonly code:string,readonly status:number){super(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice)}}
+ class HTTPFailure extends Error{
+  readonly detail?:string;
+  constructor(readonly code:string,readonly status:number,detail?:unknown){
+   const safe=code==='operation_rejected'?safeWebRejectionDetail(detail):undefined;
+   const navigation=['remote_native_url_not_reachable','remote_native_url_invalid','worker_url_page_unsupported','worker_url_page_unavailable','worker_not_ready','worker_listener_unavailable','worker_pairing_unavailable','ssh_config_changed','ssh_config_syntax','ssh_config_unreadable','ssh_config_size','ssh_config_save_failed','ssh_config_save_unconfirmed','ssh_platform_unsupported','ssh_not_installed','ssh_target_invalid','ssh_prompt_expired','ssh_answer_invalid',...Object.keys(pairingReadiness)].includes(code)?code:undefined;
+   super(safe??navigation??(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice));
+   this.detail=safe;
+  }
+ }
  const request=async(path:string,body:unknown,timeout=30000)=>{
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeout);
   try{
   const response=await sessionFetch(path,{signal:abort.signal,method:'POST',headers:headers(),body:JSON.stringify(body)});
   const result=await response.json();
-  if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}
+  if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status,result.detail);}
   return result;
   }finally{clearTimeout(timer)}
  };
@@ -59,13 +68,16 @@ export function createWebTransport(bootstrap:WebBootstrap){
   const response=await fetch(path,{signal:AbortSignal.timeout(8000)});const result=await response.json();
   if(!response.ok){if(response.status===401)window.dispatchEvent(new Event('web-logged-out'));throw new HTTPFailure(result.error,response.status);}return result;
  }});
- const invoke=createWebOperations({storage:sessionStorage,identity,post:request,failure:code=>new HTTPFailure(code,409),receipt:async(id)=>{
+ const invoke=createWebOperations({storage:sessionStorage,identity,post:request,failure:(code,detail)=>new HTTPFailure(code,409,detail),receipt:async(id)=>{
   const response=await fetch('/api/v1/operations/'+id,{signal:AbortSignal.timeout(8000)});
   if(!response.ok)throw new HTTPFailure('operation_unconfirmed',response.status);
   return await response.json();
  }});
  const call=async<T>(key:string,args:unknown[]):Promise<T>=>{
   const route=webRoutes[key];if(!route)throw new Error(unavailable);
+  // Adapter owns URL submission receipts; keep transient fields out of generic
+  // Web operations and allow its 12s native/network bound to finish first.
+  if(key==='backend.SubmitApprovalPage'||key==='backend.DecideWorkerPairing')return (await request(route.path,{args},20000)).value as T;
   return await invoke(route.path,args,route.read) as T;
  };
  const openURL=(value:string)=>{const url=new URL(value);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('链接不可用');window.open(url.href,'_blank','noopener,noreferrer');};
@@ -83,7 +95,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   if(service==='backend'){
    if(method==='ChatSnapshot'&&cached){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1];return (same?{changed:false}:cached) as T;}
    if(method==='OpenMessageLink'){openURL(String(args[0]));return undefined as T;}
-   if(method==='OpenApprovalURL'){const state=await call<Snapshot>('backend.Snapshot',[]),approval=state.approvals.find(a=>a.id===args[0]&&a.status!=='resolved');if(!approval?.url)throw new Error('该链接已不可用');openURL(approval.url);return undefined as T;}
+   if(method==='OpenApprovalURL'){openURL(await call<string>('backend.ApprovalURL',[args[0]]));return undefined as T;}
   }
   if(service==='desktop')switch(method){
    case 'ManagedUpdateRead':return await managedUpdates.read() as T;
@@ -101,7 +113,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'PickFiles':return await pick() as T;
    case 'PasteAttachments':{const files=pasted;pasted=[];return {handled:files.length>0,files:files.length?await upload(files):[]} as T;}
    case 'CopyText':await copy(String(args[0]));return undefined as T;
-   case 'PickRuntimeCLI':case 'PickSSHKey':return (window.prompt('请输入运行 CaelisBot 的主机上的完整路径。浏览器所在电脑的路径不可直接使用。')??'') as T;
+   case 'PickRuntimeCLI':return (window.prompt('请输入运行 CaelisBot 的主机上的完整路径。浏览器所在电脑的路径不可直接使用。')??'') as T;
    case 'SystemPermissions':return {supported:false,appPath:'',development:false,permissions:[]} as T;
    case 'PermissionGuidePending':case 'FeatureGuidePending':return false as T; // Native-only onboarding guides do not apply to this surface.
    case 'LoginAtLoginStatus':return {supported:false,enabled:false,state:'unsupported'} as T;
@@ -109,7 +121,8 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'TaskSnapshotStatus':return 'unsupported' as T;
    case 'WindowsUIPerformance':return undefined as T;
    case 'ShowArtifactPreview':window.dispatchEvent(new CustomEvent('web-preview',{detail:{id:args[0]}}));return undefined as T;
-   case 'SaveArtifactAs':case 'OpenArtifact':{const a=document.createElement('a');a.href='/api/v1/artifacts/'+encodeURIComponent(String(args[0]));a.download=String(args[1]??'');a.click();return undefined as T;}
+   case 'OpenArtifact':window.open('/api/v1/artifacts/'+encodeURIComponent(String(args[0]))+'?preview=1','_blank','noopener,noreferrer');return undefined as T;
+   case 'SaveArtifactAs':{const a=document.createElement('a');a.href='/api/v1/artifacts/'+encodeURIComponent(String(args[0]));a.download=String(args[1]??'');a.click();return undefined as T;}
    case 'CopyArtifactContent':{const v=await call<{text:string}>('desktop.PreviewArtifact',[args[0]]);await copy(v.text);return undefined as T;}
    case 'ImportContent':return await new Promise<unknown>((resolve,reject)=>{const input=document.createElement('input');input.type='file';input.accept='.caelispack,.zip';input.oncancel=()=>call('desktop.ContentState',[]).then(resolve,reject);input.onchange=()=>{const file=input.files?.[0];if(!file)return;const form=new FormData();form.append('file',file);void sessionFetch('/api/v1/content/import',{method:'POST',headers:{'X-Caelis-Request':'1'},body:form}).then(async response=>{if(!response.ok)throw Error('请检查资源包并重试。');resolve((await response.json()).value)}).catch(reject)};input.click()}) as T;
    case 'ExportDiagnostics':{const value=await call<string>('backend.DiagnosticReport',[]);const url=URL.createObjectURL(new Blob([Uint8Array.from(atob(value),c=>c.charCodeAt(0))],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='caelisbot-diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);return '诊断报告已下载。' as T;}
@@ -135,6 +148,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   close(){stream?.close();document.removeEventListener('paste',onPaste,true);window.removeEventListener('popstate',restoreNavigation);window.removeEventListener('hashchange',restoreNavigation);},
   async taskList(){return (await request('/api/v1/tasks/list',{args:[]})).value;},
   async taskConversation(id:string){return (await request('/api/v1/tasks/conversation',{args:[id]})).value;},
+  async taskObservation(id:string){return (await request('/api/v1/tasks/worker-observation',{args:[id]})).value;},
  };
 }
 export type WebClient=ReturnType<typeof createWebTransport>;

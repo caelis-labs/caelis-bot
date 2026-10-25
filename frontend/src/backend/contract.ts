@@ -49,6 +49,12 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
+export interface BotConnectionInput {
+  reconnect?: boolean;
+  id: string;
+  name: string;
+  address: string;
+}
 export interface BotInitialization {
   requestId?: string;
   prompt?: string;
@@ -103,6 +109,7 @@ export interface ExecutionSettings {
   approvalMode: string;
 }
 export interface Item {
+  historyId?: string;
   requestId: string;
   seenAt?: number;
   turnKey: string;
@@ -129,45 +136,16 @@ export interface LocalWorkerSettings {
 export interface Machine {
   id: string;
   name: string;
+  remoteName?: string;
   address: string;
-  port: number;
-  user: string;
-  authentication: string;
-  sshConfig: boolean;
-  privateKey: string;
-  remember: boolean;
+  connectionType: string;
   state: string;
   issue: string;
-  fingerprint: string;
   runtime: string;
-  available: Array<string>;
-  setup: SetupState;
-  work: WorkExecutionSettings;
-  models: Array<ModelOption>;
-  runtimeDefault: WorkExecutionSettings | null;
-  configuration?: RuntimeConfiguration | null;
-  advancedIssue: string;
-}
-export interface MachineInput {
-  id: string;
-  name: string;
-  address: string;
-  port: number;
-  user: string;
-  authentication: string;
-  sshConfig: boolean;
-  privateKey: string;
-  secret: string;
-  remember: boolean;
-  trustFingerprint: string;
-}
-export interface MachineModel {
-  id: string;
-  selection: WorkExecutionSettings;
-}
-export interface MachineTeamChange {
-  id: string;
-  change: RuntimeConfigurationChange;
+  checkedAt?: number;
+  archived?: boolean;
+  peerId?: string;
+  pairingStatus: string;
 }
 export interface MediaImage {
   id: string;
@@ -424,6 +402,46 @@ export interface RuntimeTeamSet {
   available: boolean;
   problem: string;
 }
+export interface SSHAnswer {
+  host: string;
+  port: number;
+  id: string;
+  value: string;
+  cancel: boolean;
+}
+export interface SSHConfiguration {
+  path: string;
+  userPath: string;
+  systemPath: string;
+  text: string;
+  revision: string;
+  hosts: Array<string>;
+  issue?: string;
+}
+export interface SSHConfigurationDocument {
+  kind: string;
+  text: string;
+  path: string;
+  exists: boolean;
+}
+export interface SSHConfigurationSave {
+  text: string;
+  revision: string;
+}
+export interface SSHConnectionStatus {
+  state: string;
+  issue?: string;
+  prompt?: SSHPrompt | null;
+}
+export interface SSHPrompt {
+  id: string;
+  text: string;
+  confirm: boolean;
+}
+export interface SSHTarget {
+  host: string;
+  port: number;
+}
 export interface ScreenImage {
   id: string;
   role: string;
@@ -530,6 +548,36 @@ export interface Submission {
   referenceIds: Array<string>;
   quoted?: QuotedMessage | null;
 }
+export interface Task {
+  createdAt?: string;
+  machineName?: string;
+  machine?: string;
+  id: string;
+  title: string;
+  workspace: string;
+  status: string;
+  outcome?: string;
+  result?: string;
+}
+export interface TaskConversation {
+  status: string;
+  messages: Array<TaskConversationMessage>;
+}
+export interface TaskConversationMessage {
+  id: string;
+  role: string;
+  text: string;
+  artifacts?: Array<Artifact>;
+}
+export interface TaskFileCopy {
+  id: string;
+  name: string;
+  mediaType: string;
+  sha256: string;
+  bytes: number;
+  cached: boolean;
+  fetchedAt: number;
+}
 export interface TaskPresentation {
   id?: string;
   title: string;
@@ -539,4 +587,61 @@ export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
+}
+export interface WorkURLField {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  value: string;
+  options: Array<WorkURLOption>;
+}
+export interface WorkURLOption {
+  value: string;
+  label: string;
+}
+export interface WorkURLPage {
+  revision: string;
+  origin: string;
+  title: string;
+  text: string;
+  submitLabel: string;
+  fields: Array<WorkURLField>;
+  operation?: WorkURLReceipt | null;
+}
+export interface WorkURLReceipt {
+  requestId: string;
+  fingerprint: string;
+  outcome: string;
+}
+export interface WorkerPairingDecision {
+  id: string;
+  allow: boolean;
+}
+export interface WorkerPairingRequest {
+  id: string;
+  name: string;
+  fingerprint: string;
+  address: string;
+  expiresAt: number;
+}
+export interface WorkerPeerSource {
+  id: string;
+  name: string;
+  pairedAt: number;
+}
+export interface WorkerSharing {
+  issue?: string;
+  requests: Array<WorkerPairingRequest>;
+  sources: Array<WorkerPeerSource>;
+  address: string;
+  listen: string;
+  listening: boolean;
+  managed: boolean;
+  peer: string;
+}
+export interface WorkerTaskObservation {
+  task: Task;
+  items: Array<Item>;
+  revision: string;
 }

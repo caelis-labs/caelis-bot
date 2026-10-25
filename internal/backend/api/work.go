@@ -94,7 +94,10 @@ type WorkState struct {
 	Activity       string
 	OriginalPrompt string
 	ExecutionKey   string
-	StopRequested  bool
+	// StopExecutionKey fences the complete native cancellation target, which
+	// may include a handle/run in addition to the completion generation.
+	StopExecutionKey string
+	StopRequested    bool
 	// StopPending identifies an uncertain capacity stop that still awaits the
 	// original Turn's terminal fact. It must not suppress that later report.
 	StopPending bool
@@ -114,8 +117,6 @@ type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
 type TerminalTarget struct {
-	// SSH arguments are assembled by the native connection owner, never the renderer.
-	SSH                                                     []string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 const (
@@ -39,7 +41,7 @@ func (s *Service) ShowArtifactPreview(id string) error {
 	s.artifactPreviewRequest++
 	request := s.artifactPreviewRequest
 	s.mu.Unlock()
-	path, err := s.artifactPath(id)
+	copy, err := s.artifactPreviewCopy(id)
 	s.mu.Lock()
 	stale := request != s.artifactPreviewRequest
 	s.mu.Unlock()
@@ -49,10 +51,10 @@ func (s *Service) ShowArtifactPreview(id string) error {
 	if err != nil {
 		return err
 	}
-	if !textArtifact(path) {
+	if !textArtifact(copy.Path) {
 		return errors.New("此文件类型不支持文本预览")
 	}
-	selection := ArtifactPreviewSelection{ID: id, Name: artifactDisplayName(path)}
+	selection := ArtifactPreviewSelection{ID: id, Name: artifactDisplayName(copy.Name)}
 	s.mu.Lock()
 	if request != s.artifactPreviewRequest {
 		s.mu.Unlock()
@@ -68,6 +70,25 @@ func (s *Service) ShowArtifactPreview(id string) error {
 	}
 	open()
 	return nil
+}
+
+func (s *Service) artifactPreviewCopy(id string) (api.TaskFileCopy, error) {
+	if s.resolveArtifactCopy == nil {
+		path, err := s.artifactPath(id)
+		return api.TaskFileCopy{Path: path, Name: filepath.Base(path)}, err
+	}
+	if id == "" {
+		return api.TaskFileCopy{}, errors.New("文件已不可用")
+	}
+	copy, err := s.resolveArtifactCopy(id)
+	if err != nil || copy.Path == "" {
+		return api.TaskFileCopy{}, errors.New("文件已不可用")
+	}
+	info, err := os.Stat(copy.Path)
+	if err != nil || !info.Mode().IsRegular() {
+		return api.TaskFileCopy{}, errors.New("文件已不可用")
+	}
+	return copy, nil
 }
 
 func (s *Service) CurrentArtifactPreview() (ArtifactPreviewSelection, error) {

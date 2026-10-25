@@ -40,8 +40,15 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 			prompt = state.OriginalPrompt
 		}
 		status := r.View.Status
+		outcome := r.View.Outcome
 		if current {
 			status = state.Task.Status
+			outcome = state.Task.Outcome
+		}
+		// Native memory can lead persistence. Apply the same default visibility
+		// rule here so a failed new generation cannot briefly repin itself.
+		if watchFailure(status, outcome) && !r.Locked && !r.ExplicitPin {
+			continue
 		}
 		provider := r.Runtime
 		if provider == "" {

@@ -34,6 +34,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
+			out.Approvals[i].NativeID = snapshot.Approvals[i].NativeID
 		}
 		return out
 	}
@@ -156,9 +157,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			raw, _ := json.Marshal(a.Permission)
 			var p nativePermission
 			_ = json.Unmarshal(raw, &p)
-			summary := p.ToolCall.Title
-			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
-			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
+			item := approvalDisplay(a, p)
+			item.ID, item.NativeID = approvalID(s.state.InstanceID, sid, a), a.RequestId
+			item.NoticeKey = "chat.caelisApproval"
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
 			} else if sid != "" {
@@ -325,6 +326,11 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 			return
 		}
 		v.Seen[key] = true
+	}
+	if v.WorkerOutput != nil && v.WorkerOutput.Session == scope.SessionID {
+		if v.WorkerOutput.apply(e) == nil {
+			v.WorkerOutput.bound()
+		}
 	}
 	if e.Kind == "caelis/approval_review" {
 		applyReview(v, e)
@@ -722,6 +728,12 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 					staged.InputScopes[item.ID] = v.InputScopes[item.ID]
 				}
 			}
+			if v.WorkerOutput != nil && v.WorkerOutput.Session == sid {
+				if staged.WorkerOutput == nil {
+					staged.WorkerOutput = newWorkerTranscript(sid)
+				}
+				staged.WorkerOutput.retainMissing(v.WorkerOutput)
+			}
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
@@ -976,6 +988,20 @@ func (s *Session) recoverSelectedOperations(ctx context.Context, selected observ
 func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	s.mu.Lock()
 	j, exists := s.state.Operations[id]
+	// Principal-global legacy IDs cannot prove another source's receipt belongs
+	// to this foreign binding. Known outcomes stay readable; local/helper IDs and
+	// properly scoped foreign recovery are unchanged.
+	if exists && j.Outcome == "unknown" && s.workSourceIdentity != "" {
+		if j.Work == nil {
+			s.mu.Unlock()
+			return nil
+		}
+		w, owned := s.state.Workers[j.Work.TaskID]
+		if !owned || w.NativeScope == "" {
+			s.mu.Unlock()
+			return nil
+		}
+	}
 	c, generation := s.client, s.generation
 	s.mu.Unlock()
 	if !exists || j.Outcome != "unknown" {

@@ -35,6 +35,9 @@ var appIcon []byte
 // Run owns only the Windows shell. Product state, backend assembly and the
 // retained contextual views use the same contracts as the shipped Mac host.
 func Run(assets fs.FS) error {
+	if err := prepareDevelopmentProfileEnvironment(); err != nil {
+		return err
+	}
 	if assets == nil {
 		return errors.New("embedded product assets unavailable")
 	}
@@ -96,6 +99,7 @@ func Run(assets fs.FS) error {
 	}
 	// Remote SSH transport remains explicitly unsupported. Machine setup does
 	// not borrow a local task's runtime endpoint when a remote route is absent.
+	s.openConfigurationFile = windowsOpenTextFile
 	s.openArtifactFile = windowsOpenURL
 	s.openReleasePage = func() error { return windowsOpenURL(updates.ReleasePage) }
 	appName, _ := applicationIdentity()
@@ -376,9 +380,7 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 	s.pickRuntimeCLI = func() (string, error) {
 		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).AddFilter("Program", "*.exe").PromptForSingleSelection()
 	}
-	s.pickSSHKey = func() (string, error) {
-		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).ShowHiddenFiles(true).PromptForSingleSelection()
-	}
+
 	s.pickContentFile = func() (string, error) {
 		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).AddFilter(s.text("native.contentPackFilter", nil), "*.caelispack").PromptForSingleSelection()
 	}

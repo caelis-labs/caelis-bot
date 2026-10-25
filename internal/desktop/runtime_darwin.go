@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
@@ -34,6 +33,9 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
+	if err := prepareDevelopmentProfileEnvironment(); err != nil {
+		return err
+	}
 	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
 	if err := runtimeenv.Install(env); err != nil {
 		envErr = err
@@ -75,22 +77,7 @@ func Run(assets fs.FS) error {
 		}
 		return s.openManagedTerminal(ctx, p.Terminal, path)
 	}, core.WorkTerminal, s.taskWindowChanged, taskterminal.InputEpoch)
-	setupTerminals := taskterminal.NewWindowManager(filepath.Join(root, "MachineTerminal"), func(ctx context.Context, path string) (taskterminal.Window, error) {
-		p, e := s.TaskPreferences()
-		if e != nil {
-			return nil, e
-		}
-		if p.Terminal == "custom" {
-			return nil, taskterminal.LaunchCustom(ctx, p.CustomCommand, path)
-		}
-		return s.openManagedTerminal(ctx, p.Terminal, path)
-	}, core.MachineTerminal, nil, taskterminal.InputEpoch)
-	defer setupTerminals.Close()
-	s.openMachineTerminal = func(id string) error {
-		ctx, c := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer c()
-		return setupTerminals.Click(ctx, id)
-	}
+
 	defer terminalWindows.Close()
 	s.taskWindows = terminalWindows
 	s.observeTaskTerminal = func(ctx context.Context, id string) { s.observeMacTaskTerminal(ctx, id, terminalWindows) }
@@ -148,6 +135,7 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
+	s.openConfigurationFile = func(path string) error { return exec.Command("/usr/bin/open", "-t", path).Run() }
 	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
 
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }
@@ -270,9 +258,6 @@ func Run(assets fs.FS) error {
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
 
-	s.pickSSHKey = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).ShowHiddenFiles(true).SetTitle(s.text("settings.machineKey", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
-	}
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickRuntimeTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
 	}

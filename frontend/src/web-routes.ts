@@ -1,5 +1,22 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.ReadSSHConfiguration":{"path":"/api/v1/machines/ssh-document","read":true},
+ "backend.SSHConfiguration":{"path":"/api/v1/machines/ssh-config","read":true},
+ "backend.SaveSSHConfiguration":{"path":"/api/v1/machines/ssh-config-save","read":true},
+ "backend.StartSSHConnection":{"path":"/api/v1/machines/ssh-start","read":true},
+ "backend.SSHConnectionStatus":{"path":"/api/v1/machines/ssh-status","read":true},
+ "backend.AnswerSSH":{"path":"/api/v1/machines/ssh-answer","read":true},
+ "backend.StopSSHConnection":{"path":"/api/v1/machines/ssh-stop","read":true},
+ "backend.DecideWorkerPairing":{"path":"/api/v1/machines/decide-worker-pairing","read":false},
+ "backend.WorkerTasks":{"path":"/api/v1/tasks/worker-list","read":true},
+ "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
+ "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
+ "backend.WorkerFileCopy":{"path":"/api/v1/files/worker-copy","read":true},
+ "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
+ "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
+ "backend.RefreshWorkerSharing":{"path":"/api/v1/machines/refresh-sharing","read":true},
+ "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
+ "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
  "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},
  "backend.DiagnosticReport":{"path":"/api/v1/diagnostics/read","read":true},
@@ -7,6 +24,11 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "path": "/api/v1/conversation/snapshot",
   "read": true
  },
+ "backend.ApprovalURL":{"path":"/api/v1/conversation/approval-url","read":true},
+ "backend.ApprovalPage":{"path":"/api/v1/conversation/approval-page","read":true},
+ // Original native adapter receipts handle this submission; arguments never persist.
+ "backend.SubmitApprovalPage":{"path":"/api/v1/conversation/approval-page-submit","read":true},
+ "backend.ApprovalPageOperation":{"path":"/api/v1/conversation/approval-page-operation","read":true},
  "backend.PetSnapshot": {
   "path": "/api/v1/conversation/pet-snapshot",
   "read": true
@@ -119,16 +141,8 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "path": "/api/v1/machines/machines",
   "read": true
  },
- "backend.SSHConfigHosts": {
-  "path": "/api/v1/machines/sshconfig-hosts",
-  "read": true
- },
  "backend.InspectMachine": {
   "path": "/api/v1/machines/inspect-machine",
-  "read": true
- },
- "backend.ReadMachineAdvanced": {
-  "path": "/api/v1/machines/read-machine-advanced",
   "read": true
  },
  "backend.InspectLocalWorker": {
@@ -245,18 +259,6 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  },
  "backend.CancelRuntimeConnection": {
   "path": "/api/v1/connections/cancel-runtime-connection",
-  "read": false
- },
- "backend.ConnectMachine": {
-  "path": "/api/v1/machines/connect-machine",
-  "read": false
- },
- "backend.SaveMachineModel": {
-  "path": "/api/v1/machines/save-machine-model",
-  "read": false
- },
- "backend.ChangeMachineTeam": {
-  "path": "/api/v1/machines/change-machine-team",
   "read": false
  },
  "backend.RemoveMachine": {

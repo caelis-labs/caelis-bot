@@ -1,25 +1,26 @@
 # Remote machines
 
-Connect an SSH machine when you want Bot to run a specific task there. The local application keeps the same Bot identity; the remote machine runs its own native Caelis or Codex and a headless helper. No Linux desktop app is required.
+Remote environments are other running Bots. The first version has one flow:
 
-## Set up
+1. A opens **Remote machines → Add machine**, enters B's reachable IP/address and
+   optional port (default 9317), and sends a connection request.
+2. B opens **Remote machines → Connection requests**, checks the source name,
+   observed address and identity fingerprint, then allows or declines.
+3. A checks manually or reenters Remote machines. Only an approved, native-ready
+   connection is offered for delegation. A never waits continuously for approval.
 
-1. Open **Settings → Remote machines**, enter the address, port and username, and choose password, private key or SSH agent authentication.
-2. Confirm the host fingerprint. Configure the remote machine's own runtime login and default work model; accounts and credentials are not copied from the local machine.
-3. Explicitly name the machine when asking Bot to work there. Without a target, new work stays local.
-4. Use the existing task card to inspect progress or open the original native TUI in your preferred external terminal.
+A→B does not authorize B→A. There are no verification codes, account center, sharing
+switch, helper environment or automatic discovery. Standard SSH channels can supply
+connectivity through the same Bot protocol; Tailscale remains external. Connectivity
+never grants execution. See [SSH channels](ssh-connections.md).
 
-Unsupported remote OAuth/ACP or advanced setup should be completed in the remote TUI. Caelis Team is optional. No automatic machine selection, credential synchronization, Bot migration or file synchronization is implied.
+A's existing task manager remains the product task authority. B's native adapter
+owns execution, with authenticated source/task/file/interaction isolation. B shows
+connection authorization requests, never the delegated tasks or their approvals.
+Questions, approvals, output, history and results return to A through shared Worker
+contracts. Existing new-protocol tasks keep their native owner across disconnects;
+this is execution correctness, not a compatibility layer for the retired experiment.
 
-## Ownership and recovery
-
-- Changing a machine's default runtime/model affects new work only. Existing tasks retain their original machine, runtime, native ID and operation receipts.
-- Closing an observer terminal does not stop its Worker. Focus/reuse/close require the original terminal identity; an unknown window is not replaced by launching another task.
-- Restart or connection loss resumes observation of the original owner. Unknown submissions are reconciled, not resent under a new ID.
-- A task's remote files are not automatically local downloads. Transfer and artifact aggregation follow the runtime's available resource contracts.
-
-## Development
-
-`script/build-remote-helper.sh` builds Linux amd64/arm64 helpers. The helpers are packaged by Bot, contain no model runtime, and run in a private remote directory. Native runtimes must already be installed and authenticated on that machine.
-
-See [remote-machine verification](development.md#remote-machine-acceptance) for opt-in SSH tests. Real inference requires an explicitly configured disposable profile and can incur model charges. SSH protocol and lifecycle tests do not prove the visual contents of every external terminal window.
+See [the implementation](bot-to-bot.md), [UI](remote-machines-ui.md) and
+[bounded URL contract](worker-peer-url-contract.md). Real account/physical-machine
+or GUI business acceptance is evidence to label honestly, not a current merge gate.

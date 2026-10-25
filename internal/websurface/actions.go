@@ -7,19 +7,24 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type operation struct {
-	Digest string          `json:"digest"`
-	Owner  string          `json:"owner"`
-	State  string          `json:"state"`
-	Value  json.RawMessage `json:"value,omitempty"`
-	Error  string          `json:"error,omitempty"`
-	At     int64           `json:"at"`
-	Native *nativeReceipt  `json:"native,omitempty"`
+	Remote        bool                        `json:"remote,omitempty"` // host-owned remote effect routing, never success
+	BotConnection *api.BotConnectionReference `json:"botConnection,omitempty"`
+	Digest        string                      `json:"digest"`
+	Owner         string                      `json:"owner"`
+	State         string                      `json:"state"`
+	Value         json.RawMessage             `json:"value,omitempty"`
+	Error         string                      `json:"error,omitempty"`
+	Detail        string                      `json:"detail,omitempty"`
+	At            int64                       `json:"at"`
+	Native        *nativeReceipt              `json:"native,omitempty"`
 }
 type actionRequest struct {
 	ID   string            `json:"id"`
@@ -30,6 +35,7 @@ type action struct {
 	Function              any
 	Read, Composer, Local bool
 	NativeReceipt         bool
+	Remote                bool
 }
 
 // bind only decodes the signature of a function explicitly listed in routes.go.
@@ -97,9 +103,49 @@ func (s *Server) register(a action) {
 			}
 		}
 		if a.Read || a.Local {
+			if a.Read {
+				releaseReadAdmission(r.Context())
+			}
 			value, e := invoke(api.WithSetupAccess(r.Context(), "web:"+sessionID(r)), in.Args)
 			if e != nil {
-				fail(w, 503, "read_unavailable")
+				code := "read_unavailable"
+				// A refused navigation is neither a vanished native request nor
+				// an execution effect. Publish only these fixed owner-certified
+				// reasons, never the URL or arbitrary adapter diagnostics.
+				var rejected *api.ActionRejectedError
+				if a.Path == "/api/v1/conversation/approval-url" && errors.As(e, &rejected) {
+					switch rejected.Code {
+					case "remote_native_url_not_reachable", "remote_native_url_invalid":
+						code = rejected.Code
+					}
+				}
+
+				if a.Path == "/api/v1/conversation/approval-page" {
+					switch e.Error() {
+					case "worker_url_page_unsupported", "worker_url_page_unavailable":
+						code = e.Error()
+					}
+				}
+				if a.Path == "/api/v1/machines/decide-worker-pairing" {
+					code = "worker_pairing_unavailable"
+					if reason := api.WorkerReadinessCode(e); reason != "" {
+						code = reason
+					}
+					if errors.As(e, &rejected) {
+						switch rejected.Code {
+						case "pairing_request_closed", "pairing_request_changed", "pairing_request_unknown":
+							code = rejected.Code
+						}
+					}
+				}
+
+				if strings.HasPrefix(a.Path, "/api/v1/machines/ssh-") {
+					switch e.Error() {
+					case "ssh_config_changed", "ssh_config_syntax", "ssh_config_unreadable", "ssh_config_size", "ssh_config_save_failed", "ssh_config_save_unconfirmed", "ssh_platform_unsupported", "ssh_not_installed", "ssh_target_invalid", "ssh_prompt_expired", "ssh_answer_invalid", "ssh_closed":
+						code = e.Error()
+					}
+				}
+				fail(w, 503, code)
 				return
 			}
 			jsonOut(w, 200, map[string]any{"value": value})
@@ -112,6 +158,13 @@ func (s *Server) register(a action) {
 		body, _ := json.Marshal(in.Args)
 		fingerprint := digest(a.Path + string(body))
 		owner := sessionID(r)
+		remote := a.Remote
+		if a.Path == "/api/v1/conversation/decide" && len(in.Args) == 1 {
+			var d api.Decision
+			if json.Unmarshal(in.Args[0], &d) == nil {
+				remote = backend.RemoteWorkApproval(s.services.Backend, d.ID)
+			}
+		}
 		s.mu.Lock()
 		old, exists, lookupErr := s.lookupOperation(in.ID)
 		if lookupErr != nil {
@@ -130,23 +183,60 @@ func (s *Server) register(a action) {
 				return
 			}
 			if old.Error != "" {
-				fail(w, 409, old.Error)
+				operationFailure(w, 409, old)
 				return
 			}
 			jsonOut(w, 200, map[string]any{"value": old.Value})
 			return
 		}
-		// Retain identity tombstones. Expiry must never authorize replay. Local
-		// draft CAS is handled by its existing owner, not this effect journal.
-		if len(s.operations) >= 4096 {
+		used := 0
+		for _, op := range s.operations {
+			if (op.Remote || op.BotConnection != nil) == remote {
+				used++
+			}
+		}
+		if used >= 4096 {
 			s.mu.Unlock()
 			fail(w, 503, "operation_capacity")
 			return
 		}
-		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, State: "pending", At: time.Now().Unix()}
+		var authorization *botConnectionCall
+		var authorizationErr error
+		if a.Path == botConnectionPath {
+			authorization, authorizationErr = s.prepareBotConnectionLocked(in)
+		}
+		if authorizationErr != nil {
+			var refusal *api.ActionRejectedError
+			if errors.As(authorizationErr, &refusal) {
+				record := operation{Digest: fingerprint, Owner: owner, Remote: remote, State: "complete", Error: "operation_rejected", Detail: safeRejectionDetail(refusal.Code), At: time.Now().Unix()}
+				s.operations[in.ID] = record
+				if err := s.saveOperations(); err != nil {
+					delete(s.operations, in.ID)
+					s.mu.Unlock()
+					fail(w, 503, "not_dispatched")
+					return
+				}
+				s.mu.Unlock()
+				operationFailure(w, 409, record)
+				return
+			}
+			s.mu.Unlock()
+			fail(w, 409, "not_dispatched")
+			return
+		}
+		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, Remote: remote, State: "pending", At: time.Now().Unix()}
+		if authorization != nil {
+			record := s.operations[in.ID]
+			ref := authorization.reference
+			record.BotConnection = &ref
+			s.operations[in.ID] = record
+		}
 		if e := s.saveOperations(); e != nil {
 			delete(s.operations, in.ID)
 			s.mu.Unlock()
+			if authorization != nil {
+				_ = backend.AbortPreparedBotConnection(s.services.Backend, authorization.reference)
+			}
 			fail(w, 503, "not_dispatched")
 			return
 		}
@@ -163,6 +253,9 @@ func (s *Server) register(a action) {
 			engine = s.services.Backend.CurrentRuntimeBinding().Engine
 			before = engine.Snapshot()
 		}
+		if authorization != nil {
+			ctx = context.WithValue(ctx, botConnectionCallKey{}, authorization)
+		}
 		value, e := invoke(api.WithSetupAccess(ctx, "web:"+owner), in.Args)
 		var native *nativeReceipt
 		if receipt, ok := value.(api.Receipt); ok && e == nil && receipt.Outcome == "unknown" && engine != nil {
@@ -178,6 +271,10 @@ func (s *Server) register(a action) {
 		record.State = "complete"
 		record.Value = result
 		record.Native = native
+		if authorization != nil {
+			ref := authorization.reference
+			record.BotConnection = &ref
+		}
 		// Bound confirmed display payloads only. An unknown native receipt may
 		// contain its original reconciliation target; never trim that evidence.
 		if len(result) > 32<<10 && operationTerminal(record) {
@@ -185,10 +282,21 @@ func (s *Server) register(a action) {
 			record.Error = "operation_retired"
 		}
 		if e != nil {
+			var connection *api.BotConnectionUnconfirmedError
+			if a.Path == "/api/v1/machines/connect-bot" && errors.As(e, &connection) {
+				ref := connection.Reference
+				record.BotConnection = &ref
+			}
 			record.Error = "operation_unconfirmed"
 			var rejected *api.ActionRejectedError
+			var decision *api.DecisionValidationError
+			var decisionValue api.DecisionValidationError
+			if a.Path == "/api/v1/conversation/decide" && (errors.As(e, &decision) || errors.As(e, &decisionValue)) {
+				record.Error = "operation_rejected"
+			}
 			if errors.As(e, &rejected) {
 				record.Error = "operation_rejected"
+				record.Detail = safeRejectionDetail(rejected.Code)
 			}
 			var blocked *api.SetupBlockedError
 			if errors.As(e, &blocked) && (blocked.Code == "runtime_recovery_required" || blocked.Code == "runtime_not_ready") {
@@ -203,7 +311,7 @@ func (s *Server) register(a action) {
 		}
 		s.mu.Unlock()
 		if e != nil && persistErr == nil {
-			fail(w, 409, record.Error)
+			operationFailure(w, 409, record)
 			return
 		}
 		if persistErr != nil {
@@ -213,6 +321,32 @@ func (s *Server) register(a action) {
 		jsonOut(w, 200, map[string]any{"value": value})
 	})
 }
+
+// A detail is fixed presentation for an owner-certified pre-dispatch refusal.
+// Error text and remote response bodies are never a source of Web diagnostics.
+func safeRejectionDetail(code string) string {
+	switch code {
+	case "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "invalid_bot_name", "invalid_name", "machine_has_tasks", "pairing_request_not_dispatched", "bot_peer_unreachable", "pairing_request_conflict", "pairing_request_pending", "pairing_requests_full", "invalid_pairing_request", "invalid_peer_name", "bot_connection_changed", "bot_connection_target_unconfirmed":
+		return code
+	}
+	return ""
+}
+
+func operationDetail(op operation) string {
+	if op.Error == "operation_rejected" {
+		return safeRejectionDetail(op.Detail)
+	}
+	return ""
+}
+
+func operationFailure(w http.ResponseWriter, status int, op operation) {
+	body := map[string]string{"error": op.Error}
+	if detail := operationDetail(op); detail != "" {
+		body["detail"] = detail
+	}
+	jsonOut(w, status, body)
+}
+
 func (s *Server) saveOperations() error {
 	return s.compactOperations()
 }

@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"golang.org/x/sys/windows"
 )
@@ -153,13 +152,6 @@ func TestWindowsConsoleClaimsOncePreservesUnicodeArgvAndOwnsOnlyHandles(t *testi
 	w.Release()
 	if n, e := windows.WaitForSingleObject(h, 0); e != nil || n != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatal("release killed independent client", n, e)
-	}
-}
-
-func TestWindowsRemoteTerminalNeverRetargetsLocalOwner(t *testing.T) {
-	_, e := Script(api.TerminalTarget{SSH: []string{"remote-host"}, Runtime: "codex", Binary: `C:\codex.exe`, Directory: `C:\Work`, Endpoint: "unix://C:/private/runtime.sock", Thread: "original"})
-	if !errors.Is(e, ErrNativeTerminalUnsupported) {
-		t.Fatal("remote route silently opened local client", e)
 	}
 }
 

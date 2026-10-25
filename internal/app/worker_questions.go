@@ -16,7 +16,7 @@ import (
 // ordinary chat only when it needs more information.
 func (a *Application) observeWorkerQuestions(ctx context.Context) {
 	a.observeWorkerApprovalNotice(ctx, a.allApprovalSnapshot())
-	states := a.localWork.WorkStates()
+	states := a.workerStates()
 	for _, state := range states {
 		for _, item := range state.AsyncQuestions {
 			_, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID)
@@ -48,7 +48,11 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 	for _, notice := range a.textControl.PendingQuestionClosures() {
 		var receiver api.QuestionClosureReceiver
 		if notice.WorkID != "" {
-			receiver = a.localWork
+			if a.machines != nil {
+				receiver = a.machines
+			} else {
+				receiver = a.localWork
+			}
 		} else {
 			receiver, _ = a.currentEngine().(api.QuestionClosureReceiver)
 		}
@@ -67,7 +71,7 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 func (a *Application) WorkerQuestions() []api.WorkerQuestion {
 	titles := map[string]string{}
 	activeItems := map[string]bool{}
-	for _, state := range a.localWork.WorkStates() {
+	for _, state := range a.workerStates() {
 		titles[state.Task.ID] = state.Task.Title
 		for _, item := range state.AsyncQuestions {
 			activeItems[item.ID] = true
@@ -96,7 +100,7 @@ func (a *Application) AnswerWorkerQuestion(ctx context.Context, shortID, value, 
 }
 
 func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.Inbound, workID, owner, itemID, modelInput string) (api.Receipt, error) {
-	for _, state := range a.localWork.WorkStates() {
+	for _, state := range a.workerStates() {
 		if state.Task.ID != workID || state.Runtime != owner {
 			continue
 		}
@@ -112,6 +116,13 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			}
 			sum := sha256.Sum256([]byte(in.Channel + "\x00" + in.Conversation + "\x00" + in.ID + "\x00" + workID + "\x00" + itemID))
 			requestID := fmt.Sprintf("worker-answer-%x", sum[:])
+			// This reply has no file transfer. Keep a slow peer inside the
+			// existing Worker admission budget, not the general Web lifetime.
+			if state.Task.Machine != "" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, api.WorkerAdmissionTimeout)
+				defer cancel()
+			}
 			result, err := manager.SendTask(ctx, api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
 			if outcome != "accepted" && outcome != "rejected" {

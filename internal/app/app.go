@@ -54,6 +54,7 @@ type Host struct {
 type Application struct {
 	modelSelections     *modelSelections
 	localWork           *localWorkers
+	peer                *peerHost
 	machines            *machines.Service
 	taskPreferences     *tasks.PreferencesStore
 	setup               *runtimeSetup
@@ -231,11 +232,14 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	app.modelSelections = newModelSelections(root, app.setup.applySelectedModel, host.Diagnostics)
-	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
+	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
+	if err = app.configureWorkerPeer(); err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
 	app.textControl, err = textchannel.Open(root, app.Backend.Decide)
 	if err != nil {
 		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
@@ -516,6 +520,7 @@ func (a *Application) startRuntime() error {
 		}
 	}
 	manager.SetLocale(a.locale)
+	a.configureTaskFiles(manager)
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
@@ -761,7 +766,7 @@ func (a *Application) startRuntime() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
-			snapshot.Approvals = append(snapshot.Approvals, a.localWork.RetainedApprovals()...)
+			snapshot.Approvals = append(snapshot.Approvals, a.retainedWorkerApprovals()...)
 			a.observeWorkerApprovalNotice(ctx, snapshot)
 			if err := a.textControl.Reconcile(snapshot); err != nil && a.host.ReportError != nil {
 				a.host.ReportError(err)
@@ -851,6 +856,10 @@ func (a *Application) Close() error {
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
+		a.closeErr = errors.Join(a.closeErr, a.closeWorkerPeer())
+		if a.machines != nil {
+			a.machines.Close()
+		}
 		if a.startupCancel != nil {
 			a.startupCancel()
 		}
@@ -922,15 +931,17 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	if err != nil {
 		return media, err
 	}
+	worker, err := a.workerFileStorage(context.Background(), false, nil)
+	media = addAttachmentStorage(media, worker)
+	if err != nil {
+		return media, err
+	}
 	if source, ok := a.currentEngine().(api.AttachmentProvider); ok {
 		info, err := source.AttachmentStorage()
 		if err != nil {
 			return info, err
 		}
-		info.Files += media.Files
-		info.Bytes += media.Bytes
-		info.EligibleFiles += media.EligibleFiles
-		info.EligibleBytes += media.EligibleBytes
+		info = addAttachmentStorage(info, media)
 		info.CanClean = (info.CanClean || media.CanClean) && info.Notice == "" && a.guardRuntimeChange() == nil
 		return info, nil
 	}
@@ -939,6 +950,9 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
 	if err := a.guardRuntimeChange(); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	if _, err := a.workerFileStorage(ctx, false, nil); err != nil {
 		return api.AttachmentStorage{}, err
 	}
 	if source, ok := a.currentEngine().(api.AttachmentProvider); ok && a.host.TrashFile != nil {
@@ -950,6 +964,9 @@ func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStora
 		return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentClean", nil))
 	}
 	if _, err := backend.ScreenMediaStorage(a.Backend, true, a.host.TrashFile); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	if _, err := a.workerFileStorage(ctx, true, a.host.TrashFile); err != nil {
 		return api.AttachmentStorage{}, err
 	}
 	return a.AttachmentStorage()

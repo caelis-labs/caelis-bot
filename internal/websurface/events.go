@@ -107,6 +107,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
+	if err := s.reconcileBotConnection(r.Context(), r.PathValue("id"), sessionID(r)); err != nil {
+		fail(w, 503, "receipt_unavailable")
+		return
+	}
 	s.mu.Lock()
 	v, ok, err := s.lookupOperation(r.PathValue("id"))
 	s.mu.Unlock()
@@ -118,5 +122,12 @@ func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "operation_unavailable")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"state": v.State, "value": v.Value, "error": v.Error})
+	body := map[string]any{"state": v.State, "value": v.Value, "error": v.Error}
+	if v.BotConnection != nil && v.Error == "operation_unconfirmed" {
+		body["recovery"] = map[string]string{"operationId": r.PathValue("id"), "profileId": v.BotConnection.ID}
+	}
+	if detail := operationDetail(v); detail != "" {
+		body["detail"] = detail
+	}
+	jsonOut(w, 200, body)
 }

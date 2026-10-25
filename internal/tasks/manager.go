@@ -21,33 +21,39 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 type record struct {
-	Requests            []string          `json:"requests,omitempty"`
-	ConfirmedRequests   map[string]bool   `json:"confirmedRequests,omitempty"`
-	RequestOutcomes     map[string]string `json:"requestOutcomes,omitempty"`
-	RequestFingerprints map[string]string `json:"requestFingerprints,omitempty"`
-	RetiredExecutions   []string          `json:"retiredExecutions,omitempty"`
-	PreviousReports     []reportReceipt   `json:"previousReports,omitempty"`
-	Runtime             string            `json:"runtime,omitempty"`
-	Sequence            int64             `json:"sequence,omitempty"`
-	CreatedAt           int64             `json:"createdAt,omitempty"`
-	Locked              bool              `json:"locked,omitempty"`
-	CompletedAt         int64             `json:"completedAt,omitempty"`
-	ActiveAt            int64             `json:"activeAt,omitempty"`
-	Pinned              *bool             `json:"pinned,omitempty"`
-	OriginalPrompt      string            `json:"originalPrompt,omitempty"`
-	View                api.Task          `json:"view"`
-	Provider            string            `json:"provider"`
-	Fingerprint         string            `json:"fingerprint,omitempty"`
-	Execution           string            `json:"execution,omitempty"`
-	ReportID            string            `json:"reportId,omitempty"`
-	ReportState         string            `json:"reportState,omitempty"`
-	StopResolution      string            `json:"stopResolution,omitempty"`
-	UnknownSince        int64             `json:"unknownSince,omitempty"`
-	UnknownNotice       string            `json:"unknownNotice,omitempty"`
-	Activity            string            `json:"-"`
+	FileStorageVersion  int                                `json:"fileStorageVersion,omitempty"`
+	InputReferences     map[string][]api.TaskFileReference `json:"inputReferences,omitempty"`
+	InputPaths          map[string][]string                `json:"inputPaths,omitempty"`
+	Operations          map[string]api.WorkOperationQuery  `json:"operations,omitempty"`
+	Requests            []string                           `json:"requests,omitempty"`
+	ConfirmedRequests   map[string]bool                    `json:"confirmedRequests,omitempty"`
+	RequestOutcomes     map[string]string                  `json:"requestOutcomes,omitempty"`
+	RequestFingerprints map[string]string                  `json:"requestFingerprints,omitempty"`
+	RetiredExecutions   []string                           `json:"retiredExecutions,omitempty"`
+	PreviousReports     []reportReceipt                    `json:"previousReports,omitempty"`
+	Runtime             string                             `json:"runtime,omitempty"`
+	Sequence            int64                              `json:"sequence,omitempty"`
+	CreatedAt           int64                              `json:"createdAt,omitempty"`
+	Locked              bool                               `json:"locked,omitempty"`
+	CompletedAt         int64                              `json:"completedAt,omitempty"`
+	ActiveAt            int64                              `json:"activeAt,omitempty"`
+	Pinned              *bool                              `json:"pinned,omitempty"`
+	ExplicitPin         bool                               `json:"explicitPin,omitempty"`
+	OriginalPrompt      string                             `json:"originalPrompt,omitempty"`
+	View                api.Task                           `json:"view"`
+	Provider            string                             `json:"provider"`
+	Fingerprint         string                             `json:"fingerprint,omitempty"`
+	Execution           string                             `json:"execution,omitempty"`
+	ReportID            string                             `json:"reportId,omitempty"`
+	ReportState         string                             `json:"reportState,omitempty"`
+	StopResolution      string                             `json:"stopResolution,omitempty"`
+	UnknownSince        int64                              `json:"unknownSince,omitempty"`
+	UnknownNotice       string                             `json:"unknownNotice,omitempty"`
+	Activity            string                             `json:"-"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -61,7 +67,16 @@ type state struct {
 }
 
 type Manager struct {
+	environmentMu        sync.Mutex
+	environmentOps       map[string]*environmentOperation // live target locks, no execution state
+	inputMu              sync.Mutex
+	inputActive          int
+	inputCreated         map[string]os.FileInfo // guarded by inputMu; unpublished cache identities only
+	fileStorageUncertain bool                   // guarded by mu; never execution state
+	fileCopies           *workerfiles.Outputs
+	fileCopiesOnce       sync.Once
 	quarantined          map[string]*record
+	inputResolver        func(context.Context, string) (api.WorkFileContent, error)
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
@@ -403,11 +418,11 @@ func (m *Manager) markInflight(id string, active bool) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) localCodexInflight(id string) bool {
+func (m *Manager) codexInflight(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
-	return m.inflight[id] && r != nil && r.View.Machine == "" &&
+	return m.inflight[id] && r != nil &&
 		(r.Runtime == "codex" || r.Runtime == "" && r.Provider == "codex")
 }
 
@@ -444,7 +459,22 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	if !valid(in.RequestID, in.Prompt) || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
+	finishInputs := m.beginInputPreparation(len(in.Attachments) > 0 || len(in.Files) > 0)
+	defer finishInputs()
+	in.Files, err = m.inputFiles(ctx, in.Attachments, in.Files)
+	if err != nil {
+		return m.rejectStartInput(in.RequestID, err)
+	}
+	in.FileDigests, err = api.WorkInputDigests(in.Files)
+	if err != nil {
+		return m.rejectStartInput(in.RequestID, err)
+	}
 	in.Title = taskDisplayTitle(in.Title, in.Prompt)
+	release, guardErr := m.environmentOperation(ctx, in.Machine)
+	if guardErr != nil {
+		return api.Task{}, guardErr
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
@@ -463,6 +493,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		if in.Machine != "" {
 			fp = hash(in.Title, in.Prompt, in.Workspace, in.Machine)
 		}
+	}
+	if len(in.FileDigests) > 0 || len(in.Attachments) > 0 {
+		fp = hash(fp, api.WorkFingerprint(in.FileDigests), api.WorkFingerprint(in.Attachments))
 	}
 	m.mu.Lock()
 	if _, ok := m.work.(api.WorkRouter); ok && in.Machine == "" {
@@ -492,7 +525,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return v, nil
 	}
 	m.mu.Unlock()
-	used, e := m.admissionUsage(ctx)
+	used, e := m.admissionUsage(ctx, in.Machine)
 	if e != nil {
 		return api.Task{}, e
 	}
@@ -516,7 +549,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	defer func() {
 		if !ledgerWritten {
 			if rollback, ok := m.work.(api.WorkPreparationRollback); ok {
-				err = errors.Join(err, rollback.ReleaseWorkPreparation(id))
+				err = errors.Join(err, workerAction(m, in.Machine, func() error { return rollback.ReleaseWorkPreparation(id) }))
 			}
 		}
 	}()
@@ -527,9 +560,15 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 			return api.Task{}, errors.New("remote work unavailable")
 		}
 		var err error
-		workspace, err = p.PrepareRemoteWork(ctx, in, id)
+		workspace, err = workerIO(m, in.Machine, func() (string, error) { return p.PrepareRemoteWork(ctx, in, id) })
 		if err != nil {
 			return api.Task{}, err
+		}
+		if router, ok := m.work.(api.WorkRouter); ok {
+			runtime, err = router.BindWork(ctx, in, id, "")
+			if err != nil {
+				return api.Task{}, err
+			}
 		}
 	} else if in.Workspace != "" {
 		var err error
@@ -538,15 +577,27 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 			return api.Task{}, err
 		}
 	}
+	if e := workerAction(m, in.Machine, func() error { return m.validateWorkerInputs(ctx, id, in.Files) }); e != nil {
+		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
+	}
+	if m.paused {
+		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
+	}
+	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
+	nativeIntent := nativeStart
+	nativeIntent.Machine = ""
 	m.mu.Lock()
 	pinned := true
-	r := &record{Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r := &record{Operations: map[string]api.WorkOperationQuery{in.RequestID: {TaskID: id, RequestID: in.RequestID, Kind: "start", Fingerprint: api.WorkFingerprint(nativeIntent)}}, Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r.FileStorageVersion = 1
+	r.retainInputFiles(in.RequestID, in.Attachments, in.Files)
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
 	m.state.Records[id] = r
 	e = m.write()
 	if e != nil {
+		m.fileStorageUncertain = true
 		delete(m.state.Records, id)
 	}
 	m.mu.Unlock()
@@ -563,15 +614,23 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		m.mu.Lock()
 		r.View.Status = "failed"
 		r.View.Outcome = "rejected"
+		delete(r.InputPaths, in.RequestID)
+		delete(r.InputReferences, in.RequestID)
 		saveErr := m.write()
+		if saveErr != nil {
+			m.fileStorageUncertain = true
+		}
 		v := r.View
 		m.mu.Unlock()
 		return v, errors.Join(e, saveErr)
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)
-	v, e := m.work.StartWork(ctx, api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions})
+	v, e := workerIO(m, in.Machine, func() (api.Task, error) { return m.work.StartWork(ctx, nativeStart) })
 	result, captureErr := m.capture(id, v, e)
+	if result.Outcome == "rejected" {
+		captureErr = errors.Join(captureErr, m.releaseRejectedInputFiles(id, in.RequestID))
+	}
 	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
 		visible := result
 		if captureErr != nil {
@@ -645,7 +704,7 @@ func (m *Manager) owned(id string) error {
 	return nil
 }
 func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
-	if m.localCodexInflight(id) {
+	if m.codexInflight(id) {
 		// The adapter's ReadWork shares its submission lock. During an admitted
 		// submission, WorkStates is the non-dispatching live projection.
 		if err := m.owned(id); err != nil {
@@ -665,12 +724,18 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 		m.mu.Unlock()
 		return v, err
 	}
+	machine := m.taskEnvironment(id)
+	release, err := m.environmentOperation(ctx, machine)
+	if err != nil {
+		return api.Task{}, err
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if e := m.owned(id); e != nil {
 		return api.Task{}, e
 	}
-	v, e := m.work.ReadWork(ctx, id)
+	v, e := workerIO(m, machine, func() (api.Task, error) { return m.work.ReadWork(ctx, id) })
 	v, e = m.capture(id, v, e)
 	if e == nil && terminal(v.Status) {
 		m.mu.Lock()
@@ -711,9 +776,26 @@ func (m *Manager) rejectMessage(in api.TaskMessage, err error) (api.Task, error)
 }
 
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	finishInputs := m.beginInputPreparation(len(in.Attachments) > 0 || len(in.Files) > 0)
+	defer finishInputs()
+	var fileErr error
+	in.Files, fileErr = m.inputFiles(ctx, in.Attachments, in.Files)
+	if fileErr != nil {
+		return m.rejectMessage(in, fileErr)
+	}
+	in.FileDigests, fileErr = api.WorkInputDigests(in.Files)
+	if fileErr != nil {
+		return m.rejectMessage(in, fileErr)
+	}
 	if !valid(in.RequestID, in.Prompt) {
 		return m.rejectMessage(in, errors.New(m.text("host.requiresRequestIdAndRequirements")))
 	}
+	machine := m.taskEnvironment(in.ID)
+	release, guardErr := m.environmentOperation(ctx, machine)
+	if guardErr != nil {
+		return m.rejectMessage(in, guardErr)
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
@@ -726,6 +808,14 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		return m.rejectMessage(in, e)
 	}
 	m.mu.Lock()
+	alreadyRecorded := slices.Contains(m.state.Records[in.ID].Requests, in.RequestID)
+	m.mu.Unlock()
+	if !alreadyRecorded {
+		if e := workerAction(m, machine, func() error { return m.validateWorkerInputs(ctx, in.ID, in.Files) }); e != nil {
+			return m.rejectMessage(in, e)
+		}
+	}
+	m.mu.Lock()
 	current := m.state.Records[in.ID]
 	status := current.View.Status
 	duplicate := slices.Contains(current.Requests, in.RequestID)
@@ -734,24 +824,52 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		outcome := current.RequestOutcomes[in.RequestID]
 		fingerprint, known := current.RequestFingerprints[in.RequestID]
 		m.mu.Unlock()
-		if known && fingerprint != hash(in.Prompt) {
+		if known && fingerprint != messageFingerprint(in) {
 			return prior, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		if known && outcome != "" && outcome != "unknown" {
 			prior.Outcome = outcome
 			return prior, nil
 		}
+		if native, ok := m.work.(api.WorkOperationReader); ok {
+			m.mu.Lock()
+			query, has := current.Operations[in.RequestID]
+			m.mu.Unlock()
+			if has {
+				receipt, readErr := workerIO(m, machine, func() (api.WorkOperation, error) { return native.ReadWorkOperation(ctx, query) })
+				if readErr == nil {
+					prior.Outcome = receipt.Outcome
+					if receipt.Outcome == "accepted" || receipt.Outcome == "rejected" {
+						m.mu.Lock()
+						if current.RequestOutcomes == nil {
+							current.RequestOutcomes = map[string]string{}
+						}
+						current.RequestOutcomes[in.RequestID] = receipt.Outcome
+						readErr = m.write()
+						m.mu.Unlock()
+					}
+					return prior, readErr
+				}
+				if !errors.Is(readErr, api.ErrWorkOperationUnsupported) {
+					prior.Outcome = "unknown"
+					return prior, readErr
+				}
+			}
+		}
 		// Older ledgers contain only a boolean confirmation, which cannot
 		// distinguish acceptance from rejection. Reconcile the original native
 		// receipt rather than inventing an accepted outcome.
 		recorded, ok := m.work.(api.RecordedWorkMessage)
-		if !ok || !recorded.WorkMessageRecorded(in) {
+		if !ok || !func() bool {
+			v, _ := workerIO(m, machine, func() (bool, error) { return recorded.WorkMessageRecorded(in), nil })
+			return v
+		}() {
 			prior.Outcome = "unknown"
 			return prior, errors.New("original submission receipt is not confirmed; no Worker prompt was replayed")
 		}
 		m.markInflight(in.ID, true)
 		defer m.markInflight(in.ID, false)
-		v, err := m.work.SendWork(ctx, in)
+		v, err := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 		v, err = m.captureMessage(in.ID, v, err, true)
 		if v.Outcome == "rejected" || err == nil && v.Outcome == "accepted" {
 			m.mu.Lock()
@@ -762,7 +880,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 				current.RequestFingerprints = map[string]string{}
 			}
 			current.RequestOutcomes[in.RequestID] = v.Outcome
-			current.RequestFingerprints[in.RequestID] = hash(in.Prompt)
+			current.RequestFingerprints[in.RequestID] = messageFingerprint(in)
+			if current.Operations == nil {
+				current.Operations = map[string]api.WorkOperationQuery{}
+			}
+			current.Operations[in.RequestID] = api.WorkOperationQuery{TaskID: in.ID, RequestID: in.RequestID, Kind: "send", Fingerprint: api.WorkFingerprint(in)}
 			err = errors.Join(err, m.write())
 			m.mu.Unlock()
 		}
@@ -777,16 +899,22 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	used := 0
 	if restarting {
 		var err error
-		used, err = m.admissionUsage(ctx)
+		used, err = m.admissionUsage(ctx, machine)
 		if err != nil {
 			return m.rejectMessage(in, err)
 		}
 	}
 	if restarting && used >= m.maximumRunning() {
 		replay, ok := m.work.(api.RecordedWorkMessage)
-		if !ok || !replay.WorkMessageRecorded(in) {
+		if !ok || !func() bool {
+			v, _ := workerIO(m, machine, func() (bool, error) { return replay.WorkMessageRecorded(in), nil })
+			return v
+		}() {
 			return m.rejectMessage(in, errors.New(m.text("host.taskCapacityFull")))
 		}
+	}
+	if m.paused {
+		return m.rejectMessage(in, errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	m.mu.Lock()
 	r := m.state.Records[in.ID]
@@ -795,8 +923,14 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		if r.RequestFingerprints == nil {
 			r.RequestFingerprints = map[string]string{}
 		}
-		r.RequestFingerprints[in.RequestID] = hash(in.Prompt)
+		r.RequestFingerprints[in.RequestID] = messageFingerprint(in)
+		if r.Operations == nil {
+			r.Operations = map[string]api.WorkOperationQuery{}
+		}
+		r.Operations[in.RequestID] = api.WorkOperationQuery{TaskID: in.ID, RequestID: in.RequestID, Kind: "send", Fingerprint: api.WorkFingerprint(in)}
+		r.retainInputFiles(in.RequestID, in.Attachments, in.Files)
 		if e := m.write(); e != nil {
+			m.fileStorageUncertain = true
 			r.Requests = r.Requests[:len(r.Requests)-1]
 			delete(r.RequestFingerprints, in.RequestID)
 			m.mu.Unlock()
@@ -807,8 +941,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.notifyWatchlist()
 	m.markInflight(in.ID, true)
 	defer m.markInflight(in.ID, false)
-	v, e := m.work.SendWork(ctx, in)
+	v, e := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 	v, e = m.captureMessage(in.ID, v, e, false)
+	if v.Outcome == "rejected" {
+		e = errors.Join(e, m.releaseRejectedInputFiles(in.ID, in.RequestID))
+	}
 	if v.Outcome == "rejected" || e == nil && v.Outcome == "accepted" {
 		m.mu.Lock()
 		if r.RequestOutcomes == nil {
@@ -825,9 +962,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 // cannot claim the same last slot. Unknown work with unreadable activity keeps
 // one possible slot each. Only when full do we try original-owner reads to
 // release positively idle tasks; a failed read never frees its reservation.
-func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
+func (m *Manager) admissionUsage(ctx context.Context, machine string) (int, error) {
 	m.mu.Lock()
-	used := m.activeLocked() + m.reservedLocked()
+	used := m.environmentUsageLocked(machine)
 	m.mu.Unlock()
 	if used < m.maximumRunning() {
 		return used, nil
@@ -835,7 +972,7 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 	m.mu.Lock()
 	ids := make([]string, 0)
 	for id, r := range m.state.Records {
-		if m.owns(r) && r.View.Status == "unknown" {
+		if m.owns(r) && r.View.Machine == machine && r.View.Status == "unknown" {
 			ids = append(ids, id)
 		}
 	}
@@ -846,24 +983,24 @@ func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
 		}
 		// A read error leaves that task unknown and reserved. Other owners may
 		// still provide idle capacity evidence without retrying any execution.
-		_, _ = m.work.ReadWork(ctx, id)
+		_, _ = workerIO(m, machine, func() (api.Task, error) { return m.work.ReadWork(ctx, id) })
 	}
 	if err := m.refresh(); err != nil {
 		return 0, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.activeLocked() + m.reservedLocked(), nil
+	return m.environmentUsageLocked(machine), nil
 }
 
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
-	if m.localCodexInflight(id) {
+	if m.codexInflight(id) {
 		// StopWork cancels the adapter's capacity wait before acquiring its
 		// submission lock. Do not wait behind this task's Manager submission.
 		if err := m.owned(id); err != nil {
 			return api.Task{}, err
 		}
-		v, err := m.work.StopWork(ctx, id)
+		v, err := m.stopWork(ctx, id)
 		return m.capture(id, v, err)
 	}
 	m.op.Lock()
@@ -871,7 +1008,7 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 	if e := m.owned(id); e != nil {
 		return api.Task{}, e
 	}
-	v, e := m.work.StopWork(ctx, id)
+	v, e := workerIO(m, m.taskEnvironment(id), func() (api.Task, error) { return m.stopWork(ctx, id) })
 	return m.capture(id, v, e)
 }
 
@@ -973,4 +1110,15 @@ func (m *Manager) ObserveTaskExecution(id string) (api.Task, string, error) {
 	v := r.View
 	v.Result = ""
 	return v, r.Execution, nil
+}
+
+// SSH configuration is a host file, never a Worker capability or a grant.
+func (m *Manager) SSHConfiguration() (api.SSHConfiguration, error) {
+	p, ok := m.work.(interface {
+		SSHConfiguration() (api.SSHConfiguration, error)
+	})
+	if !ok {
+		return api.SSHConfiguration{}, errors.New("ssh_unavailable")
+	}
+	return p.SSHConfiguration()
 }

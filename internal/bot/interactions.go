@@ -17,7 +17,9 @@ func (r *Runtime) callCompactInteractions(ctx context.Context, q map[string]any)
 	}
 	switch str(q, "type") {
 	case "list":
-		return compactValue(map[string]any{"ok": true, "data": map[string]any{"approvals": port.WorkerApprovals(), "questions": port.WorkerQuestions()}}, false)
+		return interactionPage(port, q)
+	case "read":
+		return readInteraction(port, q)
 	case "decide":
 		decision := api.Decision{ID: str(q, "approval"), Choice: str(q, "choice")}
 		if raw, ok := q["answers"]; ok {

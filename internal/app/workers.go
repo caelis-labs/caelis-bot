@@ -291,7 +291,10 @@ func (w *localWorkers) WorkStates() []api.WorkState {
 	}
 	return out
 }
-func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, error) {
+
+// boundOwner resolves only the existing product route and original binding.
+// Receipt reads may use it without requiring a surviving native connection.
+func (w *localWorkers) boundOwner(id string) (api.WorkRuntime, bool, error) {
 	w.mu.Lock()
 	runtime := w.routes[id]
 	owner := w.owners[runtime]
@@ -299,26 +302,35 @@ func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, 
 	active := w.active
 	if runtime == w.switching && runtime != active {
 		w.mu.Unlock()
-		return nil, errors.New("worker observer handoff in progress")
+		return nil, false, errors.New("worker observer handoff in progress")
 	}
 	if runtime != "" && runtime != active && owner == nil {
 		var err error
 		owner, err = w.open(runtime)
 		if err != nil {
 			w.mu.Unlock()
-			return nil, err
+			return nil, false, err
 		}
 		w.owners[runtime] = owner
 	}
 	w.mu.Unlock()
 	if runtime == active {
-		return resident, nil
+		return resident, false, nil
 	}
 	if owner == nil {
-		return nil, errors.New("original_task_runtime_unavailable")
+		return nil, false, errors.New("original_task_runtime_unavailable")
 	}
-	if err := owner.Connect(ctx); err != nil {
+	return owner, true, nil
+}
+func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, error) {
+	owner, retained, err := w.boundOwner(id)
+	if err != nil {
 		return nil, err
+	}
+	if retained {
+		if err := owner.(retainedWorker).Connect(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return owner, nil
 }

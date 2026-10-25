@@ -28,6 +28,12 @@ func reconcileApproval(v, before *view, version uint64, state wire.SessionState)
 // not RequestPermission's ACP event shape. Keep the original object in the
 // approval identity; these fields are only used for presentation and choices.
 type nativePermission struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Context     *struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	} `json:"context"`
 	ToolCall struct {
 		ID       string          `json:"id"`
 		Kind     string          `json:"kind"`

@@ -1,11 +1,14 @@
 package desktop
 
 import (
+	"context"
+	"errors"
 	"log"
 	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
@@ -49,7 +52,29 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		return nil, err
 	}
 	back := core.Backend
+	s.readSSHConfiguration = back.ReadSSHConfiguration
+	s.prepareSSHConfiguration = back.PrepareSSHConfigurationEdit
+	s.revealConfigurationFile = host.RevealFile
+	s.workerTaskView = func(ctx context.Context, id string) (bool, error) {
+		owned := false
+		for _, task := range back.WorkerTasks() {
+			if task.ID == id {
+				owned = true
+
+				break
+			}
+		}
+		if !owned {
+			return true, errors.New("worker_view_unavailable")
+		}
+		s.mu.Lock()
+		s.workerTaskSelection = id
+		s.mu.Unlock()
+		s.OpenHistory()
+		return true, nil
+	}
 	s.resolveArtifact = func(id string) (string, error) { return backend.ResolveRemoteArtifact(back, id) }
+	s.resolveArtifactCopy = func(id string) (api.TaskFileCopy, error) { return backend.ResolveRemoteArtifactCopy(back, id) }
 	s.telegram = core.Telegram
 	s.weixin = core.Weixin
 	s.pluginSnapshot = core.PluginSnapshot

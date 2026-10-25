@@ -11,6 +11,9 @@ import (
 // Local feature assembly is retried independently of native surfaces and the
 // Runtime observer. Existing identities/ledgers are reopened, never replaced.
 func (a *Application) StartBackground() {
+	if err := a.startWorkerPeer(); err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
+	}
 	a.mu.Lock()
 	if a.startupCancel != nil || a.closed {
 		a.mu.Unlock()
@@ -66,6 +69,7 @@ func (a *Application) repairFeaturesLocked() error {
 			return err
 		}
 		manager.SetLocale(a.locale)
+		a.configureTaskFiles(manager)
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
 		if importer, ok := a.currentEngine().(interface{ ImportHostReportIDs([]string) error }); ok {

@@ -22,6 +22,40 @@ try {
   Invoke-BotCommand node --test @taskNodeTests
   # Bound package concurrency on hosted Windows runners. The timeout applies to
   # an entire package (hundreds of native-process tests), not a request deadline.
-  Invoke-BotCommand go test -p 2 -timeout 180s ./...
+  New-Item -ItemType Directory -Force -Path .cache/windows-state-io | Out-Null
+  $taskPreviousIOTrace = $env:CAELIS_BOT_TEST_WORKERPEER_TRACE
+  $taskIOTrace = Join-Path $taskBotRoot ('.cache/windows-state-io/' + [Guid]::NewGuid().ToString('N') + '.trace')
+  $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskIOTrace
+  $taskFullSuiteError = $null
+  try {
+    # A package timeout includes every test, not one Worker deadline. The Codex
+    # package has 287+ native contract cases; the 255-decision durability boundary
+    # alone took 56s of the original 180s Windows run. Keep all traffic/assertions
+    # and that same deadline; isolate only this named stress case from the rest.
+    $taskCodexPackage = 'github.com/caelis-labs/caelis-bot/internal/backend/codex'
+    $taskReceiptCase = 'TestWorkerReceiptHistoryDoesNotConsumePromptOrStopAdmission'
+    $taskPackages = @(go list ./...)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate original Go suite' }
+    $taskCodexCases = @(go test -list '^Test' $taskCodexPackage | Where-Object { $_ -match '^Test[0-9A-Za-z_]+$' })
+    if ($LASTEXITCODE -ne 0 -or @($taskCodexCases | Where-Object { $_ -eq $taskReceiptCase }).Count -ne 1) { throw 'Codex stress partition must match exactly one existing test' }
+    $taskOtherCases = @($taskCodexCases | Where-Object { $_ -ne $taskReceiptCase })
+    if ($taskOtherCases.Count -lt 1 -or ($taskOtherCases.Count + 1) -ne $taskCodexCases.Count) { throw 'Codex partitions do not cover the original suite' }
+    Write-Host "Codex original cases=$($taskCodexCases.Count); receipt partition=1; remaining=$($taskOtherCases.Count); each keeps 180s"
+    $taskOtherPackages = @($taskPackages | Where-Object { $_ -ne $taskCodexPackage })
+    try { Invoke-BotCommand go test -json -p 2 -timeout 180s @taskOtherPackages }
+    catch { $taskFullSuiteError = $_ }
+    try { Invoke-BotCommand go test -json -p 2 -timeout 180s -count=1 -run "^${taskReceiptCase}$" $taskCodexPackage }
+    catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+    try { Invoke-BotCommand go test -json -p 2 -timeout 180s -skip "^${taskReceiptCase}$" $taskCodexPackage }
+    catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+  } catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+  finally { $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskPreviousIOTrace }
+  # Decode the original invocation's trace; no second test attempt. A diagnostic
+  # result must never replace the full suite's original error.
+  $taskDiagnosticError = $null
+  try { Invoke-BotCommand node script/diagnose-windows-state-io.mjs $taskIOTrace }
+  catch { $taskDiagnosticError = $_ }
+  if ($taskFullSuiteError) { throw $taskFullSuiteError }
+  if ($taskDiagnosticError) { Write-Host "State I/O diagnostic unavailable; original suite result retained: $taskDiagnosticError" }
   Invoke-BotCommand git diff --check
 } finally { $env:CGO_ENABLED=$taskPreviousCGO }

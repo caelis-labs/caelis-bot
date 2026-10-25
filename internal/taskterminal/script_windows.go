@@ -22,11 +22,6 @@ type windowsLaunch struct {
 
 // A Windows launch file is a typed JSON descriptor, never executable shell text.
 func Script(t api.TerminalTarget) (string, error) {
-	// Remote routes require a separate native SSH transport. Never resume a
-	// remote thread against the local App Server when that transport is absent.
-	if len(t.SSH) != 0 {
-		return "", ErrNativeTerminalUnsupported
-	}
 	args, err := TerminalArguments(t)
 	if err != nil {
 		return "", errors.Join(ErrNativeTerminalUnsupported, err)

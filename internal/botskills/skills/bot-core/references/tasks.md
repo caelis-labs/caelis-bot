@@ -23,7 +23,7 @@ handle for follow-up. Discover the current tool schema before calling it.
 | `bot_tasks.request.type: read` | Read completed User and Assistant messages of one task. |
 | `bot_tasks.request.type: stop` | Stop that task's active work while retaining its handle and history. |
 | `bot_tasks.request.type: pin` | Show or hide that task's desktop card without running work. |
-| `bot_interactions.request.type: list/decide/answer/present` | Inspect and resolve native Worker approvals or questions. |
+| `bot_interactions.request.type: list/read/decide/answer/present` | Inspect and resolve native Worker approvals or questions. |
 
 The Host derives each submission ID from the original native tool invocation;
 you do not supply a requestId to `bot_delegate`. Two separate calls may send the
@@ -64,6 +64,11 @@ call `bot_tasks` with `request:{"type":"environments"}` and choose the exact
 connected key they specified. An explicit workspace belongs to that selected
 environment. Local files are not copied there automatically. Keep the same
 task after an environment outage; do not create a replacement on another host.
+
+Concurrency admission is per execution environment. An uncertain remote task
+keeps its possible slot on that machine; it does not consume local capacity.
+Aggregate task counts are presentation totals, not evidence that local work is
+blocked. A remote outage affects only that environment and its original tasks.
 
 State purpose, scope, file ownership, constraints, deliverable and verification
 in the prompt. Include workspace placement and cleanup responsibility; require
@@ -252,14 +257,26 @@ lock and close controls; opening the card connects to the original Worker.
 Closing a client or clearing an unlocked card does not stop its work. Read the
 original task's messages through `bot_tasks`, regardless of whether its terminal
 is open; a preview is not a substitute for native conversation history.
+Confirmed failed/rejected tasks leave the default watchlist automatically but
+remain in task history. Do not treat disappearance as completion or cancellation.
+Unknown/unconfirmed work stays uncertain. Explicit pins/locks retain the user's
+display intent; do not repin failed tasks merely to keep a failure card visible.
 
 ## Work on a connected environment
 
 Use `bot_tasks` environments for the stable key, name and connection status.
+Settings lists Bot peer connections. A user adds a reachable address/optional
+port and sends a request; the user on the target approves the machine connection.
+It is asynchronous: you must not wait/poll for human authorization. The requesting
+user checks manually or reopens Remote machines. Unapproved peers are absent from
+task environments. Each direction requires independent approval and credentials.
+There are no code, SSH/helper, installation or account-management paths. Network
+connectivity does not authorize execution. Do not configure SSH/Tailscale or copy
+credentials; users may prepare network transport outside Bot.
 Require a connected target and the user's direction before selecting a remote
 environment. The task retains its original environment and native Runtime.
-For questions, approvals or login in remote work, guide the user to the
-original client. Do not copy credentials or configure accounts on their behalf.
+For a paired Bot, questions, approvals and results return to this Bot's existing
+user interaction path. Do not send the user to the target Bot to approve work.
 An uncertain remote outcome remains on its original task; another environment
 is not a retry path.
 
@@ -285,3 +302,91 @@ replacement. The host closes its unanswered questions on the original stop or
 terminal fact. A new task or ordinary follow-up does not implicitly replace an
 old task. See [Interactions](interactions.md) for concise question presentation
 and the shared answer/close lifecycle.
+
+## Use a paired Bot environment
+
+A paired Bot is another execution environment in the existing `environments`
+list. Select it only when the user directs remote work. The initiating Bot owns
+all task presentation, completion notices, questions, user approvals and results.
+The target Bot executes an isolated Worker using its own configured runtime,
+account and Worker model; its chat and ordinary task list never adopt the work.
+Do not install a helper, configure SSH/Tailscale, change the target's models or
+try to delegate again from that Worker. Network reachability is not pairing.
+
+Creation freezes the actual native execution binding. Continue, stop, observe,
+read and retrieve files through the same task handle, including after an outage
+or application/runtime change. An unavailable original owner stays unavailable;
+never create a local replacement or change the task's environment to recover it.
+
+If the original private Worker process has verifiably exited, the user can use
+Settings > Other Bots > the original connection > Prepare new work. This only
+prepares future work; old tasks and uncertain receipts retain their original
+owner. It is not a way to resume, transfer or approve an old task. A temporary
+network error does not prove owner loss and must not free its capacity.
+
+Connection readiness is timestamped; a stale or unavailable environment is not
+permission to select a substitute. The user can rename a connection offline,
+check a repaired address against the same Bot, or restore a retained-tasks-only
+connection in Settings. Revoked access needs a fresh code from that same Bot and
+the original saved proof. Removing that environment from new delegation does
+not stop its retained tasks or resolve their approvals.
+
+`bot_tasks` `observe` reads a bounded current native output snapshot. `read`
+reads the original completed history; completed status does not prove that
+history is currently readable. `reconcile` takes the original task and the
+`requestId` returned by delegation to query its original intent digest and native
+receipt. `unknown` means keep waiting/checking that receipt, never submit again
+with a new invocation, owner or request ID. A late stop is fenced to the native
+execution target that was observed when it was issued.
+
+For explicit attachments, `bot_delegate.attachments` accepts `{taskId,id}`
+references to artifacts of an owned Worker, or `{id}` for an available artifact
+of this Bot's current conversation or a user-selected upload. Uploaded-file
+metadata in the original user input provides the stable attachment objects;
+use those objects, never guess from a filename or pass a local path. The same
+references work for creating work or adding material to the original task.
+Only those referenced bytes are transferred;
+local paths are never interpreted as paths on another machine. Read task message
+artifacts, then use `bot_tasks` `file` with the original task/file reference to
+make a checked result available locally. The file result includes an A-local
+`localPath`, SHA-256, original name, byte count, `cached` and `fetchedAt`. Use the
+native file or image-reading tool on that actual local copy to inspect it; a
+reported file ID or byte count is not evidence that you read its contents.
+Cached copies survive B being offline. They are the last retrieved bytes, not
+proof of B's latest version; say when verification used a cached copy. This file
+cache never determines task or approval state. This is not directory synchronization.
+
+Pending forms, secrets, opaque requests and URL challenges use the same original
+user interaction path as local work. Never claim success because a card was
+shown, a link opened, or a decision was sent. Some native protocols have fewer
+interaction kinds: report an unsupported kind or unreachable remote URL as
+blocked. A loopback URL on the target is not automatically a URL on this machine.
+Lost native approval response channels remain unknown after restart; only a
+fresh native request from the original owner can restore a decidable handle.
+
+
+For a paired Worker's URL challenge, direct the user to its original card in
+this Bot. A bounded loopback HTTP form can be completed there; do not collect
+its web fields, navigate on behalf of the user, or send its native consent with
+Agent tools. Website submission and native consent are independent. A website
+receipt does not prove native continuation or task completion. Unconfirmed web
+submissions are checked by their original ID, never resent. Public reachable
+HTTP(S) links use the normal browser, including scripts/OAuth only when every
+required callback is reachable. First-release limitations include B-only
+localhost multistep/GET/script/redirect/different-action pages, login callbacks
+to B-loopback and B-only certificates/browser state. Those flows are deferred,
+not repaired; keep affected work blocked and explain the limitation. Do not ask
+the user to approve on the other Bot, invent a tunnel/proxy or claim arbitrary
+webpage equivalence.
+
+Older experimental foreign Caelis bindings without a frozen source domain may
+retain results and original receipts but cannot accept new writes or resume
+prepared work. Preserve their identity and uncertainty; do not migrate them,
+replay an operation or send an old decision to a new owner. A missing original
+pairing grant remains unknown until its original proof can be authenticated;
+never erase its pending operation or silently authorize another Bot instead.
+If the user needs a new authorization, direct them to the connection settings
+and a newly generated code from that Bot. This explicit action retains the
+original connection/source/proof and the old unknown; only its own confirmed
+receipt permits following connection actions. Never replay an uncertain pair or
+claim a missing/revoked grant proves its original write was rejected.

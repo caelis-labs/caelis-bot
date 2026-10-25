@@ -582,3 +582,16 @@ func (d *windowsDriver) stop() {
 }
 
 var _ driver = (*windowsDriver)(nil)
+
+// Configuration is text, never an association-driven executable open.
+func windowsOpenTextFile(path string) error {
+	directory, e := windows.GetSystemDirectory()
+	if e != nil {
+		return e
+	}
+	cmd := exec.Command(filepath.Join(directory, "notepad.exe"), path)
+	if e = cmd.Start(); e != nil {
+		return e
+	}
+	return cmd.Process.Release()
+}

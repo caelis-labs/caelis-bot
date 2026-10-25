@@ -91,6 +91,9 @@ type Review struct {
 	Rationale string `json:"rationale"`
 }
 type Item struct {
+	// HistoryID joins Worker live output to its original native transcript.
+	// It is a presentation key, not a request/decision or execution target.
+	HistoryID string `json:"historyId,omitempty"`
 	// RequestID correlates a local submission with an authoritative native input.
 	RequestID string `json:"requestId"`
 	// SeenAt is local presentation order in Unix microseconds, not Runtime authority.
@@ -223,6 +226,9 @@ type ApprovalResolution struct {
 }
 
 type Approval struct {
+	// NativeID preserves the native identity when a host uses a source-scoped
+	// presentation reference. Never accepted from renderer JSON as authority.
+	NativeID string `json:"-"`
 	// Presentation keys never participate in approval identity or decisions.
 	TitleKey  string `json:"titleKey"`
 	NoticeKey string `json:"noticeKey"`

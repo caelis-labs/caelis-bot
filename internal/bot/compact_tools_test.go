@@ -19,6 +19,29 @@ type compactTasks struct {
 	starts, sends int
 }
 
+type uncertainCompactTasks struct{ compactTasks }
+
+func (f *uncertainCompactTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
+	f.start = in
+	f.starts++
+	return api.Task{ID: "owned", Status: "unknown", Outcome: "unknown"}, context.DeadlineExceeded
+}
+func TestUnconfirmedDelegationReturnsOriginalOperationForReconciliation(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &uncertainCompactTasks{}
+	r.ConfigureTasks(f, nil)
+	invocation := api.ToolInvocation{Provider: "codex", Session: "resident", Turn: "turn", CallID: "lost-create"}
+	ctx := api.WithToolInvocation(t.Context(), invocation)
+	out := r.CallTool(ctx, "bot_delegate", json.RawMessage(`{"title":"Review","prompt":"Check assigned source"}`))
+	if !out.IsError {
+		t.Fatal("unknown became success")
+	}
+	data := out.StructuredContent["data"].(map[string]any)
+	if data["requestId"] != toolSubmissionID(invocation) || data["id"] != "owned" || f.starts != 1 {
+		t.Fatal("original receipt is not available to reconcile", data)
+	}
+}
+
 func (f *compactTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
 	f.start = in
 	f.starts++
@@ -242,5 +265,24 @@ func TestCompactBudgetPreservesMutationReceipt(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if len(b) > 32<<10 {
 		t.Fatal("unbounded fallback")
+	}
+}
+
+type sshConfigTasks struct{ compactTasks }
+
+func (*sshConfigTasks) SSHConfiguration() (api.SSHConfiguration, error) {
+	return api.SSHConfiguration{Path: "/fixture/Machines/SSH/config", UserPath: "/fixture/.ssh/config", SystemPath: "/etc/ssh/ssh_config", Revision: "fixture-revision", Hosts: []string{"fedora"}, Text: "must not expose potentially private config via list"}, nil
+}
+func TestSSHConfigDiscoveryIsReadOnlyAndSharesActualFile(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &sshConfigTasks{}
+	r.ConfigureTasks(f, nil)
+	out := invokeCompact(t, r, "bot_tasks", `{"request":{"type":"ssh_config"}}`)
+	data := out.StructuredContent["data"].(map[string]any)
+	if data["path"] != "/fixture/Machines/SSH/config" || data["revision"] != "fixture-revision" || data["text"] != nil || f.starts != 0 {
+		t.Fatal(data)
+	}
+	if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"ssh_config","text":"execute"}}`)).IsError {
+		t.Fatal("read-only discovery gained a write")
 	}
 }

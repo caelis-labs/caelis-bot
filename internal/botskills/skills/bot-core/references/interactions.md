@@ -27,6 +27,16 @@ its task source, answer, and closure together. Marked-secret, URL, or opaque Wor
 their direct user card. Your own approvals remain with Runtime Auto-Review or
 the user; never decide them through the Worker route.
 
+`bot_interactions` `list` pages only pending/unknown requests, with an optional
+`limit` and opaque `cursor`. Follow `nextCursor` with unchanged arguments. Large
+originals appear in `reads` as exact `kind`/`id` handles. Use `read` with that
+kind and ID, also for a retained closed request. If the result uses
+`encoding: "json-chunk"`, collect every `json` chunk in offset order through
+`complete: true`, verifying the same `sha256`, before interpreting the complete
+original. A changed request invalidates its cursor; restart that original read.
+Never infer authorization from a handle or partial chunk. Historical records
+remain retained; paging does not close a question or clear an unknown decision.
+
 `bot_interactions` keeps its exact native approval and question IDs. Its answer
 requestId belongs to the original question decision, not to `bot_delegate`.
 Do not use a task continuation as a substitute for answering a pending native

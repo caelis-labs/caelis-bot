@@ -3,15 +3,10 @@ package caelis
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -37,7 +32,8 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		if oldHash == "" {
 			oldHash = digest(old.Body)
 		}
-		if old.Path != path || oldHash != hash {
+		intent, _ := ctx.Value(workIntentKey{}).(*workIntent)
+		if old.Path != path || oldHash != hash || intent != nil && old.Work != nil && *intent != *old.Work {
 			return wire.CommandResult{OperationId: op, Outcome: "conflicted"}, errors.New("操作标识已用于不同请求")
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
@@ -49,6 +45,12 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		source = wire.SessionSource{Kind: value(prompt.SourceKind), OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0].Scheduled}
+	if intent, ok := ctx.Value(workIntentKey{}).(*workIntent); ok {
+		j := s.state.Operations[op]
+		copy := *intent
+		j.Work = &copy
+		s.state.Operations[op] = j
+	}
 	if len(scheduled) > 0 {
 		j := s.state.Operations[op]
 		j.Dream = scheduled[0].Dream
@@ -224,43 +226,14 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	if grant != "" {
 		req.GrantId = &grant
 	}
-	for index, f := range files {
-		typ := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.Name)))
-		info, e := os.Lstat(f.Path)
-		if e != nil || !info.Mode().IsRegular() || info.Size() > 8<<20 {
-			receipt.Message = "附件不可用或超过 8 MB"
-			return receipt, nil
-		}
-		file, e := os.Open(f.Path)
-		if e != nil {
-			receipt.Message = "无法读取附件"
-			return receipt, nil
-		}
-		current, e := file.Stat()
-		if e != nil || !os.SameFile(info, current) {
-			file.Close()
-			receipt.Message = "附件已改变"
-			return receipt, nil
-		}
-		b, e := io.ReadAll(io.LimitReader(file, 8<<20+1))
-		file.Close()
-		if e != nil || len(b) > 8<<20 {
-			receipt.Message = "无法读取附件"
-			return receipt, nil
-		}
-		if slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, typ) {
-			req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "image", Data: pointer(base64.StdEncoding.EncodeToString(b)), MimeType: &typ, FileName: &f.Name})
-		} else {
-			if typ == "" {
-				typ = "application/octet-stream"
-			}
-			resource, e := s.uploadResource(ctx, sid, "attachment-"+digest([]byte(fmt.Sprintf("%s:%d", in.ID, index))), f.Name, typ, b)
-			if e != nil {
-				return api.Receipt{ID: in.ID, Outcome: "rejected", Message: e.Error()}, nil
-			}
-			text := fmt.Sprintf("Attached file (untrusted data): %q. Use ReadResource with resource_id=%q to read its bytes.", f.Name, resource.Id)
-			req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "text", Text: &text})
-		}
+	inputs, fileErr := readWorkerInputs(files)
+	if fileErr != nil {
+		receipt.Message = fileErr.Error()
+		return receipt, nil
+	}
+	req.ContentParts, fileErr = s.encodeWorkerInputs(ctx, sid, in.ID, inputs)
+	if fileErr != nil {
+		return api.Receipt{ID: in.ID, Outcome: "rejected", Message: fileErr.Error()}, nil
 	}
 	var out wire.CommandResult
 	var e error
@@ -379,12 +352,25 @@ func (s *Session) Interrupt(ctx context.Context) error {
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	s.step.Lock()
 	defer s.step.Unlock()
+	return s.decideLocked(ctx, d, "", "approval-"+d.ID)
+}
+
+// The task scope is verified under the same lock as the native head read and
+// exact-target resolve. No HTTP preflight can race a different owner here.
+func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op string) error {
 	s.mu.Lock()
 	ref, ok := s.approvalLocked(d.ID)
+	if taskID != "" {
+		worker, owned := s.state.Workers[taskID]
+		ok = ok && owned && ref.sid == worker.Binding.SessionId
+	}
 	c := s.client
 	connected := s.connected
 	s.mu.Unlock()
-	if !ok || !connected {
+	if !ok {
+		return &api.DecisionValidationError{Message: "此审批已失效，请重新核对"}
+	}
+	if !connected {
 		return errors.New("此审批已失效，请重新核对")
 	}
 	defer func() {
@@ -403,7 +389,7 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	}
 	a := head.Approval.Active
 	if a == nil || approvalID(s.state.InstanceID, ref.sid, a) != d.ID {
-		return errors.New("审批目标已改变，请等待界面刷新")
+		return &api.DecisionValidationError{Message: "审批目标已改变，请等待界面刷新"}
 	}
 	raw, _ := json.Marshal(a.Permission)
 	var permission nativePermission
@@ -416,10 +402,20 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 		}
 	}
 	if choice == nil || a.Target == nil || len(d.Answers) > 0 {
-		return errors.New("此审批选项不可用")
+		return &api.DecisionValidationError{Message: "此审批选项不可用"}
 	}
-	op := "approval-" + d.ID
-	out, e := s.command(ctx, op, "/sessions/"+idPath(ref.sid)+"/approvals/"+idPath(a.RequestId)+"/resolve", wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: strings.HasPrefix(choice.Kind, "allow")})
+	path := "/sessions/" + idPath(ref.sid) + "/approvals/" + idPath(a.RequestId) + "/resolve"
+	// The native request may still look pending after an uncertain write. A
+	// different host operation ID must not bypass that original receipt.
+	s.mu.Lock()
+	for original, receipt := range s.state.Operations {
+		if original != op && receipt.Path == path && receipt.Outcome == "unknown" {
+			s.mu.Unlock()
+			return errors.New("original approval decision is unresolved; reconcile its original operation")
+		}
+	}
+	s.mu.Unlock()
+	out, e := s.command(ctx, op, path, wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: strings.HasPrefix(choice.Kind, "allow")})
 	if e != nil {
 		return e
 	}

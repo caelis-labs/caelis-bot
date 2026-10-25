@@ -19,6 +19,13 @@ func applicationDataDirectory() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	profile, err := developmentDefault(config)
+	if err != nil {
+		return "", err
+	}
+	if profile.DataDirectory != "" {
+		return filepath.Clean(profile.DataDirectory), nil
+	}
 	name, _ := applicationIdentity()
 	return filepath.Join(config, name), nil
 }

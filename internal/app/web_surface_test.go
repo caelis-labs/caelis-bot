@@ -62,7 +62,7 @@ func TestBotAndWebReadSameOriginalTaskConversation(t *testing.T) {
 		t.Fatal("Bot page lost the Web final message")
 	}
 	detail := call(map[string]any{"messageId": web.Messages[1].ID})
-	if detail.IsError || detail.StructuredContent["data"].(map[string]any)["message"] != web.Messages[1] {
+	if detail.IsError || !reflect.DeepEqual(detail.StructuredContent["data"].(map[string]any)["message"], web.Messages[1]) {
 		t.Fatal("Bot detail changed original message identity")
 	}
 	f.historyError = errors.New("fixture native history unavailable")

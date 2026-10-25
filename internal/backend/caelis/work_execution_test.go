@@ -2,6 +2,7 @@ package caelis
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -82,6 +83,65 @@ func TestWorkModelResolvesHostDefaultWithoutInheritingBot(t *testing.T) {
 				if readErr != nil || configured != expected {
 					t.Fatalf("configured default = %+v, %v; want %+v", configured, readErr, expected)
 				}
+			}
+		})
+	}
+}
+
+func TestConversationWorkerUsesSelectedNativeModelInheritedEffort(t *testing.T) {
+	for _, effort := range []string{"", "low", "invalid-explicit"} {
+		t.Run("effort-"+effort, func(t *testing.T) {
+			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				path := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
+				switch path {
+				case "/initialize":
+					writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("setup-instance"), Capabilities: required})
+				case "/sessions/native-owned/configuration":
+					var p *string
+					if effort != "" {
+						p = pointer(effort)
+					}
+					writeFixture(w, wire.SessionConfiguration{SessionId: "native-owned", Revision: "r1", Profile: wire.SessionProfile{Model: "selected", ReasoningEffort: p}})
+				case "/completion/slash-arguments":
+					writeFixture(w, []wire.SlashArgCandidate{{Value: "other", ModelSelection: &wire.ModelSelection{Current: pointer(true), Effort: "max", Efforts: []string{"max"}}}, {Value: "selected", ModelSelection: &wire.ModelSelection{Effort: "high", Efforts: []string{"none", "low", "high", "max"}}}})
+				default:
+					t.Errorf("read-only resolution dispatched unexpected route %s", path)
+				}
+			})
+			directory := t.TempDir()
+			if err := os.Chmod(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			s := New(Options{Directory: directory, Settings: settings})
+			c, err := setupClient(t.Context(), settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.http.CloseIdleConnections()
+			s.client = c
+			s.state.Session.SessionId = "native-owned"
+			got, err := s.ConversationExecution(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := effort
+			if want == "" {
+				want = "high"
+			}
+			if got.Model != "selected" || got.Effort != want {
+				t.Fatal("inherited default switched model/explicit effort", got)
+			}
+			models, err := s.Models(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			invalid := api.ValidateWorkExecution(got, models)
+			if effort == "invalid-explicit" {
+				if api.WorkerReadinessCode(invalid) != "worker_effort_unsupported" {
+					t.Fatal(invalid)
+				}
+			} else if invalid != nil {
+				t.Fatal(invalid)
 			}
 		})
 	}

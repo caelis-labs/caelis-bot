@@ -145,7 +145,7 @@ func Run(assets fs.FS, args []string, version string) error {
 		defer external.Close()
 		server.RegisterManagedUpdates(external)
 	}
-	httpServer := &http.Server{Handler: managed.handler(server), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	httpServer := &http.Server{Handler: core.WorkerPeerHandler(managed.handler(server), "http://"+listener.Addr().String()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	done := make(chan error, 1)
 	go func() { done <- httpServer.Serve(listener) }()
 	if e = managed.markReady(core); e != nil {

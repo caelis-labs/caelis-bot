@@ -5,6 +5,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/headless"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
+	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
 	"io/fs"
@@ -18,6 +19,12 @@ import (
 var assets embed.FS
 
 func main() {
+	if handled, err := sshtransport.RunAskpass(os.Args); handled {
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "pair") {
 		webAssets, err := fs.Sub(assets, "frontend/dist")
 		if err == nil {
@@ -36,15 +43,6 @@ func main() {
 	}
 	if handled, err := windowsupdate.Run(os.Args[1:]); handled {
 		if err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "--remote-terminal-smoke" {
-		if len(os.Args) != 5 {
-			log.Fatal("specify disposable data directory, owned task and terminal")
-		}
-		if err := desktop.RunRemoteTerminalSmoke(os.Args[2], os.Args[3], os.Args[4]); err != nil {
 			log.Fatal(err)
 		}
 		return

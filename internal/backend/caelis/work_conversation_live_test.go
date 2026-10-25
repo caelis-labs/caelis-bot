@@ -92,7 +92,7 @@ func TestExistingWorkerConversationReadPath(t *testing.T) {
 		t.Fatal("Bot could not read original final message; no transcript logged")
 	}
 	message, ok := out.StructuredContent["data"].(map[string]any)["message"].(api.TaskConversationMessage)
-	if !ok || message != last {
+	if !ok || !reflect.DeepEqual(message, last) {
 		t.Fatal("Bot final message differs from the shared Web task reader")
 	}
 	if turn, message := os.Getenv("CAELIS_BOT_WORKER_HISTORY_FINAL_TURN"), os.Getenv("CAELIS_BOT_WORKER_HISTORY_FINAL_MESSAGE"); turn != "" && message != "" {

@@ -1,26 +1,26 @@
 {
-  "version": "v0.73.1",
-  "commit": "744b6f421c9b19ac905c654c0e6afae1126bd297",
+  "version": "v0.73.2",
+  "commit": "c882776c01c6116f1918d796c54ed66dccebc61a",
   "team": "64KZ67PM5J",
   "targets": {
     "darwin-arm64": {
-      "artifact": "caelis_0.73.1_darwin_arm64.tar.gz",
-      "sha256": "90276091ac63633e0dc031dfcfde79a705cdf78a03693073295165c3f0a47019"
+      "artifact": "caelis_0.73.2_darwin_arm64.tar.gz",
+      "sha256": "cf0196551b2d3c0e7eda385ad0b1435c6ca3c492731f491a01e8f245820934db"
     },
     "windows-amd64": {
-      "artifact": "caelis_0.73.1_windows_amd64.tar.gz",
-      "sha256": "a0926582ac187c8983443fe1331ad7b9e300b292d5cdb2bb4a2fdec8307e5765",
-      "binary_sha256": "705b916f7b7c4c49e992740e0012be3628acca41394673cf7a2412bf561b3cc9"
+      "artifact": "caelis_0.73.2_windows_amd64.tar.gz",
+      "sha256": "eb0de9bbec332e560535a0d29d7668ffe89239dc7b5b1e23e79e6486cf511930",
+      "binary_sha256": "c1e5df0d3f4df48c96fe98e59dc8d93632defa03940d34082d79d652100d3780"
     },
     "linux-amd64": {
-      "artifact": "caelis_0.73.1_linux_amd64.tar.gz",
-      "sha256": "58763f6a8459a8e5a0105499a40bf063bb917eee9013d94291353d2be9b28aed",
-      "binary_sha256": "33db8ef6aa2bff2094e4f335c17be77bb0a50e2bae326413210a81cd009cdc1c"
+      "artifact": "caelis_0.73.2_linux_amd64.tar.gz",
+      "sha256": "09a62f16275c3bc8f42bcaac999abf78d09d7881bc9c57c87514fabb38f34f9a",
+      "binary_sha256": "1a2d2a9fd48ae40dee26079c3624ae29bff9438d8648b0e4450ec62763e5ee9b"
     },
     "linux-arm64": {
-      "artifact": "caelis_0.73.1_linux_arm64.tar.gz",
-      "sha256": "ef8bf855a5700527f5086e4ca5db490c362f5a84b713961c2a754652fe545f81",
-      "binary_sha256": "29620cd512f9f646d097d251ca97944af0c4d17d046b87dc387a70d957fe4c70"
+      "artifact": "caelis_0.73.2_linux_arm64.tar.gz",
+      "sha256": "31b57aa7e1c910cb61290215458220669007a3af69dadf73e03a79a4a6fa4600",
+      "binary_sha256": "335c13aa64a6f1279677a4236c4b5058c15cee3017695cf92a689c21391525db"
     }
   }
 }

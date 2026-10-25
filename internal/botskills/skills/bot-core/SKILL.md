@@ -65,6 +65,8 @@ Read only the guide that matches the current work:
 - [Tasks](references/tasks.md): create, continue, stop, or inspect independent
   work and its original completion receipt; choose code workspaces, finish
   worktree cleanup, select a remote machine, or manage the desktop watchlist.
+- [Remote connections](references/remote-connections.md): find SSH Hosts, edit the
+  shared standard configuration, and distinguish channel authentication from Bot pairing.
 - [Recovery](references/recovery.md): connection or observation failure and
   unknown sends, approvals, or task effects.
 - [Memory](references/memory.md): maintain durable knowledge, resume

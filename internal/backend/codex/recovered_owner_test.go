@@ -62,6 +62,8 @@ func TestRecoveredOwnerSocketChild(t *testing.T) {
 				result = map[string]any{"account": map[string]string{"type": "apiKey"}, "requiresOpenaiAuth": true}
 			case "thread/start", "thread/resume", "thread/read":
 				result = map[string]any{"thread": nativeThread{ID: "thread-native"}, "model": "native-default"}
+			case "turn/start":
+				result = map[string]any{"turn": nativeTurn{ID: "controlled-worker-turn", Status: "inProgress"}}
 			}
 			if encode.Encode(wireMessage{ID: request.ID, Result: raw(result)}) != nil {
 				return

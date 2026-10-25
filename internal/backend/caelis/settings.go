@@ -25,7 +25,11 @@ func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	if e != nil {
 		return nil, e
 	}
-	return modelOptions(candidates), nil
+	models := modelOptions(candidates)
+	if len(candidates) > 0 && len(models) == 0 {
+		return nil, &api.SetupBlockedError{Code: "worker_model_authorization_required", Message: "模型服务尚未授权，请在连接与模型中补全授权"}
+	}
+	return models, nil
 }
 func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, persist func() error) error {
 	if e := api.ValidateExecutionSettings(v); e != nil {
@@ -96,5 +100,28 @@ func (s *Session) ChangeRuntime(ctx context.Context, v api.RuntimeSettings, pers
 // ConversationExecution reads the active conversation, including inherited Host defaults.
 func (s *Session) ConversationExecution(ctx context.Context) (api.WorkExecutionSettings, error) {
 	v, err := s.CurrentExecutionSettings(ctx)
-	return api.WorkModel(v), err
+	work := api.WorkModel(v)
+	if err != nil || work.Effort != "" || work.Model == "" {
+		return work, err
+	}
+	models, err := s.Models(ctx)
+	if err != nil {
+		return work, err
+	}
+	return inheritedWorkEffort(work, models), nil
+}
+
+// A nil native session effort means inherit this same model's native default.
+// Freeze that effective value for new local/foreign Workers, without changing
+// the conversation, model choice or settings. Explicit effort remains explicit.
+func inheritedWorkEffort(work api.WorkExecutionSettings, models []api.ModelOption) api.WorkExecutionSettings {
+	if work.Effort == "" {
+		for _, model := range models {
+			if model.Model == work.Model {
+				work.Effort = model.DefaultEffort
+				break
+			}
+		}
+	}
+	return work
 }

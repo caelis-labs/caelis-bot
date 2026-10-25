@@ -3,13 +3,15 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
 // WorkOwner exposes only shared native workers. Its empty management binding
 // never receives a model turn, Bot tools, Notebook, skills or schedules.
-// Mutations enter only through the target's private SSH-owned helper.
+// Mutations enter through a trusted host boundary (legacy private SSH helper or
+// authenticated peer factory), never a caller-supplied native source assertion.
 type WorkOwner struct{ engine *Session }
 type noTools struct{}
 
@@ -19,6 +21,18 @@ func (noTools) CallTool(context.Context, string, json.RawMessage) api.ToolResult
 }
 func NewWorkOwner(opts Options) (*WorkOwner, error) {
 	s := New(opts)
+	if s.loadErr != nil {
+		return nil, s.loadErr
+	}
+	if s.state.WorkSourceIdentity != opts.WorkSourceIdentity {
+		if s.state.WorkSourceIdentity != "" || len(s.state.Workers) != 0 {
+			return nil, errors.New("original Worker source identity differs")
+		}
+		s.state.WorkSourceIdentity = opts.WorkSourceIdentity
+		if err := s.saveLocked(); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.ConfigureBotTools(&api.ToolConnection{Host: noTools{}}); err != nil {
 		return nil, err
 	}
@@ -38,7 +52,8 @@ func NewRetainedWorkOwner(opts Options) (*WorkOwner, error) {
 func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
 func (w *WorkOwner) Close(ctx context.Context) error   { return w.engine.Close(ctx) }
 func (w *WorkOwner) Snapshot() api.Snapshot {
-	return api.Snapshot{Approvals: w.engine.Snapshot().Approvals}
+	v := w.engine.Snapshot()
+	return api.Snapshot{Connection: v.Connection, ConnectionIssue: v.ConnectionIssue, Approvals: v.Approvals}
 }
 func (w *WorkOwner) Decide(ctx context.Context, d api.Decision) error { return w.engine.Decide(ctx, d) }
 func (w *WorkOwner) DetachForUpdate(ctx context.Context) error        { return w.engine.DetachForUpdate(ctx) }
@@ -50,7 +65,7 @@ func (w *WorkOwner) source(ctx context.Context, request string) context.Context 
 	return context.WithValue(ctx, invocationKey{}, call)
 }
 func (w *WorkOwner) WorkAdmission(ctx context.Context) error {
-	if err := w.engine.WorkAdmission(w.source(ctx, "ssh-native-user-request")); err != nil {
+	if err := w.engine.WorkAdmission(w.source(ctx, "host-native-user-request")); err != nil {
 		return err
 	}
 	w.engine.mu.Lock()
@@ -91,4 +106,26 @@ func (w *WorkOwner) Models(ctx context.Context) ([]api.ModelOption, error) {
 
 func (w *WorkOwner) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
 	return w.engine.RuntimeDefault(ctx)
+}
+
+func (w *WorkOwner) WorkCapabilities(ctx context.Context, id string) (api.WorkCapabilities, error) {
+	return w.engine.WorkCapabilities(ctx, id)
+}
+func (w *WorkOwner) ObserveWork(ctx context.Context, id string) (api.WorkObservation, error) {
+	return w.engine.ObserveWork(ctx, id)
+}
+func (w *WorkOwner) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Task, error) {
+	return w.engine.StopWorkRequest(ctx, in)
+}
+func (w *WorkOwner) DecideWork(ctx context.Context, in api.WorkDecision) error {
+	return w.engine.DecideWork(ctx, in)
+}
+func (w *WorkOwner) WorkApprovalURL(ctx context.Context, task, id string) (string, error) {
+	return w.engine.WorkApprovalURL(ctx, task, id)
+}
+func (w *WorkOwner) ReadWorkOperation(ctx context.Context, in api.WorkOperationQuery) (api.WorkOperation, error) {
+	return w.engine.ReadWorkOperation(ctx, in)
+}
+func (w *WorkOwner) ReadWorkFile(ctx context.Context, task, id string) (api.WorkFileContent, error) {
+	return w.engine.ReadWorkFile(ctx, task, id)
 }

@@ -65,7 +65,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		var item map[string]any
 		if n == 2 {
 			var items []any
-			for index, ref := range []string{"desktop-observation.md", "desktop-actions.md", "desktop-images.md", "desktop-recovery.md", "telegram-setup.md"} {
+			for index, ref := range []string{"tasks.md", "interactions.md", "telegram-setup.md"} {
 				path := filepath.Join(filepath.Dir(skillPath), "references", ref)
 				args, _ := json.Marshal(map[string]any{"cmd": "cat '" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'", "max_output_tokens": 8000})
 				item := map[string]any{"id": fmt.Sprintf("%s-%d", id, index), "type": "function_call", "name": "exec_command", "call_id": fmt.Sprintf("%s-%d", id, index), "arguments": string(args)}
@@ -81,7 +81,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 8000})
 			item = map[string]any{"id": id, "type": "function_call", "name": "exec_command", "call_id": id, "arguments": string(args)}
 		} else if n == 4 {
-			item = map[string]any{"id": id, "type": "function_call", "namespace": "mcp__caelis_context", "name": "bot_dream", "call_id": "native-skill-dream-call", "arguments": `{"handoff":"Identity: Caelis Bot. Current goal: finish the user's skill check. The desktop guide and references were read. No effect is pending. Next: answer the next user message from a fresh context."}`}
+			item = map[string]any{"id": id, "type": "function_call", "namespace": "mcp__caelis_context", "name": "bot_dream", "call_id": "native-skill-dream-call", "arguments": `{"handoff":"Identity: Caelis Bot. Current goal: finish the user's skill check. The task guide and references were read. No effect is pending. Next: answer the next user message from a fresh context."}`}
 		} else {
 			item = map[string]any{"id": id, "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "skill-read-complete", "annotations": []any{}}}}
 		}
@@ -145,7 +145,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err = s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := resident.SubmitUser(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its desktop reference."}, nil)
+	r, err := resident.SubmitUser(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its task reference."}, nil)
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -167,18 +167,18 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	initial := append([]string(nil), requests...)
 	mu.Unlock()
 	if len(initial) != 3 {
-		t.Fatalf("expected two native file reads: %d model requests", len(initial))
+		t.Fatalf("expected two native file-read stages: %d model requests", len(initial))
 	}
 	if !strings.Contains(initial[0], "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(initial[0], "# Restore your context") {
 		t.Fatal("metadata absent or eager body injection")
 	}
-	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Observe the desktop narrowly") || !strings.Contains(initial[2], "# Observe the desktop narrowly") {
+	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Arrange and continue independent work") || !strings.Contains(initial[2], "# Arrange and continue independent work") {
 		t.Fatal("native file tools did not progressively load skill")
 	}
-	if strings.Contains(initial[1], "# Perform known desktop actions") || !strings.Contains(initial[2], "# Perform known desktop actions") {
-		t.Fatal("desktop policy reference was not progressively loaded")
+	if strings.Contains(initial[1], "# Handle native decisions and questions") || !strings.Contains(initial[2], "# Handle native decisions and questions") {
+		t.Fatal("interaction policy reference was not progressively loaded")
 	}
-	for _, marker := range []string{"# Capture explicit evidence", "# Read the original desktop receipt", "# Help the user connect Telegram"} {
+	for _, marker := range []string{"# Help the user connect Telegram"} {
 		if strings.Contains(initial[1], marker) || !strings.Contains(initial[2], marker) {
 			t.Fatal("conditional guide did not load", marker)
 		}
@@ -187,7 +187,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	for _, item := range s.Snapshot().Items {
 		if item.Kind == "user" && item.RequestID == "progressive-skill-input" {
 			correlated = true
-			if item.Text != "Read the applicable guide and its desktop reference." {
+			if item.Text != "Read the applicable guide and its task reference." {
 				t.Fatal("context prefix leaked into native chat projection")
 			}
 		}
@@ -237,7 +237,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	mu.Lock()
 	nextRequests := append([]string{}, requests...)
 	mu.Unlock()
-	if len(nextRequests) != 5 || !strings.Contains(nextRequests[4], "Native core identity.") || !strings.Contains(nextRequests[4], "No effect is pending.") || strings.Contains(nextRequests[4], "Read the applicable guide and its desktop reference.") {
+	if len(nextRequests) != 5 || !strings.Contains(nextRequests[4], "Native core identity.") || !strings.Contains(nextRequests[4], "No effect is pending.") || strings.Contains(nextRequests[4], "Read the applicable guide and its task reference.") {
 		t.Fatal("new session context did not reset and restore")
 	}
 	if resident.PrepareHandoffContext().HandoffDigest != "" {

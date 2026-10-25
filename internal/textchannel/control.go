@@ -201,6 +201,9 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 			}
 		}
 	}
+	if s.compactClosedQuestionCopies() {
+		migrated = true
+	}
 	if migrated {
 		if err := s.save(); err != nil {
 			return nil, err
@@ -209,6 +212,7 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	return s, nil
 }
 func (s *Store) save() error {
+	s.compactClosedQuestionCopies()
 	if err := localstate.Write(s.path, s.state); err != nil {
 		return err
 	}
@@ -291,6 +295,13 @@ func (s *Store) nextShortIDLocked(kind string) (string, func(), error) {
 			continue
 		}
 		archived, hadArchived := s.state.AsyncClosed[asyncKey(oldAsync)]
+		if hadAsync && hadArchived && archived.Title == "" && (closedAsync(oldAsync.State) || oldAsync.State == "answered") {
+			// The slot is about to be recycled. Preserve the one original
+			// history projection before dropping its current-index copy.
+			retained := oldAsync
+			retained.Notified = archived.Notified
+			s.state.AsyncClosed[asyncKey(oldAsync)] = retained
+		}
 		if hadAsync && !hadArchived {
 			if oldAsync.State == "" {
 				state, reason := "superseded", "question_replaced"
