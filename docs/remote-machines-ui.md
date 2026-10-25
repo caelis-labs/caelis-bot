@@ -59,6 +59,10 @@ MCP/controlled model path; no real third-party OAuth/account claim is made.
 
 ![Native remote-machine list with synthetic data](images/remote-machines-native.png)
 
+![Native IP code exchange with synthetic data](images/remote-machine-pairing-native.png)
+
+![Native system SSH Host selection with synthetic data](images/remote-machine-ssh-native.png)
+
 Native OpenSSH tests use isolated -F/Include files to verify effective multi-hop
 ProxyJump and ProxyCommand configuration without connecting or reading/copying
 user keys. Fault tests hold SSH inspect/model/configuration/team/terminal calls

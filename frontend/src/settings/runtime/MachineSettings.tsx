@@ -31,7 +31,7 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
  const working=useRef(false),editor=useRef<HTMLDivElement>(null),advancedGeneration=useRef(0);
  const removeCancel=useRef<HTMLButtonElement>(null);
  const savedMachine=!!draft&&machines.some(v=>v.id===draft.id);
- const reload=async()=>{if(reading.current)return;reading.current=true;const current=generation.current;try{const result=await call<Machine[]>('Machines');if(current===generation.current){setMachines(result);setLoaded(true);setListError(false);}}catch(cause){if(current===generation.current){setLoaded(true);setListError(true)}throw cause}finally{reading.current=false}};
+ const reload=async()=>{if(reading.current)return;reading.current=true;const current=generation.current;try{const result=await call<Machine[]>('Machines');if(current===generation.current){setNow(Date.now());setMachines(result);setLoaded(true);setListError(false);}}catch(cause){if(current===generation.current){setLoaded(true);setListError(true)}throw cause}finally{reading.current=false}};
  useEffect(()=>{if(active)void reload().catch(()=>setLoaded(true));return()=>{generation.current++;};},[active,call]);
  useEffect(()=>{if(!active||draft)return;const timer=window.setInterval(()=>{setNow(Date.now());void reload().catch(()=>{});},4000);return()=>window.clearInterval(timer);},[active,!!draft,call]);
  const loadHosts=async()=>{const generation=++hostsGeneration.current;setHostsLoading(true);setHostsError(false);try{const value=await call<string[]>('SSHConfigHosts');if(generation===hostsGeneration.current)setHosts(value);}catch{if(generation===hostsGeneration.current){setHosts([]);setHostsError(true);}}finally{if(generation===hostsGeneration.current)setHostsLoading(false);}};

@@ -61,7 +61,7 @@
 .machine-page h1{font-size:24px}
 
 /* A single inventory: heading and action share one baseline. */
-.remote-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px}
+.remote-toolbar{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:0 0 22px}
 .machine-page .remote-toolbar h1,.remote-toolbar h2{margin:0;line-height:34px}
 .settings-window .remote-add{padding:8px 13px;min-height:34px;border-radius:8px}
 .remote-empty{margin:0;padding:8px 0 20px;color:var(--muted);font-size:13px;line-height:1.6}
