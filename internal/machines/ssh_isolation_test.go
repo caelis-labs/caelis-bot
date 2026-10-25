@@ -151,3 +151,16 @@ func TestSSHObservationDeadlineAndFailureStayLocal(t *testing.T) {
 		t.Fatal("failed health probe manufactured work")
 	}
 }
+
+func TestMalformedSSHResponseStaysWithinExistingReadLimit(t *testing.T) {
+	var output sshOutput
+	chunk := make([]byte, 1<<20)
+	for range 20 {
+		if n, e := output.Write(chunk); e != nil || n != len(chunk) {
+			t.Fatal("transport drain failed", n, e)
+		}
+	}
+	if !output.overflow || len(output.data) != 8<<20 {
+		t.Fatal("remote bytes exceeded retained response budget", len(output.data))
+	}
+}

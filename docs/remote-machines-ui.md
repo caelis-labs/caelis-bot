@@ -46,7 +46,10 @@ ProxyJump and ProxyCommand configuration without connecting or reading/copying
 user keys. Fault tests hold SSH inspect/model/configuration/team/terminal calls
 while local and another peer Stop reach native control. Independent native-boundary
 negative/positive tests cover same-profile concurrent pin publication and restoring
-original pins/credentials after a certified unsupported-platform refusal. Network
+original pins/credentials after a certified unsupported-platform refusal. The native SSH command owns a separate local transport process group; cancellation
+stops its ordinary proxy children and bounds pipe draining. It never stops a
+remote Worker owner or unrelated local process. The existing 8 MiB response limit
+is enforced while reading, with bounded retained diagnostics. Network
 or helper-install uncertainty remains unknown; it is never converted to refusal
 or success. This batch does not change the bounded URL support contract.
 

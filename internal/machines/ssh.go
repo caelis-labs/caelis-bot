@@ -18,6 +18,14 @@ import (
 	"strings"
 )
 
+// Every SSH command owns its local transport process group. Remote native
+// Worker owners are retained independently and never killed by cancellation.
+func sshCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	configureSSHCommand(cmd)
+	return cmd
+}
+
 func quote(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\"'\"'") + "'" }
 
 // -o values still pass through OpenSSH's config parser after argv parsing.
@@ -90,7 +98,7 @@ func resolveWithConfig(ctx context.Context, v api.MachineInput, config string) (
 		args = append(args, "-l", v.User)
 	}
 	args = append(args, "--", v.Address)
-	b, e := exec.CommandContext(ctx, "/usr/bin/ssh", args...).Output()
+	b, e := sshCommand(ctx, "/usr/bin/ssh", args...).Output()
 	if e != nil {
 		return v, jump, errors.New("ssh_configuration")
 	}
@@ -127,14 +135,14 @@ func scanKey(ctx context.Context, v api.MachineInput, jump string) (string, stri
 	var b []byte
 	var e error
 	if jump == "" {
-		b, e = exec.CommandContext(ctx, "/usr/bin/ssh-keyscan", "-T", "8", "-p", strconv.Itoa(v.Port), "-t", "ed25519,ecdsa,rsa", v.Address).Output()
+		b, e = sshCommand(ctx, "/usr/bin/ssh-keyscan", "-T", "8", "-p", strconv.Itoa(v.Port), "-t", "ed25519,ecdsa,rsa", v.Address).Output()
 	} else {
 		args, err := jumpArgs(jump)
 		if err != nil {
 			return "", "", err
 		}
 		command := "ssh-keyscan -T 8 -p " + strconv.Itoa(v.Port) + " -t ed25519,ecdsa,rsa " + quote(v.Address)
-		b, e = exec.CommandContext(ctx, "/usr/bin/ssh", append(args, command)...).Output()
+		b, e = sshCommand(ctx, "/usr/bin/ssh", append(args, command)...).Output()
 	}
 	if e != nil {
 		return "", "", errors.New("unreachable")
@@ -282,7 +290,7 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 		return nil, e
 	}
 	args = append(args, command)
-	cmd := exec.CommandContext(ctx, "/usr/bin/ssh", args...)
+	cmd := sshCommand(ctx, "/usr/bin/ssh", args...)
 	cmd.Stdin = input
 	// Only retain a bounded diagnostic in memory, never return/log raw SSH output.
 	var diagnostic sshDiagnostic
@@ -309,7 +317,9 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 		}
 		cmd.Env = append(os.Environ(), "SSH_ASKPASS="+ask, "SSH_ASKPASS_REQUIRE=force", "DISPLAY=caelis-bot")
 	}
-	b, e := cmd.Output()
+	var output sshOutput
+	cmd.Stdout = &output
+	e = cmd.Run()
 	if e != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -320,10 +330,26 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 		}
 		return nil, errors.New("ssh_authentication_or_connection")
 	}
-	if len(b) > 8<<20 {
+	if output.overflow {
 		return nil, errors.New("remote_response_too_large")
 	}
-	return b, nil
+	return output.data, nil
+}
+
+// The existing response limit applies while reading, before an invalid remote
+// can allocate an unbounded Output buffer. Drain discarded bytes until the
+// owning command deadline; they never enter a task/native projection.
+type sshOutput struct {
+	data     []byte
+	overflow bool
+}
+
+func (b *sshOutput) Write(p []byte) (int, error) {
+	const limit = 8 << 20
+	keep := min(len(p), limit-len(b.data))
+	b.data = append(b.data, p[:keep]...)
+	b.overflow = b.overflow || keep < len(p)
+	return len(p), nil
 }
 
 type sshDiagnostic struct{ data []byte }
