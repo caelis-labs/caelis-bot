@@ -49,16 +49,11 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
-export interface BotConnectionAuthorization {
-  connection: BotConnectionInput;
-  originalOperationId?: string;
-}
 export interface BotConnectionInput {
   reconnect?: boolean;
   id: string;
   name: string;
   address: string;
-  code: string;
 }
 export interface BotInitialization {
   requestId?: string;
@@ -139,52 +134,18 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
-  remoteName?: string;
-  checkedAt?: number;
-  archived?: boolean;
-  connectionType?: string;
-  peerId?: string;
   id: string;
   name: string;
+  remoteName?: string;
   address: string;
-  port: number;
-  user: string;
-  authentication: string;
-  sshConfig: boolean;
-  privateKey: string;
-  remember: boolean;
+  connectionType: string;
   state: string;
   issue: string;
-  fingerprint: string;
   runtime: string;
-  available: Array<string>;
-  setup: SetupState;
-  work: WorkExecutionSettings;
-  models: Array<ModelOption>;
-  runtimeDefault: WorkExecutionSettings | null;
-  configuration?: RuntimeConfiguration | null;
-  advancedIssue: string;
-}
-export interface MachineInput {
-  id: string;
-  name: string;
-  address: string;
-  port: number;
-  user: string;
-  authentication: string;
-  sshConfig: boolean;
-  privateKey: string;
-  secret: string;
-  remember: boolean;
-  trustFingerprint: string;
-}
-export interface MachineModel {
-  id: string;
-  selection: WorkExecutionSettings;
-}
-export interface MachineTeamChange {
-  id: string;
-  change: RuntimeConfigurationChange;
+  checkedAt?: number;
+  archived?: boolean;
+  peerId?: string;
+  pairingStatus: string;
 }
 export interface MediaImage {
   id: string;
@@ -613,26 +574,31 @@ export interface WorkURLReceipt {
   fingerprint: string;
   outcome: string;
 }
+export interface WorkerPairingDecision {
+  id: string;
+  allow: boolean;
+}
+export interface WorkerPairingRequest {
+  id: string;
+  name: string;
+  fingerprint: string;
+  address: string;
+  expiresAt: number;
+}
 export interface WorkerPeerSource {
   id: string;
   name: string;
   pairedAt: number;
 }
 export interface WorkerSharing {
-  addresses?: Array<string>;
-  enabled: boolean;
+  issue?: string;
+  requests: Array<WorkerPairingRequest>;
+  sources: Array<WorkerPeerSource>;
   address: string;
   listen: string;
   listening: boolean;
   managed: boolean;
   peer: string;
-  code?: string;
-  expiresAt?: number;
-  sources: Array<WorkerPeerSource>;
-}
-export interface WorkerSharingInput {
-  listen: string;
-  address: string;
 }
 export interface WorkerTaskObservation {
   task: Task;

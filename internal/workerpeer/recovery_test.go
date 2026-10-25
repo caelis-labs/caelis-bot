@@ -42,9 +42,6 @@ func TestExplicitRecoveryUsesOnlyAuthenticatedSourceWithoutReadinessOwner(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = server.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	h := httptest.NewServer(server)
 	defer h.Close()
 	c := pairFixture(t, server, h, "source-a")
@@ -52,15 +49,16 @@ func TestExplicitRecoveryUsesOnlyAuthenticatedSourceWithoutReadinessOwner(t *tes
 	if _, err = Call(t.Context(), c, Request{Action: "start", Start: start}); err != nil {
 		t.Fatal(err)
 	}
+	initialRecoveries := source.recoveries.Load()
 	source.gone.Store(true)
 	if _, err = Call(t.Context(), c, Request{Action: "info"}); err == nil {
 		t.Fatal("read silently replaced owner")
 	}
 	before := factoryCalls.Load()
-	if _, err = server.Pairing(t.Context()); err != nil || factoryCalls.Load() != before {
+	if err = server.PairingReadiness(t.Context()); err != nil || factoryCalls.Load() != before {
 		t.Fatal("pairing created an empty owner", err)
 	}
-	if source.recoveries.Load() != 1 { // Initial authenticated pairing prepares its own source.
+	if source.recoveries.Load() != initialRecoveries { // Initial authenticated pairing prepares its own source.
 		t.Fatal("ordinary read recovered owner")
 	}
 	bad := c
@@ -71,13 +69,13 @@ func TestExplicitRecoveryUsesOnlyAuthenticatedSourceWithoutReadinessOwner(t *tes
 	if _, err = Call(t.Context(), c, Request{Action: "recover"}); err != nil {
 		t.Fatal(err)
 	}
-	if source.recoveries.Load() != 2 {
+	if source.recoveries.Load() != initialRecoveries+1 {
 		t.Fatal("recovery crossed source")
 	}
-	if err = server.RecoverReadiness(t.Context()); err != nil {
+	if err = server.PairingReadiness(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = server.Pairing(t.Context()); err != nil {
+	if err = server.PairingReadiness(t.Context()); err != nil {
 		t.Fatal("empty readiness stayed pinned", err)
 	}
 	if source.starts != 1 || len(source.tasks) != 1 || source.tasks["old-worker"].Task.ID != "old-worker" {
@@ -100,9 +98,6 @@ func TestNewPreparationRecoversOnlyNewWorkAndKeepsOriginalReceipt(t *testing.T) 
 		return source, "codex", nil, nil
 	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err = server.Enable(true); err != nil {
 		t.Fatal(err)
 	}
 	h := httptest.NewServer(server)
@@ -134,9 +129,9 @@ func TestNewPreparationRecoversOnlyNewWorkAndKeepsOriginalReceipt(t *testing.T) 
 		t.Fatal("new preparation migrated/replayed old work")
 	}
 }
-func TestPairingReadyProbeIsBoundedAndSkippedWhenDisabled(t *testing.T) {
+func TestPairingReadyProbeIsBoundedWithoutNativeOwner(t *testing.T) {
 	s, err := Open(t.TempDir(), func(context.Context, string, string, string) (Owner, string, *api.WorkExecutionSettings, error) {
-		t.Fatal("pairing created owner")
+		t.Fatal("readiness created owner")
 		return nil, "", nil, nil
 	})
 	if err != nil {
@@ -144,15 +139,9 @@ func TestPairingReadyProbeIsBoundedAndSkippedWhenDisabled(t *testing.T) {
 	}
 	var probes atomic.Int32
 	s.ConfigureReadiness(func(ctx context.Context) error { probes.Add(1); <-ctx.Done(); return ctx.Err() })
-	if _, err = s.Pairing(t.Context()); err == nil || probes.Load() != 0 {
-		t.Fatal("disabled sharing probed runtime", err)
-	}
-	if err = s.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err = s.Pairing(ctx); !errors.Is(err, context.Canceled) || probes.Load() != 1 {
-		t.Fatal("ready probe ignored cancellation", err)
+	if err = s.PairingReadiness(ctx); !errors.Is(err, context.Canceled) || probes.Load() != 1 {
+		t.Fatal(err)
 	}
 }

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/remotework"
 	"github.com/caelis-labs/caelis-bot/internal/sharedruntime"
+	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"reflect"
 	"sync"
 	"time"
@@ -16,9 +16,9 @@ func (s *Service) TaskMachines() []api.TaskMachine {
 	defer s.mu.Unlock()
 	out := []api.TaskMachine{}
 	for _, p := range s.state.Profiles {
-		// Both explicit connection types are environments. Original tasks keep
+		// Established Bot peers are environments. Original tasks keep
 		// their frozen route/runtime when settings or connectivity change.
-		if p.View.Archived {
+		if p.View.Archived || p.View.PairingStatus != "approved" {
 			continue
 		}
 		out = append(out, api.TaskMachine{ID: p.View.ID, Name: machineView(p).Name, Runtime: p.View.Runtime, Ready: p.View.State == "ready" && (p.View.ConnectionType != "bot" || botProfileReady(p.View))})
@@ -71,7 +71,7 @@ func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id st
 	if e != nil {
 		return "", e
 	}
-	r, e := s.call(ctx, p, remotework.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
+	r, e := s.call(ctx, p, workerpeer.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
 	if e != nil {
 		return "", errors.Join(e, s.ReleaseWorkPreparation(id))
 	}
@@ -80,8 +80,8 @@ func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id st
 	if s.state.Routes[id] != in.Machine || s.state.Runtimes[id] != runtime || s.state.Reservations[id] != reserved || s.state.ReservationKeys[id] != key || !sameConnectionConfiguration(s.state.Profiles[in.Machine], p) {
 		return "", errors.New("work_preparation_changed")
 	}
-	if reserved && p.View.ConnectionType == "bot" && len(r.Available) == 1 {
-		selected := r.Available[0]
+	if reserved && r.Runtime != "" {
+		selected := r.Runtime
 		if selected != "codex" && selected != "caelis" {
 			return "", errors.New("original_task_runtime_unavailable")
 		}
@@ -124,7 +124,7 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	p := s.state.Profiles[in.Machine]
 	s.mu.Unlock()
-	return s.callWork(ctx, in.Machine, runtime, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
+	return s.callWork(ctx, in.Machine, runtime, p, workerpeer.Request{Action: "start", Runtime: runtime, Start: in})
 }
 
 type workPoll struct {
@@ -159,12 +159,12 @@ func (s *Service) workPolls() []workPoll {
 // Apply only to the unchanged profile and still-owned backend; a late response
 // cannot restore a deleted machine or overwrite a newly selected default.
 func (s *Service) pollWork(ctx context.Context, poll workPoll) uint64 {
-	r, err := s.call(ctx, poll.profile, remotework.Request{Action: "states", Runtime: poll.runtime})
-	var inspected remotework.Response
+	r, err := s.call(ctx, poll.profile, workerpeer.Request{Action: "states", Runtime: poll.runtime})
+	var inspected peerWorkResponse
 	var inspectErr error
 	recheck := err == nil && poll.profile.View.Runtime == poll.runtime && poll.profile.View.State == "offline"
 	if recheck {
-		inspected, inspectErr = s.call(ctx, poll.profile, remotework.Request{Action: "inspect", Runtime: poll.runtime})
+		inspected, inspectErr = s.call(ctx, poll.profile, workerpeer.Request{Action: "inspect", Runtime: poll.runtime})
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return poll.revision
@@ -191,7 +191,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) uint64 {
 	if err == nil {
 		s.cacheResponse(poll.id, machineView(p).Name, poll.runtime, r.States)
 		if recheck {
-			next := inspectedProfile(p, poll.runtime, inspected, inspectErr)
+			next := botCheckResult(p, workerpeer.Response{Peer: inspected.Peer, Capabilities: inspected.Capabilities}, inspectErr)
 			s.state.Profiles[poll.id] = next
 			if s.save() != nil {
 				s.state.Profiles[poll.id] = p
@@ -234,13 +234,13 @@ func (s *Service) remote(ctx context.Context, id, action string, message api.Tas
 	if !ok {
 		return api.Task{}, errors.New("original_machine_unavailable")
 	}
-	return s.callWork(ctx, machine, runtime, p, remotework.Request{Action: action, Runtime: runtime, ID: id, Message: message})
+	return s.callWork(ctx, machine, runtime, p, workerpeer.Request{Action: action, Runtime: runtime, ID: id, Message: message})
 }
 
 // A network write must not hold the route lock in front of its guarded Stop.
 // Refresh uses the existing profile/revision fence, so late results cannot
 // overwrite observations from a changed connection or another execution.
-func (s *Service) callWork(ctx context.Context, machine, runtime string, p profile, request remotework.Request) (api.Task, error) {
+func (s *Service) callWork(ctx context.Context, machine, runtime string, p profile, request workerpeer.Request) (api.Task, error) {
 	s.cacheMu.RLock()
 	revision := s.cacheRevision[machine+"\x00"+runtime]
 	s.cacheMu.RUnlock()
@@ -276,7 +276,7 @@ func (s *Service) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 	if !ok || runtime == "" {
 		return nil, errors.New("original remote task environment unavailable")
 	}
-	response, err := s.call(ctx, profile, remotework.Request{Action: "messages", Runtime: runtime, ID: id})
+	response, err := s.call(ctx, profile, workerpeer.Request{Action: "messages", Runtime: runtime, ID: id})
 	if err != nil {
 		return nil, err
 	}
@@ -295,45 +295,24 @@ func (s *Service) StopWork(ctx context.Context, id string) (api.Task, error) {
 	if s.route(id) == "" {
 		return s.local.StopWork(ctx, id)
 	}
-	return s.remote(ctx, id, "stop", api.TaskMessage{})
+	return api.Task{}, errors.New("guarded_worker_stop_required")
 }
 func (s *Service) WorkMessageRecorded(in api.TaskMessage) bool {
 	if s.route(in.ID) != "" {
-		s.mu.Lock()
-		machine, runtime := s.state.Routes[in.ID], s.state.Runtimes[in.ID]
-		profile, ok := s.state.Profiles[machine]
-		s.mu.Unlock()
-		if !ok || runtime == "" {
-			return false
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		response, err := s.call(ctx, profile, remotework.Request{Action: "recorded", Runtime: runtime, ID: in.ID, Message: in})
-		return err == nil && response.Recorded
+		return false
 	}
 	p, ok := s.local.(api.RecordedWorkMessage)
 	return ok && p.WorkMessageRecorded(in)
 }
 func (s *Service) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
-	if s.route(id) == "" {
-		p, ok := s.local.(api.WorkTerminalProvider)
-		if !ok {
-			return api.TerminalTarget{}, errors.New("terminal unavailable")
-		}
-		return p.WorkTerminal(ctx, id)
+	if s.route(id) != "" {
+		return api.TerminalTarget{}, errors.New("remote_worker_terminal_unavailable")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.state.Profiles[s.state.Routes[id]]
+	p, ok := s.local.(api.WorkTerminalProvider)
 	if !ok {
-		return api.TerminalTarget{}, errors.New("original_machine_unavailable")
+		return api.TerminalTarget{}, errors.New("terminal unavailable")
 	}
-	r, e := s.call(ctx, p, remotework.Request{Action: "terminal", Runtime: s.state.Runtimes[id], ID: id})
-	if e != nil {
-		return api.TerminalTarget{}, e
-	}
-	r.Terminal.SSH, e = s.sshArgs(p, true)
-	return r.Terminal, e
+	return p.WorkTerminal(ctx, id)
 }
 
 // Poll native facts, never a model. Observation cancellation leaves target owners

@@ -107,14 +107,3 @@ type Connection struct {
 	Peer    string `json:"peer"`
 	Token   string `json:"token"`
 }
-type PairRequest struct {
-	Token string `json:"token"`
-	Code  string `json:"code"`
-	Peer  string `json:"peer"`
-	Name  string `json:"name,omitempty"`
-}
-type PairResult struct {
-	Name string `json:"name,omitempty"`
-	Connection
-	Capabilities api.WorkCapabilities `json:"capabilities"`
-}

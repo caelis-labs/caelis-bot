@@ -156,13 +156,6 @@ func TestWindowsConsoleClaimsOncePreservesUnicodeArgvAndOwnsOnlyHandles(t *testi
 	}
 }
 
-func TestWindowsRemoteTerminalNeverRetargetsLocalOwner(t *testing.T) {
-	_, e := Script(api.TerminalTarget{SSH: []string{"remote-host"}, Runtime: "codex", Binary: `C:\codex.exe`, Directory: `C:\Work`, Endpoint: "unix://C:/private/runtime.sock", Thread: "original"})
-	if !errors.Is(e, ErrNativeTerminalUnsupported) {
-		t.Fatal("remote route silently opened local client", e)
-	}
-}
-
 func TestConsoleEnvironmentDropsCallerIdentityAndRejectsUnknownOverrides(t *testing.T) {
 	t.Setenv("codex_thread_id", "foreign-owner")
 	t.Setenv("Caelis_Control_Token", "PRIVATE_SENTINEL")

@@ -6,26 +6,26 @@ import (
 	"testing"
 )
 
-func TestSharedWorkerViewerUsesOnlyOwnedCardsAndKeepsLegacyFallback(t *testing.T) {
+func TestSharedWorkerViewerUsesOnlyOwnedCardsAndKeepsNativeTerminalFallback(t *testing.T) {
 	s, _ := taskService(t)
-	s.observeTasks([]api.TaskPreview{{ID: "local"}, {ID: "bot-peer"}, {ID: "legacy-ssh"}})
+	s.observeTasks([]api.TaskPreview{{ID: "local"}, {ID: "bot-peer"}, {ID: "local-terminal"}})
 	viewed := []string{}
 	terminal := []string{}
 	s.workerTaskView = func(_ context.Context, id string) (bool, error) {
-		if id == "legacy-ssh" {
+		if id == "local-terminal" {
 			return false, nil
 		}
 		viewed = append(viewed, id)
 		return true, nil
 	}
 	s.taskWindows = &taskControllerStub{click: func(_ context.Context, id string) error { terminal = append(terminal, id); return nil }}
-	for _, id := range []string{"local", "bot-peer", "legacy-ssh"} {
+	for _, id := range []string{"local", "bot-peer", "local-terminal"} {
 		if err := s.OpenTaskTerminal(id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(viewed) != 2 || viewed[0] != "local" || viewed[1] != "bot-peer" || len(terminal) != 1 || terminal[0] != "legacy-ssh" {
-		t.Fatal("local/peer view diverged or legacy helper was rerouted")
+	if len(viewed) != 2 || viewed[0] != "local" || viewed[1] != "bot-peer" || len(terminal) != 1 || terminal[0] != "local-terminal" {
+		t.Fatal("local/peer view diverged or local terminal fallback was rerouted")
 	}
 	if s.OpenTaskTerminal("foreign") == nil {
 		t.Fatal("unowned task opened")

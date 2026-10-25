@@ -97,18 +97,16 @@ func TestBotReadinessDoesNotHoldRouteLockAndFencesStaleResults(t *testing.T) {
 		target.peer.ServeHTTP(w, r)
 	}))
 	defer proxy.Close()
-	s, err := Open(t.TempDir(), &dualPeerLocal{}, nil)
+	s, err := Open(t.TempDir(), &dualPeerLocal{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, err := target.peer.Pairing(t.Context())
+	first, err := s.ConnectBot(t.Context(), api.BotConnectionInput{Address: proxy.URL, Name: "Before"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := s.ConnectBot(t.Context(), api.BotConnectionInput{Address: proxy.URL, Name: "Before", Code: code.Code})
-	if err != nil {
-		t.Fatal(err)
-	}
+	approveMachine(t, target, s, first.ID)
+	first = s.Machines()[0]
 	slow.Store(true)
 	inspected := make(chan api.Machine, 1)
 	go func() { view, _ := s.InspectMachine(t.Context(), first.ID, ""); inspected <- view }()
@@ -153,15 +151,18 @@ func TestArchivedRevokedBotRestoresSameProofAndRetainedTasks(t *testing.T) {
 	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Name: "Archived rename"}); err != nil || !s.Machines()[0].Archived {
 		t.Fatal("local rename implicitly restored archived authorization", err)
 	}
-	reopened, err := Open(s.root, &dualPeerLocal{}, nil)
+	reopened, err := Open(s.root, &dualPeerLocal{})
 	if err != nil || reopened.state.Profiles[machine].Peer != proof || reopened.state.Routes[task.ID] != machine {
 		t.Fatal("archive lost sole original proof or task route", err)
 	}
-	code, err := target.peer.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	restored, err := reopened.ConnectBot(t.Context(), api.BotConnectionInput{Address: proof.Address, Name: "Restored"})
+	if err == nil && restored.PairingStatus == "revoked" {
+		restored, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Name: "Restored", Reconnect: true})
 	}
-	restored, err := reopened.ConnectBot(t.Context(), api.BotConnectionInput{Address: proof.Address, Name: "Restored", Code: code.Code})
+	if err == nil {
+		approveMachine(t, target, reopened, restored.ID)
+		restored = reopened.Machines()[0]
+	}
 	if err != nil || restored.ID != machine || restored.Archived || reopened.state.Profiles[machine].Peer.Token != proof.Token {
 		t.Fatal("re-add did not restore original authenticated profile", restored, err)
 	}
@@ -180,11 +181,7 @@ func TestArchivedRevokedBotRestoresSameProofAndRetainedTasks(t *testing.T) {
 	p := reopened.state.Profiles[machine]
 	p.Peer.Token = ""
 	reopened.state.Profiles[machine] = p
-	code, err = target.peer.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Code: code.Code, Reconnect: true}); err == nil || err.Error() != "original_peer_proof_required" {
+	if _, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Reconnect: true}); err == nil || err.Error() != "original_peer_proof_required" {
 		t.Fatal("fresh code bypassed missing original proof", err)
 	}
 }

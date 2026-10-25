@@ -51,19 +51,19 @@ func TestActionRejectionDetailSurvivesReplayQueryAndLegacyArchive(t *testing.T) 
 	calls := 0
 	s.register(action{Path: "/api/test/rejected-detail", Function: func() error {
 		calls++
-		return &api.ActionRejectedError{Code: "pairing_code_invalid"}
+		return &api.ActionRejectedError{Code: "invalid_bot_address"}
 	}})
 	body := map[string]any{"id": "original-rejected-detail", "args": []any{}}
-	rejectedResponse(t, c.request("/api/test/rejected-detail", body), "pairing_code_invalid")
+	rejectedResponse(t, c.request("/api/test/rejected-detail", body), "invalid_bot_address")
 	original := s.operations["original-rejected-detail"]
 	if original.Digest == "" || original.Owner != sessionIDFor(c) {
 		t.Fatal("original Web intent lost identity")
 	}
 	check := func() {
 		t.Helper()
-		rejectedResponse(t, c.request("/api/test/rejected-detail", body), "pairing_code_invalid")
+		rejectedResponse(t, c.request("/api/test/rejected-detail", body), "invalid_bot_address")
 		query := operationResponse(t, s, c, "original-rejected-detail")
-		if query["state"] != "complete" || query["error"] != "operation_rejected" || query["detail"] != "pairing_code_invalid" || calls != 1 {
+		if query["state"] != "complete" || query["error"] != "operation_rejected" || query["detail"] != "invalid_bot_address" || calls != 1 {
 			t.Fatal("query lost refusal detail or replayed original action", query, calls)
 		}
 	}
@@ -105,7 +105,7 @@ func TestActionRejectionDetailsAreAllowlistedAndOrdinaryFailuresStayUnknown(t *t
 					return &api.ActionRejectedError{Code: "PRIVATE_UNALLOWLISTED_CODE"}
 				}
 				// Even a familiar message does not certify a business refusal.
-				return errors.New("pairing_code_invalid")
+				return errors.New("invalid_bot_address")
 			}})
 			body := map[string]any{"id": "original-private-refusal", "args": []any{}}
 			w := c.request("/api/test/private-refusal", body)

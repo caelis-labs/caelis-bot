@@ -49,7 +49,8 @@ func NewRetainedWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 }
 func (w *WorkOwner) Close(ctx context.Context) error { return w.engine.Close(ctx) }
 func (w *WorkOwner) Snapshot() api.Snapshot {
-	return api.Snapshot{Approvals: w.engine.Snapshot().Approvals}
+	v := w.engine.Snapshot()
+	return api.Snapshot{Connection: v.Connection, ConnectionIssue: v.ConnectionIssue, Approvals: v.Approvals}
 }
 func (w *WorkOwner) ApprovalURL(id string) (string, error)            { return w.engine.ApprovalURL(id) }
 func (w *WorkOwner) Decide(ctx context.Context, d api.Decision) error { return w.engine.Decide(ctx, d) }

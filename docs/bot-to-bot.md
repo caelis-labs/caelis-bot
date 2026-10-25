@@ -69,60 +69,40 @@ another's requests, history or files.
 
 ## Pairing, authorization and lifecycle
 
-1. On B, enable “Allow other Bots to use this work environment” and generate
-   pairing information. Generation checks local native readiness/admission. A code
-   lives for five minutes and is consumed once.
-2. On A, add a Bot with reachable address, code and optional display name. Pasting
-   copied connection information fills address/code. The network is external:
-   SSH forwarding and Tailscale are not managed or discovered by Bot.
-3. A checks actual native capabilities/readiness, persists its private credential
-   before sending the pairing write, and pins B's stable instance identity. A lost
-   response is reconciled with that original credential. Renaming is local and works offline. An address change checks the same pinned
-   peer with its original proof, without another code. Revoked access requires a
-   fresh B code plus the original proof; a new profile cannot take over retained work.
-4. B can revoke a source or disable sharing. Authorization is mandatory even on
-   loopback. Revocation terminates subsequent calls/SSE without approving pending
-   requests or cancelling native execution. A fresh code plus original credential
-   is required to explicitly restore a source with retained work.
+A adds B by reachable address/optional port and submits a short, durable connection
+request. B's local user allows or declines it from Connection requests, with source
+name/address/fingerprint. A returns immediately and checks the original request
+only manually or on reentering the page. Pending/unknown connections are never
+Worker environments. Each direction needs an independent approval and proof.
 
-B labels each grant with A's supplied machine name, a short source identity and
-pairing time, sorted by stable source ID. Display metadata never grants access.
-Failed preparation has not crossed the native start boundary and can be released;
-dispatched or uncertain work keeps its binding. A never discards its sole pairing
-proof when B has not confirmed removal.
+The existing machines profile owns the durable source/proof/intent. A reads and
+pins B's instance identity before any request write; B verifies that target. B's
+existing `peers.json` owns pending decisions and active grants, committed atomically.
+No task/execution ledger or authorization manager is added. Names, network addresses
+and loopback access do not confer trust. Credentials never enter renderer/Agent
+snapshots. Same-ID different content is refused, terminal IDs do not revive, and
+uncertain delivery is queried against the original target/proof rather than replayed
+as another intent. The inbox/identity retention is bounded; capacity affects only
+remote pairing, never local chat or Worker health.
 
-Peer endpoints are `/worker/v1/pair`, `/worker/v1/call` and
-`/worker/v1/events`. They do not accept browser cookie/loopback exemptions; a
-browser Origin is rejected, and redirects never forward the peer credential.
-Credentials stay in private host state, absent from renderer/Agent snapshots.
-Plain HTTP assumes the user's protected external transport; pairing alone does
-not provide transport encryption.
+There are no verification codes, sharing switch, account center, old helper/SSH
+execution environment, installation/tunnel management or experiment migration.
+`/worker/v1/identity` is a public, non-native identity declaration; `/pair` submits or
+reads a proof-bound request. `/call` and `/events` always require a granted source,
+including loopback/SSH. Browser Origins are rejected and redirects never receive
+credentials. Plain HTTP relies on protected external transport, not pairing for
+encryption. SSH forwarding/Tailscale remain outside Bot.
 
-The desktop App owns one loopback listener. It initially obtains an OS-assigned
-port, persists the successful address in `WorkerPeers/listener.json`, and reuses
-it on restart; a conflicting retained port fails visibly at sharing setup rather
-than silently moving an existing endpoint. Headless mounts the peer handler on
-its existing listener before browser middleware. Existing browser origin/CSRF,
-9317 policy, launcher, tunnel and fallback behavior are unchanged. B settings show the actual listener separately from the address A should use.
-The desktop listener can explicitly bind a reachable IP/interface; wildcard binds
-require a concrete published address. Headless keeps its existing HTTP listener: use
-its external `--listen` startup option to change that bind, then publish the address
-in settings. Bot does not create SSH forwards, Tailscale configuration or TLS. A
-checks the supplied entry against the paired identity and current Worker admission.
-Changing a desktop listener binds and saves the new endpoint before closing the old;
-a conflict preserves the old listener. Published addresses and successful ports persist.
+The desktop App owns a peer-only listener, default 9317 with OS port fallback on
+conflict. It persists the actual endpoint. A reachable headless listener is reused;
+a loopback-only browser surface is never widened. Connection details publish the
+actual peer address/port. Listener or registry failures degrade only the peer feature.
 
-Native owners detach through the existing owner lifecycle when the App closes.
-Codex retains its original native socket and ordinary reconnect refuses replacement
-if it disappears. “Prepare new work” is an explicit action on A's connection and
-the relevant connection recovery path. Pairing only inspects the configured Worker;
-it does not keep an empty foreign readiness owner. The native adapter checks
-the original private PID and birth identity; only a confirmed exited process permits
-archiving original bindings/receipts and preparing a new native owner. An alive or
-unverified process is not replaced. This never moves or resubmits old tasks. Shared
-daemon reconnect remains separate, with no new shared-profile process.
-Inbound execution bindings are not imported
-into B's resident runtime. This does not introduce another shared-profile daemon.
+Readiness inspects B's configured local Worker without an empty readiness owner.
+An omitted Caelis effort inherits that selected model's native default. Existing
+source/runtime bindings still resolve their original native owner. New work may
+prepare a replacement only after the adapter verifies the original private process
+has exited; existing task/decision receipts are never migrated or replayed.
 
 ## Recovery and interaction semantics
 
@@ -218,44 +198,15 @@ Confirmed invalidation and unknown prior effects remain separate; dead native
 continuations are not revived. Q22 isolated account/model input is still missing;
 dependent real-account acceptance stays blocked without a repeated question.
 
-Settings opens a compact remote-machine list, with Bot and SSH connections in
-one inventory, with the heading and Add action aligned. Add offers IP/Bot
-information (or address, optional port and six-digit dynamic code) and visible
-system SSH Host aliases. There is no local-sharing tab or switch: the same IP
-panel generates/copies a target's one-time connection information and contains
-source revocation in details. Only that explicit action prepares a peer-only
-listener; it never opens the browser/resident surface. A→B and B→A
-require independent handshakes and proofs; revoking one leaves the other intact.
-Network reachability never implies authorization or native Worker readiness.
-Only fresh, authorized, native-ready observations display online.
+Settings has a compact Bot-only list and Add machine. Connection requests are
+asynchronous; the target user approves the machine connection, not delegated task
+interactions. Approved/native-ready freshness is distinct from reachability.
+Removing a current connection with tasks hides it from new delegation while keeping
+those tasks' exact routes; it never stops execution. This is not support or migration
+for the retired code/helper experiment.
 
-New-task environments include local, Bot and existing SSH helper profiles.
-System SSH interprets Include, ProxyJump/ProxyCommand, identities and trust files;
-Bot's alias inventory is suggestions only. Newly added alias connections preserve
-system host verification; saved app-pinned profiles keep their original pins.
-The app-built legacy helper remains the SSH execution path, with its existing
-Linux target limitations and original task/history routes. It does not acquire
-Bot peer interaction parity by appearing in the same list. The previous
-same-protocol/different-`messages` failure still motivates actual owner capability
-checks. No task migration or takeover is added. Bot peer networking remains
-external: no discovery, scheduler, cluster, tunnel management, Notebook/database
-sync, A-owned B configuration or general file sync is implemented.
-
-## Connection maintenance
-
-Connection checks distinguish unreachable endpoints, expired/invalid codes, disabled
-sharing, revoked access, missing original proof, incompatible contracts and a Worker
-that needs setup on B. UI guidance names the target; raw native errors and credentials
-are not shown. Explicit checks and a bounded 30-second Bot-profile health check update
-freshness, including profiles with no tasks. New delegation requires fresh readiness;
-old task identity/capacity never follows that health cache.
-
-Removing a Bot connection with retained tasks archives it for new delegation, while
-keeping the sole original proof and task routes. It remains visible as retained-tasks
-only with Check / restore. Reauthorization on that original connection restores the
-same task owners; no internal JSON editing or new execution is needed. Removal,
-revocation and sharing-off never mean stop or approve. Connections without dispatched
-work are removed only after B confirms unpair; an uncertain response retains proof.
+No discovery, scheduler, cluster, tunnel management, Notebook/database sync,
+A-owned B configuration or general file sync is implemented.
 
 ## Selected uploads and retrieved output
 
@@ -308,19 +259,11 @@ operation; it never authorizes replacement work or an automatic upload replay.
 
 ## Pairing readiness and new work
 
-Generating a pairing code checks the configured local Worker and model within
-the caller's budget. It does not select a runtime/model or create a separate
-foreign readiness owner. Authenticated pairing and new-work preparation create
-or reconnect only that source's isolated execution owner. The native adapter may
-archive a confirmed exited private owner before preparing new work; ordinary
-reads never authorize replacement, and old tasks, native request IDs and unknown
-receipts stay bound to their original execution.
-
-Connection rows show the environment name and availability. Listener/published
-address and diagnostic freshness live in details. A saved unavailable connection
-has one relevant restore action; editing its address or pairing code uses the
-normal save/connect path. Restore never stops old work or approves a request.
-
+Submitting and listing requests opens no native owner. Local B approval checks
+only configured Worker readiness, outside the grant lock. Missing settings/auth,
+unavailable native services and model-catalog errors retain different safe reasons.
+An existing Worker binding does not depend on B's current resident/default settings.
+See [current connection flow](remote-machines-ui.md) for endpoint and error behavior.
 
 ## Worker file cache lifecycle
 
@@ -354,21 +297,18 @@ open; see the [current roadmap](bot-to-bot-review-roadmap.md).
 
 ## Final independent audit
 
-See [closure, regression and compatibility map](worker-peer-final-audit.md) for
-the whole-PR review. Newly created foreign Caelis bindings freeze a native
-operation scope so equal caller IDs on a shared Core principal cannot adopt the
-same session. Older experimental unscoped foreign bindings retain original
-receipts/results but cannot receive new writes or automatic start advancement;
-local and legacy-helper operation derivation stays unchanged. B's per-call
-transport file copies are ephemeral; existing storage inventory covers interrupted
-leftovers without touching native/A originals. Web pair-response loss reconciles
-the original proof and pairing intent; a later grant/configuration cannot certify
-or overwrite the original unknown. A missing grant remains unknown, never replayed.
-Web offers explicit fresh-code authorization using the same original profile,
-source and proof; its separate receipt can unlock future connection edits while
-the old unknown and pending reference remain intact. Unknown new authorization
-is reconciled under its own ID. Draft-era records without an original-code
-fingerprint are retained without a silent migration.
+See [current closure and regression map](worker-peer-final-audit.md). The current
+request flow pins the recipient before delivery, atomically commits the target's
+local decision/grant, retains original request evidence and keeps pending peers
+out of execution/admission. Body/queue/network budgets remain local to the peer
+feature. Archived current-protocol connections restore by reading their original
+intent, without replacing proof/owner or demanding another approval for an already
+approved source. Experimental code/SSH/helper state has no migration path.
+
+Native task/interaction/file/receipt authority is still in the shared adapters.
+Equal native IDs across sources cannot cross task, file, history or approval scope.
+Local operations remain independent of remote failures and a broken peer registry.
+The bounded URL scope and separate evidence levels remain unchanged.
 
 ## Local availability boundary
 

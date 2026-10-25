@@ -3,6 +3,8 @@ package websurface
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // nativeReceipt is host-captured evidence for a resident submission. Missing
@@ -47,9 +49,10 @@ func (s *Server) reconcileBotConnection(ctx context.Context, id, owner string) e
 	ref := *op.BotConnection
 	s.mu.Unlock()
 	machine, err := s.services.Backend.ReadBotConnectionReceipt(ctx, ref)
-	if err != nil {
+	var rejected *api.ActionRejectedError
+	if err != nil && !(errors.As(err, &rejected) && rejected.Code == "pairing_request_not_dispatched") {
 		return nil
-	} // uncertain remains uncertain
+	} // uncertainty remains uncertainty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.operations[id]
@@ -59,6 +62,11 @@ func (s *Server) reconcileBotConnection(ctx context.Context, id, owner string) e
 	next := current
 	next.Value, _ = json.Marshal(machine)
 	next.Error, next.Detail = "", ""
+	if rejected != nil {
+		next.Value = nil
+		next.Error = "operation_rejected"
+		next.Detail = safeRejectionDetail(rejected.Code)
+	}
 	s.operations[id] = next
 	if err = s.saveOperations(); err != nil {
 		s.operations[id] = current

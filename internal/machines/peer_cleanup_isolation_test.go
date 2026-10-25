@@ -72,7 +72,7 @@ done:
 func TestLatePeerCleanupPreservesDispatchedOrReplacedReservation(t *testing.T) {
 	for _, mode := range []string{"dispatch", "replacement", "unknown"} {
 		t.Run(mode, func(t *testing.T) {
-			s, e := Open(t.TempDir(), newDualNative("local", "codex"), nil)
+			s, e := Open(t.TempDir(), newDualNative("local", "codex"))
 			if e != nil {
 				t.Fatal(e)
 			}

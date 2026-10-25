@@ -43,7 +43,7 @@ func (s *Server) UpdateQuiescent() bool {
 	defer s.mu.Unlock()
 	for id, op := range s.operations {
 		op, err := s.reconcileOperation(id, op)
-		if err != nil || !operationTerminal(op) && !s.botAuthorizationAllowsRestartLocked(id, op) && !(op.Remote && op.BotConnection == nil && op.Native == nil && op.State == "complete") {
+		if err != nil || !operationTerminal(op) && !s.botConnectionAllowsRestartLocked(id, op) && !(op.Remote && op.BotConnection == nil && op.Native == nil && op.State == "complete") {
 			return false
 		}
 	}

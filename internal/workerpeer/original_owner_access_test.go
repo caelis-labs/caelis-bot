@@ -15,7 +15,6 @@ func auditServer(t *testing.T, o Owner) (*Server, context.Context) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.state.Enabled = true
 	s.state.Grants["source-a"] = grant{Peer: "source-a", Hash: tokenHash("proof")}
 	s.state.Bindings["source-a"] = map[string]string{"task-a": "codex"}
 	ctx := context.WithValue(t.Context(), authenticatedGrantKey{}, authenticatedGrant{Peer: "source-a", Hash: tokenHash("proof")})

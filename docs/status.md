@@ -6,7 +6,7 @@ This guide describes the current source tree. Package contents are fixed by each
 
 - One ongoing Bot conversation with streaming text, files, approvals and editable Markdown memory.
 - Included Caelis runtime or a separately installed Codex; independent conversation and new-work model choices.
-- Background tasks on the local machine or an explicitly selected SSH machine. Existing tasks keep their original owner.
+- Background tasks on the local machine or an explicitly approved Bot peer. Pending connections are excluded from delegation; tasks retain their original native owner.
 - Custom characters and avatars, manual capture and clipboard images, Telegram, and an experimental Weixin private-text channel.
 - Optional Computer Use through Desktop World. Plugin selection, runtime approval and OS consent are separate decisions.
 
@@ -16,7 +16,7 @@ This guide describes the current source tree. Package contents are fixed by each
 | --- | --- | --- |
 | macOS Apple Silicon | Developer ID signed and notarized DMG | Bot deployment target is macOS 12; bundled Computer Use requires macOS 14. Minimum-version clean-machine behavior is not established by compilation. |
 | Windows x64 | Unsigned Setup and portable ZIP; stable and preview channels | Windows 10 22H2 is the compatibility target; native GUI evidence is from Windows 11. See [remaining checks](windows-adaptation-issues.md). |
-| Linux | Remote/headless helpers, amd64 and arm64 | No Linux desktop application. |
+| Linux | Bot headless server, amd64 and arm64 | No Linux desktop application. |
 
 Intel Mac and Windows ARM64 packages are not published by the current workflows. Windows Server with an interactive desktop requires separate verification.
 

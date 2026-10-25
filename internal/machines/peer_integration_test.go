@@ -70,7 +70,11 @@ func newDualNative(source, runtime string) *dualPeerNative {
 }
 
 func (f *dualPeerNative) captureInputFilesLocked(kind, task, request string, files []api.InputFile) error {
-	if len(files)>0 {if err:=f.ValidateWorkFiles(context.Background(),task,files);err!=nil{return err}}
+	if len(files) > 0 {
+		if err := f.ValidateWorkFiles(context.Background(), task, files); err != nil {
+			return err
+		}
+	}
 	batch := dualPeerInputBatch{Kind: kind, RequestID: request, Files: []dualPeerInputFile{}}
 	for _, file := range files {
 		data, err := os.ReadFile(file.Path)
@@ -300,9 +304,6 @@ func newDualPeerTarget(t *testing.T) *dualPeerTarget {
 		t.Fatal(err)
 	}
 	f.peer = peer
-	if err = peer.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	f.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if f.offline.Load() {
 			http.Error(w, "isolated fixture disconnected", 503)
@@ -343,17 +344,21 @@ func dualPeerConnect(t *testing.T, target *dualPeerTarget) (*Service, *tasks.Man
 	t.Helper()
 	local := &dualPeerLocal{}
 	root := t.TempDir()
-	service, err := Open(filepath.Join(root, "machines"), local, nil)
+	service, err := Open(filepath.Join(root, "machines"), local)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairing, err := target.peer.Pairing(t.Context())
+	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{ID: "bot-fixture-target", Name: "Machine B", Address: target.http.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{ID: "bot-fixture-target", Name: "Machine B", Address: target.http.URL, Code: pairing.Code})
-	if err != nil {
+	request := target.peer.Status().Requests[0]
+	if err = target.peer.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: request.ID, Allow: true}); err != nil {
 		t.Fatal(err)
+	}
+	machine, err = service.InspectMachine(t.Context(), machine.ID, "")
+	if err != nil || machine.State != "ready" {
+		t.Fatal(machine, err)
 	}
 	ledger := filepath.Join(root, "tasks.json")
 	manager, err := tasks.Open(ledger, filepath.Join(root, "Tasks"), "codex", service, reviewReports{}, func() api.Snapshot { return api.Snapshot{} })
@@ -509,7 +514,7 @@ func TestBotPeerDualInstanceProductAuthorityAndFrozenOwner(t *testing.T) {
 		t.Fatal("disconnected remote worker fell back to local")
 	}
 	target.offline.Store(false)
-	reopened, err := Open(service.root, local, nil)
+	reopened, err := Open(service.root, local)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,15 +616,11 @@ func TestBotPeerPairResponseLossRecoversOriginalGrant(t *testing.T) {
 	}))
 	defer proxy.Close()
 	root := t.TempDir()
-	service, err := Open(root, &dualPeerLocal{}, nil)
+	service, err := Open(root, &dualPeerLocal{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairing, err := target.peer.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := api.BotConnectionInput{Name: "original target", Address: proxy.URL, Code: pairing.Code}
+	in := api.BotConnectionInput{Name: "original target", Address: proxy.URL}
 	if _, err = service.ConnectBot(t.Context(), in); err == nil {
 		t.Fatal("lost pair response became success")
 	}
@@ -635,11 +636,16 @@ func TestBotPeerPairResponseLossRecoversOriginalGrant(t *testing.T) {
 	}
 	// Simulate A restarting. The used code cannot be sent again; only an
 	// authenticated read of the already committed original grant is permitted.
-	reopened, err := Open(root, &dualPeerLocal{}, nil)
+	reopened, err := Open(root, &dualPeerLocal{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	in.Code = "already-consumed"
+	in.ID = id
+	in.Reconnect = true
+	request := target.peer.Status().Requests[0]
+	if err = target.peer.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: request.ID, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
 	connected, err := reopened.ConnectBot(t.Context(), in)
 	if err != nil {
 		t.Fatal("original grant was not reconciled", err)

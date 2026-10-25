@@ -265,20 +265,18 @@ display intent; do not repin failed tasks merely to keep a failure card visible.
 ## Work on a connected environment
 
 Use `bot_tasks` environments for the stable key, name and connection status.
-Settings lists both paired Bots and saved SSH helper connections.
-To pair Bots, direct the user to Add machine → IP / Bot on each machine. The
-target generates a six-digit one-time code; the initiator enters its address and
-optional port, or pastes the copied information. The reverse direction needs a
-separate code exchange. Use system SSH Host aliases through the SSH option.
-Their original adapters and capabilities remain authoritative; a shared list does not upgrade
-a legacy helper or authorize another machine. Never set up SSH, copy credentials
-or move an existing task just to repair a connection.
+Settings lists Bot peer connections. A user adds a reachable address/optional
+port and sends a request; the user on the target approves the machine connection.
+It is asynchronous: you must not wait/poll for human authorization. The requesting
+user checks manually or reopens Remote machines. Unapproved peers are absent from
+task environments. Each direction requires independent approval and credentials.
+There are no code, SSH/helper, installation or account-management paths. Network
+connectivity does not authorize execution. Do not configure SSH/Tailscale or copy
+credentials; users may prepare network transport outside Bot.
 Require a connected target and the user's direction before selecting a remote
 environment. The task retains its original environment and native Runtime.
 For a paired Bot, questions, approvals and results return to this Bot's existing
 user interaction path. Do not send the user to the target Bot to approve work.
-Retained legacy helper tasks keep their original client/reading path. Do not copy
-credentials or configure accounts on the user's behalf.
 An uncertain remote outcome remains on its original task; another environment
 is not a retry path.
 

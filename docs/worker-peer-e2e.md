@@ -1,123 +1,57 @@
-# Worker peer application E2E
-
-`make e2e-worker-peer` runs two production `serve` application processes, their
-real product HTTP endpoints, built React UI in a browser, actual stdio Bot MCP,
-`tasks.Manager`, machine routing, Codex adapter and private native-owner lifecycle.
-Only the native Codex wire peer is a deterministic test binary. No product API is
-mocked, no account is read and no model is called. This is application acceptance
-with a synthetic native Runtime, not live-account, native GUI or cross-machine
-acceptance. macOS/Linux test entry points do not claim Windows desktop support.
+# Worker peer application acceptance
 
 ## Run without downloads
 
-Use existing Go/Node dependencies, Playwright and an installed Chrome/Chromium.
-The command does not install packages, browsers, Core or release artifacts.
+Use the existing Node/Go caches, Chrome and an installed Playwright module:
 
 ```sh
-WORKER_PEER_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs \
-WORKER_PEER_CHROME=/path/to/installed/chrome \
+export WORKER_PEER_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs
 make e2e-worker-peer
+CAELIS_BOT_TEST_CODEX=/absolute/path/to/codex make e2e-worker-peer-real-url
 ```
 
-On macOS the default executable is the existing Google Chrome application. On
-Linux set `WORKER_PEER_CHROME` explicitly. Dependencies must already be cached;
-Go module network access is disabled. The fixture is built only with the opt-in
-`workerpeere2e` tag and cannot run without an explicit isolated root. It is not
-included in release builds. Existing configured synthetic Runtime/accepted
-introduction documents are seeded only in newly created private A/B directories;
-all mutations in the journey use real UI or the real native-to-Bot MCP bridge.
-A and B use separate browser contexts, representing different machines rather
-than sharing host cookies across two localhost ports. Ambient credential variables
-are removed from App children; Codex home and the inactive Caelis profile are
-isolated. The command does not alter any installed Bot or tunnel.
+The first command launches actual isolated A/B application entrypoints, authenticated
+HTTP, React and Bot MCP. Only the native Runtime protocol is controlled. The second
+uses the real installed Codex, an isolated Mock MCP and a controlled local model.
+Neither mocks the product API, uses user credentials, downloads a Runtime or incurs
+model charges. Each records source SHA/tree/dirty state, platform, steps, original
+operation IDs and effect counts. A dirty diagnostic is not fixed-head evidence.
+Processes/listeners/data belong only to the test; the daily App is never stopped.
 
-## Executable journey and assertions
+## Current journey
 
-- Enable sharing on B; Web A submits a wrong code, then corrects the same form and
-  pairs. The relay also drops an original pair before B sees it (zero grants).
-  A offers explicit fresh-code authorization, refuses reuse of the old code,
-  permits correction of a known bad new code, then reconciles a real B grant
-  whose response is lost. Refresh and rename keep the same connection/proof;
-  the original unknown receipt and browser pending ID remain unchanged.
-- Upload CSV/PDF through the actual browser file picker, select B through real
-  `bot_tasks environments`, and create via `bot_delegate`. Both A/B native layers
-  read the original bytes and verify names, lengths and SHA-256. Add a decodable
-  PNG while continuing the same original task and B native thread.
-- B emits an ordinary original request and an opaque native approval; A's React
-  controls answer them. The native request IDs, offered choice and original turn
-  remain authoritative. Native response and execution effect counts are one.
-  Opaque offers stay outside the Agent's filtered approval authority.
-- A's synthetic resident uses actual `bot_tasks observe/read/file`, then reads the
-  checked local bytes with its native file reader. A's UI previews and downloads
-  the output with its original name and bytes. B's product task list excludes the
-  foreign task. Stop B's App and verify the retrieved copy still opens on A.
-- A transparent test HTTP relay drops a create response only after B produced it.
-  A queries the original operation and digest through `bot_tasks reconcile`; B's
-  native original input count remains one. The relay never fabricates an API
-  success/rejection and does not forward browser or peer credentials into evidence.
-- Hold a real Worker upload after partial bytes reach B; click A's visible Stop.
-  Native interrupt cancels its real MCP child, the product IPC/HTTP call cancels,
-  the original task remains unknown, and B has no native input effect. Reconcile
-  the same original operation; a missing native binding is unavailable evidence,
-  not proof of rejection or permission to replay. No replacement ID/owner is used.
+1. A adds B by address/optional port and sends a request. B has no grant and A has
+   no delegatable environment until B's local user approves.
+2. A returns immediately. B approval does not continuously poll/wake A; A's manual
+   check reads the original request and makes the ready environment available.
+3. The reverse direction requires a separate request, decision and proof. Revoking
+   A→B leaves B→A working. Reauthorization requires a new local B decision.
+4. A uploads CSV/PDF/image input, selects B and creates/continues the original task.
+5. B's original question/approval appears in A React. A's decision returns to the
+   original native request/owner and B confirms continued execution once.
+6. A's Agent reads actual result bytes; UI preview and authenticated download keep
+   the original filename and content. Retrieved copies remain readable with B offline.
+7. Create response loss reconciles the original operation without replay. Upload-
+   period UI Stop cancels the original caller while uncertain remote effects remain
+   unknown; a local Worker still completes without remote fallback or global failure.
 
-Output lives in ignored `output/playwright/worker-peer-*/`: source SHA/tree,
-platform/build, steps, screenshots, sanitized original operation/effect counters
-and cleanup result. Failure snapshots contain synthetic data only. Each run uses
-new profiles and cleans its own App/browser processes and detached synthetic
-native children after verifying executable/PID/cwd. `WORKER_PEER_KEEP_PROFILE=1`
-is a debugging opt-in; remove those explicitly owned profiles after diagnosis.
+Protocol/race tests additionally cover invalid addresses, request/decision loss,
+fixed target identity, same-ID/different-content refusal, terminal IDs, expiry,
+source/proof isolation, bounded inbox/body reads, generation-fenced Stop, 17 approvals,
+completed-question history, failed SSE fallback and original-owner persistence.
 
-## Defects exposed by the application journey
+## Native URL and evidence levels
 
-Remote approval content hashes cannot serve as numeric renderer revisions: their
-values can decrease and exceed JavaScript's exact integer range. The machine
-cache now maintains a sorted-view, monotonic approval projection revision, like
-the existing local retained-approval view. This does not add approval authority.
+The real-Codex command uses a temporary Mock MCP to trigger native URL elicitation,
+then drives actual A/B/React. It asserts original task/thread/turn/request identity,
+web side effect, native confirmation and exactly-once effects for six success/failure
+scenarios. This is not third-party OAuth or real-account evidence.
 
-An intentional Stop can recycle an App-owned native server for scoped tool
-cleanup. It must not reconnect to the now-dead retained endpoint. Only after the
-original terminal fact, owned cleanup, and OS process-birth proof of exit does it
-reuse the existing owner archive/new-resident recovery. Old receipts/tasks stay
-archived on their original owner; B's remote bindings are not migrated. Alive or
-unknown process evidence cannot start a replacement. Real private-child tests
-cover failure before this repair and recovery after it.
+The first version supports the [bounded URL contract](worker-peer-url-contract.md):
+normal publicly reachable browser paths and the verified original-request static
+HTTP form portal. B-only JS/GET/multistep/redirect/callback/browser-state cases remain
+deferred. No automatic tunnel, arbitrary proxy or credential migration is added.
 
-## Additional URL journey and remaining gates
-
-`make e2e-worker-peer-real-url` now runs actual A/B/React with **real installed
-Codex**, an isolated ordinary Mock MCP and controlled local Responses model.
-It does not replace Codex with the native fixture. The clean `de4b791c` six-case
-journey verifies B-loopback static form completion through A, original native
-consent/continuation, at-most-once effects, decline, expiry, lost peer/provider
-responses and verified native-owner exit. See [contract and first-release
-scope](worker-peer-url-contract.md) and [repeatable entry](worker-peer-url-forms.md).
-The old synthetic URL negative-control probe is historical; `--url-contract`
-forwards to the real-Runtime entry.
-
-The first release retains public reachable normal-browser HTTP(S), including
-scripts/OAuth with reachable callbacks, plus the bounded static form portal.
-B-only localhost multistep/GET/JS/redirect/different-form-action pages, public login
-callbacks to B-loopback and B-only certificates/browser state are explicitly
-deferred limitations. They are not repaired by safe refusal and do not justify
-an arbitrary URL proxy, external-forward opener or B-side user approval.
-
-Physical macOS headless A → Fedora headless B (real Codex/controlled model/MCP)
-and a separate native macOS GUI → Core v0.73.2 controlled-model journey exist at
-`8f203370`. They do not establish later-head, real-account, remote-Worker GUI or
-full lifecycle/upgrade acceptance. Remaining interaction/loss/restart/revoke/
-two-source/local-helper checks must retain their actual evidence layers.
-Q22 isolated account/model input is still missing; dependent real-account steps
-remain unperformed without another question and are nonblocking follow-up under
-the latest review scope. Final-head checks, affected application
-journeys and whole-PR independent audit are required; no merge or release is
-authorized by a successful test command.
-
-The controlled resident retains the original `bot_delegate` task/operation when
-admission returns `unconfirmed`. It queries only `bot_tasks reconcile` for that
-original receipt, continues only after native `accepted`, and leaves unknown,
-refusal or cancellation unconfirmed. It never retries delegation. Optional
-`WORKER_PEER_FIRST_ADMISSION_LOSS=1` loses the first start response as well as the
-later loss case; assertions correlate each fault with its own task/request ID and
-one native input. Failed runs retain sanitized task receipts/effect counts, not
-MCP credentials, before their owned processes and data are removed.
+Real physical machines, account models and native GUI business journeys are labeled
+separately and are not current merge blockers. Native preview screenshots prove only
+shared React/WKWebView presentation with synthetic settings data.

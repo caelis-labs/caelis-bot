@@ -57,9 +57,6 @@ func TestRemoteInflightStopReachesOriginalNativeWithoutWriteLocks(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = peer.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	target := &dualPeerTarget{peer: peer, http: httptest.NewServer(peer)}
 	defer target.http.Close()
 	service, manager, _, machine, _ := dualPeerConnect(t, target)

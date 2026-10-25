@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -34,21 +35,43 @@ func TestPairingInspectsExistingWorkerWithoutForeignReadinessOwner(t *testing.T)
 		t.Fatal(err)
 	}
 	s.ConfigureReadiness(pool.workerReadiness)
-	if err = s.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	for range 2 {
-		v, err := s.Pairing(t.Context())
-		if err != nil || v.Code == "" {
-			t.Fatal("existing local configuration not ready", err)
+		if err = s.PairingReadiness(t.Context()); err != nil {
+			t.Fatal(err)
 		}
 	}
-	after, err := os.ReadFile(pool.path)
-	if err != nil || string(original) != string(after) || calls != 0 || len(pool.owners) != 0 || resident.starts != 0 || resident.connections != 0 || pool.defaultRuntime != "conversation" {
-		t.Fatal("pairing mutated settings/allocated execution", calls, err)
+	after, _ := os.ReadFile(pool.path)
+	if calls != 0 || string(after) != string(original) {
+		t.Fatal("readiness created owner or changed config")
 	}
-	if _, err = os.Stat(filepath.Join(root, "peers", "readiness")); !os.IsNotExist(err) {
-		t.Fatal("long-lived readiness owner path created", err)
+}
+
+type catalogReadFailure struct{ *workerFixture }
+
+func (f *catalogReadFailure) Models(context.Context) ([]api.ModelOption, error) {
+	var v any
+	err := json.Unmarshal([]byte("native invalid json"), &v)
+	return nil, err
+}
+func TestNativeCatalogJSONFailureIsNotMissingLocalConfiguration(t *testing.T) {
+	root := t.TempDir()
+	base := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	pool := workPool(root, "codex", map[string]*workerFixture{"codex": base})
+	pool.resident = &catalogReadFailure{base}
+	if code := api.WorkerReadinessCode(pool.workerReadiness(t.Context())); code != "worker_model_catalog_unavailable" {
+		t.Fatal("native protocol failure was blamed on local settings", code)
+	}
+	pool.resident = base
+	path := filepath.Join(root, "work-execution.json")
+	if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code := api.WorkerReadinessCode(pool.workerReadiness(t.Context())); code != "worker_configuration_invalid" {
+		t.Fatal("local malformed settings not classified at their source", code)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != "{" {
+		t.Fatal("readiness repaired user settings", err)
 	}
 }
 func TestPairingReadinessHonorsBoundedWaitAndDoesNotRepairInvalidConfiguration(t *testing.T) {

@@ -1,18 +1,13 @@
 // Mirrors the explicit server allowlist; never sends a receiver/method name.
 export const webRoutes:Record<string,{path:string;read:boolean}> = {
+ "backend.DecideWorkerPairing":{"path":"/api/v1/machines/decide-worker-pairing","read":false},
  "backend.WorkerTasks":{"path":"/api/v1/tasks/worker-list","read":true},
  "backend.WorkerTaskConversation":{"path":"/api/v1/tasks/worker-conversation","read":true},
  "backend.WorkerTaskObservation":{"path":"/api/v1/tasks/worker-observation","read":true},
  "backend.WorkerFileCopy":{"path":"/api/v1/files/worker-copy","read":true},
- "backend.AuthorizeBotConnection":{"path":"/api/v1/machines/authorize-bot","read":false},
  "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
  "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
- "backend.RecoverWorkerSharing":{"path":"/api/v1/machines/recover-worker-sharing","read":false},
- "backend.SaveWorkerSharing":{"path":"/api/v1/machines/save-worker-sharing","read":false},
  "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
- "backend.SetWorkerSharing":{"path":"/api/v1/machines/set-worker-sharing","read":false},
- "backend.CreateWorkerPairing":{"path":"/api/v1/machines/create-worker-pairing","read":false},
- "backend.BeginWorkerPairing":{"path":"/api/v1/machines/begin-worker-pairing","read":false},
  "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},
  "backend.ChangeRuntimeExperiments": {"path":"/api/v1/connections/experiments-save","read":false},
@@ -138,16 +133,8 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
   "path": "/api/v1/machines/machines",
   "read": true
  },
- "backend.SSHConfigHosts": {
-  "path": "/api/v1/machines/sshconfig-hosts",
-  "read": true
- },
  "backend.InspectMachine": {
   "path": "/api/v1/machines/inspect-machine",
-  "read": true
- },
- "backend.ReadMachineAdvanced": {
-  "path": "/api/v1/machines/read-machine-advanced",
   "read": true
  },
  "backend.InspectLocalWorker": {
@@ -264,18 +251,6 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  },
  "backend.CancelRuntimeConnection": {
   "path": "/api/v1/connections/cancel-runtime-connection",
-  "read": false
- },
- "backend.ConnectMachine": {
-  "path": "/api/v1/machines/connect-machine",
-  "read": false
- },
- "backend.SaveMachineModel": {
-  "path": "/api/v1/machines/save-machine-model",
-  "read": false
- },
- "backend.ChangeMachineTeam": {
-  "path": "/api/v1/machines/change-machine-team",
   "read": false
  },
  "backend.RemoveMachine": {

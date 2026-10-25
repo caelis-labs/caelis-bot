@@ -25,34 +25,13 @@ type rejectedConnectionFixture struct {
 
 func (f *rejectedConnectionFixture) ConnectBot(_ context.Context, in api.BotConnectionInput) (api.Machine, error) {
 	f.calls.Add(1)
-	if in.Code == "uncertain-fixture" {
+	if in.Name == "uncertain-fixture" {
 		return api.Machine{}, errors.New("private transport or decoded-response failure")
 	}
-	if in.Code != "correct-fixture" && in.Code != "lost-fixture" {
-		return api.Machine{}, &api.ActionRejectedError{Code: "pairing_code_invalid"}
+	if in.Name != "correct-fixture" && in.Name != "lost-fixture" {
+		return api.Machine{}, &api.ActionRejectedError{Code: "invalid_bot_address"}
 	}
 	return api.Machine{ID: "original-fixture-peer", Name: in.Name, Address: in.Address, State: "ready"}, nil
-}
-
-type rejectedEndpointFixture struct {
-	api.WorkerSharingController
-	calls     atomic.Int32
-	pairCalls atomic.Int32
-}
-
-func (f *rejectedEndpointFixture) BeginWorkerPairing(context.Context) (api.WorkerSharing, error) {
-	if f.pairCalls.Add(1) == 1 {
-		return api.WorkerSharing{}, &api.ActionRejectedError{Code: "worker_not_ready"}
-	}
-	return api.WorkerSharing{Enabled: true, Address: "http://127.0.0.1:29317", Code: "123456", ExpiresAt: 2_000_000_000}, nil
-}
-
-func (f *rejectedEndpointFixture) SetWorkerEndpoint(in api.WorkerSharingInput) (api.WorkerSharing, error) {
-	f.calls.Add(1)
-	if in.Listen == "invalid-fixture" {
-		return api.WorkerSharing{}, errors.New("worker_listener_invalid")
-	}
-	return api.WorkerSharing{Listen: in.Listen, Address: in.Address}, nil
 }
 
 func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *testing.T) {
@@ -63,9 +42,8 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 	h := httptest.NewUnstartedServer(nil)
 	origin := "http://" + h.Listener.Addr().String()
 	s := testServerConfig(t, func(c *Config) { c.Origins = []string{origin} })
-	connections, endpoint := &rejectedConnectionFixture{}, &rejectedEndpointFixture{}
+	connections := &rejectedConnectionFixture{}
 	s.services.Backend.ConfigureMachines(connections)
-	s.services.Backend.ConfigureWorkerSharing(endpoint)
 	var dropped atomic.Bool
 	h.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/machines/connect-bot" && !dropped.Load() {
@@ -77,7 +55,7 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 			if len(request.Args) == 1 {
 				_ = json.Unmarshal(request.Args[0], &input)
 			}
-			if input.Code == "lost-fixture" && dropped.CompareAndSwap(false, true) {
+			if input.Name == "lost-fixture" && dropped.CompareAndSwap(false, true) {
 				s.ServeHTTP(httptest.NewRecorder(), r)
 				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 					_ = conn.Close()
@@ -114,14 +92,14 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 		t.Fatalf("actual Web transport/handler chain failed: %v\n%s", err, output)
 	}
 	t.Log(strings.TrimSpace(string(output)))
-	if connections.calls.Load() != 4 || endpoint.calls.Load() != 2 || endpoint.pairCalls.Load() != 2 || !dropped.Load() {
-		t.Fatal("client replayed known/unknown actions or skipped fixture effects", connections.calls.Load(), endpoint.calls.Load())
+	if connections.calls.Load() != 4 || !dropped.Load() {
+		t.Fatal("client replayed known/unknown actions or skipped fixture effects", connections.calls.Load())
 	}
 	journal, err := os.ReadFile(filepath.Join(s.config.Directory, "operations.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, private := range []string{"wrong-fixture", "correct-fixture", "lost-fixture", "uncertain-fixture", "private transport"} {
+	for _, private := range []string{"private transport", `"args"`} {
 		if bytes.Contains(journal, []byte(private)) {
 			t.Fatal("operation journal retained pairing arguments or private owner error")
 		}
@@ -132,7 +110,7 @@ func TestWebTransportActualHandlerCorrectsKnownRefusalsAndKeepsUnknownProof(t *t
 	for _, op := range s.operations {
 		if op.Error == "operation_unconfirmed" {
 			unknown++
-			originalArgs := `[{"id":"","name":"Fixture B","address":"http://127.0.0.1:12345","code":"uncertain-fixture"}]`
+			originalArgs := `[{"id":"","name":"uncertain-fixture","address":"http://127.0.0.1:12345"}]`
 			if op.Digest != digest("/api/v1/machines/connect-bot"+originalArgs) || op.Owner == "" {
 				t.Fatal("uncertain operation lost original proof")
 			}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
@@ -15,25 +14,20 @@ import (
 )
 
 type operation struct {
-	Remote                bool                        `json:"remote,omitempty"` // host-owned remote effect routing, never success
-	ArchivedAuthorization bool                        `json:"archivedAuthorization,omitempty"`
-	AuthorizationBy       string                      `json:"authorizationBy,omitempty"`
-	AuthorizationParent   string                      `json:"authorizationParent,omitempty"`
-	BotAuthorization      bool                        `json:"botAuthorization,omitempty"`
-	BotConnection         *api.BotConnectionReference `json:"botConnection,omitempty"`
-	Digest                string                      `json:"digest"`
-	Owner                 string                      `json:"owner"`
-	State                 string                      `json:"state"`
-	Value                 json.RawMessage             `json:"value,omitempty"`
-	Error                 string                      `json:"error,omitempty"`
-	Detail                string                      `json:"detail,omitempty"`
-	At                    int64                       `json:"at"`
-	Native                *nativeReceipt              `json:"native,omitempty"`
+	Remote        bool                        `json:"remote,omitempty"` // host-owned remote effect routing, never success
+	BotConnection *api.BotConnectionReference `json:"botConnection,omitempty"`
+	Digest        string                      `json:"digest"`
+	Owner         string                      `json:"owner"`
+	State         string                      `json:"state"`
+	Value         json.RawMessage             `json:"value,omitempty"`
+	Error         string                      `json:"error,omitempty"`
+	Detail        string                      `json:"detail,omitempty"`
+	At            int64                       `json:"at"`
+	Native        *nativeReceipt              `json:"native,omitempty"`
 }
 type actionRequest struct {
-	AfterAuthorization string            `json:"afterAuthorization,omitempty"`
-	ID                 string            `json:"id"`
-	Args               []json.RawMessage `json:"args"`
+	ID   string            `json:"id"`
+	Args []json.RawMessage `json:"args"`
 }
 type action struct {
 	Path                  string
@@ -131,12 +125,19 @@ func (s *Server) register(a action) {
 						code = e.Error()
 					}
 				}
-				if a.Path == "/api/v1/machines/begin-worker-pairing" {
-					code = "worker_not_ready"
-					if strings.HasPrefix(e.Error(), "worker_listener_") {
-						code = "worker_listener_unavailable"
+				if a.Path == "/api/v1/machines/decide-worker-pairing" {
+					code = "worker_pairing_unavailable"
+					if reason := api.WorkerReadinessCode(e); reason != "" {
+						code = reason
+					}
+					if errors.As(e, &rejected) {
+						switch rejected.Code {
+						case "pairing_request_closed", "pairing_request_changed", "pairing_request_unknown":
+							code = rejected.Code
+						}
 					}
 				}
+
 				fail(w, 503, code)
 				return
 			}
@@ -149,9 +150,6 @@ func (s *Server) register(a action) {
 		}
 		body, _ := json.Marshal(in.Args)
 		fingerprint := digest(a.Path + string(body))
-		if in.AfterAuthorization != "" {
-			fingerprint = digest(a.Path + "\n" + in.AfterAuthorization + "\n" + string(body))
-		}
 		owner := sessionID(r)
 		remote := a.Remote
 		if a.Path == "/api/v1/conversation/decide" && len(in.Args) == 1 {
@@ -195,10 +193,10 @@ func (s *Server) register(a action) {
 			fail(w, 503, "operation_capacity")
 			return
 		}
-		var authorization *botAuthorizationCall
+		var authorization *botConnectionCall
 		var authorizationErr error
-		if a.Path == botAuthorizationPath || a.Path == botConnectionPath || in.AfterAuthorization != "" {
-			authorization, authorizationErr = s.prepareBotAuthorizationLocked(a.Path, in, owner)
+		if a.Path == botConnectionPath {
+			authorization, authorizationErr = s.prepareBotConnectionLocked(in)
 		}
 		if authorizationErr != nil {
 			var refusal *api.ActionRejectedError
@@ -222,29 +220,12 @@ func (s *Server) register(a action) {
 		s.operations[in.ID] = operation{Digest: fingerprint, Owner: owner, Remote: remote, State: "pending", At: time.Now().Unix()}
 		if authorization != nil {
 			record := s.operations[in.ID]
-			record.BotAuthorization = a.Path == botAuthorizationPath
 			ref := authorization.reference
 			record.BotConnection = &ref
 			s.operations[in.ID] = record
 		}
-		var parentBefore operation
-		if a.Path == botAuthorizationPath && authorization != nil && authorization.parent != "" {
-			record := s.operations[in.ID]
-			record.AuthorizationParent = authorization.parent
-			record.BotAuthorization = true
-			originalRef := authorization.reference
-			record.BotConnection = &originalRef
-			s.operations[in.ID] = record
-			parentBefore = s.operations[authorization.parent]
-			parent := parentBefore
-			parent.AuthorizationBy = in.ID
-			s.operations[authorization.parent] = parent
-		}
 		if e := s.saveOperations(); e != nil {
 			delete(s.operations, in.ID)
-			if authorization != nil && a.Path == botAuthorizationPath && authorization.parent != "" {
-				s.operations[authorization.parent] = parentBefore
-			}
 			s.mu.Unlock()
 			if authorization != nil {
 				_ = backend.AbortPreparedBotConnection(s.services.Backend, authorization.reference)
@@ -266,7 +247,7 @@ func (s *Server) register(a action) {
 			before = engine.Snapshot()
 		}
 		if authorization != nil {
-			ctx = context.WithValue(ctx, botAuthorizationCallKey{}, authorization)
+			ctx = context.WithValue(ctx, botConnectionCallKey{}, authorization)
 		}
 		value, e := invoke(api.WithSetupAccess(ctx, "web:"+owner), in.Args)
 		var native *nativeReceipt
@@ -338,7 +319,7 @@ func (s *Server) register(a action) {
 // Error text and remote response bodies are never a source of Web diagnostics.
 func safeRejectionDetail(code string) string {
 	switch code {
-	case "pairing_code_invalid", "pairing_code_expired", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_sharing_disabled", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "worker_listener_invalid", "worker_reachable_address_required", "worker_listener_managed_headless", "invalid_bot_name", "machine_connection_type_conflict", "new_pairing_code_required", "original_pairing_code_unavailable", "original_bot_authorization_changed", "invalid_name", "machine_has_tasks", "target_environment", "unsupported_platform":
+	case "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "invalid_bot_name", "invalid_name", "machine_has_tasks", "pairing_request_not_dispatched", "bot_peer_unreachable", "pairing_request_conflict", "pairing_request_pending", "pairing_requests_full", "invalid_pairing_request", "invalid_peer_name", "bot_connection_changed", "bot_connection_target_unconfirmed":
 		return code
 	}
 	return ""

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -14,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 )
@@ -100,26 +98,6 @@ func (a *Application) replacePeerListenerLocked(c peerListenerConfig) error {
 	}
 	return nil
 }
-func (a *Application) SetWorkerEndpoint(in api.WorkerSharingInput) (api.WorkerSharing, error) {
-	c, err := validatePeerListener(peerListenerConfig{Listen: in.Listen, Address: in.Address})
-	if err != nil {
-		return a.WorkerSharing(), err
-	}
-	enabled := a.peer.server.Status().Enabled
-	a.peer.mu.Lock()
-	if a.peer.mounted && a.peer.http == nil && c.Listen != a.peer.listen {
-		err = errors.New("worker_listener_managed_headless")
-	} else if !a.peer.mounted && (a.peer.http != nil || enabled) && c.Listen != a.peer.listen {
-		err = a.replacePeerListenerLocked(c)
-	} else {
-		err = localstate.Write(filepath.Join(a.root, "WorkerPeers", "listener.json"), c)
-		if err == nil {
-			a.peer.configuration, a.peer.configurationErr = c, nil
-		}
-	}
-	a.peer.mu.Unlock()
-	return a.WorkerSharing(), err
-}
 
 // Local interface enumeration is only publication, not discovery or trust.
 // All advertised addresses reach the same independently authenticated listener.
@@ -141,32 +119,4 @@ func peerNetworkAddresses(listen string) []string {
 	// No network interface: loopback still works with an externally prepared
 	// tunnel. The UI explicitly labels it; it is never claimed cross-machine.
 	return append(addresses, "http://127.0.0.1:"+port)
-}
-
-func (a *Application) BeginWorkerPairing(ctx context.Context) (api.WorkerSharing, error) {
-	if err := a.peer.server.PairingReadiness(ctx); err != nil {
-		return a.WorkerSharing(), &api.ActionRejectedError{Code: "worker_not_ready"}
-	}
-	// Reuse a configured reachable listener. A fresh desktop or loopback-only
-	// headless host gets a peer-only listener on an OS-selected port, published
-	// in the copied information. Never widen the resident/browser listener.
-	a.peer.mu.Lock()
-	host, _, _ := net.SplitHostPort(a.peer.listen)
-	ip := net.ParseIP(host)
-	needsListener := a.peer.listen == "" || ip != nil && ip.IsLoopback() || host == "localhost"
-	var err error
-	if needsListener {
-		err = a.replacePeerListenerLocked(peerListenerConfig{Listen: "0.0.0.0:9317", Dedicated: true})
-		if err != nil && err.Error() == "worker_listener_in_use" {
-			err = a.replacePeerListenerLocked(peerListenerConfig{Listen: "0.0.0.0:0", Dedicated: true})
-		}
-	}
-	a.peer.mu.Unlock()
-	if err != nil {
-		return a.WorkerSharing(), err
-	}
-	v, err := a.peer.server.BeginPairing(ctx)
-	out := a.WorkerSharing()
-	out.Code, out.ExpiresAt = v.Code, v.ExpiresAt
-	return out, err
 }

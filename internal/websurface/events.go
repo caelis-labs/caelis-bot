@@ -123,22 +123,8 @@ func (s *Server) operationStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := map[string]any{"state": v.State, "value": v.Value, "error": v.Error}
-	if botAuthorizationConfirmed(v) {
-		body["authorizationConfirmed"] = true
-	}
-	s.mu.Lock()
-	tailID, tail, valid := s.botAuthorizationTailLocked(r.PathValue("id"), sessionID(r))
-	s.mu.Unlock()
-	if valid {
-		if tailID == r.PathValue("id") && botAuthorizationConfirmed(tail) {
-			body["authorizationConfirmed"] = true
-		}
-		if botAuthorizationConfirmed(tail) {
-			body["followingAuthorization"] = tailID
-		}
-		if tail.State == "complete" && tail.Error == "operation_unconfirmed" {
-			body["recovery"] = botRecovery{OperationID: tailID, ProfileID: tail.BotConnection.ID, CanAuthorize: tail.BotConnection.CodeDigest != ""}
-		}
+	if v.BotConnection != nil && v.Error == "operation_unconfirmed" {
+		body["recovery"] = map[string]string{"operationId": r.PathValue("id"), "profileId": v.BotConnection.ID}
 	}
 	if detail := operationDetail(v); detail != "" {
 		body["detail"] = detail

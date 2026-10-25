@@ -117,8 +117,6 @@ type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
 type TerminalTarget struct {
-	// SSH arguments are assembled by the native connection owner, never the renderer.
-	SSH                                                     []string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string

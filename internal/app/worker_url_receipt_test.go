@@ -109,7 +109,7 @@ func TestForeignReceiptOwnerLoadIsIndependentOfResidentReadiness(t *testing.T) {
 	}
 	var factoryErr error
 	// Exercise the real authenticated handler/context, not a public caller flag.
-	data := map[string]any{"version": 1, "identity": "original-peer", "enabled": true, "grants": map[string]any{"original-source": map[string]any{"peer": "original-source", "hash": fmt.Sprintf("%x", sha256.Sum256([]byte("original-proof")))}}, "bindings": map[string]any{"original-source": map[string]string{"original-task": "codex"}}}
+	data := map[string]any{"version": 2, "identity": "original-peer", "grants": map[string]any{"original-source": map[string]any{"peer": "original-source", "hash": fmt.Sprintf("%x", sha256.Sum256([]byte("original-proof")))}}, "bindings": map[string]any{"original-source": map[string]string{"original-task": "codex"}}}
 	if err := localstate.Write(filepath.Join(root, "receipt-peer", "peers.json"), data); err != nil {
 		t.Fatal(err)
 	}

@@ -51,9 +51,6 @@ func r2ObservationTarget(t *testing.T, failEvents bool) (*dualPeerTarget, *r2Str
 		t.Fatal(err)
 	}
 	f.peer = s
-	if err = s.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	streams := new(r2StreamCounters)
 	f.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == workerpeer.Prefix+"events" {

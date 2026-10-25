@@ -11,7 +11,7 @@ import (
 func wireTestWorkers(t *testing.T, a *Application, pool *localWorkers) {
 	t.Helper()
 	a.localWork = pool
-	router, err := machines.Open(filepath.Join(a.root, "Machines"), pool, nil)
+	router, err := machines.Open(filepath.Join(a.root, "Machines"), pool)
 	if err != nil {
 		t.Fatal(err)
 	}

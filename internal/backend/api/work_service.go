@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-// WorkerContract is independent of the legacy SSH helper protocol and the
+// WorkerContract is independent of the browser surface and the
 // renderer contract. Missing capabilities fail closed; they never select a new
 // execution owner or fall back to the local machine.
 const WorkerContract = 1

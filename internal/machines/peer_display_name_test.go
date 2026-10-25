@@ -8,15 +8,11 @@ import (
 
 func TestPeerAutomaticDisplayNameDoesNotChangeOriginalPairIntent(t *testing.T) {
 	target := newDualPeerTarget(t)
-	s, e := Open(t.TempDir(), &dualPeerLocal{}, nil)
+	s, e := Open(t.TempDir(), &dualPeerLocal{})
 	if e != nil {
 		t.Fatal(e)
 	}
-	code, e := target.peer.Pairing(t.Context())
-	if e != nil {
-		t.Fatal(e)
-	}
-	input := api.BotConnectionInput{Address: target.http.URL, Code: code.Code}
+	input := api.BotConnectionInput{Address: target.http.URL}
 	ref, e := s.PrepareBotConnection(input, nil)
 	if e != nil {
 		t.Fatal(e)
@@ -40,7 +36,6 @@ func TestPeerAutomaticDisplayNameDoesNotChangeOriginalPairIntent(t *testing.T) {
 	}
 	// An explicit name is still user's display choice, not another peer identity.
 	input.ID = ref.ID
-	input.Code = ""
 	input.Name = "My worker"
 	if _, e = s.ConnectBot(t.Context(), input); e != nil {
 		t.Fatal(e)

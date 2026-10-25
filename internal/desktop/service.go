@@ -44,7 +44,6 @@ type Service struct {
 	telegram               *telegram.Bridge
 	weixin                 *weixin.Bridge
 	openExternalURL        func(string) error
-	openMachineTerminal    func(string) error
 	capture                captureState
 	permissionGuide        permissionGuide
 	featureGuide           permissionGuide
@@ -123,7 +122,6 @@ type Service struct {
 	installNativeUpdate    func() error
 	loginAtLogin           loginAtLoginController
 	loginAtLoginMu         sync.Mutex
-	pickSSHKey             func() (string, error)
 	pickRuntimeCLI         func() (string, error)
 	copyText               func(string) bool
 	storage                func() (api.AttachmentStorage, error)
@@ -146,12 +144,6 @@ func (s *Service) CopyText(text string) error {
 	return nil
 }
 
-func (s *Service) PickSSHKey() (string, error) {
-	if s.pickSSHKey == nil {
-		return "", errors.New("file picker unavailable")
-	}
-	return s.pickSSHKey()
-}
 func (s *Service) PickRuntimeCLI() (string, error) {
 	if s.pickRuntimeCLI == nil {
 		return "", errors.New("文件选择暂不可用")
@@ -514,15 +506,6 @@ func (s *Service) Gesture(action string) error {
 	return errors.New("角色动作暂不可用")
 }
 
-func (s *Service) OpenMachineTerminal(id string) error {
-	if s.openMachineTerminal == nil {
-		return errors.New("terminal unavailable")
-	}
-	return s.openMachineTerminal(id)
-}
-
-// OpenTaskTerminal follows the same owned-card path as clicking the pet's task
-// card. The renderer supplies only an ID; the native service verifies ownership.
 func (s *Service) OpenTaskTerminal(id string) error {
 	return s.openTask(context.Background(), id)
 }

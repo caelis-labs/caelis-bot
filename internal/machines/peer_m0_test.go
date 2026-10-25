@@ -56,11 +56,7 @@ func TestPeerFailedPreparationDoesNotStrandPairingProof(t *testing.T) {
 	if len(target.peer.Status().Sources) != 0 {
 		t.Fatal("A discarded token before B released undispatched preparation")
 	}
-	code, err := target.peer.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "restored", Address: target.http.URL, Code: code.Code}); err != nil {
+	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "restored", Address: target.http.URL}); err != nil {
 		t.Fatal("normal re-pair cannot recover", err)
 	}
 }
@@ -106,11 +102,7 @@ func TestPeerStreamsFollowRepairedAddressAndFenceOldErrors(t *testing.T) {
 	waitPeerTest(t, func() bool { return oldRequests.Load() > 0 })
 	next := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { newRequests.Add(1); target.peer.ServeHTTP(w, r) }))
 	t.Cleanup(next.Close)
-	code, err := target.peer.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Name: "same B", Address: next.URL, Code: code.Code}); err != nil {
+	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Name: "same B", Address: next.URL}); err != nil {
 		t.Fatal(err)
 	}
 	waitPeerTest(t, func() bool { return newRequests.Load() > 1 })

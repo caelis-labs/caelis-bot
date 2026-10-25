@@ -1,97 +1,55 @@
 # Remote machines
 
-Settings opens one compact machine list: name, Bot/SSH address, current status and
-row actions. Empty state has one sentence and Add. Authorization/native setup and
-stale observations are distinct from online; bounded background checks never hold
-the shared routing lock across SSH/network calls.
+The default page is a compact list of name, address and actual status, with one
+Add machine button. It has no account/server dashboard, tabs, local-sharing switch,
+verification-code generation or SSH configuration. The old helper execution path
+and its installer, credential handling and UI are removed.
 
-Add has two methods:
+Add asks for an IP/address, optional port and optional local name. Sending returns
+as soon as B stores the request; it never holds the UI waiting for approval. Pending
+and unknown connections stay in this list but are excluded from task environments
+and new-work admission. A reads the original request only on page entry or explicit
+Check. Reads have an eight-second bound and page-entry checks have at most three
+concurrent requests; leaving cancels the unstarted queue.
 
-- **IP / Bot**: paste connection information, or enter address + optional port
-  (bare hosts default to 9317) + the target's six-digit one-time code. The
-  authenticated target's machine name is presentation metadata only;
-  an explicit local rename wins. It never changes the original pairing intent,
-  identity, proof or task owner.
-- **SSH**: enter a system Host alias. Literal alias discovery is suggestions;
-  OpenSSH interprets Include, Match, ProxyJump/ProxyCommand, identity/trust files.
-  New alias connections use system trust with strict host verification. Existing
-  app-pinned profiles keep their pins and bindings. Direct address setup remains
-  in the top method selector. Host aliases are visible selectable rows and remain
-  editable, including aliases absent from the suggestion inventory. The existing Linux helper path and its original
-  capabilities remain unchanged; the shared list does not upgrade the helper.
+B's Connection requests entry shows the self-reported source name, observed source
+address and proof-bound fingerprint. Only B's authenticated local settings user may
+allow/decline. Names and loopback/SSH source addresses never prove authorization.
+Grant plus original request decision are saved atomically in the existing peer
+registry. The reverse direction needs its own approval/proof. Source revocation is
+in a small collapsed list, and never means stop or approval of a task request.
 
-There is no local-sharing tab or global switch. On the target, open the same
-**Add machine → IP / Bot** panel and generate/copy its connection information.
-Generating a code prepares only the independently authenticated Worker listener;
-it never widens the browser/resident listener or grants execution. For a fresh
-loopback-only host this explicit action binds a peer-only listener on 9317,
-falling back to an OS-selected port only on address-in-use. The actual endpoint
-is persisted and included in the copied information. Local network-interface
-addresses can be selected; this is publication, not peer discovery or trust.
-Loopback remains an explicit option for externally prepared forwarding.
+The inbox is bounded (16 pending, 128 retained request identities); a repeated ID
+cannot extend expiry, change content or revive a terminal request. Requests expire
+after five minutes without granting access. Reaching capacity refuses only new
+remote requests; it neither drops old identities nor affects local work.
 
-The code uses cryptographic randomness, expires after five minutes, is consumed
-once and is invalidated after five wrong guesses. Generating a new code replaces
-the unused code. It does not clear an uncertain remote pairing, change its proof,
-or replay it. The Web action uses the existing authenticated/CSRF-protected Local
-boundary for this replaceable local code, separate from remote pairing receipts.
-A not-ready Worker can be corrected and retried without a permanent Web pending
-operation. Previously disabled grants remain revoked until explicitly reauthorized
-with their original proof; generating a code does not revive them.
+A persists its source/proof/intent before delivery and pins B's public instance
+identity before the first request write. B rejects a different target identity.
+Reads of uncertain delivery use the exact original request, proof and target,
+never a later grant or different machine. A proven pre-delivery failure is a safe
+refusal; post-delivery loss remains uncertain. No old code/SSH compatibility graph
+or migration layer is carried into this first release.
 
-Named-source revocation is in the IP panel's authorization details. Tailscale only
-supplies the network. A→B and B→A need separate handshakes/proofs; revocation is directional
-and is not Stop. Existing unknown pairing recovery remains on its original
-operation and profile, with explicit fresh authorization when required.
+The App owns an independently authenticated peer listener (9317, OS-selected port
+on bind conflict). A reachable existing headless listener is reused; a loopback-only
+browser listener remains unchanged, with a separate peer-only listener. Actual
+address/port appears in the collapsed connection details. No unauthenticated Worker
+execution or widening of browser Host/Origin/CSRF trust is introduced.
 
-## Evidence
+Readiness errors distinguish missing/unavailable/incompatible Runtime, sign-in or
+model-service authorization, absent/unavailable model, unsupported effort/speed,
+unreadable local settings, changed settings and bounded timeout. Safe text names
+the settings path; raw paths/tokens/native exceptions are never rendered. Caelis'
+omitted conversation effort inherits the selected model's structured native default
+without changing user settings, explicit choices or retained task bindings.
 
-The screenshot is a real macOS WKWebView using the shared React settings and a
-clearly synthetic preview transport. It proves layout, not real SSH/account or
-Worker execution. Product acceptance uses separate actual A/B applications,
-authenticated HTTP and React, with a controlled native fixture. Its extended
-journey checks wrong-code correction, unknown original pairing recovery, two
-independent handshakes, one-way revocation/restoration and an existing SSH alias
-coexisting without being adopted by a mistyped Bot address. It then covers
-attachments, original questions/approvals, output/download, UI Stop and an
-offline copied result. Real Codex URL acceptance uses the existing isolated Mock
-MCP/controlled model path; no real third-party OAuth/account claim is made.
+The user's running Dev and its data are not fixtures. Candidates use separate
+output roots. Screenshots below are actual native WKWebView/React with synthetic
+settings transport; product execution evidence comes from separate real A/B apps.
 
-![Native remote-machine list with synthetic data](images/remote-machines-native.png)
+![Native compact list, synthetic data](images/remote-machines-native.png)
 
-![Native IP code exchange with synthetic data](images/remote-machine-pairing-native.png)
+![Native Add machine, synthetic data](images/remote-machine-add-native.png)
 
-![Native system SSH Host selection with synthetic data](images/remote-machine-ssh-native.png)
-
-Native OpenSSH tests use isolated -F/Include files to verify effective multi-hop
-ProxyJump and ProxyCommand configuration without connecting or reading/copying
-user keys. Fault tests hold SSH inspect/model/configuration/team/terminal calls
-while local and another peer Stop reach native control. Independent native-boundary
-negative/positive tests cover same-profile concurrent pin publication and restoring
-original pins/credentials after a certified unsupported-platform refusal. The native SSH command owns a separate local transport process group; cancellation
-stops its ordinary proxy children and bounds pipe draining. It never stops a
-remote Worker owner or unrelated local process. The existing 8 MiB response limit
-is enforced while reading, with bounded retained diagnostics. Network
-or helper-install uncertainty remains unknown; it is never converted to refusal
-or success. This batch does not change the bounded URL support contract.
-
-The active user Dev bundle/data directory is not a test fixture. A new candidate
-is built in a separate output root; updating/reopening the user's window requires
-coordination. No daily service, SSH configuration, account or existing task moves.
-
-## Task dock follow-up
-
-The default dock contains running/uncertain work and recent completed work.
-Confirmed `failed`/`rejected` results leave the default watchlist immediately,
-including creation rejection with no native binding and a failure observed before
-the product's next refresh. Polling and restart cannot reinsert them. History,
-failure results and original operation receipts remain queryable; hiding never
-stops work or claims completion. `unknown`/`unconfirmed` are not failures and do
-not age out on the failure path. Ordinary completed retention remains 30 minutes.
-
-The existing lock is explicit intent. New explicit Pin calls also retain their
-display intent separately from automatic creation pins. Existing locked records
-remain locked; legacy `pinned: true` alone cannot prove a manual request and does
-not keep a failed default card resident. Explicitly pinning a failed history item
-can restore it, with the existing retention/lock behavior. This is presentation
-metadata in the existing task manager, not another execution authority.
+![Native connection request, synthetic data](images/remote-machine-request-native.png)

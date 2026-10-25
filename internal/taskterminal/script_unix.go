@@ -47,18 +47,7 @@ func Script(t api.TerminalTarget) (string, error) {
 	default:
 		return "", errors.New("unsupported terminal runtime")
 	}
-	if len(t.SSH) > 0 {
-		for _, arg := range t.SSH {
-			if strings.ContainsRune(arg, 0) || strings.ContainsAny(arg, "\r\n") {
-				return "", errors.New("invalid SSH terminal target")
-			}
-		}
-		command := "exec /usr/bin/ssh"
-		for _, arg := range t.SSH {
-			command += " " + quote(arg)
-		}
-		script = "#!/bin/sh\nunset NO_COLOR\n" + command + " " + quote(strings.TrimPrefix(script, "#!/bin/sh\n")) + "\n"
-	}
+
 	return script, nil
 }
 func renderArguments(spec LaunchArguments) string {

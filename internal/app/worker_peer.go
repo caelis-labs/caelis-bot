@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,8 +79,11 @@ func (a *Application) configureWorkerPeer() error {
 	p := &peerHost{owners: map[string]workerpeer.Owner{}}
 	p.configuration, p.configurationErr = readPeerListener(filepath.Join(a.root, "WorkerPeers", "listener.json"))
 	a.peer = p
+	a.Backend.ConfigureWorkerInteractions(a.machines)
 	server, err := workerpeer.Open(filepath.Join(a.root, "WorkerPeers"), a.openForeignWorker)
 	if err != nil {
+		p.configurationErr = errors.New("worker_peer_state_unavailable")
+		a.Backend.ConfigureWorkerSharing(a)
 		return err
 	}
 	p.server = server
@@ -190,6 +193,10 @@ func (a *Application) WorkerPeerHandler(next http.Handler, address string) http.
 	a.peer.mu.Unlock()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, workerpeer.Prefix) {
+			if a.peer.server == nil {
+				http.Error(w, "worker_peer_state_unavailable", http.StatusServiceUnavailable)
+				return
+			}
 			a.peer.server.ServeHTTP(w, r)
 			return
 		}
@@ -197,22 +204,41 @@ func (a *Application) WorkerPeerHandler(next http.Handler, address string) http.
 	})
 }
 func (a *Application) startWorkerPeer() error {
-	if a.peer == nil || !a.peer.server.Status().Enabled {
+	if a.peer == nil {
 		return nil
+	}
+	if a.peer.server == nil {
+		return errors.New("worker_peer_state_unavailable")
 	}
 	a.peer.mu.Lock()
 	defer a.peer.mu.Unlock()
-	if a.peer.mounted && !a.peer.configuration.Dedicated || a.peer.http != nil {
+	if a.peer.http != nil {
 		return nil
 	}
+	if a.peer.mounted {
+		host, _, _ := net.SplitHostPort(a.peer.listen)
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return nil
+		}
+	}
+
 	if a.peer.configurationErr != nil {
 		return a.peer.configurationErr
 	}
-	return a.replacePeerListenerLocked(a.peer.configuration)
+	c := a.peer.configuration
+	if !c.Dedicated {
+		c = peerListenerConfig{Listen: "0.0.0.0:9317", Dedicated: true}
+	}
+	err := a.replacePeerListenerLocked(c)
+	if err != nil && err.Error() == "worker_listener_in_use" {
+		err = a.replacePeerListenerLocked(peerListenerConfig{Listen: "0.0.0.0:0", Dedicated: true})
+	}
+	return err
 }
 func (a *Application) WorkerSharing() api.WorkerSharing {
-	if a.peer == nil {
-		return api.WorkerSharing{}
+	if a.peer == nil || a.peer.server == nil {
+		return api.WorkerSharing{Issue: "worker_peer_state_unavailable", Requests: []api.WorkerPairingRequest{}, Sources: []api.WorkerPeerSource{}}
 	}
 	v := a.peer.server.Status()
 	a.peer.mu.Lock()
@@ -225,37 +251,31 @@ func (a *Application) WorkerSharing() api.WorkerSharing {
 		listen = a.peer.configuration.Listen
 	}
 	listening, managed := a.peer.http != nil || a.peer.mounted, a.peer.mounted && a.peer.http == nil
-	addresses := peerNetworkAddresses(listen)
 	a.peer.mu.Unlock()
-	if address != "" && !slices.Contains(addresses, address) {
-		addresses = append([]string{address}, addresses...)
+	issue := ""
+	if !listening {
+		issue = "worker_listener_unavailable"
 	}
-	return api.WorkerSharing{Enabled: v.Enabled, ExpiresAt: v.ExpiresAt, Address: address, Addresses: addresses, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources}
+	return api.WorkerSharing{Issue: issue, Address: address, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources, Requests: v.Requests}
 }
-func (a *Application) SetWorkerSharing(enabled bool) (api.WorkerSharing, error) {
-	if err := a.peer.server.Enable(enabled); err != nil {
-		return a.WorkerSharing(), err
+func (a *Application) DecideWorkerPairing(ctx context.Context, in api.WorkerPairingDecision) error {
+	if a.peer == nil || a.peer.server == nil {
+		return &api.ActionRejectedError{Code: "worker_peer_state_unavailable"}
 	}
-	if enabled {
-		if err := a.startWorkerPeer(); err != nil {
-			return a.WorkerSharing(), err
-		}
+	err := a.peer.server.DecidePairing(ctx, in)
+	if code := api.WorkerReadinessCode(err); err != nil && code != "" {
+		return &api.ActionRejectedError{Code: code}
 	}
-	return a.WorkerSharing(), nil
+	return err
 }
-func (a *Application) CreateWorkerPairing(ctx context.Context) (api.WorkerSharing, error) {
-	v, err := a.peer.server.Pairing(ctx)
-	out := a.WorkerSharing()
-	out.Code, out.ExpiresAt = v.Code, v.ExpiresAt
-	return out, err
-}
-func (a *Application) RevokeWorkerPeer(peer string) error { return a.peer.server.Revoke(peer) }
-func (a *Application) RecoverWorkerSharing(ctx context.Context) (api.WorkerSharing, error) {
-	err := a.peer.server.RecoverReadiness(ctx)
-	return a.WorkerSharing(), err
+func (a *Application) RevokeWorkerPeer(peer string) error {
+	if a.peer == nil || a.peer.server == nil {
+		return errors.New("worker_peer_state_unavailable")
+	}
+	return a.peer.server.Revoke(peer)
 }
 func (a *Application) closeWorkerPeer() error {
-	if a.peer == nil {
+	if a.peer == nil || a.peer.server == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

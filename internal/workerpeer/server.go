@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,46 +46,42 @@ func OriginalBindingOnly(ctx context.Context) bool {
 }
 
 type grant struct {
-	Peer     string `json:"peer"`
-	Hash     string `json:"hash"`
-	Revoked  bool   `json:"revoked,omitempty"`
-	Name     string `json:"name,omitempty"`
-	PairedAt int64  `json:"pairedAt,omitempty"`
+	Peer      string `json:"peer"`
+	Hash      string `json:"hash"`
+	Revoked   bool   `json:"revoked,omitempty"`
+	Name      string `json:"name,omitempty"`
+	PairedAt  int64  `json:"pairedAt,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
 }
 type registry struct {
+	Requests     map[string]pairingRequest    `json:"requests,omitempty"`
 	Version      int                          `json:"version"`
 	Identity     string                       `json:"identity"`
-	Enabled      bool                         `json:"enabled"`
 	Grants       map[string]grant             `json:"grants"`
 	Bindings     map[string]map[string]string `json:"bindings"`               // source/task -> frozen runtime
 	Preparations map[string]map[string]bool   `json:"preparations,omitempty"` // no native start attempted
 }
 type Server struct {
-	stageMu      sync.RWMutex
-	mu           sync.Mutex
-	root         string
-	state        registry
-	factory      Factory
-	ready        func(context.Context) error
-	owners       map[string]Owner
-	code         string
-	codeAttempts int
-	expires      time.Time
+	stageMu sync.RWMutex
+	mu      sync.Mutex
+	root    string
+	state   registry
+	factory Factory
+	ready   func(context.Context) error
+	owners  map[string]Owner
 }
 type Sharing struct {
-	Enabled   bool                   `json:"enabled"`
-	Address   string                 `json:"address"`
-	Peer      string                 `json:"peer"`
-	Code      string                 `json:"code,omitempty"`
-	ExpiresAt int64                  `json:"expiresAt,omitempty"`
-	Sources   []api.WorkerPeerSource `json:"sources"`
+	Address  string                     `json:"address"`
+	Peer     string                     `json:"peer"`
+	Sources  []api.WorkerPeerSource     `json:"sources"`
+	Requests []api.WorkerPairingRequest `json:"requests"`
 }
 
 func Open(root string, factory Factory) (*Server, error) {
-	s := &Server{root: root, factory: factory, owners: map[string]Owner{}, state: registry{Version: 1, Identity: rand.Text(), Grants: map[string]grant{}, Bindings: map[string]map[string]string{}}}
+	s := &Server{root: root, factory: factory, owners: map[string]Owner{}, state: registry{Version: 2, Identity: rand.Text(), Grants: map[string]grant{}, Bindings: map[string]map[string]string{}}}
 	b, err := os.ReadFile(filepath.Join(root, "peers.json"))
 	if err == nil {
-		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 1 || s.state.Identity == "" || s.state.Grants == nil || s.state.Bindings == nil {
+		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 2 || s.state.Identity == "" || s.state.Grants == nil || s.state.Bindings == nil {
 			return nil, errors.New("peer_registry_invalid")
 		}
 	} else if !os.IsNotExist(err) {
@@ -98,6 +93,9 @@ func Open(root string, factory Factory) (*Server, error) {
 	if s.state.Preparations == nil {
 		s.state.Preparations = map[string]map[string]bool{}
 	}
+	if s.state.Requests == nil {
+		s.state.Requests = map[string]pairingRequest{}
+	}
 	if err = s.save(); err != nil {
 		return nil, err
 	}
@@ -105,75 +103,35 @@ func Open(root string, factory Factory) (*Server, error) {
 }
 func (s *Server) save() error { return localstate.Write(filepath.Join(s.root, "peers.json"), s.state) }
 
-// ConfigureReadiness reuses the host's configured local Worker inspection. Code
-// generation never creates a separate, empty foreign execution owner.
+// ConfigureReadiness inspects the configured local Worker at approval. It
+// never creates a separate empty foreign execution owner.
 func (s *Server) ConfigureReadiness(check func(context.Context) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ready = check
 }
 
-func (s *Server) checkReadiness(ctx context.Context) error {
-	s.mu.Lock()
-	enabled, ready := s.state.Enabled, s.ready
-	s.mu.Unlock()
-	if !enabled {
-		return errors.New("worker_sharing_disabled")
-	}
-	if ready != nil {
-		return ready(ctx)
-	}
-	return ctx.Err()
-}
+func (s *Server) checkReadiness(ctx context.Context) error { return s.PairingReadiness(ctx) }
 
-// BeginPairing replaces the removed global sharing switch with an explicit code
-// exchange. Reopening a formerly disabled environment must not revive grants
-// that were suspended by that switch. Keep their proofs/bindings for recovery.
 func (s *Server) PairingReadiness(ctx context.Context) error {
 	s.mu.Lock()
 	ready := s.ready
 	s.mu.Unlock()
 	if ready != nil {
-		if err := ready(ctx); err != nil {
-			return err
-		}
+		return ready(ctx)
 	}
 	return ctx.Err()
-}
-func (s *Server) BeginPairing(ctx context.Context) (Sharing, error) {
-	if err := s.PairingReadiness(ctx); err != nil {
-		return Sharing{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.state.Enabled {
-		old := s.state.Grants
-		s.state.Grants = make(map[string]grant, len(old))
-		for id, g := range old {
-			g.Revoked = true
-			s.state.Grants[id] = g
-		}
-		s.state.Enabled = true
-		if err := s.save(); err != nil {
-			s.state.Enabled, s.state.Grants = false, old
-			return Sharing{}, err
-		}
-	}
-	code, err := pairingCode()
-	if err != nil {
-		return Sharing{}, err
-	}
-	s.code, s.codeAttempts = code, 0
-	s.expires = time.Now().Add(5 * time.Minute)
-	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
 }
 func (s *Server) Status() Sharing {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v := Sharing{Enabled: s.state.Enabled, Peer: s.state.Identity, Sources: []api.WorkerPeerSource{}}
-	if s.code != "" && time.Now().Before(s.expires) {
-		v.ExpiresAt = s.expires.Unix()
+	v := Sharing{Peer: s.state.Identity, Sources: []api.WorkerPeerSource{}}
+	for id, request := range s.state.Requests {
+		if request.Status == "pending" && time.Now().Unix() < request.ExpiresAt {
+			v.Requests = append(v.Requests, api.WorkerPairingRequest{ID: id, Name: request.Name, Fingerprint: requestFingerprint(request), Address: request.Address, ExpiresAt: request.ExpiresAt})
+		}
 	}
+	slices.SortFunc(v.Requests, func(a, b api.WorkerPairingRequest) int { return strings.Compare(a.ID, b.ID) })
 	for peer, g := range s.state.Grants {
 		if g.Hash != "" && !g.Revoked {
 			v.Sources = append(v.Sources, api.WorkerPeerSource{ID: peer, Name: g.Name, PairedAt: g.PairedAt})
@@ -181,43 +139,6 @@ func (s *Server) Status() Sharing {
 	}
 	slices.SortFunc(v.Sources, func(a, b api.WorkerPeerSource) int { return strings.Compare(a.ID, b.ID) })
 	return v
-}
-func (s *Server) Enable(enabled bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	old := s.state.Enabled
-	s.state.Enabled = enabled
-	s.code = ""
-	if err := s.save(); err != nil {
-		s.state.Enabled = old
-		return err
-	}
-	return nil
-}
-func (s *Server) Pairing(ctx context.Context) (Sharing, error) {
-	if err := s.checkReadiness(ctx); err != nil {
-		return Sharing{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.state.Enabled {
-		return Sharing{}, errors.New("worker_sharing_disabled")
-	}
-	code, err := pairingCode()
-	if err != nil {
-		return Sharing{}, err
-	}
-	s.code, s.codeAttempts = code, 0
-	s.expires = time.Now().Add(5 * time.Minute)
-	return Sharing{Enabled: true, Peer: s.state.Identity, Code: s.code, ExpiresAt: s.expires.Unix()}, nil
-}
-
-func pairingCode() (string, error) {
-	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 // Explicit recovery prepares new work only. The adapter alone can verify that
@@ -232,9 +153,7 @@ func recoverNewWork(ctx context.Context, owner Owner) error {
 	}
 	return owner.WorkAdmission(ctx)
 }
-func (s *Server) RecoverReadiness(ctx context.Context) error {
-	return s.checkReadiness(ctx)
-}
+
 func (s *Server) Revoke(peer string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -273,7 +192,7 @@ func (s *Server) owner(ctx context.Context, peer, id, runtime string, newBinding
 	defer s.mu.Unlock()
 	proof, ok := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
 	current, valid := s.state.Grants[peer]
-	if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer || !s.state.Enabled {
+	if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer {
 		return nil, nil, errors.New("peer_authorization_revoked")
 	}
 	routes := s.state.Bindings[peer]
@@ -337,12 +256,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "peer_browser_origin_denied", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path == Prefix+"identity" && r.Method == "GET" {
+		s.mu.Lock()
+		peer := s.state.Identity
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PairingReceipt{Contract: api.WorkerContract, Peer: peer, Name: machineDisplayName()})
+		return
+	}
 	if r.URL.Path == Prefix+"pair" {
-		s.pair(w, r)
+		s.pairingRequest(w, r)
 		return
 	}
 	s.mu.Lock()
-	enabled := s.state.Enabled
 	identity := s.state.Identity
 	peer := ""
 	revoked := false
@@ -360,10 +286,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if peer != "" && revoked {
 		http.Error(w, "peer_authorization_revoked", http.StatusForbidden)
-		return
-	}
-	if !enabled {
-		http.Error(w, "worker_sharing_disabled", http.StatusForbidden)
 		return
 	}
 	if peer == "" {
@@ -398,99 +320,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
-func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "method", 405)
-		return
-	}
-	var in PairRequest
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || !validID(in.Peer) || len(in.Token) < 40 || len(in.Token) > 128 || !validID(in.Token) {
-		http.Error(w, "invalid_peer", 400)
-		return
-	}
-	in.Name = strings.TrimSpace(in.Name)
-	if len(in.Name) > 80 || strings.ContainsFunc(in.Name, unicode.IsControl) {
-		http.Error(w, "invalid_peer_name", 400)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.state.Enabled {
-		http.Error(w, "worker_sharing_disabled", 403)
-		return
-	}
-	if s.code != "" && time.Now().After(s.expires) {
-		http.Error(w, "pairing_code_expired", 403)
-		return
-	}
-	if s.code == "" || tokenHash(in.Code) != tokenHash(s.code) {
-		// A six-digit code is short-lived, single-use and has a fixed guess
-		// budget. Exhaustion affects this exchange only, never local health.
-		if s.code != "" {
-			s.codeAttempts++
-			if s.codeAttempts >= 5 {
-				s.code = ""
-			}
-		}
-		http.Error(w, "pairing_code_invalid", 403)
-		return
-	}
-	if existing, exists := s.state.Grants[in.Peer]; exists {
-		if existing.Hash == "" || tokenHash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) != existing.Hash {
-			http.Error(w, "original_peer_proof_required", 403)
-			return
-		}
-	} else if len(s.state.Bindings[in.Peer]) > 0 {
-		http.Error(w, "original_peer_revoked", 403)
-		return
-	}
-	owner, _, _, err := s.factory(r.Context(), in.Peer, "", filepath.Join(s.root, "sources", sourceDir(in.Peer)))
-	if err == nil {
-		err = recoverNewWork(r.Context(), owner)
-	}
-	var caps api.WorkCapabilities
-	if err == nil {
-		p, ok := owner.(api.WorkCapabilityProvider)
-		if !ok {
-			err = errors.New("worker_contract_unavailable")
-		} else {
-			caps, err = p.WorkCapabilities(r.Context(), "")
-		}
-	}
-	if err == nil && !Compatible(caps) {
-		err = errors.New("worker_contract_incompatible")
-	}
-	if err != nil {
-		http.Error(w, "worker_not_ready: "+err.Error(), 409)
-		return
-	}
-	token := in.Token
-	old, exists := s.state.Grants[in.Peer]
-	if exists {
-		token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	}
-	pairedAt := old.PairedAt
-	if pairedAt == 0 {
-		pairedAt = time.Now().UnixMilli()
-	}
-	name := in.Name
-	if name == "" {
-		name = old.Name
-	}
-	s.state.Grants[in.Peer] = grant{Peer: in.Peer, Hash: tokenHash(token), Name: name, PairedAt: pairedAt}
-	if err = s.save(); err != nil {
-		if exists {
-			s.state.Grants[in.Peer] = old
-		} else {
-			delete(s.state.Grants, in.Peer)
-		}
-		http.Error(w, "pairing_not_saved", 500)
-		return
-	}
-	s.code = ""
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(PairResult{Name: machineDisplayName(), Connection: Connection{Peer: s.state.Identity, Token: token}, Capabilities: caps})
-}
 func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Response) {
 	fail := func(err error) Response {
 		out.Error = err.Error()
@@ -505,7 +334,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		defer s.mu.Unlock()
 		proof, ok := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
 		current, valid := s.state.Grants[peer]
-		if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer || !s.state.Enabled {
+		if !ok || !valid || current.Revoked || current.Hash != proof.Hash || proof.Peer != peer {
 			return fail(errors.New("peer_authorization_revoked"))
 		}
 		for id := range s.state.Bindings[peer] {
@@ -741,7 +570,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		s.mu.Lock()
 		proof, authenticated := ctx.Value(authenticatedGrantKey{}).(authenticatedGrant)
 		grant, granted := s.state.Grants[peer]
-		if !authenticated || !granted || grant.Revoked || !s.state.Enabled || grant.Hash != proof.Hash || proof.Peer != peer || s.state.Bindings[peer][id] == "" {
+		if !authenticated || !granted || grant.Revoked || grant.Hash != proof.Hash || proof.Peer != peer || s.state.Bindings[peer][id] == "" {
 			s.mu.Unlock()
 			return fail(errors.New("peer_authorization_revoked"))
 		}
@@ -929,9 +758,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, peer string) {
 	for {
 		s.mu.Lock()
 		g, valid := s.state.Grants[peer]
-		enabled := s.state.Enabled
 		s.mu.Unlock()
-		if !valid || g.Revoked || g.Hash != tokenHash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) || !enabled {
+		if !valid || g.Revoked || g.Hash != tokenHash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
 			return
 		}
 		v := s.dispatch(r.Context(), peer, Request{Action: "observe", ID: id})

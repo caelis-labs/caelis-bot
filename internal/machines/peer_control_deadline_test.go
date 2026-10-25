@@ -39,7 +39,7 @@ func (rt *controlDeadlineReviewTransport) RoundTrip(r *http.Request) (*http.Resp
 func TestReviewPeerDecisionUsesBoundedOriginalContextAndKeepsUnknown(t *testing.T) {
 	for _, parent := range []bool{false, true} {
 		t.Run(map[bool]string{false: "Web-lifetime", true: "earlier-parent"}[parent], func(t *testing.T) {
-			s, e := Open(t.TempDir(), &dualPeerLocal{}, nil)
+			s, e := Open(t.TempDir(), &dualPeerLocal{})
 			if e != nil {
 				t.Fatal(e)
 			}

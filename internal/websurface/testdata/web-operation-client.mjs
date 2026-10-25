@@ -18,35 +18,25 @@ globalThis.document={addEventListener(){},removeEventListener(){}};
 globalThis.sessionStorage={getItem:key=>saved.get(key)??null,setItem:(key,value)=>saved.set(key,value)};
 const client=createWebTransport({csrf:configuration.csrf,version:'FIXTURE',capabilities:{reason:''}});
 try{
- await assert.rejects(client.transport('backend','BeginWorkerPairing',[]),error=>error.code==='worker_not_ready');
- const code=await client.transport('backend','BeginWorkerPairing',[]);
- assert.equal(code.code,'123456','repairing local readiness permits a fresh code generation');
- assert.equal(requests.filter(r=>r.path==='/api/v1/machines/begin-worker-pairing').length,2);
- assert(!saved.get('caelisbot.pending-operations')?.includes('begin-worker-pairing'),'local replaceable code never poisons remote operation recovery');
- const base={id:'',name:'Fixture B',address:'http://127.0.0.1:12345',code:'wrong-fixture'};
+ const base={id:'',name:'wrong-fixture',address:'http://127.0.0.1:12345'};
  await assert.rejects(client.transport('backend','ConnectBot',[base]),error=>{
-  assert.equal(error.code,'operation_rejected');assert.equal(error.detail,'pairing_code_invalid');assert.match(error.message,/pairing_code_invalid/);return true;
+  assert.equal(error.code,'operation_rejected');assert.equal(error.detail,'invalid_bot_address');assert.match(error.message,/invalid_bot_address/);return true;
  });
- const connected=await client.transport('backend','ConnectBot',[{...base,code:'correct-fixture'}]);
+ const connected=await client.transport('backend','ConnectBot',[{...base,name:'correct-fixture'}]);
  assert.equal(connected.id,'original-fixture-peer');
- await assert.rejects(client.transport('backend','SaveWorkerSharing',[{listen:'invalid-fixture',address:''}]),error=>{
-  assert.equal(error.code,'operation_rejected');assert.equal(error.detail,'worker_listener_invalid');return true;
- });
- const listener=await client.transport('backend','SaveWorkerSharing',[{listen:'127.0.0.1:0',address:''}]);
- assert.equal(listener.listen,'127.0.0.1:0');
- const lost=await client.transport('backend','ConnectBot',[{...base,code:'lost-fixture'}]);
+ const lost=await client.transport('backend','ConnectBot',[{...base,name:'lost-fixture'}]);
  assert.equal(lost.id,connected.id);
  const writes=()=>requests.filter(r=>r.path==='/api/v1/machines/connect-bot');
  assert.equal(writes().length,3,'lost response must query the original Web operation, never resend');
  assert.notEqual(writes()[0].body.id,writes()[1].body.id,'a corrected known refusal has a new explicit intent');
- await assert.rejects(client.transport('backend','ConnectBot',[{...base,code:'uncertain-fixture'}]),error=>{
+ await assert.rejects(client.transport('backend','ConnectBot',[{...base,name:'uncertain-fixture'}]),error=>{
   assert.equal(error.code,'operation_unconfirmed');assert.equal(error.detail,undefined);return true;
  });
  const before=JSON.parse(saved.get('caelisbot.pending-operations'));
- await assert.rejects(client.transport('backend','ConnectBot',[{...base,code:'correct-fixture'}]),error=>error.code==='operation_unconfirmed');
+ await assert.rejects(client.transport('backend','ConnectBot',[{...base,name:'correct-fixture'}]),error=>error.code==='operation_unconfirmed');
  assert.equal(writes().length,4,'edited content cannot replay or replace an unknown operation');
  assert.deepEqual(JSON.parse(saved.get('caelisbot.pending-operations')),before,'unknown retains its original Web operation ID');
  const persisted=[...saved.values()].join('');
- for(const secret of [base.name,base.address,base.code,'correct-fixture','lost-fixture','uncertain-fixture'])assert(!persisted.includes(secret),'browser storage must not retain request arguments or pairing material');
+ for(const secret of [base.name,base.address,'correct-fixture','lost-fixture','uncertain-fixture'])assert(!persisted.includes(secret),'browser storage must not retain request arguments or pairing material');
  console.log('actual TypeScript transport + authenticated HTTP handler: correction, original lost-response receipt, and unknown proof passed');
 }finally{client.close();}

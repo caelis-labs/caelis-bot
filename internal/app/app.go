@@ -232,13 +232,13 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	app.modelSelections = newModelSelections(root, app.setup.applySelectedModel, host.Diagnostics)
-	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
+	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
-	if err = app.configureWorkerPeer(); err != nil {
-		return nil, err
+	if err = app.configureWorkerPeer(); err != nil && host.ReportError != nil {
+		host.ReportError(err)
 	}
 	app.textControl, err = textchannel.Open(root, app.Backend.Decide)
 	if err != nil {

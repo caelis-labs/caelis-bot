@@ -53,7 +53,7 @@ func (s *Service) bindLocked(in api.TaskStart, id, runtime string) (string, erro
 		return bound, nil
 	}
 	p, ok := s.state.Profiles[in.Machine]
-	if !ok || p.View.State != "ready" || p.View.Archived || p.View.ConnectionType == "bot" && !botProfileReady(p.View) {
+	if !ok || p.View.PairingStatus != "approved" || p.View.State != "ready" || p.View.Archived || p.View.ConnectionType == "bot" && !botProfileReady(p.View) {
 		return "", errors.New("machine_not_ready")
 	}
 	reservation := runtime == ""

@@ -40,9 +40,6 @@ func TestURLReceiptSurvivesOwnerExitWithoutConnectOrSourceEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	// Persisted grant/binding is the execution route even though the native owner is gone.
 	s.state.Grants["source-a"] = grant{Peer: "source-a", Hash: tokenHash("original-proof")}
 	s.state.Grants["source-b"] = grant{Peer: "source-b", Hash: tokenHash("other-proof")}

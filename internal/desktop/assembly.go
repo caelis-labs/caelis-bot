@@ -57,13 +57,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		for _, task := range back.WorkerTasks() {
 			if task.ID == id {
 				owned = true
-				if task.Machine != "" {
-					for _, machine := range back.Machines() {
-						if machine.ID == task.Machine && machine.ConnectionType != "bot" {
-							return false, nil
-						}
-					}
-				}
+
 				break
 			}
 		}

@@ -91,9 +91,7 @@ jobs:
             go.sum
             script/env.sh
       - name: Check native remote ownership and recovery races
-        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore ./cmd/caelis-remote
-      - name: Build Linux amd64 and arm64 helpers
-        run: bash script/build-remote-helper.sh "$PWD/.cache/ci-remote-helper"
+        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore
       - name: Build both managed architectures and run native Linux upgrade recovery at umask 077
         run: bash script/ci-linux-headless.sh
   windows-product:

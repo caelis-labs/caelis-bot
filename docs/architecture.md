@@ -22,8 +22,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/bot`, `eventplan`, `scheduledata`, `tasks` | Persistent identity, introduction, scheduling, wake budget, delegation ledger and reports |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
-| `internal/machines` | Native SSH profiles, host trust, machine identity, original task routing and cached observations |
-| `internal/remotework`, `cmd/caelis-remote` | Linux headless owner and bounded typed SSH operations; full native Worker execution |
+| `internal/machines` | Bot peer profiles, asynchronous connection intents, source identity, frozen task routing and cached observations |
 | `internal/plugins` | Reviewed portable packages, built-in Desktop World, immutable installation and runtime admission |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
@@ -585,89 +584,51 @@ Ingress and Worker receipts are likewise never replayed; see
 
 ## Remote machines
 
-Bot connections use the same `api.WorkRuntime` and companion Worker service
-ports as local adapters. A's `tasks.Manager` owns the product task, while B's
-isolated native `NewWorkOwner` owns execution. Inbound bindings are never added
-to B's local Worker enumeration or product Manager. Full interactions return to
-A through its existing retained approval/question paths; only the Agent's view
-is filtered. See [Bot-to-Bot](bot-to-bot.md) for source isolation, receipts,
-capability limits and verification. SSH helper profiles below retain their
-original execution and history routes; they are a separate legacy connection type.
+Bot peers and local adapters implement the same `api.WorkRuntime`. A's existing
+`tasks.Manager` owns product tasks, approvals/questions, output/history/files and
+completion notifications. B's isolated `NewWorkOwner` executes; its bindings are
+not imported into B's resident WorkStates, task list, chat, notifications or Agent.
+No remote task ledger, execution manager, recursive delegation or account authority
+is added. A never configures B's model/account/Worker preferences.
 
-The resident adapter remains local. `machines.Service` multiplexes the existing
-`api.WorkRuntime` port by an explicitly selected machine; absent targets stay local.
-`tasks.Manager` persists the machine and actual backend before dispatch. `WorkRouter`
-freezes the backend before workspace preparation; retries never re-resolve a default. Remote
-workspaces are resolved on that machine, never through the controller filesystem.
-Remote request identity and ownership survive a resident adapter change. Existing
-task routes cannot be removed or retargeted by editing the SSH connection.
+Connection authorization is asynchronous, in the existing machines profile and B
+peer registry. A persists source/proof/intent before delivery, reads public identity,
+and durably pins B before POSTing a target-bound request. B's authenticated user
+approves/declines the exact request; grant plus decision persist atomically. A
+returns on request admission, not human approval, and reads its original request
+on page entry/manual Check. Pending peers have no task routes, are absent from
+environments and do not enter background health polling. Each direction has an
+independent proof/approval. Browser cookies/loopback never authorize peer execution.
 
-Local `localWorkers` retains owned bindings from both provider directories. Its
-independent default is stored in `worker-runtime.json`; an inactive adapter exposes
-only Workers, never its resident conversation or Bot callbacks. The current resident
-still validates native delegation authority before any start or continuation. Per-
-provider settings preserve store identity, models and account ownership. Task backend
-bindings survive a resident change and remain visible if their owner is unavailable.
-New local defaults follow the conversation. Empty legacy preferences are migrated
-without a runtime probe; a successfully read catalog can also invalidate an explicit
-model/parameter choice and persist that fallback. Failed discovery preserves the
-choice. Reconciliation runs during settings inspection and before a new route is
-bound. The follow-conversation decision is frozen with that route; changing defaults
-does not reinterpret a reserved or dispatched request. Per-provider preferences and
-existing native task bindings are retained.
+The App owns a peer-only listener. Default 9317 falls back to an OS-selected port
+on conflict and publishes/persists the actual endpoint. An existing reachable
+headless listener is reused; a loopback browser listener is not widened. Public
+identity/request endpoints open no native owner. Per-request body/queue/retention
+limits and bounded network reads affect only remote features. Corrupt peer state
+fails closed locally without preventing the resident, local Worker or ordinary HTTP.
 
-Remote v1 routes migrate once from their locked profile runtime to a durable per-task
-backend map. Observation caches are keyed by machine and backend; reading, sending,
-stopping and terminal resolution explicitly address that retained backend. Changing
-a default keeps both owners alive and affects only newly bound requests.
+The old SSH/helper executable, installer, credentials/configuration editor and
+remote-terminal wrapping are removed. There is no experimental-data migration or
+old code authorization graph. SSH/Tailscale remain external network transport only.
 
-Native OpenSSH owns transport and authentication. Host keys require an explicit
-fingerprint confirmation and changed keys fail closed. Passwords/passphrases are
-write-only temporary inputs, optionally saved in the macOS Keychain. They are absent
-from readback DTOs, JSON state, command arguments and diagnostics. The short private
-multiplexing socket directory rejects symlinks and group/world permissions. Existing
-SSH aliases and a single configured ProxyJump are conveniences; direct host/user/port,
-agent, password and private-key inputs are first-class. Script ProxyCommand and
-multi-hop configuration are outside this slice.
+For established connections, native task routes/runtime/owner/request IDs persist
+before execution. Unknown results reconcile original receipts; they never choose
+another environment or local fallback. New work may replace only a verified exited
+private owner; old tasks/decisions are not migrated. Stop atomically validates its
+original operation and expected execution generation inside the adapter.
 
-An explicit authenticated connection ships only the app-built, checksum-verified
-Linux amd64/arm64 helper into a private target directory. It installs no Runtime and
-copies no model credentials. The SSH proxy connects to a detached, per-profile owner
-over a private Unix socket. Fixed typed operations expose detection, readiness,
-node-local model settings, optional Caelis Team configuration and existing work ports;
-there is no arbitrary renderer/model-supplied command endpoint.
+Network/native operations never hold the shared machine route lock. Late replies
+are fenced by connection and binding generations. Local task operations do not wait
+for peer polls/cleanup. Stream limits are compensated by bounded full observations;
+resource budgets never hide approvals. All interactions retain original native
+IDs/choices, including sensitive and opaque requests. A owns their existing UI and
+returns decisions to the exact execution owner; B never presents foreign task UI.
 
-Private Codex/Caelis `WorkOwner` wrappers expose only native worker contracts. They do
-not expose a resident Bot or Bot tools. Codex persists its original native endpoint
-before task dispatch and refuses replacement when that endpoint disappears. Caelis
-uses native application worker receipts and target-local credential references.
-Readiness checks account, model and native work admission separately from optional
-Team configuration. Model defaults are canonicalized through the native catalog;
-invalid persisted selections never silently revert to another model.
-
-Background observation reads native facts and projects lost connections as unknown
-work/offline machines. It snapshots routes under the machine lock, performs SSH
-and readiness checks outside it, and accepts results only for the unchanged
-profile and original backend. Local task operations do not wait for remote polls.
-New routes remain durable pre-dispatch reservations until the Worker dispatch
-fence; preparation or ledger failure releases only these reservations. Legacy and
-unknown dispatched owners are never released by preparation cleanup. A restart
-can remove an empty machine containing only pre-dispatch reservations.
-Reconnection reads original bindings; it never resends work.
-Local and Bot peer task cards open the same read-only Worker output view in A's
-conversation window, with native history, bounded current output and scoped file
-references. Closing it leaves execution and the resident draft intact. Questions,
-approvals, continuation and stop still use the existing product paths.
-For legacy SSH profiles, `TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
-script allocates SSH PTY and runs the original `codex --remote ... resume ...` or
-`caelis attach ...` on the target. Remote paths and token-file references stay on the
-target. Closing the observer does not close the native Worker owner.
-
-The renderer uses one machine editor with responsive CSS, a stable draft, fixed
-connection action, guarded background navigation and scoped advanced failures.
-Node login remains a clear target-TUI/device-auth guide; OAuth/ACP flows that the
-native surface cannot complete have an explicit TUI placeholder. See the
-[verification guide](development.md#remote-machine-acceptance) for live and fixture limits.
+Local and peer cards share A's Worker output/history view and scoped file paths.
+Remote paths are not A-local paths; verified inputs/outputs use task-scoped bytes,
+metadata/digests and the existing storage/cache authority. Retrieved output stays
+readable offline. See [implementation](bot-to-bot.md), [UI](remote-machines-ui.md)
+and [bounded URL contract](worker-peer-url-contract.md).
 
 ## Execution and recovery
 

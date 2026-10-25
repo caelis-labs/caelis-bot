@@ -2,6 +2,7 @@ package workerpeer
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -184,27 +185,26 @@ func peerFixture(t *testing.T) (*Server, *httptest.Server, map[string]*fixtureOw
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = server.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	httpServer := httptest.NewServer(server)
 	t.Cleanup(httpServer.Close)
 	return server, httpServer, owners
 }
-func pairFixture(t *testing.T, s *Server, httpServer *httptest.Server, peer string) Connection {
+func pairFixture(t *testing.T, s *Server, h *httptest.Server, source string) Connection {
 	t.Helper()
-	p, err := s.Pairing(t.Context())
-	if err != nil {
+	proof := rand.Text() + rand.Text()
+	id := rand.Text()
+	r, err := RequestPairing(t.Context(), h.URL, id, source, "Fixture", proof, s.Status().Peer)
+	if err != nil || r.Status != "pending" {
+		t.Fatal(r, err)
+	}
+	if err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: id, Allow: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Pair(t.Context(), httpServer.URL, p.Code, peer)
-	if err != nil {
-		t.Fatal(err)
+	r, err = ReadPairing(t.Context(), h.URL, id, source, proof)
+	if err != nil || r.Status != "approved" {
+		t.Fatal(r, err)
 	}
-	if _, err = Pair(t.Context(), httpServer.URL, p.Code, peer); err == nil {
-		t.Fatal("one-time code reused")
-	}
-	return result.Connection
+	return Connection{Address: h.URL, Peer: r.Peer, Token: proof}
 }
 func TestPeerAuthenticationProjectionIsolationAndLifecycle(t *testing.T) {
 	s, h, owners := peerFixture(t)
@@ -272,38 +272,25 @@ func stringContains(a, b string) bool {
 func TestPairingCannotClaimExistingSourceAndRevocationIsExplicit(t *testing.T) {
 	s, h, _ := peerFixture(t)
 	a := pairFixture(t, s, h, "source-a")
-	if _, err := Call(t.Context(), a, Request{Action: "start", Start: api.WorkStart{ID: "task-original", Workspace: t.TempDir(), TaskStart: api.TaskStart{RequestID: "original-create", Prompt: "fixture"}}}); err != nil {
+	if _, err := RequestPairing(t.Context(), h.URL, rand.Text(), "source-a", "Other", rand.Text()+rand.Text(), s.Status().Peer); err == nil {
+		t.Fatal("source transferred without original proof")
+	}
+	if err := s.Revoke("source-a"); err != nil {
 		t.Fatal(err)
 	}
-	code, err := s.Pairing(t.Context())
-	if err != nil {
+	if _, err := Call(t.Context(), a, Request{Action: "info"}); err == nil {
+		t.Fatal("revoked grant still active")
+	}
+	id := rand.Text()
+	r, err := RequestPairing(t.Context(), h.URL, id, "source-a", "Fixture", a.Token, s.Status().Peer)
+	if err != nil || r.Status != "pending" {
+		t.Fatal(r, err)
+	}
+	if _, err = Call(t.Context(), a, Request{Action: "info"}); err == nil {
+		t.Fatal("request reactivated grant before approval")
+	}
+	if err = s.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: id, Allow: true}); err != nil {
 		t.Fatal(err)
-	}
-	if _, err = Pair(t.Context(), h.URL, code.Code, "source-a"); err == nil {
-		t.Fatal("fresh code inherited another source's tasks without its credential")
-	}
-	repaired, err := Pair(t.Context(), h.URL, code.Code, "source-a", a.Token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if repaired.Token != a.Token {
-		t.Fatal("address/name repair rotated credential before A could persist receipt")
-	}
-	if err = s.Revoke("source-a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = Call(t.Context(), a, Request{Action: "read", ID: "task-original"}); err == nil {
-		t.Fatal("revocation did not close task control")
-	}
-	code, err = s.Pairing(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = Pair(t.Context(), h.URL, code.Code, "source-a"); err == nil {
-		t.Fatal("revoked namespace became transferable")
-	}
-	if _, err = Pair(t.Context(), h.URL, code.Code, "source-a", a.Token); err != nil {
-		t.Fatal("explicit new code plus original source proof cannot restore original binding", err)
 	}
 }
 func TestUnknownOperationReadsOriginalReceiptAndScopedFiles(t *testing.T) {

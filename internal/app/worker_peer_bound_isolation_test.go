@@ -48,7 +48,7 @@ func TestBoundPeerReadObserveDecisionIgnoreResidentConfiguration(t *testing.T) {
 	owner := &boundPeerOwner{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{"original-task": {Task: api.Task{ID: "original-task", Status: "working"}, Activity: "active"}}}}
 	a.peer.owners["original-source\x00codex"] = owner
 	peerRoot := filepath.Join(root, "bound-peer")
-	data := map[string]any{"version": 1, "identity": "B", "enabled": true, "grants": map[string]any{"original-source": map[string]any{"peer": "original-source", "hash": fmt.Sprintf("%x", sha256.Sum256([]byte("proof")))}}, "bindings": map[string]any{"original-source": map[string]string{"original-task": "codex"}}}
+	data := map[string]any{"version": 2, "identity": "B", "grants": map[string]any{"original-source": map[string]any{"peer": "original-source", "hash": fmt.Sprintf("%x", sha256.Sum256([]byte("proof")))}}, "bindings": map[string]any{"original-source": map[string]string{"original-task": "codex"}}}
 	if e = localstate.Write(filepath.Join(peerRoot, "peers.json"), data); e != nil {
 		t.Fatal(e)
 	}

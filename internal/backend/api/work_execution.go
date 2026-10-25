@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"slices"
 )
 
@@ -22,14 +21,14 @@ func ValidateWorkExecution(v WorkExecutionSettings, catalog []ModelOption) error
 	}
 	i := slices.IndexFunc(catalog, func(m ModelOption) bool { return m.Model == v.Model })
 	if i < 0 {
-		return errors.New("该工作模型已不可用，请刷新后重新选择")
+		return &SetupBlockedError{Code: "worker_model_unavailable", Message: "该工作模型已不可用，请刷新后重新选择"}
 	}
 	m := catalog[i]
 	if !slices.Contains(m.Efforts, v.Effort) && !(v.Effort == "" && len(m.Efforts) == 0) {
-		return errors.New("工作模型不支持所选推理强度")
+		return &SetupBlockedError{Code: "worker_effort_unsupported", Message: "工作模型不支持所选推理强度"}
 	}
 	if v.ServiceTier != "" && !slices.ContainsFunc(m.ServiceTiers, func(t ServiceTier) bool { return t.ID == v.ServiceTier }) {
-		return errors.New("工作模型不支持所选响应速度")
+		return &SetupBlockedError{Code: "worker_tier_unsupported", Message: "工作模型不支持所选响应速度"}
 	}
 	return nil
 }

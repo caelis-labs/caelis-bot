@@ -4,6 +4,7 @@ import {createManagedUpdateClient,type UpdateIntent} from './managed-update-clie
 import type {ProductTransport} from './transport';
 import {webRoutes} from './web-routes';
 import type {ChatUpdate} from './backend/contract';
+import {pairingReadiness} from './settings/runtime/pairing-errors';
 import {createNavigationGuard,parseWebRoute,webRouteHash,taskToggleRoute,type WebNavigation} from './web-navigation';
 import {settingsHasModal} from './context-navigation';
 export type {WebNavigation} from './web-navigation';
@@ -49,7 +50,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   readonly detail?:string;
   constructor(readonly code:string,readonly status:number,detail?:unknown){
    const safe=code==='operation_rejected'?safeWebRejectionDetail(detail):undefined;
-   const navigation=['remote_native_url_not_reachable','remote_native_url_invalid','worker_url_page_unsupported','worker_url_page_unavailable','worker_not_ready','worker_listener_unavailable'].includes(code)?code:undefined;
+   const navigation=['remote_native_url_not_reachable','remote_native_url_invalid','worker_url_page_unsupported','worker_url_page_unavailable','worker_not_ready','worker_listener_unavailable','worker_pairing_unavailable',...Object.keys(pairingReadiness)].includes(code)?code:undefined;
    super(safe??navigation??(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice));
    this.detail=safe;
   }
@@ -76,7 +77,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   const route=webRoutes[key];if(!route)throw new Error(unavailable);
   // Adapter owns URL submission receipts; keep transient fields out of generic
   // Web operations and allow its 12s native/network bound to finish first.
-  if(key==='backend.SubmitApprovalPage'||key==='backend.BeginWorkerPairing')return (await request(route.path,{args},20000)).value as T;
+  if(key==='backend.SubmitApprovalPage'||key==='backend.DecideWorkerPairing')return (await request(route.path,{args},20000)).value as T;
   return await invoke(route.path,args,route.read) as T;
  };
  const openURL=(value:string)=>{const url=new URL(value);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('链接不可用');window.open(url.href,'_blank','noopener,noreferrer');};

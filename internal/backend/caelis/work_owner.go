@@ -52,7 +52,8 @@ func NewRetainedWorkOwner(opts Options) (*WorkOwner, error) {
 func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
 func (w *WorkOwner) Close(ctx context.Context) error   { return w.engine.Close(ctx) }
 func (w *WorkOwner) Snapshot() api.Snapshot {
-	return api.Snapshot{Approvals: w.engine.Snapshot().Approvals}
+	v := w.engine.Snapshot()
+	return api.Snapshot{Connection: v.Connection, ConnectionIssue: v.ConnectionIssue, Approvals: v.Approvals}
 }
 func (w *WorkOwner) Decide(ctx context.Context, d api.Decision) error { return w.engine.Decide(ctx, d) }
 func (w *WorkOwner) DetachForUpdate(ctx context.Context) error        { return w.engine.DetachForUpdate(ctx) }

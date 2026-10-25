@@ -376,9 +376,7 @@ func (s *Service) configureWindowsContext(native *application.App, name string, 
 	s.pickRuntimeCLI = func() (string, error) {
 		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).AddFilter("Program", "*.exe").PromptForSingleSelection()
 	}
-	s.pickSSHKey = func() (string, error) {
-		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).ShowHiddenFiles(true).PromptForSingleSelection()
-	}
+
 	s.pickContentFile = func() (string, error) {
 		return native.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).AddFilter(s.text("native.contentPackFilter", nil), "*.caelispack").PromptForSingleSelection()
 	}

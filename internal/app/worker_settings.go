@@ -57,12 +57,12 @@ func (w *localWorkers) inspect(ctx context.Context, runtime string) (api.LocalWo
 	}
 	v.Models, err = catalog.Models(ctx)
 	if err != nil {
-		return v, err
+		return v, &workerModelCatalogError{err}
 	}
 	dir, _ := providerDirectory(w.root, runtime)
 	v.Work, err = backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
 	if err != nil {
-		return v, err
+		return v, &workerSettingsLoadError{err}
 	}
 	if d, e := catalog.RuntimeDefault(ctx); e == nil {
 		v.RuntimeDefault = &d
@@ -128,18 +128,47 @@ func (w *localWorkers) workerReadiness(ctx context.Context) error {
 	runtime, active, resident, loadErr := w.defaultRuntime, w.active, w.resident, w.loadErr
 	w.mu.Unlock()
 	if loadErr != nil {
-		return loadErr
+		return readinessProblem("worker_configuration_invalid", loadErr)
 	}
 	selected := runtime
 	if selected == "conversation" {
 		selected = active
 	}
+	if selected == active {
+		if code := workerConnectionIssue(resident); code != "" {
+			return readinessProblem(code, nil)
+		}
+	}
 	v, err := w.inspect(ctx, selected)
 	if err != nil {
-		return err
+		code := api.WorkerReadinessCode(err)
+		if ctx.Err() != nil {
+			code = api.WorkerReadinessCode(ctx.Err())
+		}
+		if code == "" {
+			w.mu.Lock()
+			owner := w.owners[selected]
+			w.mu.Unlock()
+			code = workerConnectionIssue(owner)
+		}
+		var settings *workerSettingsLoadError
+		var catalog *workerModelCatalogError
+		if code == "" && errors.As(err, &catalog) {
+			code = "worker_model_catalog_unavailable"
+		}
+		if errors.As(err, &settings) {
+			code = "worker_configuration_invalid"
+		}
+		if code == "" {
+			code = "worker_runtime_unavailable"
+		}
+		return readinessProblem(code, err)
 	}
 	if !v.Ready {
-		return errors.New("worker_not_ready")
+		if len(v.Models) == 0 {
+			return readinessProblem("worker_model_required", nil)
+		}
+		return readinessProblem("worker_runtime_unavailable", nil)
 	}
 	execution := v.Work
 	if runtime == "conversation" {
@@ -147,24 +176,64 @@ func (w *localWorkers) workerReadiness(ctx context.Context) error {
 			ConversationExecution(context.Context) (api.WorkExecutionSettings, error)
 		})
 		if !ok {
-			return errors.New("worker_not_ready")
+			return readinessProblem("worker_runtime_incompatible", nil)
 		}
 		execution, err = provider.ConversationExecution(ctx)
 		if err != nil {
-			return err
+			code := api.WorkerReadinessCode(err)
+			if code == "" {
+				code = "worker_runtime_unavailable"
+			}
+			return readinessProblem(code, err)
 		}
 	} else if execution.Model == "" && v.RuntimeDefault != nil {
 		execution = *v.RuntimeDefault
 	}
 	if err := api.ValidateWorkExecution(execution, v.Models); err != nil {
-		return err
+		code := api.WorkerReadinessCode(err)
+		if code == "" {
+			code = "worker_configuration_invalid"
+		}
+		return readinessProblem(code, err)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.defaultRuntime != runtime || w.active != active {
-		return errors.New("worker_configuration_changed")
+		return readinessProblem("worker_configuration_changed", nil)
 	}
 	return nil
+}
+
+type workerSettingsLoadError struct{ error }
+
+func (e *workerSettingsLoadError) Unwrap() error { return e.error }
+
+type workerModelCatalogError struct{ error }
+
+func (e *workerModelCatalogError) Unwrap() error { return e.error }
+
+func readinessProblem(code string, cause error) error {
+	return errors.Join(&api.SetupBlockedError{Code: code, Message: code}, cause)
+}
+func workerConnectionIssue(owner any) string {
+	p, ok := owner.(interface{ Snapshot() api.Snapshot })
+	if !ok {
+		return ""
+	}
+	v := p.Snapshot()
+	if v.Connection == "" || v.Connection == "ready" {
+		return ""
+	}
+	switch v.ConnectionIssue {
+	case "authentication":
+		return "worker_login_required"
+	case "runtime_missing":
+		return "worker_runtime_missing"
+	case "runtime_protocol":
+		return "worker_runtime_incompatible"
+	default:
+		return "worker_runtime_unavailable"
+	}
 }
 func (w *localWorkers) SaveLocalWorkerModel(ctx context.Context, value api.WorkExecutionSettings) (api.LocalWorkerSettings, error) {
 	w.settingsMu.Lock()

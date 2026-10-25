@@ -87,9 +87,6 @@ func TestWorkerBodyBudgetOverridesHeadlessReadTimeoutOnlyAfterAuthentication(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Enable(true); err != nil {
-		t.Fatal(err)
-	}
 	defer s.Close(context.Background())
 	h := httptest.NewUnstartedServer(s)
 	h.Config.ReadTimeout = 30 * time.Millisecond
