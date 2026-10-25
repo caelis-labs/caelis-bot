@@ -26,6 +26,7 @@ class StagingTests(unittest.TestCase):
         self.package = self.root / 'fixture'
         names = ['plugin.json', 'mcp.json', 'bin/dtw.exe', 'libexec/cua-driver.exe',
                  'skills/desktop-world/SKILL.md', 'skills/desktop-world/api.d.ts', 'skills/desktop-world/RECIPES.md',
+                 'skills/desktop-world/BROWSER.md',
                  'LICENSING/MPL-SOURCES.tar.gz', 'LICENSING/THIRD-PARTY.md', 'LICENSING/DEPENDENCIES.json',
                  'LICENSING/rust-runtime-licenses/OFL-1.1.txt',
                  f"LICENSING/licenses/cursor-overlay-{staging.PIN['cua_version']}/assets/Inter-OFL.txt", 'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE',
@@ -90,10 +91,15 @@ class StagingTests(unittest.TestCase):
         with self.assertRaises(ValueError): staging.verify_package(self.package, self.spec, 'windows-amd64')
 
     def test_missing_required_skill_even_with_valid_checksums_rejected(self):
-        (self.package / 'skills/desktop-world/api.d.ts').unlink()
-        self.checksums()
-        with self.assertRaisesRegex(ValueError, 'missing'):
-            staging.verify_package(self.package, self.spec, 'windows-amd64')
+        for name in ('api.d.ts', 'BROWSER.md'):
+            with self.subTest(name=name):
+                path = self.package / 'skills/desktop-world' / name
+                body = path.read_bytes()
+                path.unlink()
+                self.checksums()
+                with self.assertRaisesRegex(ValueError, 'missing'):
+                    staging.verify_package(self.package, self.spec, 'windows-amd64')
+                path.write_bytes(body)
 
     def test_missing_pinned_font_license_even_with_valid_checksums_rejected(self):
         (self.package / f"LICENSING/licenses/cursor-overlay-{staging.PIN['cua_version']}/assets/Inter-OFL.txt").unlink()

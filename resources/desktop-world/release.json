@@ -1,33 +1,33 @@
 {
-  "version": "v0.1.2",
-  "revision": "977afec748845c05c294b01318c926db60826378",
-  "cua_revision": "2d2f99228d4d2508dc6fcc84c176b296e146714a",
-  "cua_version": "0.37.0",
+  "version": "v0.1.3",
+  "revision": "d97b69c93b5a9d26a1470fbbbe7c2996f6f148d1",
+  "cua_revision": "85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19",
+  "cua_version": "0.38.0",
   "module": "github.com/caelis-labs/desktop-world",
   "targets": {
     "darwin-arm64": {
       "artifact": "desktop-world-plugin-darwin-arm64.tar.gz",
-      "sha256": "c25487dc12bd15e173562c34632393d5632200aff1f2996055c5c0f3c8116aeb",
-      "binary_sha256": "061d79033f303d6712cda0a34671d45467c8d7b7d5b75f216587624303e3e166",
-      "worker_sha256": "564f3c02ea7ffeee06600d8a14b74832427c79a42b26e3bd997fd42ce4fb88bd",
+      "sha256": "b1df71184ade8fffdc699c023faf08ce0acbad744d872ba5b56ceb57cd23460a",
+      "binary_sha256": "938f07b3dca0ef7cb0a1b23f990d49c2971c73344c15c17d13c0a52a7814b055",
+      "worker_sha256": "622cb6a7c9803a31ace83466112af3f263cd3ecdbff55e6d9ea89181d4c5d88f",
       "binary": "bin/dtw",
-      "build_sha256": "945aa284b1b82e27e1cc8071a0110c8863ae4e593035bf95c8a4ab10834e16ed",
-      "license_inventory_sha256": "09c85fc3f31a6461507717b65e63f1e82ff469179f4ead9949f49447d4b15ce8",
+      "build_sha256": "980aef1ff23b15e2d6035195cc6575f827b747f8284c7479d6f898d5ef5cef5c",
+      "license_inventory_sha256": "e5d7ee99b1ed389661fbaa06aa8fbcea11a9dcc6bbb0e24ed4b40a44081e5ee4",
       "license_packages": 373,
       "minimum_macos": "14.0",
       "signing_team": "64KZ67PM5J",
-      "standalone_sha256": "65eb7ef835f3dcda66a02e8205486bbaafab990f981f6e4ed4542ac1084bba0f"
+      "standalone_sha256": "65a16c090c90e46ce24e211c5e53aca9025138cd6dcba6eb54f81bebd07bde5b"
     },
     "windows-amd64": {
       "artifact": "desktop-world-plugin-windows-amd64.zip",
-      "sha256": "50a226648fbf2052cd04b50d197e6aaa54f2e3e9ee08336874d16efbc1d3465e",
-      "binary_sha256": "156b5ed5cef6b3a37838607ea62eba925b42d330a80d9518d7c6df3148881e22",
-      "worker_sha256": "c6d8e9a6501544745752667be1402f5554005697a95b6e26a11b49091971f131",
+      "sha256": "0ab21a6be0e37319108b861eb4c4ffd23c3db51a230504834868af28b1776b46",
+      "binary_sha256": "6204dc3a9de7c91579ee0491383c2a8aff66b1443bcddd4cc63b06d77aeb10e6",
+      "worker_sha256": "b3e1b64098ca192ca0e460e2c92fb10fcd60f3c4d5bec89aa46a33c3c93f1e8a",
       "binary": "bin/dtw.exe",
-      "build_sha256": "6a91627645ba2f6a9c2f40b17b6dfc7a84f72cc188ffd4e0e571eadc7d966345",
-      "license_inventory_sha256": "3f1ed3596a397dccc664163a5cbcd1456b6a6060eacfaf24af1ce2440af3f0ab",
+      "build_sha256": "0535a1012d3d610b23ceebc24db04ab731a071509139b1284aa623302595a3cf",
+      "license_inventory_sha256": "cb5d96bb6b557206c66c7d48a6af8febce546b9f61835ccb7a90eec378668d2b",
       "license_packages": 385,
-      "standalone_sha256": "9fbd2a94b1e3efabe16dc22df5020ff1c5d3785b4296b55deffff23cdbe2004d"
+      "standalone_sha256": "99da1473bab6228abdb625748405b9108bf1ba6431755bda953beb15e72ebc84"
     }
   }
 }

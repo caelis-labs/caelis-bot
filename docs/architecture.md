@@ -861,7 +861,7 @@ stream must not become an empty successful conversation.
 
 ## Desktop and presentation
 
-Desktop World v0.1.2 is an optional built-in Agent Plugins package, initially
+Desktop World v0.1.3 is an optional built-in Agent Plugins package, initially
 enabled. Bot verifies the pinned slim Plugin archive and BUILD provenance,
 extracts ordinary relative files without executing the download, and verifies the
 complete inventory, runtime, worker and licensing digests. The package
@@ -879,8 +879,12 @@ sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
 catalog and approval list.
 
 The MCP `exec` tool and its private CUA worker are upstream release code. The
-v0.1.2 execution context is owned by the MCP process; callers omit a named
+v0.1.3 execution context is owned by the MCP process; callers omit a named
 `session` and recover receipts through that same originating connection. Bot's
+packaged guidance follows CUA 0.38.0 browser discovery and `next_call`, with
+approval owned by the Runtime. Idle `runtime_context_reset` requires fresh
+observation without renewing grants or replaying uncertain actions; there is no
+DTW absolute-age cutoff during continuous use. Bot's
 Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
 when an input error may follow an already applied action.
 The worker is spawned from the plugin process under Bot's app bundle, without an
@@ -894,7 +898,7 @@ so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published v0.1.2 Mac binaries are Developer ID signed, with upstream notarization
+server, reset TCC, or infer successful input from a model reply. Published v0.1.3 Mac binaries are Developer ID signed, with upstream notarization
 evidence. Bot verifies those signatures before re-signing both nested binaries with its
 selected app identity. The
 app seals the complete resulting inventory and independently passes its own

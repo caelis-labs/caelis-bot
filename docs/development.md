@@ -55,9 +55,13 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-Desktop World is pinned to [v0.1.2](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.2).
+Desktop World is pinned to [v0.1.3](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.3).
 `resources/desktop-world/release.json` separately pins the slim Plugin archive,
 standalone provenance, slim runtime, worker, BUILD and license inventory.
+The pin uses CUA 0.38.0 source `85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19`.
+Both platform staging entrypoints read this pin; the Plugin installer does not
+fetch a separate DTW or CUA runtime. Reuse `.cache/desktop-world-runtime/<version>`
+for repeat builds rather than downloading the standalone distribution as well.
 Staging verifies the archive before extracting only ordinary relative files and
 directories, then checks every file against SHA256SUMS and the pinned native
 binary hashes. The archive is never executed. Validation failure retains the
@@ -80,7 +84,7 @@ gates. Windows uses the same archive verifier, remains unsigned upstream, and
 requires the x64 VC runtime. Upstream Windows DPI, modal-provider and uncertain
 focus limits are tracked in [DTW #36](https://github.com/caelis-labs/desktop-world/issues/36).
 Historical evidence remains tied to its original version; it does not qualify
-the v0.1.2 artifact. The pinned v0.1.2 Plugin assets are published on GitHub;
+the v0.1.3 artifact. The pinned v0.1.3 Plugin assets are published on GitHub;
 this pin does not claim DTW R2 distribution or Windows native GUI acceptance.
 
 
@@ -143,7 +147,7 @@ Desktop World 实机验收使用已签名 Dev 包、隔离的 `CAELIS_BOT_DATA_D
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
 `CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
-`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 v0.1.2 版本目录；分别给 Codex
+`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 v0.1.3 版本目录；分别给 Codex
 测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
 `CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
 验证 Skill、单 `exec` 和停用撤销。隔离插件目录必须有实际持锁的 Bot owner；
