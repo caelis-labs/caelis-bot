@@ -200,3 +200,31 @@ func TestArchivedPendingReAddReadsOriginalWithoutResubmitting(t *testing.T) {
 		t.Fatal("approved restore demanded another authorization", restored, err)
 	}
 }
+
+func TestUndispatchedIntentCanCorrectAddressAndSendOriginalOnce(t *testing.T) {
+	s, err := Open(t.TempDir(), inert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "first", Address: "http://127.0.0.1:1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.root, inert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := reopened.InspectMachine(t.Context(), ref.ID, "")
+	if err != nil || v.Issue != "pairing_request_not_dispatched" || v.PairingStatus != "unknown" {
+		t.Fatal("no-dispatch evidence unavailable", v, err)
+	}
+	target := newDualPeerTarget(t)
+	v, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: ref.ID, Address: target.http.URL, Reconnect: true})
+	if err != nil || v.PairingStatus != "pending" {
+		t.Fatal("cannot send confirmed undispatched original", v, err)
+	}
+	p, _ := reopened.machineProfile(ref.ID)
+	if p.PairingEpoch != ref.Pairing || len(target.peer.Status().Requests) != 1 {
+		t.Fatal("original operation replaced or dispatched twice")
+	}
+}

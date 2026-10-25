@@ -77,12 +77,21 @@ type Sharing struct {
 	Requests []api.WorkerPairingRequest `json:"requests"`
 }
 
+var ErrRegistryInvalid = errors.New("peer_registry_invalid")
+var ErrRegistryVersion = errors.New("peer_registry_version")
+
 func Open(root string, factory Factory) (*Server, error) {
 	s := &Server{root: root, factory: factory, owners: map[string]Owner{}, state: registry{Version: 2, Identity: rand.Text(), Grants: map[string]grant{}, Bindings: map[string]map[string]string{}}}
 	b, err := os.ReadFile(filepath.Join(root, "peers.json"))
 	if err == nil {
-		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 2 || s.state.Identity == "" || s.state.Grants == nil || s.state.Bindings == nil {
-			return nil, errors.New("peer_registry_invalid")
+		if json.Unmarshal(b, &s.state) != nil {
+			return nil, ErrRegistryInvalid
+		}
+		if s.state.Version != 2 {
+			return nil, ErrRegistryVersion
+		}
+		if s.state.Identity == "" || s.state.Grants == nil || s.state.Bindings == nil {
+			return nil, ErrRegistryInvalid
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err

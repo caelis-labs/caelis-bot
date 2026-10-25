@@ -7,6 +7,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  "backend.WorkerFileCopy":{"path":"/api/v1/files/worker-copy","read":true},
  "backend.ConnectBot":{"path":"/api/v1/machines/connect-bot","read":false},
  "backend.RecoverBotWork":{"path":"/api/v1/machines/recover-bot-work","read":false},
+ "backend.RefreshWorkerSharing":{"path":"/api/v1/machines/refresh-sharing","read":true},
  "backend.WorkerSharing":{"path":"/api/v1/machines/worker-sharing","read":true},
  "backend.RevokeWorkerPeer":{"path":"/api/v1/machines/revoke-worker-peer","read":false},
  "backend.RuntimeExperiments": {"path":"/api/v1/connections/experiments","read":true},

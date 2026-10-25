@@ -10,3 +10,12 @@ export function remoteMachineStatus(machine:Machine,now=Date.now()):'online'|'of
  if(machine.state==='ready')return checked>0&&now-checked>=0&&now-checked<=60000?'online':'unchecked';
  return machine.state==='offline'?'offline':'unchecked';
 }
+
+import type {MessageKey} from '../../i18n/catalogs';
+export function remoteMachineLabel(machine:Machine):MessageKey {
+ if(machine.issue==='pairing_request_not_dispatched')return 'settings.remoteNotSentLabel';
+ const pairing:Record<string,MessageKey>={pending:'settings.remotePending',unknown:'settings.remoteUnconfirmed',rejected:'settings.remoteRejected',expired:'settings.remoteExpired',revoked:'settings.remoteRevoked'};
+ if(Object.hasOwn(pairing,machine.pairingStatus))return pairing[machine.pairingStatus];
+ const state=remoteMachineStatus(machine);
+ return state==='online'?'settings.remoteOnline':state==='authorization'?'settings.remoteNeedsAuthorization':state==='setup'?'settings.remoteNeedsSetup':state==='unchecked'?'settings.remoteUnchecked':'settings.remoteOffline';
+}

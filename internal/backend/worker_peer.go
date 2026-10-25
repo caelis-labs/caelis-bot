@@ -28,6 +28,18 @@ func (s *Service) WorkerSharing() api.WorkerSharing {
 	return s.workerSharing.WorkerSharing()
 }
 
+func (s *Service) RefreshWorkerSharing() api.WorkerSharing {
+	p, ok := s.workerSharing.(interface {
+		RefreshWorkerSharing(context.Context) api.WorkerSharing
+	})
+	if !ok {
+		return s.WorkerSharing()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return p.RefreshWorkerSharing(ctx)
+}
+
 func (s *Service) RevokeWorkerPeer(peer string) error {
 	if s.workerSharing == nil {
 		return errors.New("worker_sharing_unavailable")

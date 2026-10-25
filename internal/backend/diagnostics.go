@@ -46,6 +46,10 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		"loadedItems": len(v.Items), "approvalCount": len(v.Approvals), "reviewCount": len(v.Reviews), "hasEarlierMessages": v.HasEarlier,
 		"draftPresent": draftPresent, "draftStorageIssue": draftIssue,
 	}
+	if s.workerSharing != nil {
+		peer := s.workerSharing.WorkerSharing()
+		report["remoteReception"] = map[string]any{"listening": peer.Listening, "issue": diagnosticEnum(peer.Issue, "", "worker_peer_state_unavailable", "worker_peer_state_unsupported", "worker_peer_state_permission", "worker_listener_unavailable")}
+	}
 	if detail, ok := s.currentEngine().(api.DiagnosticSource); ok {
 		report["backend"] = detail.DiagnosticStatus()
 	}

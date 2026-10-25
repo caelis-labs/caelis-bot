@@ -606,6 +606,9 @@ headless listener is reused; a loopback browser listener is not widened. Public
 identity/request endpoints open no native owner. Per-request body/queue/retention
 limits and bounded network reads affect only remote features. Corrupt peer state
 fails closed locally without preventing the resident, local Worker or ordinary HTTP.
+The explicit settings refresh reopens only a failed original registry or prepares
+a missing listener; healthy peer identity/owners are never replaced. Local one-shot
+UI deadlines expire readiness/request presentation without network polling.
 
 The old SSH/helper executable, installer, credentials/configuration editor and
 remote-terminal wrapping are removed. There is no experimental-data migration or

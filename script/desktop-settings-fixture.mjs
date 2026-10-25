@@ -9,9 +9,17 @@ const experiments={supported:true,revision:'1',features:['async_compact','mcp_ca
 const files=[{id:'fixture-file',name:'fixture-notes.txt',size:32,type:'text/plain',image:false,unavailable:false}];
 const option={model:'fixture/model',name:'Saved Model',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],default:false,imageInput:false};
 const selections=[];
-const remote=params.get('machines')==='list'?[{id:'bot-fixture',name:'Fedora',address:'http://fedora.test:9317',connectionType:'bot',pairingStatus:'approved',state:'ready',checkedAt:Date.now(),issue:''},{id:'bot-pending',name:'Build server',address:'http://build.test:9317',connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:'peer_pairing_pending'},{id:'bot-revoked',name:'Mac Studio',address:'http://studio.test:9317',connectionType:'bot',pairingStatus:'revoked',state:'offline',checkedAt:Date.now(),issue:'peer_authorization_revoked'}]:[];
+const remote=['list','pending','unknown','unsent'].includes(params.get('machines'))?[{id:'bot-fixture',name:'Fedora',address:'http://fedora.test:9317',connectionType:'bot',pairingStatus:'approved',state:'ready',checkedAt:Date.now(),issue:''},{id:'bot-pending',name:'Build server',address:'http://build.test:9317',connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:'peer_pairing_pending'},{id:'bot-revoked',name:'Mac Studio',address:'http://studio.test:9317',connectionType:'bot',pairingStatus:'revoked',state:'offline',checkedAt:Date.now(),issue:'peer_authorization_revoked'}]:[];
+if(['unknown','unsent'].includes(params.get('machines')))remote.splice(0,remote.length,{...remote[1],id:'bot-unknown',pairingStatus:'unknown'});
 let sharing={address:'http://100.64.0.5:9317',listen:'0.0.0.0:9317',listening:true,managed:false,peer:'synthetic-local',requests:[{id:'fixture-request',name:'MacBook Air',address:'100.64.0.8',fingerprint:'0123456789abcdef'.repeat(4),expiresAt:Math.floor(Date.now()/1000)+300}],sources:[{id:'synthetic-source-A',name:'Mac Studio',pairedAt:1}]};
+if(params.get('inbox')!=='pending')sharing.requests=[];
+if(params.get('sources')!=='yes')sharing.sources=[];
+if(params.get('receiveIssue'))sharing.issue=params.get('receiveIssue');
 window.fixtureMachines=remote;
+window.fixtureRemoteFailure=params.get('machines')==='error';
+window.fixtureRemoteDelay=params.get('machines')==='loading'?1200:0;
+window.fixturePairingError=params.get('pairingError')||'';
+
 const plugins={revision:1,items:['stable','target','notes'].map((id,i)=>({id,title:['Stable Tools','New Plugin','Notes Skill'][i],version:'1.0',description:'Synthetic local regression fixture',installed:i!==1,enabled:i!==1,status:i!==1?'enabled':'available',skills:i===2?[{id:'notes',name:'Notes'}]:[],mcpServers:i===2?[]:[{id:'tools',name:'Tools'}]}))};
 window.fixtureMenuData=(count=2,nativeCount=2,fileCount=0)=>{
  plugins.items=Array.from({length:count},(_,i)=>({id:'menu-'+i,title:'Plugin '+i+' — 长名称排版',description:'用于检查插件菜单描述的可读性、可点击区域和滚动边界，不执行任何外部操作。',installed:true,enabled:true,status:'enabled'}));
@@ -42,7 +50,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'Display':case 'DisplayState':return {scale:1};
  // Read-only presentation fixtures for the remaining common settings pages.
  // Unsupported mutations still fail below; these never touch host preferences.
- case 'DisplayPreferences':return {mode:'light',theme:'default',revision:1};
+ case 'DisplayPreferences':return {mode:params.get('theme')||'light',theme:'default',revision:1};
  case 'ContentState':return {appearance:{revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'},characters:[{id:'builtin:caelis',name:'Caelis',pack:'',group:''}],avatars:[],packs:[],notice:''};
  case 'Placement':return {scale:1};
  case 'LoginAtLoginStatus':return {supported:true,enabled:false,state:'off',registered:false};
@@ -51,15 +59,16 @@ export const Call={ByName:async(name,...args)=>{
  case 'ShortcutSettings':case 'TaskShortcutSettings':return {shortcut:{enabled:true,key:method==='TaskShortcutSettings'?'KeyT':'Space',control:true,shift:true,alt:false,meta:false},registered:true,message:''};
  case 'TelegramStatus':return {enabled:false,bot:'',owner:'',paired:false,candidate:'',pairURL:'',issue:''};
  case 'WeixinStatus':return {phase:'unconfigured'};
- case 'Machines':return structuredClone(remote.map(v=>v.state==='ready'?{...v,checkedAt:Date.now()}:v));
+ case 'Machines':if(window.fixtureRemoteDelay)await sleep(window.fixtureRemoteDelay);if(window.fixtureRemoteFailure)throw Error('private backend details never rendered');return structuredClone(remote.map(v=>v.state==='ready'?{...v,checkedAt:Date.now()}:v));
  case 'ConnectBot':{
+  if(params.get('connectError'))throw Error(params.get('connectError'));
   const input=args[0];
   const v={id:input.id,name:input.name||'Fedora',address:input.address,connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:''};const index=remote.findIndex(v=>v.id===input.id);if(index<0)remote.push(v);else remote[index]=v;return structuredClone(v);
  }
- case 'InspectMachine':case 'RecoverBotWork':{const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,checkedAt:Date.now()}:v)}
+ case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
  case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}
- case 'DecideWorkerPairing':if(params.get('pairingError'))throw Error(params.get('pairingError'));sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;
- case 'WorkerSharing':return structuredClone(sharing);
+ case 'DecideWorkerPairing':if(window.fixturePairingError)throw Error(window.fixturePairingError);sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;
+ case 'RefreshWorkerSharing':case 'WorkerSharing':return structuredClone(sharing);
  case 'RevokeWorkerPeer':sharing.sources=sharing.sources.filter(s=>s.id!==args[0]);return;
  case 'CopyText':window.fixtureCopied=args[0];return;
 

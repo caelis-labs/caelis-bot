@@ -70,25 +70,25 @@ try{
  await a.goto(A.url+'/#settings/machines');await b.goto(B.url+'/#settings/machines');debugPage=a;debugB=b;
  await b.locator('.remote-empty').waitFor();await shot(b,'B-empty-remote-list');
  relay=await faultRelay(B.url);
- async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();await page.getByLabel('机器地址',{exact:true}).fill(address);await page.locator('.remote-name summary').click();await page.getByLabel('机器名称',{exact:true}).fill(name);await page.getByRole('button',{name:'发送连接请求',exact:true}).click();await page.locator('.runtime-dialog').waitFor({state:'hidden'});}
- async function approve(page){await page.getByRole('button',{name:/^连接请求(?:（[0-9]+）)?$/}).click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
- async function check(page,name){await page.locator('.machine-row').filter({hasText:name}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:name}).locator('.machine-status.ready').waitFor();}
+ async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'发送连接请求',exact:true}).click();await page.locator('.runtime-dialog').waitFor({state:'hidden'});}
+ async function approve(page){await page.getByRole('button',{name:'重新检查',exact:true}).click();await page.locator('.remote-inbox-action').click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
+ async function check(page,name,rename){await page.locator('.machine-row').filter({hasText:name}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();if(rename){await page.getByLabel('机器名称',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存连接',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}else await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:rename||name}).locator('.machine-status.ready').waitFor();}
  await submit(a,relay.url,'B synthetic');
- const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.name==='B synthetic');assert.equal(originalConnection.pairingStatus,'pending');
+ const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.address===relay.url);assert.equal(originalConnection.pairingStatus,'pending');
  assert.equal(Object.keys(JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8')).grants).length,0,'submitting a request never grants authority');
  await shot(a,'A-pending-independent');await approve(b);
  // B approval is not a continuous A operation; A stays pending until its
  // explicit check. Local chat/Worker remain independent throughout.
  assert.equal((await host(a,'/api/v1/machines/machines')).body.value[0].pairingStatus,'pending');
- await check(a,'B synthetic');
- await submit(b,A.url,'A reverse');await approve(a);await check(b,'A reverse');
+ await check(a,relay.url,'B synthetic');
+ await submit(b,A.url,'A reverse');await approve(a);await check(b,A.url,'A reverse');
  const reverse=(await host(b,'/api/v1/machines/machines')).body.value.find(v=>v.name==='A reverse');
  const aRoutes=JSON.parse(await readFile(join(A.data,'Machines','machines.json'),'utf8')),bRoutes=JSON.parse(await readFile(join(B.data,'Machines','machines.json'),'utf8'));
  assert.notEqual(aRoutes.profiles[originalConnection.id].peer.token,bRoutes.profiles[reverse.id].peer.token,'directions need independent proofs and decisions');
  await b.locator('.remote-authorizations summary').click();await b.locator('.remote-source-list').getByRole('button',{name:'撤销授权',exact:true}).click();
  await until('B revoke confirmed',async()=>await b.locator('.remote-source-list li').count()===0);
  await host(a,'/api/v1/machines/inspect-machine',[originalConnection.id,'']);assert.equal((await host(b,'/api/v1/machines/inspect-machine',[reverse.id,''])).body.value.state,'ready','one-way revoke leaves reverse authorization intact');
- await a.getByRole('button',{name:'重新检查',exact:true}).click();await until('revoked visible',async()=>(await a.locator('.machine-row').filter({hasText:'B synthetic'}).innerText()).includes('需授权'));
+ await a.getByRole('button',{name:'重新检查',exact:true}).click();await until('revoked visible',async()=>(await a.locator('.machine-row').filter({hasText:'B synthetic'}).innerText()).includes('授权已撤销'));
  await a.locator('.machine-row').filter({hasText:'B synthetic'}).click();await a.getByRole('button',{name:'发送连接请求',exact:true}).click();await a.locator('.runtime-dialog').waitFor({state:'hidden'});await approve(b);await check(a,'B synthetic');
  evidence.directionalAuthorization={separateRequests:true,separateProofs:true,nonblockingPending:true,lazyARead:true,revokeOnlyOneDirection:true};
  evidence.steps.push('Actual React A submits and returns immediately; no B grant before local B approval. A checks the original request manually. Reverse direction requires independent approval; revoke changes one direction only.');

@@ -16,12 +16,16 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 )
 
 type peerHost struct {
 	mu               sync.Mutex
+	recovery         sync.Mutex
+	closed           bool
+	stateIssue       string
 	server           *workerpeer.Server
 	http             *http.Server
 	address          string
@@ -82,7 +86,8 @@ func (a *Application) configureWorkerPeer() error {
 	a.Backend.ConfigureWorkerInteractions(a.machines)
 	server, err := workerpeer.Open(filepath.Join(a.root, "WorkerPeers"), a.openForeignWorker)
 	if err != nil {
-		p.configurationErr = errors.New("worker_peer_state_unavailable")
+		p.stateIssue = peerStateIssue(err)
+		a.recordPeerIssue(p.stateIssue)
 		a.Backend.ConfigureWorkerSharing(a)
 		return err
 	}
@@ -93,6 +98,12 @@ func (a *Application) configureWorkerPeer() error {
 	return nil
 }
 func (a *Application) openForeignWorker(ctx context.Context, source, runtime, root string) (workerpeer.Owner, string, *api.WorkExecutionSettings, error) {
+	a.peer.mu.Lock()
+	closed := a.peer.closed
+	a.peer.mu.Unlock()
+	if closed {
+		return nil, "", nil, errors.New("worker_peer_closed")
+	}
 	// The factory reads B's settings; none of these values comes from A's JSON.
 	if runtime == "" {
 		runtime = a.localWork.DefaultRuntime()
@@ -103,6 +114,10 @@ func (a *Application) openForeignWorker(ctx context.Context, source, runtime, ro
 	bindingOnly := workerpeer.OriginalBindingOnly(ctx)
 	if bindingOnly {
 		a.peer.mu.Lock()
+		if a.peer.closed {
+			a.peer.mu.Unlock()
+			return nil, "", nil, errors.New("worker_peer_closed")
+		}
 		owner := a.peer.owners[source+"\x00"+runtime]
 		a.peer.mu.Unlock()
 		if owner != nil {
@@ -136,6 +151,9 @@ func (a *Application) openForeignWorker(ctx context.Context, source, runtime, ro
 	}
 	a.peer.mu.Lock()
 	defer a.peer.mu.Unlock()
+	if a.peer.closed {
+		return nil, "", nil, errors.New("worker_peer_closed")
+	}
 	key := source + "\x00" + runtime
 	if owner := a.peer.owners[key]; owner != nil {
 		return owner, runtime, &work, nil
@@ -193,11 +211,12 @@ func (a *Application) WorkerPeerHandler(next http.Handler, address string) http.
 	a.peer.mu.Unlock()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, workerpeer.Prefix) {
-			if a.peer.server == nil {
+			server := a.peer.serverSnapshot()
+			if server == nil {
 				http.Error(w, "worker_peer_state_unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			a.peer.server.ServeHTTP(w, r)
+			server.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -207,11 +226,14 @@ func (a *Application) startWorkerPeer() error {
 	if a.peer == nil {
 		return nil
 	}
+	a.peer.mu.Lock()
+	defer a.peer.mu.Unlock()
+	if a.peer.closed {
+		return errors.New("worker_peer_closed")
+	}
 	if a.peer.server == nil {
 		return errors.New("worker_peer_state_unavailable")
 	}
-	a.peer.mu.Lock()
-	defer a.peer.mu.Unlock()
 	if a.peer.http != nil {
 		return nil
 	}
@@ -237,10 +259,20 @@ func (a *Application) startWorkerPeer() error {
 	return err
 }
 func (a *Application) WorkerSharing() api.WorkerSharing {
-	if a.peer == nil || a.peer.server == nil {
+	if a.peer == nil {
 		return api.WorkerSharing{Issue: "worker_peer_state_unavailable", Requests: []api.WorkerPairingRequest{}, Sources: []api.WorkerPeerSource{}}
 	}
-	v := a.peer.server.Status()
+	server := a.peer.serverSnapshot()
+	if server == nil {
+		a.peer.mu.Lock()
+		issue := a.peer.stateIssue
+		a.peer.mu.Unlock()
+		if issue == "" {
+			issue = "worker_peer_state_unavailable"
+		}
+		return api.WorkerSharing{Issue: issue, Requests: []api.WorkerPairingRequest{}, Sources: []api.WorkerPeerSource{}}
+	}
+	v := server.Status()
 	a.peer.mu.Lock()
 	address := a.peer.address
 	if a.peer.configuration.Address != "" {
@@ -259,29 +291,35 @@ func (a *Application) WorkerSharing() api.WorkerSharing {
 	return api.WorkerSharing{Issue: issue, Address: address, Listen: listen, Listening: listening, Managed: managed, Peer: v.Peer, Sources: v.Sources, Requests: v.Requests}
 }
 func (a *Application) DecideWorkerPairing(ctx context.Context, in api.WorkerPairingDecision) error {
-	if a.peer == nil || a.peer.server == nil {
+	server := a.peer.serverSnapshot()
+	if server == nil {
 		return &api.ActionRejectedError{Code: "worker_peer_state_unavailable"}
 	}
-	err := a.peer.server.DecidePairing(ctx, in)
+	err := server.DecidePairing(ctx, in)
 	if code := api.WorkerReadinessCode(err); err != nil && code != "" {
 		return &api.ActionRejectedError{Code: code}
 	}
 	return err
 }
 func (a *Application) RevokeWorkerPeer(peer string) error {
-	if a.peer == nil || a.peer.server == nil {
+	server := a.peer.serverSnapshot()
+	if server == nil {
 		return errors.New("worker_peer_state_unavailable")
 	}
-	return a.peer.server.Revoke(peer)
+	return server.Revoke(peer)
 }
 func (a *Application) closeWorkerPeer() error {
-	if a.peer == nil || a.peer.server == nil {
+	if a.peer == nil {
 		return nil
 	}
+	a.peer.mu.Lock()
+	a.peer.closed = true
+	a.peer.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	a.peer.mu.Lock()
 	server := a.peer.http
+	a.peer.http = nil
 	a.peer.mu.Unlock()
 	var err error
 	if server != nil {
@@ -299,4 +337,70 @@ func (a *Application) closeWorkerPeer() error {
 		}
 	}
 	return err
+}
+
+// Refresh is a bounded, explicit observation/reassembly, never a new grant or
+// native owner. Healthy registry identity/owners are never reopened or replaced.
+func (p *peerHost) serverSnapshot() *workerpeer.Server {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
+	return p.server
+}
+func peerStateIssue(err error) string {
+	if errors.Is(err, workerpeer.ErrRegistryVersion) {
+		return "worker_peer_state_unsupported"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "worker_peer_state_permission"
+	}
+	return "worker_peer_state_unavailable"
+}
+func (a *Application) recordPeerIssue(issue string) {
+	a.host.Diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "worker_peer", Code: "reception_unavailable", Reason: issue})
+}
+func (a *Application) RefreshWorkerSharing(ctx context.Context) api.WorkerSharing {
+	p := a.peer
+	if p == nil || !p.recovery.TryLock() {
+		return a.WorkerSharing()
+	}
+	defer p.recovery.Unlock()
+	if ctx.Err() != nil {
+		return a.WorkerSharing()
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return a.WorkerSharing()
+	}
+	if p.server == nil {
+		server, err := workerpeer.Open(filepath.Join(a.root, "WorkerPeers"), a.openForeignWorker)
+		if err != nil {
+			p.stateIssue = peerStateIssue(err)
+			issue := p.stateIssue
+			p.mu.Unlock()
+			a.recordPeerIssue(issue)
+			return a.WorkerSharing()
+		}
+		server.ConfigureReadiness(a.localWork.workerReadiness)
+		p.server = server
+		p.stateIssue = ""
+	}
+	// Re-read only failed listener preparation. No peer/network/native observation
+	// runs under this lock; ordinary local Worker and chat do not acquire it.
+	if p.http == nil {
+		p.configuration, p.configurationErr = readPeerListener(filepath.Join(a.root, "WorkerPeers", "listener.json"))
+	}
+	p.mu.Unlock()
+	if ctx.Err() == nil {
+		if err := a.startWorkerPeer(); err != nil {
+			a.recordPeerIssue("worker_listener_unavailable")
+		}
+	}
+	return a.WorkerSharing()
 }

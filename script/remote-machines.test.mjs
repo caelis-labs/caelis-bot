@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import {test,after} from 'node:test';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});after(()=>server.close());
-const {remoteMachineStatus}=await server.ssrLoadModule('/src/settings/runtime/machine-status.ts');
+const {remoteMachineStatus,remoteMachineLabel}=await server.ssrLoadModule('/src/settings/runtime/machine-status.ts');
 const {botAddress,botProfileAt}=await server.ssrLoadModule('/src/settings/runtime/bot-address.ts');
-const {pairingProblem}=await server.ssrLoadModule('/src/settings/runtime/pairing-errors.ts');
+const {pairingProblem,connectionProblem,incomingProblem}=await server.ssrLoadModule('/src/settings/runtime/pairing-errors.ts');
 const ready={state:'ready',checkedAt:100000,issue:'',connectionType:'bot',pairingStatus:'approved'};
 test('only fresh authorization and native admission show online',()=>{
  assert.equal(remoteMachineStatus(ready,100001),'online');
@@ -31,6 +31,14 @@ test('pairing diagnoses classify only safe reasons and route actual settings pro
  assert.deepEqual(pairingProblem('worker_login_required'),{key:'settings.pairLoginRequired',settings:true});
  assert.equal(pairingProblem('worker_runtime_unavailable').key,'settings.pairRuntimeUnavailable');
  assert.equal(pairingProblem('worker_readiness_timeout').settings,false);
- assert.equal(pairingProblem('private native path/token').key,'settings.pairUnavailable');
- for(const reason of ['constructor','toString','__proto__'])assert.deepEqual(pairingProblem(reason),{key:'settings.pairUnavailable',settings:false});
+ assert.equal(pairingProblem('private native path/token').key,'settings.remoteDecisionUnconfirmed');
+ for(const reason of ['constructor','toString','__proto__'])assert.deepEqual(pairingProblem(reason),{key:'settings.remoteDecisionUnconfirmed',settings:false});
+});
+
+test('pending, unknown and known terminal pairing states never collapse to online or each other',()=>{
+ for(const [pairingStatus,key] of Object.entries({pending:'remotePending',unknown:'remoteUnconfirmed',rejected:'remoteRejected',expired:'remoteExpired',revoked:'remoteRevoked'}))assert.equal(remoteMachineLabel({...ready,pairingStatus}),'settings.'+key);
+ assert.equal(connectionProblem('private native path/token').key,'settings.remoteCheckConnection');
+ assert.equal(incomingProblem('worker_peer_state_unsupported'),'settings.remoteStateVersion');
+ assert.equal(incomingProblem('worker_peer_state_permission'),'settings.remoteStatePermission');
+ assert.equal(incomingProblem('worker_listener_unavailable'),'settings.remoteReceptionUnavailable');
 });

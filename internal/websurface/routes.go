@@ -12,6 +12,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/machines/connect-bot", Function: s.connectBot, Remote: true},
 		{Path: "/api/v1/machines/recover-bot-work", Function: b.RecoverBotWork, Remote: true},
 		{Path: "/api/v1/machines/worker-sharing", Function: b.WorkerSharing, Read: true},
+		{Path: "/api/v1/machines/refresh-sharing", Function: b.RefreshWorkerSharing, Read: true},
 		// Only the target Bot's authenticated user can approve an incoming source.
 		{Path: "/api/v1/machines/decide-worker-pairing", Function: b.DecideWorkerPairing, Local: true},
 		{Path: "/api/v1/machines/revoke-worker-peer", Function: b.RevokeWorkerPeer, Remote: true},

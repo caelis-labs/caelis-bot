@@ -113,7 +113,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
    case 'PickFiles':return await pick() as T;
    case 'PasteAttachments':{const files=pasted;pasted=[];return {handled:files.length>0,files:files.length?await upload(files):[]} as T;}
    case 'CopyText':await copy(String(args[0]));return undefined as T;
-   case 'PickRuntimeCLI':case 'PickSSHKey':return (window.prompt('请输入运行 CaelisBot 的主机上的完整路径。浏览器所在电脑的路径不可直接使用。')??'') as T;
+   case 'PickRuntimeCLI':return (window.prompt('请输入运行 CaelisBot 的主机上的完整路径。浏览器所在电脑的路径不可直接使用。')??'') as T;
    case 'SystemPermissions':return {supported:false,appPath:'',development:false,permissions:[]} as T;
    case 'PermissionGuidePending':case 'FeatureGuidePending':return false as T; // Native-only onboarding guides do not apply to this surface.
    case 'LoginAtLoginStatus':return {supported:false,enabled:false,state:'unsupported'} as T;

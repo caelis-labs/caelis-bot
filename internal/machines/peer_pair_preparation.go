@@ -67,7 +67,13 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		}
 		next.View.Name = name
 		if address != old.Peer.Address && old.Peer.Peer == "" {
-			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "bot_connection_target_unconfirmed"}
+			if s.pairingActive[id] > 0 {
+				return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "bot_connection_target_unconfirmed"}
+			}
+			// No durable target pin and no active call proves no request write was
+			// dispatched. The user's corrected address is still this original intent.
+			next.Peer.Address = address
+			next.View.Address = address
 		}
 		next.View.Archived = old.View.Archived && !in.Reconnect && in.ID != ""
 		if (in.Reconnect || old.View.Archived && in.ID == "") && (old.View.PairingStatus == "rejected" || old.View.PairingStatus == "expired" || old.View.PairingStatus == "revoked") {
@@ -241,7 +247,9 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 		return machineView(p), nil
 	}
 	if p.Peer.Peer == "" && !active {
-		return machineView(p), &api.ActionRejectedError{Code: "pairing_request_not_dispatched"}
+		v := machineView(p)
+		v.Issue = "pairing_request_not_dispatched"
+		return v, &api.ActionRejectedError{Code: "pairing_request_not_dispatched"}
 	}
 	c, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()

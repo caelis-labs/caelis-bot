@@ -53,6 +53,49 @@
  NSCAssert([self.captureMenu itemWithTag:2201].hidden && [self.captureMenu itemWithTag:2202].hidden,@"disabled capture hidden");
  bot_capture_menu_enabled((__bridge void *)self.captureMenu,YES);
  NSCAssert(![self.captureMenu itemWithTag:2201].hidden,@"enabled capture restored");
+ if(getenv("BOT_REMOTE_UI_MATRIX")){[self.chat orderOut:nil];[self.settings makeKeyAndOrderFront:nil];[self remoteMatrix:0];}
+}
+
+// Own synthetic WKWebView acceptance only; never attaches to a user's window.
+- (void)remoteMatrix:(NSUInteger)index {
+ NSArray *states=@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+ if(index>=states.count*4){[@"passed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-result.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
+ NSUInteger group=index/states.count;NSString *theme=group/2?@"dark":@"light",*size=group%2?@"compact":@"large",*state=states[index%states.count];
+ [self.settings setContentSize:group%2?NSMakeSize(900,680):NSMakeSize(1280,900)];
+ self.settings.appearance=[NSAppearance appearanceNamed:group/2?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];
+ NSString *machines=[@[@"list",@"pending",@"unknown"] containsObject:state]?state:[state isEqual:@"list-error"]?@"error":@"empty";
+ NSString *extra=[state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"]?@"&inbox=pending":@"";
+ if([state isEqual:@"approval-recovery"])extra=[extra stringByAppendingString:@"&pairingError=worker_login_required"];
+ if([state isEqual:@"receive-error"])extra=@"&receiveIssue=worker_peer_state_unsupported";
+ NSURLComponents *url=[NSURLComponents componentsWithString:self.url];url.query=[NSString stringWithFormat:@"surface=settings&section=machines&chrome=native&theme=%@&machines=%@%@",theme,machines,extra];
+ [self.settingsWeb loadRequest:[NSURLRequest requestWithURL:url.URL]];
+ [self remoteReady:index attempt:0];
+}
+- (void)remoteReady:(NSUInteger)index attempt:(NSUInteger)attempt {
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+  [self.settingsWeb evaluateJavaScript:@"!!document.querySelector('.remote-add') && !document.querySelector('.remote-empty[role=status]')" completionHandler:^(id value,NSError *error){
+   if(![value boolValue]){if(attempt<100){[self remoteReady:index attempt:attempt+1];return;}[@"load failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
+   NSArray *states=@[@"empty",@"list",@"add",@"pending",@"incoming",@"unknown",@"list-error",@"receive-error",@"approval-recovery"];
+   NSString *state=states[index%states.count];NSString *script=@"true";
+   if([state isEqual:@"add"])script=@"document.querySelector('.remote-add').click()";
+   if([state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"])script=@"document.querySelector('.remote-inbox-action').click()";
+   if([state isEqual:@"unknown"])script=@"document.querySelector('.machine-row').click()";
+   [self.settingsWeb evaluateJavaScript:script completionHandler:^(id ignored,NSError *err){
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+     if([state isEqual:@"approval-recovery"]){[self.settingsWeb evaluateJavaScript:@"document.querySelector('.remote-request-actions .primary').click()" completionHandler:^(id ignored,NSError *err){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self remoteSnapshot:index state:state];});}];}
+     else [self remoteSnapshot:index state:state];
+    });
+   }];
+  }];
+ });
+}
+- (void)remoteSnapshot:(NSUInteger)index state:(NSString *)state {
+ NSUInteger group=index/9;NSString *name=[NSString stringWithFormat:@"native-%@-%@-%@",group/2?@"dark":@"light",group%2?@"compact":@"large",state];
+ [self.settingsWeb takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image,NSError *error){
+  if(!image){[@"snapshot failed" writeToFile:[self.evidence stringByAppendingPathComponent:@"matrix-failure.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];[NSApp terminate:nil];return;}
+  NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];[[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".png"]] atomically:YES];
+  [self.settingsWeb evaluateJavaScript:@"JSON.stringify({text:document.querySelector('.settings-main').innerText,dialog:document.querySelector('.remote-bot-dialog,.remote-requests-dialog')?.innerText,overflow:document.documentElement.scrollWidth>innerWidth,calls:fixtureCalls})" completionHandler:^(id value,NSError *error){if(value)[value writeToFile:[self.evidence stringByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES encoding:NSUTF8StringEncoding error:nil];[self remoteMatrix:index+1];}];
+ }];
 }
 - (void)startCapture:(id)sender { /* Synthetic fixture never captures the screen. */ }
 - (void)toggleCapture:(id)sender {

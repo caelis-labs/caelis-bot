@@ -2,47 +2,46 @@ import {useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import type {BotConnectionInput,Machine,WorkerSharing} from '../../backend/contract';
 import {useI18n} from '../../i18n';
-import {SettingsChevron} from '../../SettingsIcons';
 import {SettingsDialog} from './SettingsDialog';
 import {botAddress,botProfileAt} from './bot-address';
-import {pairingProblem} from './pairing-errors';
+import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors';
 
-export function BotConnectionDialog({machines,initial,call=backend,onClose,onSaved,onChanged}:{machines:Machine[];initial?:Machine;call?:typeof backend;onClose:()=>void;onSaved:()=>void;onChanged:()=>Promise<void>}){
+export function BotConnectionDialog({machines,initial,call=backend,onClose,onSaved,onChanged}:{machines:Machine[];initial?:Machine;call?:typeof backend;onClose:()=>void;onSaved:()=>void;onChanged:(fresh?:Machine)=>Promise<void>}){
  const {t}=useI18n();
  const [draft,setDraft]=useState<BotConnectionInput>(()=>({id:initial?.id||'bot-'+crypto.randomUUID(),name:initial?.name||'',address:initial?.address||''}));
  const [port,setPort]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const pending=useRef(false);
  const selected=machines.find(v=>v.id===draft.id)||initial;
- const run=async(action:()=>Promise<unknown>)=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await action()}catch(cause){const recovery=(cause as {botRecovery?:{profileId:string}})?.botRecovery;if(recovery?.profileId)setDraft(old=>({...old,id:recovery.profileId}));setError(cause instanceof Error?cause.message:String(cause));await onChanged()}finally{pending.current=false;setBusy(false)}};
+ const run=async(action:()=>Promise<unknown>)=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await action()}catch(cause){const recovery=(cause as {botRecovery?:{profileId:string}})?.botRecovery;if(recovery?.profileId)setDraft(old=>({...old,id:recovery.profileId}));setError(cause instanceof Error?cause.message:'unclassified');await onChanged()}finally{pending.current=false;setBusy(false)}};
  const connect=()=>run(async()=>{
   const address=botAddress(draft.address,port),known=botProfileAt(machines,draft.address,port);
   await call<Machine>('ConnectBot',{...draft,id:known?.id||draft.id,address,reconnect:!!known?.archived||!!selected&&selected.pairingStatus!=='approved'});onSaved();
  });
- const check=()=>run(async()=>{await call('InspectMachine',draft.id,'');await onChanged()});
- const recover=()=>run(async()=>{await call('RecoverBotWork',draft.id);await onChanged()});
+ const check=()=>run(async()=>{const address=botAddress(draft.address,port);const fresh=selected&&address!==botAddress(selected.address)?await call<Machine>('ConnectBot',{...draft,address,reconnect:true}):await call<Machine>('InspectMachine',draft.id,'');await onChanged(fresh)});
+ const recover=()=>run(async()=>{const fresh=await call<Machine>('RecoverBotWork',draft.id);await onChanged(fresh)});
  const remove=()=>run(async()=>{await call('RemoveMachine',draft.id);onSaved()});
- const status=selected?.pairingStatus;
- const issue=error==='bot_connection_target_unconfirmed'?t('settings.remoteTargetUnconfirmed'):error==='pairing_requests_full'?t('settings.remoteRequestsFull'):error==='bot_peer_unreachable'?t('settings.botUnreachable',{name:draft.name||t('settings.botTargetMachine')}):error==='invalid_bot_address'?t('settings.botAddressInvalid'):error==='original_peer_proof_required'?t('settings.botProofRequired'):t('settings.botActionFailed');
- return <SettingsDialog title={initial?.name||t('settings.remoteAdd')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
-  <form onSubmit={e=>{e.preventDefault();void connect()}}>
-   <label>{t('settings.remoteAddress')}<input autoFocus required autoComplete="off" placeholder="100.64.0.5" value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} disabled={busy}/></label>
-   <label>{t('settings.botOptionalPort')}<input type="number" min="1" max="65535" inputMode="numeric" autoComplete="off" placeholder="9317" value={port} onChange={e=>setPort(e.target.value)} disabled={busy}/></label>
-   <details className="remote-name"><summary>{t('settings.machineName')}</summary><label>{t('settings.machineName')}<input maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} disabled={busy}/></label></details>
-   {(status==='pending'||status==='unknown')?<p className="settings-note" role="status">{t(status==='pending'?'settings.remoteAwaitingApproval':'settings.remoteRequestUnknown')}</p>:status&&status!=='approved'?<p className="settings-note">{t('settings.remoteRequestClosed')}</p>:!initial&&<p className="settings-note">{t('settings.remoteApprovalNote')}</p>}
-   {selected?.pairingStatus==='approved'&&selected.issue==='worker_not_ready'&&<p className="settings-note">{t('settings.remoteWorkUnavailable')} <button type="button" disabled={busy} onClick={()=>void recover()}>{t('settings.remoteRecoverWork')}</button></p>}
-   {error&&<p role="alert" className="inline-error">{issue}</p>}
-   <div className="setup-end">{selected&&<button type="button" className="text-action" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}{selected&&<button type="button" disabled={busy} onClick={()=>void check()}>{t('settings.machineRecheck')}</button>}<button type="button" disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button type="submit" className="primary" disabled={busy||!draft.address.trim()}>{t(busy?'settings.machineConnecting':initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteSendRequest')}</button></div>
+ const status=selected?.pairingStatus,unsent=selected?.issue==='pairing_request_not_dispatched',uncertain=status==='unknown'&&!unsent,waiting=status==='pending';
+ const problem=connectionProblem(error);
+ return <SettingsDialog title={initial?t('settings.remoteManageTitle'):t('settings.remoteAdd')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
+  <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)void connect()}}>
+   <div className="remote-endpoint-fields"><label>{t('settings.remoteAddress')}<input autoFocus required autoComplete="off" spellCheck={false} placeholder={t('settings.remoteAddressPlaceholder')} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} disabled={busy}/></label><label>{t('settings.remotePort')}<input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} autoComplete="off" placeholder={t('settings.remoteDefaultPort')} value={port} onChange={e=>setPort(e.target.value)} disabled={busy}/></label></div>
+   {initial&&<label>{t('settings.machineName')}<input maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} disabled={busy||waiting||uncertain}/></label>}
+   {unsent&&<p className="remote-dialog-status" role="status">{t('settings.remoteNotSent')}</p>}
+   {waiting&&<p className="remote-dialog-status" role="status">{t('settings.remoteAwaitingApproval')}</p>}
+   {uncertain&&<p className="remote-dialog-status" role="status">{t('settings.remoteRequestUnknown')}</p>}
+   {status&&['rejected','expired','revoked'].includes(status)&&<p className="remote-dialog-status">{t(status==='rejected'?'settings.remoteRejected':status==='expired'?'settings.remoteExpired':'settings.remoteRevoked')}</p>}
+   {status==='approved'&&selected?.issue==='worker_not_ready'&&<div className="remote-inline-state"><span>{t('settings.remoteWorkUnavailable')}</span><button type="button" className="text-action" disabled={busy} onClick={()=>void recover()}>{t('settings.remoteRecoverWork')}</button></div>}
+   {error&&<p role="alert" className="remote-dialog-error">{t(problem.key)}</p>}
+   <div className="remote-dialog-footer">{selected&&<button type="button" className="text-action remote-remove" disabled={busy} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}<button type="button" disabled={busy} onClick={onClose}>{t(selected?'common.close':'common.cancel')}</button>{uncertain||waiting?<button key="check-original" type="button" className="primary" disabled={busy} onClick={event=>{event.preventDefault();void check()}}>{t(busy?'settings.remoteChecking':'settings.machineRecheck')}</button>:<button key="send-explicit" type="submit" className="primary" disabled={busy||!draft.address.trim()}>{t(busy?'settings.machineConnecting':initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteSendRequest')}</button>}</div>
   </form>
  </SettingsDialog>;
 }
-export function MachineRequestsDialog({value,call=backend,onClose,onChanged}:{value:WorkerSharing|null;call?:typeof backend;onClose:()=>void;onChanged:()=>Promise<void>}){
+export function MachineRequestsDialog({value,readError=false,call=backend,onClose,onChanged}:{value:WorkerSharing|null;readError?:boolean;call?:typeof backend;onClose:()=>void;onChanged:()=>Promise<void>}){
  const {t}=useI18n();const [busy,setBusy]=useState(''),[error,setError]=useState('');const pending=useRef(false);
- const decide=async(id:string,allow:boolean)=>{if(pending.current)return;pending.current=true;setBusy(id);setError('');try{await call('DecideWorkerPairing',{id,allow});await onChanged()}catch(cause){setError(cause instanceof Error?cause.message:String(cause))}finally{pending.current=false;setBusy('')}};
- const problem=pairingProblem(error);
- return <SettingsDialog title={t('settings.remoteIncoming')} className="remote-requests-dialog" onClose={onClose}>
-  {value?.issue&&<p role="alert" className="inline-error">{t('settings.remoteServiceUnavailable')}</p>}
-  {!value?.requests?.length?<p className="settings-note">{t('settings.remoteNoRequests')}</p>:<><p className="settings-note">{t('settings.remoteRequestDirection')}</p><ul className="remote-request-list">{value.requests.map(request=><li key={request.id}><strong>{request.name||t('settings.botConnectedSource')}</strong><dl><div><dt>{t('settings.remoteSourceAddress')}</dt><dd>{request.address||'—'}</dd></div><div><dt>{t('settings.remoteSourceFingerprint')}</dt><dd><code>{request.fingerprint.match(/.{1,8}/g)?.join(' ')}</code></dd></div></dl><div className="remote-request-actions"><button disabled={!!busy} onClick={()=>void decide(request.id,false)}>{t('settings.remoteDenyRequest')}</button><button className="primary" disabled={!!busy} onClick={()=>void decide(request.id,true)}>{t('settings.remoteAllowRequest')}</button></div></li>)}</ul></>}
-  {value?.address&&<details className="remote-connection-detail"><summary><SettingsChevron/>{t('settings.remoteConnectionDetails')}</summary><p>{value.address}</p></details>}
-  <div className="remote-request-footer"><button type="button" onClick={()=>void onChanged()}>{t('settings.machineRecheck')}</button></div>
-  {error&&<p role="alert" className="inline-error">{t(problem.key)}{problem.settings&&' '+t('settings.pairSettingsPath')}</p>}
+ const decide=async(id:string,allow:boolean)=>{if(pending.current)return;pending.current=true;setBusy(id);setError('');try{await call('DecideWorkerPairing',{id,allow});await onChanged()}catch(cause){setError(cause instanceof Error?cause.message:'unclassified');await onChanged()}finally{pending.current=false;setBusy('')}};
+ const problem=pairingProblem(error),requests=value?.requests?.filter(v=>v.expiresAt*1000>Date.now())||[];
+ const settings=()=>{onClose();requestAnimationFrame(()=>window.dispatchEvent(new CustomEvent('settings-open',{detail:{section:'connections'}})))};
+ return <SettingsDialog title={t('settings.remoteIncoming')} className="remote-requests-dialog" busy={!!busy} onClose={onClose}>
+  {readError||value?.issue?<div className="remote-inline-state" role="status"><span>{t(readError?'settings.remoteInboxUnreadable':incomingProblem(value?.issue||''))}</span><button disabled={!!busy} onClick={()=>void onChanged()}>{t('settings.remoteRetry')}</button></div>:!value?<p className="remote-dialog-status" role="status">{t('settings.remoteLoading')}</p>:!requests.length?<p className="remote-dialog-status">{t('settings.remoteNoRequests')}</p>:<ul className="remote-request-list">{requests.map(request=><li key={request.id}><div className="remote-request-identity"><strong>{request.name||t('settings.botConnectedSource')}</strong><span>{request.address||t('settings.remoteSourceUnknown')}</span></div><p className="remote-request-direction">{t('settings.remoteRequestDirection')}</p><div className="remote-request-fingerprint"><span>{t('settings.remoteSourceFingerprint')}</span><code>{request.fingerprint.match(/.{1,8}/g)?.join(' ')}</code></div><div className="remote-request-actions"><button disabled={!!busy} onClick={()=>void decide(request.id,false)}>{t('settings.remoteDenyRequest')}</button><button className="primary" disabled={!!busy} onClick={()=>void decide(request.id,true)}>{t('settings.remoteAllowRequest')}</button></div></li>)}</ul>}
+  {error&&<div className="remote-dialog-error" role="alert"><p>{t(problem.key)}</p>{problem.settings&&<button className="text-action" onClick={settings}>{t('settings.remoteOpenWorkerSettings')}</button>}</div>}
  </SettingsDialog>;
 }
