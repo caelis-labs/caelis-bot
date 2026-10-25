@@ -807,7 +807,7 @@
   "remoteSourceUnknown": "Source address not provided",
   "remoteChecking": "Checking…",
   "remoteAddressUnreachable": "Could not connect to this address. Check the target Bot’s address and port.",
-  "remoteVersionMismatch": "The other Bot uses an incompatible connection version. Update it on that machine.",
+  "remoteVersionMismatch": "The connection protocol or Worker capabilities are incompatible with this version. Check the other Bot’s version and work-tool status in Settings.",
   "remoteCheckConnection": "This operation could not be confirmed. Check the original connection.",
   "remoteRetry": "Retry",
   "remoteStateVersion": "This version cannot read the existing pairing records.",

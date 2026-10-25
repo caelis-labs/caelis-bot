@@ -806,7 +806,7 @@
   "remoteSourceUnknown": "来源地址未提供",
   "remoteChecking": "检查中…",
   "remoteAddressUnreachable": "未能连接此地址。请核对目标 Bot 的地址和端口。",
-  "remoteVersionMismatch": "对方 Bot 的连接版本不兼容，请在对方机器更新 Bot。",
+  "remoteVersionMismatch": "连接协议或工作工具能力与此版本不兼容。请在对方 Bot 的设置中核对版本和工作工具状态。",
   "remoteCheckConnection": "本次操作未能确认。请检查原连接状态。",
   "remoteRetry": "重试",
   "remoteStateVersion": "此版本无法读取已有的配对记录。",
