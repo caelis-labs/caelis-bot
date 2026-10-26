@@ -141,3 +141,5 @@ reference. Show sending, accepted, rejected or uncertain delivery from the
 original controller; never reconstruct consent from a visible command string.
 Native approval choices and outcomes remain Runtime-owned. A submitted decision
 waits for its original record instead of becoming an optimistic approval.
+
+Remote-machine connections share one settings list. Every row keeps its original direction and authority: outgoing access, an incoming request, or a granted incoming source. A name/address match is not enough to merge identities. Incoming-only state must not render an empty “first machine” prompt. Request decisions show the actual successful result and lead back to the retained grant; failed or unknown results remain explicit. Removing an outgoing connection and revoking incoming access are separately named actions with their effects explained before submission.

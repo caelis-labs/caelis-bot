@@ -31,7 +31,7 @@
  self.timings=[NSMutableArray new];self.autorun=getenv("BOT_SETTINGS_AUTORUN")!=NULL;
  self.chat=[self window:NO];self.settings=[self window:YES];[self.chat makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
  NSMenu *main=[NSMenu new];NSMenuItem *root=[NSMenuItem new];[main addItem:root];NSMenu *menu=[NSMenu new];root.submenu=menu;
- NSArray *titles=@[@"Connections",@"Plugins",@"Slow refresh",@"Fail Codex refresh",@"Native navigation regression",@"Save evidence",@"Quit fixture",@"Chat read failure",@"Recover chat read",@"Unknown send fixture",@"Renderer failure",@"Toggle appearance",@"Narrow settings",@"Wide settings"];
+ NSArray *titles=@[@"Connections",@"Plugins",@"Slow refresh",@"Fail Codex refresh",@"Native navigation regression",@"Save evidence",@"Quit fixture",@"Chat read failure",@"Recover chat read",@"Unknown send fixture",@"Renderer failure",@"Toggle appearance",@"Narrow settings",@"Wide settings",@"Mixed connections",@"Incoming connection only",@"No connections",@"Pending incoming request",@"Connection read failure"];
  for(NSUInteger i=0;i<titles.count;i++){NSMenuItem *item=[menu addItemWithTitle:titles[i] action:@selector(command:) keyEquivalent:@""];item.tag=i;item.target=self;if(i==5)item.keyEquivalent=@"s";}
  NSMenuItem *editRoot=[main addItemWithTitle:@"Edit" action:nil keyEquivalent:@""];NSMenu *edit=[NSMenu new];editRoot.submenu=edit;
  [edit addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
@@ -84,7 +84,7 @@
    if([state isEqual:@"ssh-preview"])script=@"document.querySelector('.remote-ssh-entry').click();setTimeout(()=>document.querySelector('.remote-config-list li button').click(),80)";
    if([state isEqual:@"pending-add"])script=@"document.querySelector('.remote-add').click();setTimeout(()=>{const el=document.querySelector('.remote-bot-dialog input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'192.168.1.25');el.dispatchEvent(new Event('input',{bubbles:true}));},60);setTimeout(()=>document.querySelector('.remote-dialog-footer .primary').click(),120)";
    if([state isEqual:@"add"])script=@"document.querySelector('.remote-add').click()";
-   if([state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"])script=@"document.querySelector('.remote-inbox-action').click()";
+   if([state isEqual:@"incoming"]||[state isEqual:@"approval-recovery"])script=@"document.querySelector('.remote-machine-list .machine-row').click()";
    if([state isEqual:@"unknown"])script=@"document.querySelector('.machine-row').click()";
    [self.settingsWeb evaluateJavaScript:script completionHandler:^(id ignored,NSError *err){
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
@@ -125,6 +125,12 @@
  if([message.body isEqual:@"hide"])[self windowShouldClose:message.webView==self.settingsWeb?self.settings:self.chat];
 }
 - (void)command:(NSMenuItem *)item {
+ if(item.tag>=14&&item.tag<=18){
+  NSArray *states=@[@"machines=list&sources=yes&inbox=pending",@"machines=empty&sources=yes",@"machines=empty",@"machines=empty&inbox=pending",@"machines=error"];
+  NSURLComponents *url=[NSURLComponents componentsWithString:self.url];url.query=[@"surface=settings&section=machines&chrome=native&" stringByAppendingString:states[item.tag-14]];
+  [self.settingsWeb loadRequest:[NSURLRequest requestWithURL:url.URL]];[self.settings makeKeyAndOrderFront:nil];return;
+ }
+
  if(item.tag==11){self.settings.appearance=[NSAppearance appearanceNamed:[self.settings.effectiveAppearance.name isEqual:NSAppearanceNameDarkAqua]?NSAppearanceNameAqua:NSAppearanceNameDarkAqua];return;}
  if(item.tag==12||item.tag==13){[self.settings setContentSize:item.tag==12?NSMakeSize(620,720):NSMakeSize(1040,740)];return;}
  if(item.tag==6){[NSApp terminate:nil];return;}

@@ -34,3 +34,5 @@ body[data-surface=worker-task] #root{height:100dvh}
 .worker-chat-title .settings-select-trigger{font-size:14px;font-weight:600;border:0;background:transparent;padding:0;min-height:28px}
 .worker-chat button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:600px){.worker-chat-heading{padding:10px 14px;gap:8px;min-height:52px}.worker-chat-title{gap:6px;flex-wrap:wrap}.worker-chat-machine{width:100%;margin:0;font-size:10px}.worker-chat-content{padding:16px 14px 24px}.worker-chat-footer{padding:8px 14px;font-size:10px}.worker-chat-notice{padding:8px 14px}.worker-message{font-size:13px;margin-bottom:18px}.worker-message-label .copy-text{opacity:1}}
+/* Long paths must not squeeze command/status columns into single characters. */
+.worker-message .message-table :is(th,td){min-width:7em}

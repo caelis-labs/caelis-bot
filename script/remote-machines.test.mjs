@@ -15,6 +15,12 @@ test('only fresh authorization and native admission show online',()=>{
  assert.equal(remoteMachineStatus({...ready,archived:true},100001),'offline');
  for(const pairingStatus of ['pending','unknown','rejected','expired','revoked'])assert.equal(remoteMachineStatus({...ready,pairingStatus},100001),'authorization');
 });
+test('stale availability keeps its observation meaning without claiming current online status',()=>{
+ const stale={...ready,checkedAt:Date.now()-61000};
+ assert.equal(remoteMachineStatus(stale),'unchecked');
+ assert.equal(remoteMachineLabel(stale),'settings.remoteLastOnline');
+ assert.equal(remoteMachineLabel({...ready,checkedAt:0}),'settings.remoteUnchecked');
+});
 test('IP connection keeps explicit ports, optional port and unsafe inputs visible to host validation',()=>{
  assert.equal(botAddress('100.64.0.2'),'http://100.64.0.2:9317');
  assert.equal(botAddress('100.64.0.2','29317'),'http://100.64.0.2:29317');

@@ -77,7 +77,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectHold){window.fixtureInspectHold=false;await new Promise(resolve=>window.fixtureInspectRelease=resolve);throw Error('late private observation error')}if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
  case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}
- case 'DecideWorkerPairing':if(window.fixturePairingError)throw Error(window.fixturePairingError);sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;
+ case 'DecideWorkerPairing':{if(window.fixturePairingError)throw Error(window.fixturePairingError);const request=sharing.requests.find(v=>v.id===args[0].id);if(request&&args[0].allow)sharing.sources.push({id:'source-for-'+request.id,name:request.name,pairedAt:Math.floor(Date.now()/1000)});sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;}
  case 'RefreshWorkerSharing':case 'WorkerSharing':return structuredClone(sharing);
  case 'RevokeWorkerPeer':sharing.sources=sharing.sources.filter(s=>s.id!==args[0]);return;
  case 'CopyText':window.fixtureCopied=args[0];return;
