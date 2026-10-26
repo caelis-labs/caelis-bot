@@ -865,7 +865,7 @@
   "remoteDone": "完成",
   "sshHostSearch": "搜索或输入 Host 别名",
   "sshUseAlias": "使用“{name}”",
-  "sshSystemConfig": "系统 SSH 配置",
+  "sshSystemConfig": "用户 SSH 配置",
   "sshPreview": "预览",
   "sshEdit": "编辑",
   "sshBack": "返回",

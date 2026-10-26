@@ -866,7 +866,7 @@
   "remoteDone": "Done",
   "sshHostSearch": "Search or enter a Host alias",
   "sshUseAlias": "Use “{name}”",
-  "sshSystemConfig": "System SSH configuration",
+  "sshSystemConfig": "User SSH configuration",
   "sshPreview": "Preview",
   "sshEdit": "Edit",
   "sshBack": "Back",
