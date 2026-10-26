@@ -3,10 +3,12 @@ package tasks
 import (
 	"context"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 func TestOnlyAcknowledgedOriginalInterruptionSuppressesReport(t *testing.T) {
@@ -151,5 +153,40 @@ func TestFailureReportFreezesOriginalTextBeforeDispatch(t *testing.T) {
 	}
 	if err := m.DeliverTaskReport(t.Context()); err != nil || f.reports != 2 {
 		t.Fatal("report replayed", err, f.reports)
+	}
+}
+
+func TestCreationAdmissionRefusalKeepsOriginalUnknown(t *testing.T) {
+	for _, kind := range []string{"capacity", "paused", "native_admission"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newRuntime()
+			m := openFixture(t, t.TempDir(), "codex", f)
+			f.unknownStart = true
+			original, err := m.StartTask(t.Context(), input("original-unknown"))
+			if err == nil || original.Outcome != "unknown" {
+				t.Fatal(original, err)
+			}
+			f.unknownStart = false
+			switch kind {
+			case "capacity":
+				for i := 1; i < 6; i++ {
+					start(t, m, fmt.Sprintf("existing-request-%d", i))
+				}
+			case "paused":
+				m.paused = true
+			case "native_admission":
+				f.admit = errors.New("native admission unavailable")
+			}
+			before := f.starts
+			denied, err := m.StartTask(t.Context(), input("new-admission"))
+			var refusal *api.WorkMessageRejection
+			if !errors.As(err, &refusal) || denied.Outcome != "rejected" || f.starts != before {
+				t.Fatal("pre-dispatch refusal became uncertain", denied, err)
+			}
+			same, err := m.StartTask(t.Context(), input("original-unknown"))
+			if errors.As(err, &refusal) || same.ID != original.ID || same.Outcome != "unknown" || f.starts != before {
+				t.Fatal("admission refusal erased original uncertainty", same, err)
+			}
+		})
 	}
 }

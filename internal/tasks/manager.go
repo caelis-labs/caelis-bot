@@ -483,7 +483,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
+		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	if e := m.refresh(); e != nil {
 		return api.Task{}, e
@@ -532,13 +532,13 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	m.mu.Unlock()
 	used, e := m.admissionUsage(ctx, in.Machine)
 	if e != nil {
-		return api.Task{}, e
+		return m.rejectStartBeforeDispatch(in.RequestID, e)
 	}
 	if used >= m.maximumRunning() {
-		return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
+		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.taskCapacityFull")))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
-		return api.Task{}, e
+		return m.rejectStartBeforeDispatch(in.RequestID, e)
 	}
 	runtime := ""
 	if router, ok := m.work.(api.WorkRouter); ok {
@@ -586,7 +586,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
 	}
 	if m.paused {
-		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
+		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
 	nativeIntent := nativeStart

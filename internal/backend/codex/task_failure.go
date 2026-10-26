@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
