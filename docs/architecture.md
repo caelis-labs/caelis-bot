@@ -1194,7 +1194,8 @@ Closing that window releases its WebView without stopping or continuing work.
 Desktop local cards retain their original native terminal controller, including
 the macOS coordinate-placement path. Web uses the same `WorkerChat`, Markdown,
 artifact components and scroll controller in its task pane. It keeps the Bot
-composer reachable on narrow screens and provides an explicit return to chat.
+composer mounted on narrow screens and reaches it through an explicit return to
+chat. The narrow observer does not display a composer below Worker messages.
 The view initially follows latest messages, retains reading intent across new
 output and resizing, and prepends older rendered rows without moving the current
 text. Questions and approvals remain in the Bot conversation. Tool output and

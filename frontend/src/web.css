@@ -87,16 +87,7 @@ body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
 @media(prefers-reduced-motion:reduce){.task-spinner{animation:quiet-progress 2.4s ease-in-out infinite}}
 .web-task-message{position:relative}
 .web-task-message+.web-task-message::before{content:'';position:absolute;left:0;right:0;top:-13px;border-top:1px solid color-mix(in srgb,var(--muted) 16%,transparent)}
-/* Worker messages share the native window renderer. On a narrow viewport the
-   retained Bot composer stays reachable below the task; Back to chat restores
-   the full conversation without remounting or submitting its draft. */
+/* The narrow task view has one conversation target. Back to chat restores the
+   retained Bot composer and draft; the observer never appears to accept input. */
 .web-task-pane>.worker-chat{flex:1;min-height:0}
-@media(max-width:999px){
- .web-workspace.task-focused.has-tasks{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(104px,24%)}
- .web-workspace.task-focused>.web-task-pane{grid-row:1;grid-column:1;display:flex;min-height:0}
- .web-workspace.task-focused>.web-chat{grid-row:2;grid-column:1;position:relative;inset:auto;visibility:visible;pointer-events:auto;min-height:0;border-top:1px solid var(--line)}
- .web-workspace.task-focused>.web-chat .chat-scroll{display:none}
- .web-workspace.task-focused>.web-chat .history-surface{display:flex;flex-direction:column;justify-content:flex-end;overflow:auto}
- .web-workspace.task-focused>.web-chat .history-surface footer{flex:none;position:static;padding-top:8px}
- .web-workspace.task-focused>.web-chat .web-tools{top:2px}
-}
+.web-task-pane>.worker-chat-empty{padding:0 20px}

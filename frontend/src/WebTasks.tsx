@@ -51,6 +51,6 @@ export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRet
   {tasks.map(t=><option key={t.id} value={t.id} title={t.title}><TaskTitle task={t}/></option>)}
  </SettingsSelect>:<h2><TaskTitle task={shownTask}/></h2>;
  return <aside className="web-task-pane" aria-label={t('chat.taskPanel')}>
-  {id?<WorkerChat active={active} id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p>}
+  {id?<WorkerChat active={active} id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<><div className="worker-chat-heading"><div className="worker-chat-title"><h2>{t('chat.taskPanel')}</h2></div><button className="worker-chat-close" onClick={onClose}>{t('chat.taskBackToChat')}</button></div><p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p></>}
  </aside>;
 }

@@ -52,6 +52,11 @@ export function WebApp({client}:{client:WebClient}){
   else{window.dispatchEvent(new Event('settings-close'));window.dispatchEvent(new CustomEvent('history-open',{detail:{preservePosition:true}}));}
  },[nav]);
  useEffect(()=>{
+  if(!taskOpen||settingsOpen)return;
+  const frame=requestAnimationFrame(()=>workspace.current?.querySelector<HTMLElement>('.web-task-pane .worker-chat-close')?.focus({preventScroll:true}));
+  return()=>cancelAnimationFrame(frame);
+ },[taskOpen,settingsOpen]);
+ useEffect(()=>{
   if(!settingsOpen)return;
   const prior=document.activeElement as HTMLElement|null;
   if(workspace.current)workspace.current.inert=true;
