@@ -285,7 +285,6 @@
   "taskUpdateUnavailable": "Updates are temporarily unavailable. Received messages are kept here.",
   "taskEarlier": "Load earlier messages",
   "taskLatest": "Back to latest",
-  "taskReadonly": "Read only · Questions and approvals in Bot",
   "taskDismiss": "Dismiss",
   "taskBackToChat": "Back to chat",
   "taskLastStatus": "Last known:"

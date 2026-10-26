@@ -285,7 +285,6 @@
   "taskUpdateUnavailable": "更新暂不可用，已接收的消息保留在此。",
   "taskEarlier": "加载更早消息",
   "taskLatest": "回到最新",
-  "taskReadonly": "只读 · 问题和审批请回 Bot",
   "taskDismiss": "收起",
   "taskBackToChat": "返回聊天",
   "taskLastStatus": "上次状态："

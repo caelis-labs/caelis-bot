@@ -78,13 +78,6 @@ body{overflow:hidden;background:var(--caelis-window,#f6f6f8)}
 .settings-select-menu-compact .settings-select-options>button{min-height:34px;padding:6px 8px;font-size:13px;border:0;border-radius:6px;gap:8px}
 .settings-select-menu-compact .settings-select-options>button[aria-checked=true]{background:var(--wash);box-shadow:none}
 .settings-select-menu-compact .settings-select-options>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.web-task-title{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}
-.web-task-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.web-task-state{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;color:var(--muted)}
-.web-task-state.failed{color:var(--error)}
-.web-task-heading .web-task-state svg{transform:none}
-.task-spinner{width:13px;height:13px;border:1.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:activity-spin .9s linear infinite}
-@media(prefers-reduced-motion:reduce){.task-spinner{animation:quiet-progress 2.4s ease-in-out infinite}}
 .web-task-message{position:relative}
 .web-task-message+.web-task-message::before{content:'';position:absolute;left:0;right:0;top:-13px;border-top:1px solid color-mix(in srgb,var(--muted) 16%,transparent)}
 /* The narrow task view has one conversation target. Back to chat restores the

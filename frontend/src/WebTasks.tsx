@@ -1,9 +1,4 @@
 import {useEffect,useRef,useState} from 'react';
-import {CheckCircleIcon} from '@phosphor-icons/react/dist/csr/CheckCircle';
-import {XCircleIcon} from '@phosphor-icons/react/dist/csr/XCircle';
-import {ClockIcon} from '@phosphor-icons/react/dist/csr/Clock';
-import {QuestionIcon} from '@phosphor-icons/react/dist/csr/Question';
-import {PauseCircleIcon} from '@phosphor-icons/react/dist/csr/PauseCircle';
 import {useWorkerOutput} from './WorkerOutput';
 import {WorkerChat} from './WorkerChat';
 import {SettingsSelect} from './SettingsSelect';
@@ -11,14 +6,6 @@ import {useI18n} from './i18n';
 import type {WebClient} from './web-transport';
 
 export type WebTask={id:string;title:string;status:string;machineName?:string;createdAt?:string};
-
-function TaskTitle({task}:{task?:WebTask}) {
- const {t}=useI18n(),status=task?.status??'unknown';
- const running=['running','working'].includes(status),done=status==='completed',failed=status==='failed',stopped=['cancelled','interrupted','stopped'].includes(status),approval=['approval','waiting_approval','awaiting_approval'].includes(status),idle=['idle','queued','pending'].includes(status);
- const label=t(running?'native.taskRunning':done?'native.taskFinished':failed?'native.taskFailed':stopped?'native.taskInterrupted':approval?'native.taskApproval':idle?'native.taskIdle':'native.taskUnknown');
- const Icon=done?CheckCircleIcon:failed?XCircleIcon:stopped?PauseCircleIcon:approval||idle?ClockIcon:QuestionIcon;
- return <span className="web-task-title"><span className={`web-task-state${running?' running':''}${failed?' failed':''}`} role="img" aria-label={label} title={label}>{running?<span className="task-spinner"/>:<Icon size={16} aria-hidden="true"/>}</span><span className="web-task-title-text">{task?.title||t('chat.taskTitle')}</span></span>;
-}
 
 // Observe the original task owner only. No terminal, start, send or report-ack
 // endpoint participates in this surface.
@@ -48,8 +35,8 @@ export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRet
  const output=useWorkerOutput(id,active,client.taskConversation,client.taskObservation,task?.status);
  const shownTask=output.observation?.task??task;
  const heading=tasks.length>1?<SettingsSelect compact centered={false} aria-label={t('chat.taskChoose')} value={id} onChange={e=>onSelect(e.target.value)}>
-  {tasks.map(t=><option key={t.id} value={t.id} title={t.title}><TaskTitle task={t}/></option>)}
- </SettingsSelect>:<h2><TaskTitle task={shownTask}/></h2>;
+  {tasks.map(t=><option key={t.id} value={t.id} title={t.title}>{t.title}</option>)}
+ </SettingsSelect>:undefined;
  return <aside className="web-task-pane" aria-label={t('chat.taskPanel')}>
   {id?<WorkerChat active={active} id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<><div className="worker-chat-heading"><div className="worker-chat-title"><h2>{t('chat.taskPanel')}</h2></div><button className="worker-chat-close" onClick={onClose}>{t('chat.taskBackToChat')}</button></div><p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p></>}
  </aside>;
