@@ -110,3 +110,65 @@ func TestAsyncInputAndUnknownFieldHaveAccurateDurableDisplay(t *testing.T) {
 		t.Fatal("unknown field value entered durable IM")
 	}
 }
+
+type resolvingAnswerOwner struct {
+	*answerReceiptOwner
+	reads int
+}
+
+func (w *resolvingAnswerOwner) ReadWorkOperation(_ context.Context, q api.WorkOperationQuery) (api.WorkOperation, error) {
+	w.reads++
+	return api.WorkOperation{WorkOperationQuery: q, Outcome: "accepted"}, nil
+}
+
+func TestOriginalOwnerProofSettlesAnswersAndReleasesAttemptBudget(t *testing.T) {
+	e := newTestEngine()
+	a, root := fixtureApp(t, e, Host{})
+	base := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	owner := &resolvingAnswerOwner{answerReceiptOwner: &answerReceiptOwner{workerFixture: base, err: errors.New("synthetic lost answer receipt")}}
+	pool := workPool(root, "codex", map[string]*workerFixture{"codex": base})
+	pool.resident = owner
+	wireTestWorkers(t, a, pool)
+	manager, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", pool, owner, a.Backend.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.tasks = manager
+	a.configureInteractionLifecycle(manager)
+	work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "reconcile-start", Title: "Synthetic", Prompt: "Original", Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 12; n++ {
+		item := api.Item{ID: fmt.Sprint("receipt-source-", n), TurnKey: "original-turn", Kind: "assistant", AsyncCallID: fmt.Sprint("receipt-call-", n), AsyncQuestions: []api.AsyncQuestion{{Title: "Synthetic?", Options: []string{"One", "Two"}}}}
+		state := base.states[work.ID]
+		state.AsyncQuestions = []api.Item{item}
+		base.states[work.ID] = state
+		a.observeWorkerQuestions(t.Context())
+		var q api.WorkerQuestion
+		for _, candidate := range a.WorkerQuestions() {
+			if candidate.State == "" {
+				q = candidate
+				break
+			}
+		}
+		if q.ID == "" {
+			t.Fatal("source not actionable")
+		}
+		_, err := a.AnswerWorkerQuestion(t.Context(), q.ID+"@"+q.Binding, "2", fmt.Sprint("original-operation-", n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(owner.requestIDs) != n+1 {
+			t.Fatal("answer was duplicated")
+		}
+		a.observeWorkerQuestions(t.Context())
+		a.observeWorkerQuestions(t.Context())
+		if len(a.textControl.AsyncAnswerReceipts()) != 0 || len(a.questionReceiptAttempts) != 0 {
+			t.Fatal("settled answer retained receipt/attempt entry")
+		}
+	}
+	if owner.reads != 12 || len(owner.requestIDs) != 12 {
+		t.Fatal("reconciliation replayed native input or omitted original receipt", owner.reads)
+	}
+}

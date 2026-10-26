@@ -9,8 +9,8 @@ separate from temporary presentation.
 | Tool | Check and resulting boundary | Verification |
 | --- | --- | --- |
 | `bot_delegate` | Original prompt and invocation-derived receipt are retained. Unknown dispatch reconciles the same receipt. Host-validated original question answers no longer require a live resident turn; ordinary continuation and new task creation still do. The Codex lifetime limit of 100 prompt receipts was removed; original digests/outcomes stay retained for replay protection. | Native protocol start, active steer, idle continuation, 200 historical receipts, duplicate suppression; existing delegation/attachment tests. |
-| `bot_tasks` | Summary pages have a byte budget as well as a count limit; follow `nextOffset`. Message pages retain their existing excerpts; exact message and observation reads now have lossless JSON chunks. Environments and SSH configuration can also be chunked. File bytes use checked local copies, not model JSON. Stop/pin return compact facts. | Output/read tests, native task history and original-request reconciliation suites. |
-| `bot_interactions` | Only pending or unresolved originals appear in todo pages. Closed records remain ID-readable while retained. Large approvals/questions already have exact chunked reads. Typed mutation overflow now retains the original ID/status/outcome instead of losing its receipt. Answer errors record a local reason class and fingerprint, never answer text or raw errors. | Interaction pagination/Unicode/changed-cursor tests, answer receipt/race/expiry tests, idle-resident answer regression. |
+| `bot_tasks` | Summary pages have a byte budget as well as a count limit; follow `nextOffset`. Message pages retain their existing excerpts; exact message and observation reads now have lossless JSON chunks. Environments and SSH configuration can also be chunked. File bytes use checked local copies, not model JSON. Stop/pin return compact facts. Explicit finish uses a terminal/idle observation token and closes temporary task questions without a native stop. | Output/read tests, native task history and original-request reconciliation suites. |
+| `bot_interactions` | Only actionable pending originals appear in todo pages; delivery receipts are read separately. Closed records remain ID-readable while retained. Large approvals/questions already have exact chunked reads. Typed mutation overflow now retains the original ID/status/outcome instead of losing its receipt. Answer errors record a local reason class and fingerprint, never answer text or raw errors. | Interaction pagination/Unicode/changed-cursor tests, answer receipt/race/expiry tests, idle-resident answer regression. |
 | `bot_schedule` | Calendar lists omit full prompts; exact `calendar:<id>` reads recover them. Event and arrangement history now pages by count and bytes. Large definition, occurrence and source reads have executable chunk cursors instead of permanent `model_output_budget` errors. | Summary/history and exact calendar/event output tests; existing schedule retention tests. |
 | `bot_schedule_update` | Compact receipts preserve IDs and timing. The event engine already bounds active arrangements, lifetimes and terminal history and preserves unknown receipts. Calendar's explicit 32 saved-definition limit has an existing exact `remove` operation; definitions and unknown wake receipts are not silently deleted or resubmitted. | Existing grant, retention, cancellation and no-replay tests. |
 | `bot_event` | Registration returns compact handles/schema; does not execute. Large original definitions now have lossless reads. Existing immutable IDs, archive/revocation, orphan retirement and retained unknown occurrence rules remain. | Original event read regression and event-plan suites. |
@@ -27,11 +27,12 @@ pre-#222 catalog is frozen separately before adding read cursors.
 Question expiry/dismissal stays in TextChannel. The obsolete closure delivery
 queue no longer generates Worker traffic. Legacy Codex closure context is ignored
 and disappears from its binding at the next normal atomic save; existing host
-report IDs stay intact. Complete terminal payloads in recycled question generations
-are retained for at most 128 generations/seven days, then reduced to binding,
-outcome and receipt tombstones. Existing IM cards keep their original wording. Native Worker question observation payloads also leave their fixed 24-hour cache, retaining a digest to reject replay. That original deadline travels through peer observations into the Host card; late first observation cannot extend it. Original unknown input receipts remain available.
-Pending, dispatching and unknown originals are preserved. Anti-replay tombstones
-and native task history are necessary evidence and are not treated as active todos.
+report IDs stay intact. Settled and uncertain control payloads are removed immediately,
+including the current short-number copy. Necessary uncertain receipts are independent
+of actionable todos and reconcile only through their exact original owner operation.
+Closed indexes, native question caches, approval drafts and feedback now have explicit
+bounds and fixed-source admission fences; see the [v0.18.3 follow-up](design/interaction-lifecycle-followup.md)
+for the exact limits, migration evidence and explicit task `finish` boundary.
 
 New peer handshake IDs include an immutable five-minute deadline. Closed/expired
 requests leave the inbox; expired timed records are removed during registry

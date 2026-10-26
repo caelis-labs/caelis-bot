@@ -145,7 +145,7 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 	run := ""
 	for _, turn := range response.Thread.Turns {
 		if task := s.taskByThread(id); task != nil {
-			s.observeTaskTurn(task, turn)
+			s.observeTaskTurn(task, turn, true)
 		}
 		if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] && !s.supersededTaskRun(id, turn.ID) {
 			active = true

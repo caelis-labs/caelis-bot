@@ -109,14 +109,21 @@ func (w *localWorkers) ReadWorkFile(ctx context.Context, id, ref string) (api.Wo
 }
 
 func (a *Application) workerStates() []api.WorkState {
+	var states []api.WorkState
 	if a.machines != nil {
-		return a.machines.WorkStates()
+		states = a.machines.WorkStates()
+	} else if a.localWork != nil {
+		states = a.localWork.WorkStates()
 	}
-	if a.localWork != nil {
-		return a.localWork.WorkStates()
+	a.mu.Lock()
+	manager := a.tasks
+	a.mu.Unlock()
+	if manager != nil {
+		states = manager.InteractionStates(states)
 	}
-	return nil
+	return states
 }
+
 func (a *Application) retainedWorkerApprovals() []api.Approval {
 	if a.machines != nil {
 		v, _ := a.machines.RetainedApprovalState()

@@ -218,7 +218,7 @@ func (s *Session) settleCapacityStopLocked(key, threadID string, turn nativeTurn
 		return
 	}
 	if task := s.binding.Tasks[key[len("task:"):]]; task != nil && task.Thread == threadID {
-		s.observeTaskTurn(task, turn)
+		s.observeTaskTurn(task, turn, true)
 		task.StopPendingStatus = turn.Status
 	}
 }

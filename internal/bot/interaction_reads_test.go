@@ -56,7 +56,7 @@ func TestInteractionReadsRemainBoundedWithoutDiscardingOriginals(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != 55 || !seen["unknown-original"] || !seen["large-original"] {
+	if len(seen) != 54 || seen["unknown-original"] || !seen["large-original"] {
 		t.Fatal("lost original pending or unknown", len(seen))
 	}
 	// All original fields survive JSON paging, including Unicode and exact offers.
@@ -104,19 +104,15 @@ func TestInteractionCursorCannotMixChangedNativeRequest(t *testing.T) {
 	}
 }
 
-func TestInteractionOnlyExplicitTerminalStatesLeaveTodo(t *testing.T) {
-	for _, state := range []string{"", "pending", "sent", "sending", "dispatching", "unknown"} {
+func TestInteractionTodoExcludesReceiptReconciliation(t *testing.T) {
+	for _, state := range []string{"", "pending", "sent", "sending", "dispatching", "unknown", "resolved", "answered", "expired", "dismissed", "superseded"} {
 		f := &retainedInteractionFixture{approvals: []api.Approval{{ID: "original", Status: state}}, questions: []api.WorkerQuestion{{ID: "Q1", State: state}}}
 		data := interactionPage(f, map[string]any{}).StructuredContent["data"].(map[string]any)
-		if len(data["approvals"].([]api.Approval)) != 1 || len(data["questions"].([]api.WorkerQuestion)) != 1 {
-			t.Fatalf("uncertain state %q pruned", state)
+		if (len(data["approvals"].([]api.Approval)) == 1) != (state == "pending") || (len(data["questions"].([]api.WorkerQuestion)) == 1) != (state == "") {
+			t.Fatalf("nonactionable receipt flooded todo: %s", state)
 		}
-	}
-	for _, state := range []string{"resolved", "answered", "expired", "dismissed", "superseded"} {
-		f := &retainedInteractionFixture{approvals: []api.Approval{{ID: "old", Status: state}}, questions: []api.WorkerQuestion{{ID: "Q1", State: state}}}
-		data := interactionPage(f, map[string]any{}).StructuredContent["data"].(map[string]any)
-		if data["total"] != 0 {
-			t.Fatalf("terminal %q flooded todo", state)
+		if readInteraction(f, map[string]any{"kind": "question", "id": "Q1"}).IsError {
+			t.Fatal("receipt became unreadable")
 		}
 	}
 }

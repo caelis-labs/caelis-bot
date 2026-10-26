@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
+	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
@@ -16,6 +18,7 @@ import (
 // ordinary chat only when it needs more information.
 func (a *Application) observeWorkerQuestions(ctx context.Context) {
 	a.observeWorkerApprovalNotice(ctx, a.allApprovalSnapshot())
+	a.reconcileAnswerReceipt(ctx)
 	states := a.workerStates()
 	for _, state := range states {
 		for _, item := range state.AsyncQuestions {
@@ -64,7 +67,7 @@ func (a *Application) WorkerQuestions() []api.WorkerQuestion {
 		if !activeItems[q.ItemID] && q.State != "unknown" && q.State != "dispatching" {
 			continue
 		}
-		out = append(out, api.WorkerQuestion{ID: q.ShortID, TaskID: q.WorkID, TaskTitle: titles[q.WorkID], Title: q.Title, Options: q.Options, State: q.State, Reason: q.Reason, ExpiresAt: q.ExpiresAt})
+		out = append(out, api.WorkerQuestion{ID: q.ShortID, Binding: q.Binding, OperationID: q.OperationID, TaskID: q.WorkID, TaskTitle: titles[q.WorkID], Title: q.Title, Options: q.Options, State: q.State, Reason: q.Reason, ExpiresAt: q.ExpiresAt})
 	}
 	return out
 }
@@ -73,8 +76,9 @@ func (a *Application) AnswerWorkerQuestion(ctx context.Context, shortID, value, 
 	if len(requestID) < 8 || len(requestID) > 128 || shortID == "" || value == "" {
 		return api.Receipt{ID: requestID, Outcome: "rejected", Message: "question, answer, and stable request ID required"}, nil
 	}
+	id, binding, _ := strings.Cut(shortID, "@")
 	for _, q := range a.WorkerQuestions() {
-		if q.ID == shortID {
+		if q.ID == id && binding != "" && binding == q.Binding {
 			return a.textControl.HandleBotWorkAnswer(ctx, requestID, shortID, value), nil
 		}
 	}
@@ -96,8 +100,7 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			if manager == nil {
 				return api.Receipt{ID: in.ID, Outcome: "rejected", Message: "Worker 管理器未就绪。"}, nil
 			}
-			sum := sha256.Sum256([]byte(in.Channel + "\x00" + in.Conversation + "\x00" + in.ID + "\x00" + workID + "\x00" + itemID))
-			requestID := fmt.Sprintf("worker-answer-%x", sum[:])
+			requestID := textchannel.WorkerAnswerRequestID(in, workID, itemID)
 			// This reply has no file transfer. Keep a slow peer inside the
 			// existing Worker admission budget, not the general Web lifetime.
 			if state.Task.Machine != "" {
@@ -165,4 +168,59 @@ func (w *localWorkers) ReceiveQuestionClosure(ctx context.Context, in api.Questi
 		return errors.New("original owner cannot retain question closure")
 	}
 	return receiver.ReceiveQuestionClosure(ctx, in)
+}
+
+// Finish is a host persistence boundary. Register the freshly inspected source
+// items before closing them, so a fast continuation cannot skip their closure.
+func (a *Application) reconcileFinishedQuestions(state api.WorkState) error {
+	for _, item := range state.AsyncQuestions {
+		if _, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID); err != nil {
+			return err
+		}
+	}
+	return a.textControl.ReconcileAsync(api.Snapshot{}, []api.WorkState{state})
+}
+
+func (a *Application) configureInteractionLifecycle(manager *tasks.Manager) {
+	manager.SetFinishedObserver(a.reconcileFinishedQuestions)
+	manager.SetOperationObserver(func(v api.WorkOperation) error {
+		return a.textControl.SettleAsyncOperation(v.TaskID, v.RequestID, v.Outcome)
+	})
+}
+
+// At most one original receipt read per host tick, three attempts per operation
+// in this process. Failed reads remain unknown; no answer/input is replayed.
+func (a *Application) reconcileAnswerReceipt(ctx context.Context) {
+	receipts := a.textControl.AsyncAnswerReceipts()
+	live := map[string]bool{}
+	for _, q := range receipts {
+		live[q.WorkID+"\x00"+q.OperationID] = true
+	}
+	a.mu.Lock()
+	for key := range a.questionReceiptAttempts {
+		if !live[key] {
+			delete(a.questionReceiptAttempts, key)
+		}
+	}
+	a.mu.Unlock()
+	for _, q := range receipts {
+		key := q.WorkID + "\x00" + q.OperationID
+		a.mu.Lock()
+		manager := a.tasks
+		if a.questionReceiptAttempts == nil {
+			a.questionReceiptAttempts = map[string]int{}
+		}
+		attempts := a.questionReceiptAttempts[key]
+		if manager != nil && attempts < 3 {
+			a.questionReceiptAttempts[key] = attempts + 1
+		}
+		a.mu.Unlock()
+		if manager == nil || attempts >= 3 {
+			continue
+		}
+		bounded, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+		_, _ = manager.ReconcileTaskRequest(bounded, q.WorkID, q.OperationID)
+		cancel()
+		return
+	}
 }

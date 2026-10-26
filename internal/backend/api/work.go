@@ -81,7 +81,8 @@ const WorkActivityOwnerUnavailable = "owner_unavailable"
 type WorkState struct {
 	// TaskEnded is an explicit task-level termination fact. A completed native
 	// turn or final_answer is not sufficient: asynchronous input may still be due.
-	// Adapters without this contract leave it false and preserve bounded questions.
+	// The product Manager overlays its explicit, generation-fenced finish receipt;
+	// native adapters alone leave it false and preserve bounded questions.
 	TaskEnded bool
 	// TurnKey identifies the current native turn; completion of a turn that asked
 	// a question is a yield, not proof that the user task no longer needs input.
@@ -165,14 +166,16 @@ type WorkerInteractionPort interface {
 }
 
 type WorkerQuestion struct {
-	Reason    string   `json:"reason,omitempty"`
-	ExpiresAt int64    `json:"expiresAt,omitempty"`
-	ID        string   `json:"id"`
-	TaskID    string   `json:"taskId"`
-	TaskTitle string   `json:"taskTitle"`
-	Title     string   `json:"title"`
-	Options   []string `json:"options,omitempty"`
-	State     string   `json:"state,omitempty"`
+	Binding     string   `json:"binding"`
+	OperationID string   `json:"operationId,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	ExpiresAt   int64    `json:"expiresAt,omitempty"`
+	ID          string   `json:"id"`
+	TaskID      string   `json:"taskId"`
+	TaskTitle   string   `json:"taskTitle"`
+	Title       string   `json:"title"`
+	Options     []string `json:"options,omitempty"`
+	State       string   `json:"state,omitempty"`
 }
 
 // BackgroundRuntime keeps timer provenance separate from actual user messages.

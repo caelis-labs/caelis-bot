@@ -3,7 +3,6 @@ package textchannel
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -42,10 +41,26 @@ func (s *Store) closeAsyncLocked(id string, q asyncQuestion, state, reason strin
 func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, closed := maps.Clone(s.state.AsyncQuestions), maps.Clone(s.state.AsyncClosed)
-	changed := false
+	previous := s.state
+	s.state = cloneMaintenanceState(s.state)
+	changed := s.compactClosedQuestionCopies()
 	for id, q := range s.state.AsyncQuestions {
-		if q.State != "" {
+		if q.State == "unknown" && q.WorkID == "" && snapshot.RuntimeOwner == q.Owner && snapshot.LastReceipt.ID == q.ReplyID {
+			if snapshot.LastReceipt.Outcome == "accepted" {
+				q.State = "answered"
+				q.ClosedAt = time.Now().Unix()
+				s.state.AsyncClosed[asyncKey(q)] = q
+				changed = true
+			} else if snapshot.LastReceipt.Outcome == "rejected" {
+				q = s.rejectedAsyncLocked(q)
+				if q.State != "" {
+					s.state.AsyncClosed[asyncKey(q)] = q
+				}
+				changed = true
+			}
+			s.state.AsyncQuestions[id] = q
+		}
+		if q.State != "" && q.State != "unknown" && q.State != "dispatching" {
 			continue
 		}
 		state, reason := "", ""
@@ -59,7 +74,7 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 			if q.WorkID == "" || w.Task.ID != q.WorkID || w.Runtime != q.Owner {
 				continue
 			}
-			if q.TaskTitle != w.Task.Title {
+			if q.State == "" && q.TaskTitle != w.Task.Title {
 				q.TaskTitle = w.Task.Title
 				s.state.AsyncQuestions[id] = q
 				changed = true
@@ -74,13 +89,21 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 			}
 		}
 		if state != "" {
-			s.closeAsyncLocked(id, q, state, reason)
-			changed = true
+			if q.State == "unknown" || q.State == "dispatching" {
+				if q.ClosedAt == 0 {
+					q.Reason, q.ClosedAt = reason, time.Now().Unix()
+					s.state.AsyncQuestions[id] = q
+					changed = true
+				}
+			} else {
+				s.closeAsyncLocked(id, q, state, reason)
+				changed = true
+			}
 		}
 	}
 	if changed {
 		if err := s.save(); err != nil {
-			s.state.AsyncQuestions, s.state.AsyncClosed = previous, closed
+			s.state = previous
 			return err
 		}
 	}
@@ -230,48 +253,78 @@ func validateQuestionPresentation(p api.QuestionPresentation, title string, opti
 	return nil
 }
 
-// Closed generations need binding/receipt/closure tombstones, not a second copy
-// of a large display payload. Keep one original wherever historical cards still
-// need it; never prune native history or uncertain dispatch evidence.
+// Terminal display data belongs to the IM transcript, not the control ledger.
+// Uncertain dispatches retain only exact original bindings/receipts, never prose.
+const asyncHistoryLimit = 4096
+
+func compactQuestion(q asyncQuestion) asyncQuestion {
+	q.Title, q.Options, q.Presentation, q.TaskTitle = "", nil, nil, ""
+	return q
+}
 func (s *Store) compactClosedQuestionCopies() bool {
 	changed := false
-	history := []string{}
-	for key, q := range s.state.AsyncClosed {
-		if !closedAsync(q.State) && q.State != "answered" {
-			continue
-		}
-		current, ok := s.state.AsyncQuestions[q.ShortID]
-		if !ok || current.Fingerprint != q.Fingerprint || current.Index != q.Index {
-			history = append(history, key)
-		}
+	if s.state.AsyncReceipts == nil {
+		s.state.AsyncReceipts = map[string]asyncQuestion{}
 	}
-	slices.SortFunc(history, func(a, b string) int {
-		x, y := s.state.AsyncClosed[a], s.state.AsyncClosed[b]
-		if x.ClosedAt != y.ClosedAt {
-			if x.ClosedAt > y.ClosedAt {
-				return -1
+	for id, q := range s.state.AsyncQuestions {
+		if q.State != "unknown" && q.State != "dispatching" {
+			if _, ok := s.state.AsyncReceipts[asyncKey(q)]; ok {
+				delete(s.state.AsyncReceipts, asyncKey(q))
+				changed = true
 			}
-			return 1
 		}
-		return strings.Compare(a, b)
-	})
-	recent := map[string]bool{}
-	for _, key := range history[:min(128, len(history))] {
-		q := s.state.AsyncClosed[key]
-		if q.ClosedAt > time.Now().Add(-shortIDMaxAge).Unix() {
-			recent[key] = true
+		if q.State == "" {
+			continue
+		}
+		compact := compactQuestion(q)
+		if q.State == "unknown" || q.State == "dispatching" {
+			s.state.AsyncReceipts[asyncKey(q)] = compact
+		}
+		if q.Title != "" || len(q.Options) != 0 || q.Presentation != nil || q.TaskTitle != "" {
+			s.state.AsyncQuestions[id] = compact
+			changed = true
 		}
 	}
 	for key, q := range s.state.AsyncClosed {
-		if !closedAsync(q.State) && q.State != "answered" {
+		if q.State == "unknown" || q.State == "dispatching" {
+			s.state.AsyncReceipts[key] = compactQuestion(q)
+			delete(s.state.AsyncClosed, key)
+			changed = true
 			continue
 		}
-		if recent[key] {
+		if asyncExpired(q) {
+			delete(s.state.AsyncClosed, key)
+			changed = true
 			continue
 		}
 		if q.Title != "" || len(q.Options) != 0 || q.Presentation != nil || q.TaskTitle != "" {
-			q.Title, q.Options, q.Presentation, q.TaskTitle = "", nil, nil, ""
-			s.state.AsyncClosed[key] = q
+			s.state.AsyncClosed[key] = compactQuestion(q)
+			changed = true
+		}
+	}
+	referenced := map[string]string{}
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for _, q := range records {
+			referenced[q.ItemID] = q.Fingerprint
+		}
+	}
+	for id := range s.state.AsyncActive {
+		if _, ok := referenced[id]; !ok {
+			delete(s.state.AsyncActive, id)
+			changed = true
+		}
+	}
+	needed := map[string]bool{}
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for _, q := range records {
+			if current := s.state.AsyncActive[q.ItemID]; current != "" && current != q.Fingerprint {
+				needed[q.Fingerprint] = true
+			}
+		}
+	}
+	for fp := range s.state.AsyncRetired {
+		if !needed[fp] {
+			delete(s.state.AsyncRetired, fp)
 			changed = true
 		}
 	}

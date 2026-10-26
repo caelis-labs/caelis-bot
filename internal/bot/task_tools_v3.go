@@ -299,7 +299,7 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		if err != nil {
 			return compactError("original_owner_unavailable", err)
 		}
-		data := map[string]any{"task": v.State.Task, "items": v.Items}
+		data := map[string]any{"task": v.State.Task, "items": v.Items, "finishToken": api.TaskFinishToken(v.State)}
 		// Adapter counters may advance on a read with identical native facts.
 		// Page the content revision; keep the observer counter outside chunks.
 		data["revision"] = interactionFingerprint(data)
@@ -335,6 +335,16 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 			ref = native.ID
 		}
 		return compactValue(map[string]any{"ok": true, "data": map[string]any{"artifact": api.Artifact{ID: api.TaskArtifactID(id, ref), Name: v.Name}, "bytes": len(v.Data)}}, false)
+	case "finish":
+		p, ok := provider.(api.TaskFinisher)
+		if !ok {
+			return compactError("unavailable", errors.New("task finish unavailable"))
+		}
+		task, err := p.FinishTask(bounded, str(q, "task"), str(q, "token"))
+		if err != nil {
+			return compactError("task_finish_unconfirmed", err)
+		}
+		return compactValue(map[string]any{"ok": true, "data": taskReceipt(task)}, false)
 	case "stop":
 		task, err := provider.StopTask(bounded, str(q, "task"))
 		if err != nil {

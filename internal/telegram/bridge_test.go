@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -1927,5 +1928,74 @@ func TestInputFeedbackUsesOneMirroredLocalNotice(t *testing.T) {
 	b.sendInputFeedback(t.Context(), client, 10, "input", "different")
 	if len(local) != 1 || len(client.texts) != 1 || client.texts[0] != "Runtime 暂不可用" || local[0].Text != client.texts[0] {
 		t.Fatalf("feedback was not mirrored exactly once: local=%v sent=%v", local, client.texts)
+	}
+}
+
+func TestRetiredSecretCardReplyIsPrivateAfterCacheCollectionAndRestart(t *testing.T) {
+	root := t.TempDir()
+	decisions, submits := 0, 0
+	decide := func(context.Context, api.Decision) error { decisions++; return nil }
+	control, err := textchannel.Open(root, decide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := api.Approval{ID: "original-secret", Owner: "task", TurnKey: "original-turn", Status: "pending", Questions: []api.Question{{ID: "secret-field", Type: "text", Required: true, Secret: true}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}})
+	paired(b)
+	b.mirror(t.Context(), c, snapshot)
+	ids := b.state.Messages["approval:"+a.ID].IDs
+	if len(ids) != 1 {
+		t.Fatal("secret card was not sent")
+	}
+	// Use the real sent card and real on-disk schema. Age its display cache, then
+	// exceed the bound with synthetic historical cards. No credential/account used.
+	path := filepath.Join(root, "text-channel-control.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	cards := doc["Cards"].(map[string]any)
+	for key, value := range cards {
+		card := value.(map[string]any)
+		card["issuedAt"] = time.Now().Add(-8 * 24 * time.Hour).Unix()
+		cards[key] = card
+	}
+	for n := 0; n < 5000; n++ {
+		cards[fmt.Sprint("synthetic-card-", n)] = map[string]any{"NativeID": "synthetic", "ShortID": "Q999", "Secret": true, "issuedAt": time.Now().Add(-8 * 24 * time.Hour).Unix()}
+	}
+	raw, _ = json.Marshal(doc)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	control, err = textchannel.Open(root, decide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.host.TextControl = control
+	const sentinel = "SYNTHETIC_PRIVATE_REPLY_MUST_NOT_PERSIST"
+	u := message(50001, 10, 20, sentinel)
+	u.Message.ReplyToMessage = &tg.Message{MessageID: ids[0], Chat: tg.Chat{ID: 10, Type: "private"}}
+	b.mu.Lock()
+	b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(u))
+	err = b.saveLocked()
+	b.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := os.ReadFile(b.path)
+	if strings.Contains(string(saved), sentinel) || b.state.Ingress[len(b.state.Ingress)-1].Message.Text != "" {
+		t.Fatal("retired secret quote entered durable ingress")
+	}
+	b.input(t.Context(), c, u)
+	if decisions != 0 || submits != 0 {
+		t.Fatal("retired privacy marker became authority")
 	}
 }

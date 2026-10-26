@@ -24,8 +24,9 @@ import (
 )
 
 type binding struct {
-	ToolLayout int               `json:"toolLayout,omitempty"`
-	Artifacts  map[string]string `json:"artifacts,omitempty"`
+	AsyncAdmission asyncAdmission    `json:"asyncAdmission,omitempty"`
+	ToolLayout     int               `json:"toolLayout,omitempty"`
+	Artifacts      map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
 	OwnerEndpoint string                `json:"ownerEndpoint,omitempty"`
@@ -1186,6 +1187,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 				s.binding.Scheduled[in.ID] = response.Turn.ID
 			}
 			s.lastTurn = response.Turn.ID
+			s.binding.AsyncAdmission.begin(response.Turn.ID)
 			s.applyTurn(threadID, response.Turn, false)
 		}
 		s.binding.Pending = nil

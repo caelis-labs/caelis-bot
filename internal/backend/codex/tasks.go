@@ -19,6 +19,7 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
+	AsyncAdmission    asyncAdmission                 `json:"asyncAdmission,omitempty"`
 	Owner             string                         `json:"owner,omitempty"`
 	Build             string                         `json:"build,omitempty"`
 	StartRequest      string                         `json:"startRequest,omitempty"`
@@ -52,6 +53,7 @@ type taskRecord struct {
 	StopPendingStatus  string `json:"stopPendingStatus,omitempty"` // authoritative original native terminal status
 }
 type workerAsyncQuestion struct {
+	Admitted   bool                `json:"admitted,omitempty"`
 	ObservedAt int64               `json:"observedAt,omitempty"`
 	Digest     string              `json:"digest,omitempty"` // Payload tombstone; native transcript stays authoritative.
 	Run        string              `json:"run"`
@@ -75,7 +77,8 @@ func compactWorkerQuestions(t *taskRecord) {
 			q.Digest = opaque(string(payload))
 		}
 		if time.Since(time.Unix(q.ObservedAt, 0)) >= 24*time.Hour {
-			q.Questions = nil
+			delete(t.AsyncQuestions, key)
+			continue
 		}
 		t.AsyncQuestions[key] = q
 	}
@@ -92,10 +95,18 @@ func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) 
 		}
 		questions = append(questions, api.AsyncQuestion{Title: q.Title, Options: append([]string(nil), q.Options...)})
 	}
+	if t.AsyncAdmission.expiry(run) <= time.Now().Unix() {
+		// Legacy registered payloads remain readable with their original deadline.
+		return false
+	}
 	if t.AsyncQuestions == nil {
 		t.AsyncQuestions = map[string]workerAsyncQuestion{}
 	}
+	compactWorkerQuestions(t)
 	key := opaque(run, item.ID)
+	if _, exists := t.AsyncQuestions[key]; !exists && len(t.AsyncQuestions) >= 4096 {
+		return false
+	}
 	payload, _ := json.Marshal(questions)
 	fingerprint := opaque(string(payload))
 	if old, ok := t.AsyncQuestions[key]; ok && old.Run == run && old.CallID == item.ID {
@@ -106,7 +117,7 @@ func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) 
 			return false
 		}
 	}
-	t.AsyncQuestions[key] = workerAsyncQuestion{Run: run, CallID: item.ID, Questions: questions, ObservedAt: time.Now().Unix(), Digest: fingerprint}
+	t.AsyncQuestions[key] = workerAsyncQuestion{Admitted: true, Run: run, CallID: item.ID, Questions: questions, ObservedAt: min(time.Now().Unix(), t.AsyncAdmission.Deadline-int64(24*time.Hour/time.Second)), Digest: fingerprint}
 	return true
 }
 
@@ -218,7 +229,9 @@ func (s *Session) workStatesLocked() []api.WorkState {
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
 			expiry := int64(0)
-			if question.ObservedAt > 0 {
+			if !question.Admitted {
+				expiry = -1
+			} else if question.ObservedAt > 0 {
 				expiry = question.ObservedAt + int64(24*time.Hour/time.Second)
 			}
 			state.AsyncQuestions = append(state.AsyncQuestions, api.Item{ID: "worker-question:" + opaque(t.Thread, key), TurnKey: opaque(t.Thread, question.Run), Kind: "assistant", Status: "completed", AsyncCallID: question.CallID, AsyncExpiresAt: expiry, AsyncQuestions: append([]api.AsyncQuestion(nil), question.Questions...)})
@@ -682,6 +695,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		// Notifications may have already completed this turn or started a later
 		// human turn. A delayed RPC receipt must not rewind that live state.
 		if t.Run == "" || t.Run == turn.ID || slices.Contains(t.SupersededRuns, t.Run) {
+			t.AsyncAdmission.begin(turn.ID)
 			s.observeTaskTurn(t, turn)
 			if status := s.childTerminalStatus[opaque(t.Thread, turn.ID)]; status != "" && t.Run == turn.ID && !terminal(t.View.Status) {
 				s.observeTaskTurn(t, nativeTurn{ID: turn.ID, Status: status})
@@ -733,7 +747,10 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	}
 	return t.View, err
 }
-func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool) {
+func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...bool) (changed bool) {
+	if len(history) == 0 && turn.Status == "inProgress" && turn.ID != "" && !slices.Contains(t.SupersededRuns, turn.ID) && (t.Run == "" || t.Run == turn.ID || turn.Status == "inProgress") {
+		changed = t.AsyncAdmission.begin(turn.ID) || changed
+	}
 	view, pending, run, report, reportState := t.View, t.Pending, t.Run, t.ReportID, t.ReportState
 	defer func() {
 		changed = changed || view != t.View || pending != t.Pending || run != t.Run || report != t.ReportID || reportState != t.ReportState
@@ -898,7 +915,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return s.taskView(t), ErrProtocol
 	}
 	for _, turn := range thread.Turns {
-		s.observeTaskTurn(t, turn)
+		s.observeTaskTurn(t, turn, true)
 	}
 	// Activity releases capacity independently of unknown submission receipts.
 	// Reading never resumes a thread, even if it is active or user-cancelled.

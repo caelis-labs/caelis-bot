@@ -26,7 +26,7 @@ type asyncQuestion struct {
 	WorkID                                             string
 	Options                                            []string
 	Index                                              int
-	State, ReplyID                                     string // empty=pending; dispatching/answered/unknown or terminal closure
+	State, ReplyID, OperationID                        string // empty=pending; dispatching/answered/unknown or terminal closure
 	ShortID, TaskTitle, Reason                         string
 	ExpiresAt, ClosedAt                                int64
 	Presented, Notified                                bool
@@ -46,10 +46,10 @@ type AsyncButtonQuestion struct {
 }
 
 type WorkerAsyncQuestion struct {
-	ShortID, ItemID, WorkID, Title, State string
-	Options                               []string
-	Reason                                string
-	ExpiresAt                             int64
+	ShortID, ItemID, WorkID, Title, State, Binding, OperationID string
+	Options                                                     []string
+	Reason                                                      string
+	ExpiresAt                                                   int64
 }
 
 func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
@@ -57,10 +57,10 @@ func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
 	defer s.mu.Unlock()
 	out := []WorkerAsyncQuestion{}
 	for id, q := range s.state.AsyncQuestions {
-		if q.WorkID == "" || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
+		if q.WorkID == "" || q.State == "" && q.Title == "" || s.state.AsyncActive[q.ItemID] != q.Fingerprint && q.State != "unknown" && q.State != "dispatching" {
 			continue
 		}
-		out = append(out, WorkerAsyncQuestion{ShortID: id, ItemID: q.ItemID, WorkID: q.WorkID, Title: q.Title, State: q.State, Options: append([]string(nil), q.Options...), Reason: q.Reason, ExpiresAt: q.ExpiresAt})
+		out = append(out, WorkerAsyncQuestion{ShortID: id, Binding: q.Fingerprint, OperationID: q.OperationID, ItemID: q.ItemID, WorkID: q.WorkID, Title: q.Title, State: q.State, Options: append([]string(nil), q.Options...), Reason: q.Reason, ExpiresAt: q.ExpiresAt})
 	}
 	slices.SortFunc(out, func(a, b WorkerAsyncQuestion) int { return strings.Compare(a.ShortID, b.ShortID) })
 	return out
@@ -69,13 +69,14 @@ func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
 // Bot tools enter through the same durable controller without posing as an
 // inbound owner message. The native Worker and original item still gate dispatch.
 func (s *Store) HandleBotWorkAnswer(ctx context.Context, requestID, shortID, value string) api.Receipt {
+	shortID, binding, _ := strings.Cut(shortID, "@")
 	s.mu.Lock()
 	q := s.state.AsyncQuestions[shortID]
 	s.mu.Unlock()
 	if q.WorkID == "" {
 		return api.Receipt{ID: requestID, Outcome: "rejected", Message: "Worker question unavailable"}
 	}
-	in := Inbound{Channel: "bot", Conversation: "resident", ID: requestID, Text: "/answer " + shortID + " " + value, observed: true}
+	in := Inbound{expectedQuestionBinding: binding, Channel: "bot", Conversation: "resident", ID: requestID, Text: "/answer " + shortID + " " + value, observed: true}
 	feedback := s.Handle(ctx, in, api.Snapshot{})
 	s.mu.Lock()
 	state := s.state.AsyncQuestions[shortID].State
@@ -200,6 +201,19 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		s.state.AsyncRetired = previousRetired
 		s.state.Prompts, s.state.NextQuestion = previousPrompts, previousNext
 	}
+	knownSource := false
+	for _, records := range []map[string]asyncQuestion{s.state.AsyncQuestions, s.state.AsyncClosed} {
+		for _, q := range records {
+			if q.Fingerprint == fingerprint {
+				knownSource = true
+				break
+			}
+		}
+	}
+	if !knownSource && (item.AsyncExpiresAt < 0 || item.AsyncExpiresAt > 0 && item.AsyncExpiresAt <= time.Now().Unix()) {
+		s.mu.Unlock()
+		return api.Item{}, nil
+	}
 	previousActive, hadActive := s.state.AsyncActive[item.ID]
 	if hadActive && previousActive != fingerprint {
 		if s.state.AsyncRetired[fingerprint] {
@@ -224,16 +238,31 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 			return item, nil
 		}
 	}
+	payloadChanged := false
 	for index, q := range item.AsyncQuestions {
 		_, found := s.state.AsyncClosed[fmt.Sprintf("%s:%d", fingerprint, index)]
 		for _, old := range s.state.AsyncQuestions {
 			if old.ItemID == item.ID && old.Index == index && old.Fingerprint == fingerprint {
+				if old.State == "" && old.Title == "" {
+					old.Title = q.Title
+					old.Options = append([]string(nil), q.Options...)
+					s.state.AsyncQuestions[old.ShortID] = old
+					payloadChanged = true
+				}
 				found = true
 				break
 			}
 		}
 		if found || hadActive && previousActive == fingerprint {
 			continue
+		}
+		if item.AsyncExpiresAt < 0 || item.AsyncExpiresAt > 0 && item.AsyncExpiresAt <= time.Now().Unix() {
+			continue // historical/expired unknown source cannot acquire a new lifetime
+		}
+		if len(s.state.AsyncClosed) >= asyncHistoryLimit {
+			rollback()
+			s.mu.Unlock()
+			return api.Item{}, errors.New("temporary question capacity reached; no question was registered")
 		}
 		id, _, err := s.nextShortIDLocked("Q")
 		if err != nil {
@@ -281,7 +310,7 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		}
 	}
 	s.state.AsyncActive[item.ID] = fingerprint
-	if deadlineChanged || len(created) > 0 || !hadActive || previousActive != fingerprint {
+	if payloadChanged || deadlineChanged || len(created) > 0 || !hadActive || previousActive != fingerprint {
 		if err := s.save(); err != nil {
 			rollback()
 			if hadActive {
@@ -424,7 +453,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		s.mu.Unlock()
 		return s.reply(key, feedback)
 	}
-	if q.WorkID == "" && answer == nil || q.WorkID != "" && answerWork == nil {
+	if q.Title == "" || q.WorkID == "" && answer == nil || q.WorkID != "" && answerWork == nil {
 		s.mu.Unlock()
 		return s.reply(key, "当前入口暂不能提交这条回答。")
 	}
@@ -469,6 +498,9 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		return s.reply(key, "问题已处理或已变化，请查看最新消息。")
 	}
 	current.State, current.ReplyID = "dispatching", in.ID
+	if current.WorkID != "" {
+		current.OperationID = WorkerAnswerRequestID(in, current.WorkID, current.ItemID)
+	}
 	s.state.AsyncQuestions[id] = current
 	if err := s.save(); err != nil {
 		current.State, current.ReplyID = "", ""
@@ -495,18 +527,19 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		current.ClosedAt = time.Now().Unix()
 		feedback = "回答已提交，等待后续回复。"
 	} else if receipt.Outcome == "rejected" || errors.Is(err, api.ErrRecoveryPending) {
-		current.State, current.ReplyID = "", ""
+		current = s.rejectedAsyncLocked(current)
+		current.Title, current.Options, current.Presentation, current.TaskTitle = q.Title, q.Options, q.Presentation, q.TaskTitle
 		feedback = "回答未提交。" + receipt.Message + " 可用同一问题编号重新回答。"
 	} else {
 		current.State = "unknown"
 	}
-	if current.State == "" && s.state.AsyncRetired[current.Fingerprint] {
-		current.State, current.Reason, current.ClosedAt = "superseded", "question_replaced", time.Now().Unix()
-		feedback = "问题已失效，未提供答案。"
-	} else if current.State == "" && asyncExpired(current) {
-		current.State, current.Reason, current.ClosedAt = "expired", "deadline", time.Now().Unix()
-		feedback = "问题编号已过期，请查看最新问题。"
+	if closedAsync(current.State) {
+		feedback = "问题已关闭，未提供答案。"
+		if current.Reason == "deadline" {
+			feedback = "问题编号已过期，请查看最新问题。"
+		}
 	}
+
 	s.state.AsyncQuestions[id] = current
 	if current.State == "answered" || closedAsync(current.State) || s.state.AsyncRetired[current.Fingerprint] {
 		s.state.AsyncClosed[asyncKey(current)] = current
@@ -536,6 +569,9 @@ func (s *Store) asyncUpdateLocked(q asyncQuestion) api.Item {
 	fingerprint := s.state.AsyncActive[q.ItemID]
 	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextForLocked(q.ItemID, fingerprint, q.WorkID != "")}
 	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, fingerprint) {
+		if question.Title == "" && question.Fingerprint == q.Fingerprint && question.ShortID == q.ShortID {
+			question.Title, question.Options, question.TaskTitle = q.Title, q.Options, q.TaskTitle
+		}
 		if q.WorkID == "" || question.Presented {
 			updated.QuestionCards = append(updated.QuestionCards, questionCard(question))
 		}
@@ -564,4 +600,11 @@ func (s *Store) expireAnswerLocked(id, key string, q asyncQuestion) string {
 		observer(updated)
 	}
 	return s.reply(key, "问题编号已过期，请查看最新问题。")
+}
+
+// WorkerAnswerRequestID is the original native operation identity, shared with
+// the minimal answer receipt before dispatch. No answer text enters the digest.
+func WorkerAnswerRequestID(in Inbound, workID, itemID string) string {
+	sum := sha256.Sum256([]byte(in.Channel + "\x00" + in.Conversation + "\x00" + in.ID + "\x00" + workID + "\x00" + itemID))
+	return fmt.Sprintf("worker-answer-%x", sum[:])
 }
