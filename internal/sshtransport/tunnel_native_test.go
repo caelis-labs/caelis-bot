@@ -265,7 +265,7 @@ func TestExistingHostReadonlyBotIdentity(t *testing.T) {
 	}
 	var identity struct {
 		Peer     string `json:"peer"`
-		Contract string `json:"contract"`
+		Contract int    `json:"contract"`
 	}
 	if err = json.NewDecoder(response.Body).Decode(&identity); err != nil || identity.Peer == "" {
 		t.Fatal("Bot identity was not readable", err)
