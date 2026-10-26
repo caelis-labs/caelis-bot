@@ -37,12 +37,14 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 		}
 		refs[ref] = true
 	}
-	for _, item := range l.dirty {
-		if item.RequestID != "" {
-			submissions[item.RequestID] = true
-		}
-		for _, artifact := range item.Artifacts {
-			addArtifact(artifact.ID)
+	for _, unflushed := range []map[string]api.Item{l.dirty, l.pendingInputs} {
+		for _, item := range unflushed {
+			if item.RequestID != "" {
+				submissions[item.RequestID] = true
+			}
+			for _, artifact := range item.Artifacts {
+				addArtifact(artifact.ID)
+			}
 		}
 	}
 	finish := func(err error) (workerfiles.Protection, error) {

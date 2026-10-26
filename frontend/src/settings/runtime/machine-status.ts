@@ -17,5 +17,5 @@ export function remoteMachineLabel(machine:Machine):MessageKey {
  const pairing:Record<string,MessageKey>={pending:'settings.remotePending',unknown:'settings.remoteUnconfirmed',rejected:'settings.remoteRejected',expired:'settings.remoteExpired',revoked:'settings.remoteRevoked'};
  if(Object.hasOwn(pairing,machine.pairingStatus))return pairing[machine.pairingStatus];
  const state=remoteMachineStatus(machine);
- return state==='online'?'settings.remoteOnline':state==='authorization'?'settings.remoteNeedsAuthorization':state==='setup'?'settings.remoteNeedsSetup':state==='unchecked'?'settings.remoteUnchecked':'settings.remoteOffline';
+ return state==='online'?'settings.remoteOnline':state==='authorization'?'settings.remoteNeedsAuthorization':state==='setup'?'settings.remoteNeedsSetup':state==='unchecked'?(machine.state==='ready'&&machine.checkedAt?'settings.remoteLastOnline':'settings.remoteUnchecked'):'settings.remoteOffline';
 }

@@ -21,6 +21,7 @@ import (
 // server requests. Their replies enter the same Bot conversation as a new user
 // submission, with the exact question item identity supplied to the model.
 type asyncQuestion struct {
+	RejectedReplyID                                    string                    `json:"rejectedReplyId,omitempty"`
 	Presentation                                       *api.QuestionPresentation `json:"presentation,omitempty"`
 	ItemID, TurnKey, CallID, Owner, Fingerprint, Title string
 	WorkID                                             string
@@ -37,6 +38,7 @@ type asyncQuestion struct {
 // question. The short ID and fingerprint are stable for this item generation;
 // transports still submit through Handle for owner and receipt checks.
 type AsyncButtonQuestion struct {
+	RejectedReplyID                    string
 	Presented                          bool
 	Presentation                       *api.QuestionPresentation
 	ShortID, Title, Fingerprint, State string
@@ -96,7 +98,10 @@ func (s *Store) HandleDesktopQuestion(ctx context.Context, requestID, shortID, b
 	if binding == "" {
 		return "这条问题卡片已失效，请使用最新卡片。"
 	}
-	return s.Handle(ctx, Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value, expectedQuestionBinding: binding}, snapshot)
+	if err := s.RecordOrigin(requestID, Origin{Channel: "desktop", Conversation: "local"}); err != nil {
+		return "本地记录不可用，回答未提交；请重试。"
+	}
+	return s.Handle(ctx, Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value, expectedQuestionBinding: binding, observed: true}, snapshot)
 }
 
 func (s *Store) AsyncButtonItemIDs() []string {
@@ -135,6 +140,18 @@ func (s *Store) SetAsyncWorkAnswerer(answer func(context.Context, Inbound, strin
 func (s *Store) SetAsyncUpdateObserver(observer func(api.Item)) {
 	s.mu.Lock()
 	s.onAsyncUpdate = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) SetQuestionReplyOutcomeObserver(observer func(string, string, string)) {
+	s.mu.Lock()
+	s.onQuestionReplyOutcome = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) SetQuestionReplyObserver(observer func(api.Item)) {
+	s.mu.Lock()
+	s.onQuestionReply = observer
 	s.mu.Unlock()
 }
 
@@ -336,7 +353,7 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	item.QuestionCards = nil
 	for _, entry := range entries {
 		q := entry.Question
-		item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{ShortID: entry.ID, Fingerprint: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented}))
+		item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{RejectedReplyID: q.RejectedReplyID, ShortID: entry.ID, Fingerprint: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented}))
 	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
@@ -347,7 +364,7 @@ func (s *Store) asyncButtonQuestionsLocked(itemID, fingerprint string) []AsyncBu
 	var result []AsyncButtonQuestion
 	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
 		q := entry.Question
-		result = append(result, AsyncButtonQuestion{ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...), TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented})
+		result = append(result, AsyncButtonQuestion{RejectedReplyID: q.RejectedReplyID, ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...), TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented})
 	}
 	return result
 }
@@ -511,6 +528,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	s.mu.Unlock()
 	var receipt api.Receipt
 	var err error
+	s.observeQuestionReply(in, q, chosen, "sending")
 	if q.WorkID != "" {
 		receipt, err = answerWork(ctx, in, q.WorkID, q.Owner, q.ItemID, modelInput)
 	} else {
@@ -558,11 +576,34 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	}
 	updated := s.asyncUpdateLocked(q)
 	observer := s.onAsyncUpdate
+	outcome := "unknown"
+	switch s.state.AsyncQuestions[id].State {
+	case "answered":
+		outcome = "accepted"
+	case "", "dismissed", "expired", "superseded":
+		outcome = "rejected"
+	}
 	s.mu.Unlock()
+	s.observeQuestionReply(in, q, chosen, outcome)
 	if observer != nil {
 		observer(updated)
 	}
 	return s.reply(key, feedback)
+}
+
+// Only the controller that validated the original question can publish this
+// display copy. Keep the command/model envelope unchanged for IM and Runtime.
+func (s *Store) observeQuestionReply(in Inbound, q asyncQuestion, answer, outcome string) {
+	if in.Channel == "bot" {
+		return
+	}
+	s.mu.Lock()
+	observer := s.onQuestionReply
+	s.mu.Unlock()
+	if observer != nil {
+		observer(api.Item{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: answer, Status: outcome,
+			QuestionReply: &api.QuestionReply{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Answer: answer, Outcome: outcome}})
+	}
 }
 
 func (s *Store) asyncUpdateLocked(q asyncQuestion) api.Item {

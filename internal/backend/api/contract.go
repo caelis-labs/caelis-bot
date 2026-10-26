@@ -115,6 +115,8 @@ type Item struct {
 	// QuestionCards are safe display handles for an already registered async
 	// question. Native call IDs and model envelopes remain host-only.
 	QuestionCards []QuestionCard `json:"questionCards,omitempty"`
+	// QuestionReply is a receipt-backed display copy, never a decision target.
+	QuestionReply *QuestionReply `json:"questionReply,omitempty"`
 	// Native async call metadata is host-only. QuestionCards carry only the
 	// presentation-safe short references registered by the shared controller.
 	AsyncCallID    string          `json:"-"`
@@ -138,15 +140,24 @@ type QuestionPresentation struct {
 }
 
 type QuestionCard struct {
-	Context   string   `json:"context,omitempty"`
-	TaskTitle string   `json:"taskTitle,omitempty"`
-	ExpiresAt int64    `json:"expiresAt,omitempty"`
-	Reason    string   `json:"reason,omitempty"`
-	ShortID   string   `json:"shortId"`
-	Binding   string   `json:"binding"`
-	Title     string   `json:"title"`
-	Options   []string `json:"options"`
-	State     string   `json:"state"`
+	RejectedReplyID string   `json:"rejectedReplyId,omitempty"`
+	Context         string   `json:"context,omitempty"`
+	TaskTitle       string   `json:"taskTitle,omitempty"`
+	ExpiresAt       int64    `json:"expiresAt,omitempty"`
+	Reason          string   `json:"reason,omitempty"`
+	ShortID         string   `json:"shortId"`
+	Binding         string   `json:"binding"`
+	Title           string   `json:"title"`
+	Options         []string `json:"options"`
+	State           string   `json:"state"`
+}
+
+type QuestionReply struct {
+	ShortID string `json:"shortId"`
+	Binding string `json:"binding"`
+	Title   string `json:"title"`
+	Answer  string `json:"answer"`
+	Outcome string `json:"outcome"` // sending, accepted, rejected, unknown
 }
 
 type AsyncQuestion struct {
@@ -353,6 +364,12 @@ type Decision struct {
 type DecisionValidationError struct{ Message string }
 
 func (e DecisionValidationError) Error() string { return e.Message }
+
+// Wails preserves this structured cause. Never classify an uncertain transport
+// error by its human-readable message.
+func (e DecisionValidationError) MarshalJSON() ([]byte, error) {
+	return []byte(`{"code":"decision_not_dispatched"}`), nil
+}
 
 // InputFile is host-only. UI supplies opaque IDs resolved by the native selector.
 type InputFile struct{ Name, Path string }

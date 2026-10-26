@@ -1,4 +1,5 @@
 import type {Item,TaskConversation, WorkerTaskObservation} from './backend/contract';
+import {historyCoversObservation} from './worker-messages.ts';
 
 export const workerTerminal=new Set(['completed','failed','cancelled','interrupted','stopped']);
 
@@ -12,10 +13,13 @@ export function normalizeWorkerObservation(value:WorkerTaskObservation,previous?
 // This is a bounded presentation cache, not an event log or execution fact.
 // History replaces an observed message only through its exact native key.
 export function retainWorkerOutput(previous:Item[],current:Item[],history?:TaskConversation):Item[] {
- const read=new Set((history?.messages??[]).map(message=>message.id));
+ const read=new Map((history?.messages??[]).map(message=>[message.id,message]));
  const merged=new Map<string,Item>();
  for(const item of [...previous,...current]){
-  if(item.historyId&&read.has(item.historyId)){merged.delete(item.id);continue;}
+  const final=item.historyId?read.get(item.historyId):undefined;
+  const filesCovered=!(item.artifacts??[]).some(file=>!final?.artifacts?.some(stored=>stored.id===file.id));
+  if(final&&filesCovered&&historyCoversObservation(final.text,item.text)){merged.delete(item.id);continue;}
+  if(final&&filesCovered&&item.status!=='inProgress'&&!item.text.startsWith(final.text)){merged.delete(item.id);continue;}
   merged.set(item.id,item);
  }
  let bytes=0;
@@ -40,43 +44,43 @@ export function createWorkerOutputReader(io:{
  history:(value:TaskConversation)=>void;
  observationFailed:(failed:boolean)=>void;
  historyFailed:(failed:boolean)=>void;
+ initialObservation?:WorkerTaskObservation;
+ initialHistory?:TaskConversation;
  now?:()=>number;
 }) {
- let live=true,reading=false,historySettled=false,lastHistory=-Infinity,completedRevision='',status='';
- let previous:WorkerTaskObservation|undefined;
- let lastTranscript:TaskConversation|undefined;
- const read=async()=>{
-  if(!live||reading)return;
-  reading=true;
-  try {
-   const now=(io.now??Date.now)(),historyDue=!historySettled&&now-lastHistory>=2500;
-   if(historyDue)lastHistory=now;
-   // Capture synchronous host refusals as read failures as well as rejections.
-   const [observed,history]=await Promise.allSettled([
-    Promise.resolve().then(()=>io.readObservation(io.id)),
-    historyDue?Promise.resolve().then(()=>io.readHistory(io.id)):Promise.resolve(undefined),
-   ]);
+ let live=true,observing=false,readingHistory=false,historySettled=false,lastHistory=-Infinity,completedRevision='',status='';
+ let previous=io.initialObservation,lastTranscript=io.initialHistory;
+ const observe=async()=>{
+  if(!live||observing)return;
+  observing=true;
+  try{
+   const value=await io.readObservation(io.id);
    if(!live)return;
-   if(historyDue&&history.status==='fulfilled'&&history.value&&Array.isArray(history.value.messages))lastTranscript=history.value;
-   if(observed.status==='fulfilled'){
-    try {
-     const next=normalizeWorkerObservation(observed.value,previous);
-     next.items=retainWorkerOutput(previous?.items??[],next.items,lastTranscript);
-     const completed=JSON.stringify(next.items.filter(item=>item.status==='completed').map(item=>[item.id,item.text,item.artifacts]));
-     if(completedRevision&&completedRevision!==completed)historySettled=false;
-     completedRevision=completed;
-     if(status&&status!==next.task.status)historySettled=false;
-     status=next.task.status;previous=next;
-     io.observation(next);io.observationFailed(false);
-    }catch{io.observationFailed(true)}
-   }else io.observationFailed(true);
-   if(historyDue){
-    if(history.status==='fulfilled'&&history.value&&Array.isArray(history.value.messages)){
-     io.history(history.value);io.historyFailed(false);
-     historySettled=workerTerminal.has(history.value.status)&&(!status||workerTerminal.has(status));
-    }else io.historyFailed(true);
-   }
-  }finally{reading=false}
+   const next=normalizeWorkerObservation(value,previous);
+   if(next.task.id!==io.id)throw new Error('worker_observation_identity_changed');
+   next.items=retainWorkerOutput(previous?.items??[],next.items,lastTranscript);
+   const completed=JSON.stringify(next.items.filter(item=>['user','assistant'].includes(item.kind)&&item.status==='completed').map(item=>[item.id,item.text,item.artifacts]));
+   if(completedRevision&&completedRevision!==completed)historySettled=false;
+   completedRevision=completed;
+   if(!workerTerminal.has(next.task.status)||status!==next.task.status)historySettled=false;
+   status=next.task.status;previous=next;
+   io.observation(next);io.observationFailed(false);
+  }catch{if(live)io.observationFailed(true)}finally{observing=false}
  };
- return {read,close:()=>{live=false}};
+ const history=async()=>{
+  const now=(io.now??Date.now)();
+  if(!live||readingHistory||historySettled||now-lastHistory<2500)return;
+  readingHistory=true;lastHistory=now;
+  try{
+   const value=await io.readHistory(io.id);
+   if(!live)return;
+   if(!value||!Array.isArray(value.messages))throw new Error('worker_history_unavailable');
+   lastTranscript=value;
+   io.history(value);io.historyFailed(false);
+   historySettled=workerTerminal.has(value.status)&&workerTerminal.has(status);
+  }catch{if(live)io.historyFailed(true)}finally{readingHistory=false}
+ };
+ // History can traverse several native pages. It must not hold live updates
+ // behind that read, and neither channel may overlap its own previous request.
+ return {read:async()=>{await Promise.all([observe(),history()])},close:()=>{live=false}};
 }

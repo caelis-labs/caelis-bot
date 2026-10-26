@@ -20,6 +20,8 @@ export function pairingProblem(value:string) {
 
 export function connectionProblem(value:string){
  const keys={
+  duplicate_bot_name:'settings.machineIdentifierDuplicate',
+  invalid_bot_name:'settings.machineIdentifierInvalid',
   bot_connection_target_unconfirmed:'settings.remoteTargetUnconfirmed',
   pairing_requests_full:'settings.remoteRequestsFull',
   bot_peer_unreachable:'settings.remoteAddressUnreachable',

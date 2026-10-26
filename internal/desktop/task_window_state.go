@@ -17,6 +17,12 @@ type taskWindowController interface {
 	CancelAll()
 }
 
+func (s *Service) taskSurfaceActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started && !s.stopped
+}
+
 func (s *Service) taskWindowAllowed(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

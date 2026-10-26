@@ -175,3 +175,61 @@ func TestWorkerConversationAcceptsExactPageCursorsAndRejectsMismatchedSSEID(t *t
 		})
 	}
 }
+
+func TestWorkerConversationDeduplicatesNativeProjections(t *testing.T) {
+	first := workerHistoryMessage("native-event", "turn", "agent_message_chunk", "first ", false)
+	last := workerHistoryMessage("native-event", "turn", "agent_message_chunk", "second", true)
+	for _, message := range []*wire.Envelope{&first, &last} {
+		var update map[string]any
+		_ = json.Unmarshal(*message.Update, &update)
+		update["messageId"] = "same-native-message"
+		data, _ := json.Marshal(update)
+		message.Update = pointer(json.RawMessage(data))
+	}
+	first.ProjectionId = pointer("projection-a")
+	last.ProjectionId = pointer("projection-b")
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		workerHistoryFrames(w, []wire.Envelope{first, first, last, last}, "")
+	})
+	s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.SessionBinding{SessionId: "work"}}
+	rows, err := s.ReadWorkConversation(t.Context(), "task")
+	if err != nil || len(rows) != 1 || rows[0].Text != "first second" {
+		t.Fatal("native projection replay changed message bytes", rows, err)
+	}
+}
+
+func TestWorkerConversationRejectsSplitTurnsAndChangedOwner(t *testing.T) {
+	for _, mode := range []string{"split-turn", "generation", "session", "instance"} {
+		t.Run(mode, func(t *testing.T) {
+			var s *Session
+			s = fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if mode == "split-turn" {
+					if r.URL.Query().Get("history_before") == "" {
+						workerHistoryFrames(w, []wire.Envelope{workerHistoryMessage("tail", "turn", "agent_message_chunk", "suffix", true)}, "older")
+					} else {
+						workerHistoryFrames(w, []wire.Envelope{workerHistoryMessage("head", "turn", "agent_message_chunk", "prefix", false)}, "")
+					}
+					return
+				}
+				s.mu.Lock()
+				switch mode {
+				case "generation":
+					s.generation++
+				case "instance":
+					s.state.InstanceID = "changed-instance"
+				case "session":
+					record := s.state.Workers["task"]
+					record.Binding.SessionId = "changed-session"
+					s.state.Workers["task"] = record
+				}
+				s.mu.Unlock()
+				workerHistoryFrames(w, []wire.Envelope{workerHistoryMessage("native", "turn", "agent_message_chunk", "original owner output", true)}, "")
+			})
+			s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.SessionBinding{SessionId: "work"}}
+			rows, err := s.ReadWorkConversation(t.Context(), "task")
+			if err == nil || rows != nil {
+				t.Fatal("unsafe native history became a partial success", rows, err)
+			}
+		})
+	}
+}

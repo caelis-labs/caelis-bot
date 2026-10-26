@@ -197,3 +197,10 @@ test('pending introduction uses the normal working animation before connection i
  assert.equal(chatActivity({...running,connection:'connecting',phase:'idle',introductionPending:true}),'thinking');
  assert.equal(chatActivity({...running,connection:'disconnected',introductionPending:false}),null);
 });
+
+import {decisionNotDispatched} from '../frontend/src/approval-presentation.ts';
+test('only structured owning-boundary rejection unlocks an approval',()=>{
+ assert.equal(decisionNotDispatched({code:'operation_rejected'}),true);
+ assert.equal(decisionNotDispatched({cause:{code:'decision_not_dispatched'}}),true);
+ for(const error of [new Error('decision_not_dispatched'),{code:'operation_unconfirmed'},{cause:{Message:'required'}},null])assert.equal(decisionNotDispatched(error),false);
+});

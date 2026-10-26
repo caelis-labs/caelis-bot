@@ -27,7 +27,17 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var replies []struct{ request, binding, outcome string }
+	observer := s.onQuestionReplyOutcome
+	committed := false
+	defer func() {
+		s.mu.Unlock()
+		if committed && observer != nil {
+			for _, reply := range replies {
+				observer(reply.request, reply.binding, reply.outcome)
+			}
+		}
+	}()
 	previous := s.state
 	s.state = cloneMaintenanceState(s.state)
 	changed := false
@@ -35,6 +45,7 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 		if q.WorkID != work || q.OperationID != operation || q.State != "unknown" {
 			continue
 		}
+		replies = append(replies, struct{ request, binding, outcome string }{q.ReplyID, q.Fingerprint, outcome})
 		if outcome == "accepted" {
 			q.State = "answered"
 			q.ClosedAt = time.Now().Unix()
@@ -53,6 +64,7 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 			return err
 		}
 	}
+	committed = true
 	return nil
 }
 
@@ -79,6 +91,7 @@ func (s *Store) migrateAnswerReceipt(q asyncQuestion) asyncQuestion {
 // Rejection proves no answer effect, but cannot undo a prior local task/owner
 // closure. All three receipt paths use the same presentation boundary.
 func (s *Store) rejectedAsyncLocked(q asyncQuestion) asyncQuestion {
+	q.RejectedReplyID = q.ReplyID
 	q.State, q.ReplyID, q.OperationID = "", "", ""
 	switch {
 	case q.ClosedAt > 0 && q.Reason != "":

@@ -62,8 +62,13 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		if next.Peer.Token == "" {
 			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "original_peer_proof_required"}
 		}
-		if name == "" {
+		if name == "" || name == machineView(old).Name {
 			name = old.View.Name
+		} else {
+			if !s.labelAvailableLocked(id, name) {
+				return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "duplicate_bot_name"}
+			}
+			next.Label, next.LabelPending = name, false
 		}
 		next.View.Name = name
 		if address != old.Peer.Address && old.Peer.Peer == "" {
@@ -80,6 +85,16 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 			next.PairingEpoch = workerpeer.NewPairingID()
 			next.View.PairingStatus = "unknown"
 		}
+	}
+	if !exists {
+		label := strings.TrimSpace(in.Name)
+		if label == "" {
+			label, next.LabelPending = defaultMachineLabel(next)
+			label = s.uniqueLabelLocked(id, label)
+		} else if !s.labelAvailableLocked(id, label) {
+			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "duplicate_bot_name"}
+		}
+		next.Label = label
 	}
 	meta := &api.BotConnectionPreparation{Read: exists && old.View.Archived && (old.View.PairingStatus == "approved" || old.View.PairingStatus == "pending" || old.View.PairingStatus == "unknown"), Created: !exists, Rename: exists && !in.Reconnect && !(old.View.Archived && in.ID == "") && address == old.Peer.Address}
 	s.state.Profiles[id] = next
@@ -226,6 +241,7 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 	if !exists || current != p {
 		return machineView(current), errors.New("bot_connection_changed")
 	}
+	next = s.resolveSSHLabelLocked(next)
 	s.state.Profiles[p.View.ID] = next
 	if err := s.save(); err != nil {
 		s.state.Profiles[p.View.ID] = current

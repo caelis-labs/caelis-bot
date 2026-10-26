@@ -213,7 +213,7 @@ func (s *Service) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 		s.mu.Unlock()
 		return api.WorkObservation{}, errors.New("peer_connection_changed")
 	}
-	view := p.View
+	view := machineView(p)
 	s.storeObservation(id, v, view)
 	s.mu.Unlock()
 	s.cacheMu.RLock()
@@ -254,7 +254,7 @@ func (s *Service) StopWorkRequest(ctx context.Context, in api.WorkStop) (api.Tas
 	out, err := s.peerCall(ctx, c, workerpeer.Request{Action: "stop", Runtime: runtime, Stop: in})
 	out.Task.Machine = s.route(in.ID)
 	s.mu.Lock()
-	out.Task.MachineName = s.state.Profiles[out.Task.Machine].View.Name
+	out.Task.MachineName = machineView(s.state.Profiles[out.Task.Machine]).Name
 	s.mu.Unlock()
 	return out.Task, err
 }
@@ -575,11 +575,11 @@ func (s *Service) applyPeerObservation(id string, p profile, runtime string, v a
 	if !ok || current.Peer != p.Peer || s.state.Runtimes[id] != runtime {
 		return
 	}
-	s.storeObservation(id, v, current.View)
+	s.storeObservation(id, v, machineView(current))
 	state := scopeState(v.State)
 	state.Runtime = runtime
 	state.Task.Machine = current.View.ID
-	state.Task.MachineName = current.View.Name
+	state.Task.MachineName = machineView(current).Name
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	key := current.View.ID + "\x00" + runtime
@@ -663,12 +663,13 @@ func validPeerDisplayName(name string) bool {
 	return strings.TrimSpace(name) != "" && len(name) <= 80 && !strings.ContainsFunc(name, unicode.IsControl)
 }
 
-// RemoteName is optional display metadata. Keep the persisted original intent
-// name unchanged, so a dropped pair reply still reconciles its original proof.
+// Display metadata never rewrites the original connection intent.
 func machineView(p profile) api.Machine {
 	v := p.View
-	if v.ConnectionType == "bot" && v.Name == v.Address && validPeerDisplayName(v.RemoteName) {
-		v.Name = v.RemoteName
+	if p.Label != "" {
+		v.Name = p.Label
+	} else if v.Name == v.Address || v.Name == "" {
+		v.Name, _ = defaultMachineLabel(p)
 	}
 	return v
 }

@@ -125,6 +125,7 @@ export interface Item {
   quoted?: QuotedMessage | null;
   task?: TaskPresentation | null;
   questionCards?: Array<QuestionCard>;
+  questionReply?: QuestionReply | null;
 }
 export interface LocalWorkerSettings {
   runtime: string;
@@ -192,6 +193,7 @@ export interface Question {
   options: Array<Choice>;
 }
 export interface QuestionCard {
+  rejectedReplyId?: string;
   context?: string;
   taskTitle?: string;
   expiresAt?: number;
@@ -201,6 +203,13 @@ export interface QuestionCard {
   title: string;
   options: Array<string>;
   state: string;
+}
+export interface QuestionReply {
+  shortId: string;
+  binding: string;
+  title: string;
+  answer: string;
+  outcome: string;
 }
 export interface QuotedMessage {
   hostId?: string;

@@ -27,6 +27,7 @@ func TestIMPersistsOnlyHumanMessagesAndReopensOffline(t *testing.T) {
 	l := Open(path)
 	l.Observe([]api.Item{{ID: "native-user", RequestID: "original-input", Kind: "user", Text: "hello", Details: "tool bytes"}, {ID: "answer", Kind: "assistant", Text: "stream"}, {ID: "tool", Kind: "activity", Text: "private tool output"}})
 	l.Observe([]api.Item{{ID: "echo-user", RequestID: "original-input", Kind: "user", Text: "hello"}, {ID: "answer", Kind: "assistant", Text: "complete"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 2 })
 	before, _ := l.Snapshot()
 	l.Close()
 	restored := Open(path)
@@ -51,6 +52,7 @@ func TestChannelInputKeepsDisplayIdentityWhenNativeEchoArrives(t *testing.T) {
 	defer l.Close()
 	l.Observe([]api.Item{{ID: "channel-input", RequestID: "same", Kind: "user", Text: "original", Status: "received", SeenAt: 100}})
 	l.Observe([]api.Item{{ID: "native-input", RequestID: "same", Kind: "user", Text: "<reference>internal wrapper</reference>\noriginal", Status: "completed"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 1 })
 	items, _ := l.Snapshot()
 	if len(items) != 1 || items[0].ID != "channel-input" || items[0].SeenAt != 100 || items[0].Status != "completed" || items[0].Text != "original" {
 		t.Fatal(items)
@@ -193,5 +195,72 @@ func TestOwnedToolArtifactAndCompletedAssistantSurviveRestart(t *testing.T) {
 	items, _ := l.Snapshot()
 	if items[0].ID != "tool" || len(items[0].Artifacts) != 1 || items[0].Details != "" || items[1].ID != "process" || items[1].Text != "done" || len(items[1].Artifacts) != 1 {
 		t.Fatalf("artifact projection lost: %+v", items)
+	}
+}
+
+func TestQuestionReplySurvivesEchoAndOfflineReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	l := Open(path)
+	reply := api.Item{ID: "control-input:reply", RequestID: "reply", Kind: "user", Text: "使用远端", Status: "unknown", QuestionReply: &api.QuestionReply{ShortID: "Q1", Binding: "original-binding", Title: "选择环境？", Answer: "使用远端", Outcome: "unknown"}}
+	l.Observe([]api.Item{reply})
+	l.Observe([]api.Item{{ID: "native", RequestID: "reply", Kind: "user", Text: "/answer Q1 2", Status: "completed"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 1 })
+	items, _ := l.Snapshot()
+	if len(items) != 1 || items[0].Text != reply.Text || items[0].Status != "unknown" || items[0].QuestionReply.Outcome != "unknown" {
+		t.Fatal(items)
+	}
+	l.Close()
+	restored := Open(path)
+	defer restored.Close()
+	eventually(t, func() bool { items, _ := restored.Snapshot(); return len(items) == 1 })
+	items, _ = restored.Snapshot()
+	if items[0].QuestionReply == nil || *items[0].QuestionReply != *reply.QuestionReply {
+		t.Fatal("lost receipt-backed display", items)
+	}
+}
+
+func TestQuestionOutcomeBeforeLoadAndHistoricalReceipt(t *testing.T) {
+	for _, outsidePage := range []bool{false, true} {
+		t.Run(fmt.Sprint(outsidePage), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "chat.db")
+			log := Open(path)
+			log.Observe([]api.Item{{ID: "control-input:reply", RequestID: "reply", Kind: "user", Text: "保留本机", Status: "unknown", QuestionReply: &api.QuestionReply{ShortID: "Q1", Binding: "original", Title: "使用哪台机器？", Answer: "保留本机", Outcome: "unknown"}}})
+			if outsidePage {
+				for n := 0; n < pageSize+5; n++ {
+					log.Observe([]api.Item{{ID: fmt.Sprint(n), Kind: "assistant", Text: "later"}})
+				}
+			}
+			log.Close()
+			reopened := Open(path)
+			reopened.ResolveQuestionReply("reply", "other-binding", "accepted")
+			if err := reopened.flush(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			reopened.ResolveQuestionReply("reply", "original", "rejected")
+			reopened.Close()
+			last := Open(path)
+			defer last.Close()
+			if err := last.flush(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if outsidePage {
+				if err := last.LoadEarlier(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			items, _ := last.Snapshot()
+			found := false
+			for _, item := range items {
+				if item.RequestID == "reply" {
+					found = true
+					if item.Text != "保留本机" || item.QuestionReply.Outcome != "rejected" || item.Status != "rejected" {
+						t.Fatalf("lost original response: %+v", item)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing original reply")
+			}
+		})
 	}
 }

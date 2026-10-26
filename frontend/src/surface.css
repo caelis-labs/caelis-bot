@@ -898,3 +898,13 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .authorization-expiry { font-size:12px; }
 .settings-window .provider-connection:not(.onboarding-connection) .setup-end { justify-content:flex-start; gap:12px; margin:24px 0; }
 @media(max-width:540px) { .settings-window .codex-runtime-panel .codex-login > .primary { width:100%;min-width:0; }.settings-window .runtime-device-code code { font-size:23px; } }
+
+/* Decisions use the same portrait, gutters and readable surface as Bot replies. */
+.history-surface .interaction-message .approval{margin:0;padding:0}
+.history-surface .interaction-message .approval-choices{position:static;background:transparent;flex-wrap:wrap}
+.history-surface .interaction-message .approval-result{flex-wrap:wrap}
+.history-surface .interaction-message .approval-result button{margin-left:6px}
+.message .interaction-reply-context{margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--line);font-size:11px;line-height:1.5;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.interaction-reply-status{display:block;margin-top:8px;font-size:10px;line-height:1.5;color:var(--muted)}
+
+.interaction-reply-context{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}

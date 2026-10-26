@@ -490,6 +490,13 @@ func (s *Service) ObserveChat(v api.Snapshot) {
 	}
 }
 
+// The original controller supplies the receipt; this only updates the IM display.
+func (s *Service) ResolveQuestionReply(request, binding, outcome string) {
+	if s.chat != nil {
+		s.chat.ResolveQuestionReply(request, binding, outcome)
+	}
+}
+
 func (s *Service) LoadEarlier(ctx context.Context) error {
 	if s.chat != nil {
 		return s.chat.LoadEarlier(ctx)

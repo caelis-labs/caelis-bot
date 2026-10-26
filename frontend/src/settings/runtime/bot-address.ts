@@ -11,6 +11,12 @@ export function botAddress(value:string,port=''):string {
   return url.toString().replace(/\/$/,'');
  }catch{return text;}
 }
+// The visible port follows the same endpoint semantics as submission, including
+// explicit HTTPS defaults and a pasted URL that already carries its own port.
+export function botAddressPort(value:string):string {
+ try{const url=new URL(botAddress(value||'localhost'));return url.port||(url.protocol==='https:'?'443':'80')}catch{return '9317'}
+}
+
 import type {Machine} from '../../backend/contract';
 
 export function botProfileAt(machines:Machine[],address:string,port=''):Machine|undefined {

@@ -249,6 +249,10 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
 	}
 	app.textControl.SetNoticeObserver(showNotice)
+	app.textControl.SetQuestionReplyOutcomeObserver(service.ResolveQuestionReply)
+	app.textControl.SetQuestionReplyObserver(func(item api.Item) {
+		service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+	})
 	app.textControl.SetAsyncUpdateObserver(func(item api.Item) {
 		if !strings.HasPrefix(item.ID, "worker-question:") || app.textControl.PresentedQuestion(item.ID) {
 			service.ObserveChat(api.Snapshot{Items: []api.Item{item}})

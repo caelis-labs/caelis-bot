@@ -126,3 +126,22 @@ selection/cancellation interaction; other RPCs keep bounded deadlines. A committ
 selection notifies the current composer to read its native state even if the original
 view was closed. This resolves [Issue #159](https://github.com/caelis-labs/caelis-bot/issues/159)
 without reopening a chooser or automatically submitting an attachment.
+
+## Machine and interaction surfaces
+
+Remote machine actions live together above the list, aligned right: add, SSH
+configuration, and refresh. The breadcrumb remains navigation only, matching
+other settings pages. Reuse settings dialogs, selectors, loading buttons and
+menus; keep machine state in the row and failure recovery local to that machine.
+
+Questions and approvals use the same Bot portrait, left alignment, bubble
+surface and spacing as assistant messages. A submitted question response is a
+user bubble containing the exact selected answer and a compact original-question
+reference. Show sending, accepted, rejected or uncertain delivery from the
+original controller; never reconstruct consent from a visible command string.
+Native approval choices and outcomes remain Runtime-owned. A submitted decision
+waits for its original record instead of becoming an optimistic approval.
+
+Remote-machine connections share one settings list. Every row keeps its original direction and authority: outgoing access, an incoming request, or a granted incoming source. A name/address match is not enough to merge identities. Incoming-only state must not render an empty “first machine” prompt. Request decisions show the actual successful result and lead back to the retained grant; failed or unknown results remain explicit. Removing an outgoing connection and revoking incoming access are separately named actions with their effects explained before submission.
+
+The shared Worker conversation uses tinted bubbles for user-side messages and plain assistant messages separated by quiet rules. Do not repeat role labels above every message. Preserve a copy action without a separate label row. The observation surface and user bubbles round all four corners. AppKit owns the whole native window outline, including the opaque title bar; native chrome follows the saved display mode and returns to system appearance when requested. Native window controls and behavior remain available.

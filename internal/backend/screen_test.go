@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type screenEngine struct {
@@ -91,8 +92,19 @@ func TestScreenMediaRestoresPresentationWithoutChangingRuntime(t *testing.T) {
 	restored.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
 	defer restored.chat.Close()
 	restored.ObserveChat(e.snapshot)
-	view := restored.Snapshot().Items[0]
-	if view.Text != "Translate" || view.Screen == nil || view.Screen.Application != "Example browser" || len(view.Screen.Images) != 1 {
+	// A restored native input is checked against its persisted display before
+	// publication; screen/model assertions still use that original request.
+	items := restored.Snapshot().Items
+	deadline := time.Now().Add(5 * time.Second)
+	for len(items) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		items = restored.Snapshot().Items
+	}
+	if len(items) != 1 {
+		t.Fatalf("screen input did not reach the local transcript: %+v", items)
+	}
+	view := items[0]
+	if view.RequestID != input.ID || view.Text != "Translate" || view.Screen == nil || view.Screen.Application != "Example browser" || len(view.Screen.Images) != 1 {
 		t.Fatal(view)
 	}
 	if url, err := restored.ScreenImage(view.Screen.Images[0].ID, true); err != nil || !strings.HasPrefix(url, "data:image/jpeg;") {

@@ -9,6 +9,7 @@
 @import './screen-message.css';
 @import './surface.css';
 @import './windows.css';
+@import './worker-chat.css';
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */

@@ -27,3 +27,10 @@ export function approvalResult(value: Approval, locale: Locale) {
  }
  return approvalText(locale,'chat.approvalResolved','');
 }
+
+// Only owning-boundary refusals certify that correcting the same form is safe.
+export function decisionNotDispatched(error:unknown):boolean {
+ if(!error || typeof error!=='object')return false;
+ const value=error as {code?:string;cause?:{code?:string}};
+ return value.code==='operation_rejected'||value.cause?.code==='decision_not_dispatched';
+}

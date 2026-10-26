@@ -584,6 +584,19 @@ fingerprint only. It never falls back to the latest active messaging window.
 Ingress and Worker receipts are likewise never replayed; see
 [POC scope](weixin-channel-poc.md).
 
+### Question response presentation
+
+The text-channel controller publishes a display-only `QuestionReply` on the IM
+user item after validating the original short ID and fingerprint and durably
+claiming dispatch. It retains the exact answer and original request ID while the
+Runtime/IM command envelope stays unchanged. Desktop buttons suppress their
+synthetic command echo; native echoes preserve the controller-owned display.
+Original resident receipts and Worker operation receipts can settle only that
+same request and binding. The IM log persists those outcome patches even when
+the message is outside the loaded page or the initial database load is pending.
+This transcript copy is never a dispatch or approval authority, and old raw
+commands without a proven original binding are not relabeled by guesswork.
+
 ## Remote machines
 
 Bot peers and local adapters implement the same `api.WorkRuntime`. A's existing
@@ -631,7 +644,9 @@ resource budgets never hide approvals. All interactions retain original native
 IDs/choices, including sensitive and opaque requests. A owns their existing UI and
 returns decisions to the exact execution owner; B never presents foreign task UI.
 
-Local and peer cards share A's Worker output/history view and scoped file paths.
+Local desktop cards use the original native terminal controller and owned Runtime
+target. Peer cards use A's read-only Worker output/history view and scoped file paths;
+the browser task view remains read-only for both local and peer work.
 Remote paths are not A-local paths; verified inputs/outputs use task-scoped bytes,
 metadata/digests and the existing storage/cache authority. Retrieved output stays
 readable offline. See [implementation](bot-to-bot.md), [UI](remote-machines-ui.md)
@@ -1158,6 +1173,33 @@ ports behind the same event contract, then richer normalization. No workflow gra
 arbitrary event publication is introduced. The packaged Bot-core skill makes
 follow-through a core work mode with progressively loaded examples; automated
 contract coverage does not prove every model will choose to arrange follow-ups.
+
+## Read-only Worker messages
+
+The Worker view is a Bot–Worker conversation, with the original Runtime as the
+message and task-state authority. `TaskConversationMessage` carries completed
+history; `Item` carries the bounded current view. Both Runtime adapters use the
+same canonical message key: `Item.HistoryID == TaskConversationMessage.ID`.
+`Item.ID` is an observation key and `TurnKey` is a grouping key; neither prose nor
+a turn boundary is a message identity. `worker-messages.ts` projects these inputs
+to `{id, role, text, status, artifacts}` for both native and Web presentation.
+History fills completed text beyond the bounded live window; native progress or
+an extension of the same message stays visible until history catches up.
+Independent read guards keep slow history from blocking observations. Failed
+reads retain received messages; closing a view fences late replies and stops
+only its polling. No new execution or tool-history interface is involved.
+
+The native host reuses an independent read-only window for each remote task.
+Closing that window releases its WebView without stopping or continuing work.
+Desktop local cards retain their original native terminal controller, including
+the macOS coordinate-placement path. Web uses the same `WorkerChat`, Markdown,
+artifact components and scroll controller in its task pane. It keeps the Bot
+composer mounted on narrow screens and reaches it through an explicit return to
+chat. The narrow observer does not display a composer below Worker messages.
+The view initially follows latest messages, retains reading intent across new
+output and resizing, and prepends older rendered rows without moving the current
+text. Questions and approvals remain in the Bot conversation. Tool output and
+diffs are not reconstructed from assistant prose or exposed by a new interface.
 
 ## Headless and browser surface
 

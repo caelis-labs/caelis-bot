@@ -202,6 +202,16 @@ func (d *macDriver) prepareWindowRecall() bool {
 
 // Wails beta.6 IsVisible reports occlusion, not whether the window is ordered in.
 // A fully covered settings window must still be recalled; a closed one must not.
+func macWindowDisplay(window *application.WebviewWindow, state DisplayState) {
+	mode := 0
+	if state.Mode == "dark" {
+		mode = 1
+	} else if state.Mode == "light" {
+		mode = 2
+	}
+	application.InvokeSync(func() { C.bot_window_display(window.NativeWindow(), C.int(mode)) })
+}
+
 func macWindowOpen(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_open(window.NativeWindow()) != 0 })
 }

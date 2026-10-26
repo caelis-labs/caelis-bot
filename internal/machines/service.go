@@ -20,6 +20,8 @@ import (
 )
 
 type profile struct {
+	Label        string                `json:"label,omitempty"`
+	LabelPending bool                  `json:"labelPending,omitempty"`
 	PairingEpoch string                `json:"pairingEpoch"`
 	PairingName  string                `json:"pairingName"`
 	Peer         workerpeer.Connection `json:"peer"`
@@ -74,6 +76,9 @@ func Open(root string, local api.WorkRuntime) (*Service, error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		s.loadErr = err
 	}
+	if s.loadErr == nil {
+		s.initializeLabelsLocked()
+	}
 	return s, s.loadErr
 }
 func (s *Service) save() error {
@@ -120,6 +125,7 @@ func (s *Service) reloadLocked() {
 		restored.Reservations = map[string]bool{}
 	}
 	s.state, s.loadErr = restored, nil
+	s.initializeLabelsLocked()
 }
 
 func (s *Service) machineProfile(id string) (profile, bool) {

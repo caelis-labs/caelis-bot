@@ -77,13 +77,17 @@ func (s *Service) observeTasks(tasks []api.TaskPreview) {
 // Explicit clicks are the only terminal-launch path. Presentation never chooses
 // a toggle direction; the per-window controller reconciles the native state.
 func (s *Service) openTask(ctx context.Context, id string) error {
-	if !s.taskWindowAllowed(id) {
+	if !s.taskSurfaceActive() {
 		return errors.New("task is unavailable")
 	}
 	if s.workerTaskView != nil {
 		if handled, err := s.workerTaskView(ctx, id); handled || err != nil {
 			return err
 		}
+		// The original task catalog admitted this local task. A completed
+		// task can leave the dock while its chat entry remains actionable.
+	} else if !s.taskWindowAllowed(id) {
+		return errors.New("task is unavailable")
 	}
 	if s.taskWindows == nil {
 		return errors.New("task is unavailable")

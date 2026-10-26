@@ -340,7 +340,7 @@ func (f *dualPeerTarget) owner(source, runtime string) *dualPeerNative {
 	defer f.mu.Unlock()
 	return f.owners[source+"\x00"+runtime]
 }
-func dualPeerConnect(t *testing.T, target *dualPeerTarget) (*Service, *tasks.Manager, *dualPeerLocal, string, string) {
+func dualPeerConnect(t *testing.T, target *dualPeerTarget, names ...string) (*Service, *tasks.Manager, *dualPeerLocal, string, string) {
 	t.Helper()
 	local := &dualPeerLocal{}
 	root := t.TempDir()
@@ -348,7 +348,11 @@ func dualPeerConnect(t *testing.T, target *dualPeerTarget) (*Service, *tasks.Man
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{ID: "bot-fixture-target", Name: "Machine B", Address: target.http.URL})
+	name := "Machine B"
+	if len(names) > 0 {
+		name = names[0]
+	}
+	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{ID: "bot-fixture-target", Name: name, Address: target.http.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

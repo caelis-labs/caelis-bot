@@ -14,6 +14,16 @@ int bot_install_app_icon(unsigned char *bytes, int length) {
     return 1;
 }
 
+void bot_window_display(void *pointer, int mode) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    if (!window) return;
+    // Keep AppKit's titled frame and corner clipping. Only the owned window
+    // follows the product preference; nil restores the system appearance.
+    NSString *name = mode == 1 ? NSAppearanceNameDarkAqua : mode == 2 ? NSAppearanceNameAqua : nil;
+    window.appearance = name ? [NSAppearance appearanceNamed:name] : nil;
+    window.titlebarAppearsTransparent = NO;
+}
+
 int bot_window_open(void *pointer) {
     NSWindow *window = (__bridge NSWindow *)pointer;
     // Covered, app-hidden and minimised windows are still open.

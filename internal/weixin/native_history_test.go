@@ -3,6 +3,7 @@ package weixin
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -62,6 +63,13 @@ func testNativePastSessionCannotAuthorizeCompletion(t *testing.T, withScope bool
 	service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task", Kind: "assistant", Status: "completed", TurnKey: "old-turn", Text: "Fixture task", Task: &api.TaskPresentation{ID: "task", Title: "Fixture task"}}}})
 	service.ObserveChat(native.Snapshot())
 	snapshot := service.Snapshot()
+	// Native user input waits for the local history merge. Native provenance
+	// remains independently checked below and never comes from visible text.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(snapshot.Items) < 3 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		snapshot = service.Snapshot()
+	}
 	wantSources := 0
 	if withScope {
 		wantSources = 1

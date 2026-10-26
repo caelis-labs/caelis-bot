@@ -15,6 +15,7 @@ let sshConfig={path:'/Synthetic/Bot/Machines/SSH/config',userPath:'/Synthetic/.s
 let sharing={address:'http://100.64.0.5:9317',listen:'0.0.0.0:9317',listening:true,managed:false,peer:'synthetic-local',requests:[{id:'fixture-request',name:'MacBook Air',address:'100.64.0.8',fingerprint:'0123456789abcdef'.repeat(4),expiresAt:Math.floor(Date.now()/1000)+300}],sources:[{id:'synthetic-source-A',name:'Mac Studio',pairedAt:1}]};
 if(params.get('inbox')!=='pending')sharing.requests=[];
 if(params.get('sources')!=='yes')sharing.sources=[];
+if(params.get('sources')==='duplicates')sharing.sources=['12345678a','12345678b'].map(prefix=>({id:prefix+'0'.repeat(55),name:'fedora',pairedAt:1}));
 if(params.get('receiveIssue'))sharing.issue=params.get('receiveIssue');
 window.fixtureMachines=remote;
 window.fixtureRemoteFailure=params.get('machines')==='error';
@@ -51,7 +52,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'Display':case 'DisplayState':return {scale:1};
  // Read-only presentation fixtures for the remaining common settings pages.
  // Unsupported mutations still fail below; these never touch host preferences.
- case 'DisplayPreferences':return {mode:params.get('theme')||'light',theme:'default',revision:1};
+ case 'DisplayPreferences':return {mode:params.get('theme')||'system',theme:'default',revision:1};
  case 'ContentState':return {appearance:{revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'},characters:[{id:'builtin:caelis',name:'Caelis',pack:'',group:''}],avatars:[],packs:[],notice:''};
  case 'Placement':return {scale:1};
  case 'LoginAtLoginStatus':return {supported:true,enabled:false,state:'off',registered:false};
@@ -77,7 +78,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  case 'InspectMachine':case 'RecoverBotWork':{if(window.fixtureInspectHold){window.fixtureInspectHold=false;await new Promise(resolve=>window.fixtureInspectRelease=resolve);throw Error('late private observation error')}if(window.fixtureInspectFailure)throw Error('private observation error');const v=remote.find(v=>v.id===args[0]);return structuredClone(v?{...v,issue:(params.get('machines')==='unsent'||window.fixtureUndispatched)?'pairing_request_not_dispatched':v.issue,checkedAt:Date.now()}:v)}
  case 'RemoveMachine':{const i=remote.findIndex(v=>v.id===args[0]);if(i>=0)remote.splice(i,1);return;}
- case 'DecideWorkerPairing':if(window.fixturePairingError)throw Error(window.fixturePairingError);sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;
+ case 'DecideWorkerPairing':{if(window.fixturePairingError)throw Error(window.fixturePairingError);const request=sharing.requests.find(v=>v.id===args[0].id);if(request&&args[0].allow)sharing.sources.push({id:'source-for-'+request.id,name:request.name,pairedAt:Math.floor(Date.now()/1000)});sharing.requests=sharing.requests.filter(v=>v.id!==args[0].id);return;}
  case 'RefreshWorkerSharing':case 'WorkerSharing':return structuredClone(sharing);
  case 'RevokeWorkerPeer':sharing.sources=sharing.sources.filter(s=>s.id!==args[0]);return;
  case 'CopyText':window.fixtureCopied=args[0];return;

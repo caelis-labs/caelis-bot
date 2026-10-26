@@ -24,24 +24,29 @@ import (
 const pageSize = 200
 
 type Log struct {
-	mu           sync.Mutex
-	path         string
-	items        []api.Item
-	dirty        map[string]api.Item
-	loaded       bool
-	earlier      bool
-	before       int64
-	cancel       context.CancelFunc
-	done         chan struct{}
-	issue        error
-	revision     uint64
-	closeOnce    sync.Once
-	visibleLimit int
+	mu               sync.Mutex
+	flushMu          sync.Mutex
+	path             string
+	items            []api.Item
+	dirty            map[string]api.Item
+	questionOutcomes map[string]questionOutcome
+	pendingInputs    map[string]api.Item
+	pendingOrder     []string
+	loaded           bool
+	earlier          bool
+	before           int64
+	cancel           context.CancelFunc
+	done             chan struct{}
+	wake             chan struct{}
+	issue            error
+	revision         uint64
+	closeOnce        sync.Once
+	visibleLimit     int
 }
 
 func Open(path string) *Log {
 	ctx, cancel := context.WithCancel(context.Background())
-	l := &Log{path: path, dirty: map[string]api.Item{}, visibleLimit: pageSize, cancel: cancel, done: make(chan struct{})}
+	l := &Log{path: path, dirty: map[string]api.Item{}, pendingInputs: map[string]api.Item{}, visibleLimit: pageSize, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 	go l.run(ctx)
 	return l
 }
@@ -68,6 +73,10 @@ func copyItem(i api.Item) api.Item {
 		i.Task = &task
 	}
 	i.QuestionCards = append([]api.QuestionCard(nil), i.QuestionCards...)
+	if i.QuestionReply != nil {
+		reply := *i.QuestionReply
+		i.QuestionReply = &reply
+	}
 	for n := range i.QuestionCards {
 		i.QuestionCards[n].Options = append([]string(nil), i.QuestionCards[n].Options...)
 	}
@@ -93,46 +102,85 @@ func (l *Log) Observe(items []api.Item) {
 			continue
 		}
 		item = copyItem(item)
-		found := false
-		for n, old := range l.items {
-			if key(old) != key(item) {
-				continue
-			}
-			found = true
-			if item.Kind == "user" {
-				nativeEcho := !strings.HasPrefix(item.ID, "outgoing:") && !strings.HasPrefix(item.ID, "channel-input:") && !strings.HasPrefix(item.ID, "control-input:")
-				if nativeEcho && old.Text != "" {
-					item.Text = old.Text // model-only quote wrapping never replaces the visible user body
-				}
-				item.ID = old.ID // one display identity across channel receipt and native echo
-				if item.Media == nil {
-					item.Media = old.Media
-				}
-				if item.Quoted == nil {
-					item.Quoted = old.Quoted
-				}
-			}
-			if old.SeenAt == 0 || item.SeenAt == 0 || old.SeenAt < item.SeenAt {
-				item.SeenAt = old.SeenAt
-			}
-			if same(old, item) {
-				break
-			}
-			l.items[n] = item
-			l.dirty[key(item)] = item
-			l.revision++
-			break
-		}
-		if !found {
-			if item.SeenAt == 0 && item.Kind != "controlNotice" {
-				item.SeenAt = time.Now().UnixMicro()
-			}
-			l.items = append(l.items, item)
-			l.dirty[key(item)] = item
-			l.revision++
+		l.observeLocked(item, true)
+	}
+	pending := len(l.pendingInputs) > 0
+	l.mu.Unlock()
+	if pending {
+		select {
+		case l.wake <- struct{}{}:
+		default:
 		}
 	}
-	l.mu.Unlock()
+}
+
+// New request IDs may already exist outside the visible page. The writer reads
+// their original display before publishing a native echo or a stale reply.
+func (l *Log) observeLocked(item api.Item, lookup bool) {
+	if previous, waiting := l.pendingInputs[key(item)]; lookup && waiting {
+		l.pendingInputs[key(item)] = mergeObservedItem(item, previous)
+		return
+	}
+	if outcome, ok := l.questionOutcomes[item.RequestID]; ok {
+		applyQuestionOutcome(&item, outcome)
+	}
+	found := false
+	for n, old := range l.items {
+		if key(old) != key(item) {
+			continue
+		}
+		found = true
+		if _, waiting := l.pendingInputs[key(item)]; !waiting {
+			item = mergeObservedItem(item, old)
+		}
+		if same(old, item) {
+			break
+		}
+		l.items[n] = item
+		l.dirty[key(item)] = item
+		l.revision++
+		break
+	}
+	if !found {
+		if lookup && item.Kind == "user" && item.RequestID != "" {
+			k := key(item)
+			l.pendingOrder = append(l.pendingOrder, k)
+			if item.SeenAt == 0 {
+				item.SeenAt = time.Now().UnixMicro()
+			}
+			l.pendingInputs[k] = item
+			// Reserve observation order without publishing the unchecked body.
+			l.items = append(l.items, api.Item{ID: item.ID, Kind: item.Kind, RequestID: item.RequestID, SeenAt: item.SeenAt})
+			return
+		}
+		if item.SeenAt == 0 && item.Kind != "controlNotice" {
+			item.SeenAt = time.Now().UnixMicro()
+		}
+		l.items = append(l.items, item)
+		l.dirty[key(item)] = item
+		l.revision++
+	}
+}
+
+func mergeObservedItem(item, old api.Item) api.Item {
+	if item.Kind == "user" {
+		preserveQuestionReply(&item, old)
+		nativeEcho := !strings.HasPrefix(item.ID, "outgoing:") && !strings.HasPrefix(item.ID, "channel-input:") && !strings.HasPrefix(item.ID, "control-input:")
+		if nativeEcho && old.Text != "" {
+			item.Text = old.Text
+		}
+		item.ID = old.ID
+		if item.Media == nil {
+			item.Media = old.Media
+		}
+		if item.Quoted == nil {
+			item.Quoted = old.Quoted
+		}
+	}
+	if old.SeenAt == 0 || item.SeenAt == 0 || old.SeenAt < item.SeenAt {
+		item.SeenAt = old.SeenAt
+	}
+	return item
 }
 func same(a, b api.Item) bool {
 	x, _ := json.Marshal(a)
@@ -142,9 +190,11 @@ func same(a, b api.Item) bool {
 func (l *Log) Snapshot() ([]api.Item, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]api.Item, len(l.items))
-	for n, i := range l.items {
-		out[n] = copyItem(i)
+	out := make([]api.Item, 0, len(l.items))
+	for _, i := range l.items {
+		if _, waiting := l.pendingInputs[key(i)]; !waiting {
+			out = append(out, copyItem(i))
+		}
 	}
 	return out, l.earlier
 }
@@ -214,17 +264,23 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 	for n := len(older) - 1; n >= 0; n-- {
 		previous := older[n]
 		if pos, exists := known[key(previous)]; exists {
+			if _, waiting := l.pendingInputs[key(previous)]; waiting {
+				continue // The point read merges the complete original input.
+			}
 			// An observed current item may arrive before the disk cache loads.
 			// Keep its original presentation position. For user input, the
 			// persisted body and quote are the visible source of truth; the
 			// native echo may contain a model-only reference wrapper.
 			changed := false
 			if previous.Kind == "user" {
+				if preserveQuestionReply(&l.items[pos], previous) {
+					changed = true
+				}
 				if l.items[pos].ID != previous.ID {
 					l.items[pos].ID = previous.ID
 					changed = true
 				}
-				if previous.Text != "" && l.items[pos].Text != previous.Text {
+				if previous.Text != "" && l.items[pos].Text != previous.Text && (l.items[pos].QuestionReply == nil || previous.QuestionReply != nil) {
 					l.items[pos].Text = previous.Text
 					changed = true
 				}
@@ -252,6 +308,11 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 	l.items = append(prefix, l.items...)
 	l.before = earliest
 	l.earlier = more
+	for n := range l.items {
+		if outcome, ok := l.questionOutcomes[l.items[n].RequestID]; ok {
+			applyQuestionOutcome(&l.items[n], outcome)
+		}
+	}
 	l.loaded = true
 	l.revision++
 	return nil
@@ -276,8 +337,10 @@ func (l *Log) LoadEarlier(ctx context.Context) error {
 	return l.load(ctx, db, before)
 }
 func (l *Log) flush(ctx context.Context) error {
+	l.flushMu.Lock()
+	defer l.flushMu.Unlock()
 	l.mu.Lock()
-	loaded, empty := l.loaded, len(l.dirty) == 0
+	loaded, empty := l.loaded, len(l.dirty) == 0 && len(l.questionOutcomes) == 0 && len(l.pendingInputs) == 0
 	l.mu.Unlock()
 	if loaded && empty {
 		return nil
@@ -291,6 +354,9 @@ func (l *Log) flush(ctx context.Context) error {
 		if err = l.load(ctx, db, 0); err != nil {
 			return err
 		}
+	}
+	if err = l.resolvePendingInputs(ctx, db); err != nil {
+		return err
 	}
 	l.mu.Lock()
 	dirty := make(map[string]api.Item, len(l.dirty))
@@ -318,10 +384,29 @@ func (l *Log) flush(ctx context.Context) error {
 			return err
 		}
 	}
+	l.mu.Lock()
+	outcomes := make(map[string]questionOutcome, len(l.questionOutcomes))
+	for k, v := range l.questionOutcomes {
+		outcomes[k] = v
+	}
+	l.mu.Unlock()
+	if err = persistQuestionOutcomes(ctx, tx, outcomes); err != nil {
+		return err
+	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
 	l.mu.Lock()
+	for k, v := range outcomes {
+		if l.questionOutcomes[k] == v {
+			// This input may have arrived after this flush's point reads. Its
+			// original row is not persisted yet; the next flush still needs it.
+			if _, waiting := l.pendingInputs["input:"+k]; waiting {
+				continue
+			}
+			delete(l.questionOutcomes, k)
+		}
+	}
 	for k, v := range dirty {
 		if current, ok := l.dirty[k]; ok && same(current, v) {
 			delete(l.dirty, k)
@@ -331,7 +416,7 @@ func (l *Log) flush(ctx context.Context) error {
 	// Keep the default visible window small after persistence. Explicit local
 	// history loading expands that window; Runtime history is never traversed.
 	l.mu.Lock()
-	if len(l.dirty) == 0 && len(l.items) > l.visibleLimit {
+	if len(l.dirty) == 0 && len(l.pendingInputs) == 0 && len(l.items) > l.visibleLimit {
 		l.items = append([]api.Item(nil), l.items[len(l.items)-l.visibleLimit:]...)
 		l.earlier = true
 		l.revision++
@@ -381,6 +466,7 @@ func (l *Log) run(ctx context.Context) {
 			stop()
 			return
 		case <-ticker.C:
+		case <-l.wake:
 		}
 	}
 }

@@ -74,7 +74,7 @@
   "copyArtifactPath": "Copy path",
   "copyArtifactContent": "Copy contents",
   "artifactPreviewTruncated": "Showing the first 256 KiB. Open the file for the complete text.",
-  "taskUnavailable": "Could not open the terminal. Retry this Worker.",
+  "taskUnavailable": "Unable to open this task. Try again.",
   "mediaOpen": "View {name}",
   "mediaUnavailable": "Image preview unavailable",
   "draftLoadFailed": "Could not load draft",
@@ -276,5 +276,16 @@
   "urlPageSubmitted": "The website accepted this submission. Respond to the original request to continue.",
   "urlPageRejected": "The form was not submitted. Check the fields before trying again.",
   "urlPageSubmit": "Submit",
-  "urlPageCheck": "Check submission"
+  "urlPageCheck": "Check submission",
+  "decisionSubmitting": "Submitting…",
+  "decisionAwaiting": "Submitted · checking the result",
+  "decisionUnconfirmed": "The result is not confirmed. Check the original request.",
+  "replyRejected": "Not submitted. Check the original question and try again.",
+  "taskReturn": "Close",
+  "taskUpdateUnavailable": "Updates are temporarily unavailable. Received messages are kept here.",
+  "taskEarlier": "Load earlier messages",
+  "taskLatest": "Back to latest",
+  "taskDismiss": "Dismiss",
+  "taskBackToChat": "Back to chat",
+  "taskLastStatus": "Last known:"
 }

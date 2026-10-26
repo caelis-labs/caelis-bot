@@ -188,6 +188,12 @@ func Run(assets fs.FS) error {
 		Name: "settings", Title: appName, Width: 1040, Height: 740, MinWidth: 520, MinHeight: 560,
 		Hidden: true, URL: "/?surface=settings&chrome=native", BackgroundType: application.BackgroundTypeSolid,
 	})
+	syncDock := func(opening bool) {
+		if s.workerWindowsOpen != nil && s.workerWindowsOpen() {
+			opening = true
+		}
+		syncMacDock(history, settings, opening)
+	}
 	var settingsMode, setupMode atomic.Bool
 	var presentation surfacePresentations
 	prepare := func(window *application.WebviewWindow, surface, section string) {
@@ -203,7 +209,7 @@ func Run(assets fs.FS) error {
 			if surface == "settings" {
 				target = settings
 			}
-			syncMacDock(history, settings, true)
+			syncDock(true)
 			target.UnMinimise()
 			target.Show()
 			target.Focus()
@@ -212,6 +218,10 @@ func Run(assets fs.FS) error {
 	for _, window := range []*application.WebviewWindow{bubble, history} {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
 	}
+	configureWorkerWindows(nativeApp, s, func(window *application.WebviewWindow) {
+		syncDock(true)
+		window.Focus()
+	}, func() { syncDock(false) }, macWindowDisplay)
 	s.focusSettings = func() { application.InvokeSync(func() { settings.UnMinimise(); settings.Show(); settings.Focus() }) }
 	s.openSettings = func() {
 		if !s.prepareWindowRecall() {
@@ -233,7 +243,7 @@ func Run(assets fs.FS) error {
 				}
 			}
 			settings.SetTitle(strings.Replace(title, "Caelis Bot", appName, 1))
-			syncMacDock(history, settings, true)
+			syncDock(true)
 			prepare(settings, "settings", section)
 		})
 	}
@@ -248,7 +258,7 @@ func Run(assets fs.FS) error {
 			settingsMode.Store(false)
 			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
 			settings.Hide()
-			syncMacDock(history, settings, false)
+			syncDock(false)
 		})
 	}
 	s.settingsVisible = func() bool { return settingsMode.Load() && macWindowVisible(settings) }
@@ -266,6 +276,7 @@ func Run(assets fs.FS) error {
 	}
 	s.contentChanged = func(value contentpack.Appearance) {
 		data, _ := json.Marshal(value)
+		s.notifyWorkerWindows("window.dispatchEvent(new CustomEvent('appearance-changed',{detail:" + string(data) + "}))")
 		for _, window := range []*application.WebviewWindow{pet, history, settings, bubble} {
 			window.ExecJS("window.dispatchEvent(new CustomEvent('appearance-changed',{detail:" + string(data) + "}))")
 		}
@@ -289,7 +300,7 @@ func Run(assets fs.FS) error {
 			presentation.cancel("chat")
 			history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 			history.Hide()
-			syncMacDock(history, settings, false)
+			syncDock(false)
 		})
 	}
 	s.historyVisible = func() bool { return macWindowVisible(history) }
@@ -318,6 +329,9 @@ func Run(assets fs.FS) error {
 	// Dock Quit is a contextual-window action. Only the status menu requests
 	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
 	closeContextWindow = func() {
+		if s.closeWorkerContext != nil && s.closeWorkerContext() {
+			return
+		}
 		if preview.IsFocused() {
 			preview.Hide()
 			return
@@ -336,7 +350,7 @@ func Run(assets fs.FS) error {
 				return
 			}
 			if settingsMode.Load() {
-				syncMacDock(history, settings, true)
+				syncDock(true)
 				settings.UnMinimise()
 				settings.Show()
 				settings.Focus()
@@ -355,7 +369,7 @@ func Run(assets fs.FS) error {
 					return // A queued activation must not reopen or refocus a window.
 				}
 				window.Show()
-				syncMacDock(history, settings, false)
+				syncDock(false)
 				if window == history {
 					// Ordinary app focus must not reset an existing history read.
 					history.ExecJS("window.dispatchEvent(new Event('history-visible'))")
@@ -424,13 +438,18 @@ func Run(assets fs.FS) error {
 	}
 	updateLanguage(s.LanguagePreferences())
 	s.displayChanged = func(state DisplayState) {
+		for _, window := range []*application.WebviewWindow{history, settings, preview} {
+			macWindowDisplay(window, state)
+		}
 		data, _ := json.Marshal(state)
+		s.notifyWorkerWindows("window.dispatchEvent(new CustomEvent('display-changed',{detail:" + string(data) + "}))")
 		for _, window := range []*application.WebviewWindow{pet, history, settings, bubble, prop, preview} {
 			window.ExecJS("window.dispatchEvent(new CustomEvent('display-changed',{detail:" + string(data) + "}))")
 		}
 	}
 	s.languageChanged = func(state LanguageState) {
 		data, _ := json.Marshal(state)
+		s.notifyWorkerWindows("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
 		application.InvokeSync(func() {
 			updateLanguage(state)
 			macArtifactPreviewToolbarLanguage(preview, state.Locale)
@@ -447,6 +466,9 @@ func Run(assets fs.FS) error {
 	}
 	macTrackLoginLaunch()
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		for _, window := range []*application.WebviewWindow{history, settings, preview} {
+			macWindowDisplay(window, s.DisplayPreferences())
+		}
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")
 		}

@@ -607,3 +607,35 @@ the former navigation-only failure against `BOT_TELEGRAM_BASELINE=75fa9243`.
 Pairing protocol, expiry and explicit confirmation are covered by the Go pairing
 tests; the browser checks DTO status polling and confirmation separately. These
 fixtures do not prove delivery through a live Telegram poller or SSH tunnel.
+
+Controlled interaction acceptance reuses the public chat UI, Web HTTP operation
+handler, backend Service, text-channel controller and SQLite transcript. Only the
+Runtime Engine contract is deterministic; this is not evidence from an external
+Codex/Caelis account or their native wire adapters. Build current assets, then run:
+
+```sh
+source script/env.sh
+npm run build
+go run -tags webfixture ./cmd/web-fixture --interactions \
+  --data-dir "$PWD/.cache/interaction-acceptance" \
+  --listen 127.0.0.1:19331 --origin http://127.0.0.1:19331
+```
+
+Open that origin directly, pair with the printed disposable code, and click the
+four question cards and two approvals. Empty required approval input must remain
+editable; an allowed approval is final, while the second approval stays unknown.
+The fixture records original request IDs and one Runtime write per ID in
+`original-runtime-receipts.json`. For the fourth question, put its original reply
+ID and `"outcome":"rejected"` in `fixture-receipt-command.json` under that isolated
+data directory. This changes the controlled Runtime receipt only; the production
+controller must unlock the same question and update the human-readable answer.
+Submit it again to check an immediate rejection does not resurrect old temporary
+state. Restart with the same directory and confirm all persisted outcomes without
+control commands or optimistic success. `go test -tags webfixture ./cmd/web-fixture`
+(repeated by `make check`) covers the same Service/controller/receipt/reopen path;
+browser clicks remain a separate acceptance step.
+
+`node script/worker-chat-review-preview.mjs` prints local renderer-fixture URLs for
+50/90-message scrolling, native attachment handles, and same-name incoming peers.
+It uses production React with a synthetic in-memory desktop transport and cannot
+prove real file downloads, remote authorization changes, or external Runtime work.

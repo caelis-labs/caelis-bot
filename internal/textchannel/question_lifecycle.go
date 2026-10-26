@@ -24,7 +24,7 @@ func closedAsync(state string) bool {
 	return state == "dismissed" || state == "expired" || state == "superseded"
 }
 func questionCard(q AsyncButtonQuestion) api.QuestionCard {
-	card := api.QuestionCard{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, ExpiresAt: q.ExpiresAt, Reason: q.Reason}
+	card := api.QuestionCard{RejectedReplyID: q.RejectedReplyID, ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, ExpiresAt: q.ExpiresAt, Reason: q.Reason}
 	if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) == nil {
 		card.Title, card.Context, card.Options = q.Presentation.Title, q.Presentation.Context, append([]string(nil), q.Presentation.Options...)
 	}
@@ -40,12 +40,25 @@ func (s *Store) closeAsyncLocked(id string, q asyncQuestion, state, reason strin
 // Missing bounded history and an unobserved Worker are never terminal evidence.
 func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var replies []struct{ request, binding, outcome string }
+	observer := s.onQuestionReplyOutcome
+	committed := false
+	defer func() {
+		s.mu.Unlock()
+		if committed && observer != nil {
+			for _, reply := range replies {
+				observer(reply.request, reply.binding, reply.outcome)
+			}
+		}
+	}()
 	previous := s.state
 	s.state = cloneMaintenanceState(s.state)
 	changed := s.compactClosedQuestionCopies()
 	for id, q := range s.state.AsyncQuestions {
 		if q.State == "unknown" && q.WorkID == "" && snapshot.RuntimeOwner == q.Owner && snapshot.LastReceipt.ID == q.ReplyID {
+			if snapshot.LastReceipt.Outcome == "accepted" || snapshot.LastReceipt.Outcome == "rejected" {
+				replies = append(replies, struct{ request, binding, outcome string }{q.ReplyID, q.Fingerprint, snapshot.LastReceipt.Outcome})
+			}
 			if snapshot.LastReceipt.Outcome == "accepted" {
 				q.State = "answered"
 				q.ClosedAt = time.Now().Unix()
@@ -107,6 +120,7 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 			return err
 		}
 	}
+	committed = true
 	return nil
 }
 
@@ -117,6 +131,22 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 	defer s.mu.Unlock()
 	result := append([]api.Item(nil), items...)
 	for i, item := range result {
+		if reply := item.QuestionReply; reply != nil {
+			q, ok := s.state.AsyncQuestions[reply.ShortID]
+			if ok && q.Fingerprint == reply.Binding && q.ReplyID == item.RequestID {
+				copy := *reply
+				switch q.State {
+				case "answered":
+					copy.Outcome = "accepted"
+				case "dispatching":
+					copy.Outcome = "sending"
+				case "unknown":
+					copy.Outcome = "unknown"
+				}
+				item.QuestionReply, item.Status = &copy, copy.Outcome
+				result[i] = item
+			}
+		}
 		if len(item.QuestionCards) == 0 {
 			continue
 		}
@@ -133,7 +163,7 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 				}
 			}
 			if ok {
-				card.State, card.Reason, card.ExpiresAt = q.State, q.Reason, q.ExpiresAt
+				card.State, card.Reason, card.ExpiresAt, card.RejectedReplyID = q.State, q.Reason, q.ExpiresAt, q.RejectedReplyID
 				if q.TaskTitle != "" {
 					card.TaskTitle = q.TaskTitle
 				}
@@ -220,7 +250,7 @@ func (s *Store) PresentWorkerQuestion(id string, presentation *api.QuestionPrese
 	for _, entry := range s.asyncQuestionsLocked(q.ItemID, q.Fingerprint) {
 		field := entry.Question
 		if field.Presented {
-			item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{ShortID: entry.ID, Fingerprint: field.Fingerprint, Title: field.Title, Options: append([]string(nil), field.Options...), State: field.State, TaskTitle: field.TaskTitle, Reason: field.Reason, ExpiresAt: field.ExpiresAt, Presentation: field.Presentation}))
+			item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{RejectedReplyID: field.RejectedReplyID, ShortID: entry.ID, Fingerprint: field.Fingerprint, Title: field.Title, Options: append([]string(nil), field.Options...), State: field.State, TaskTitle: field.TaskTitle, Reason: field.Reason, ExpiresAt: field.ExpiresAt, Presentation: field.Presentation}))
 		}
 	}
 	return item, nil
