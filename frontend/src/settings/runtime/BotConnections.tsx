@@ -39,7 +39,11 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  const [configOpen,setConfigOpen]=useState(false),[removing,setRemoving]=useState(false);
  const connected=creation.current&&status==='approved'&&!approvedUnready;
 
- return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteManageTitle')} className="remote-bot-dialog" blocked={configOpen||removing} busy={busy} onClose={onClose}>
+ // Replace the active dialog while retaining its draft, rather than stacking backdrops.
+ if(configOpen)return <SSHConfigDialog call={call} onClose={()=>{setConfigOpen(false);void loadConfig()}} onSaved={()=>void loadConfig()}/>;
+ if(removing)return <ConnectionActionDialog title={t('settings.remoteRemoveConnection')} name={selected?.name||draft.name||draft.address} description={t(waiting||uncertain?'settings.remoteRemovePendingHelp':'settings.remoteRemoveHelp')} action={t('settings.remoteRemoveConnection')} failure={t('settings.remoteRemoveUnconfirmed')} onAction={remove} onClose={()=>setRemoving(false)}/>;
+
+ return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteManageTitle')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
   <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)submit()}}>
    {!initial&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
    <div className="remote-add-body">
@@ -64,8 +68,6 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    </div>
    {!ssh.status?.prompt&&<div className="remote-dialog-footer">{selected&&!(creation.current&&status==='approved')&&<button type="button" className="text-action remote-remove" disabled={blocked} onClick={()=>setRemoving(true)}>{t('settings.remoteRemoveConnection')}</button>}{!connected&&<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain||creation.current&&status==='approved'?'common.close':'common.cancel')}</button>}{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start({host,port:Number(port)||9317})}else void check()}}>{t(waiting||uncertain?'settings.remoteCheckApproval':'settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?host.trim():draft.address.trim())}>{t(initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteConnect')}</SetupButton>}</div>}
   </form>
-  {removing&&<ConnectionActionDialog title={t('settings.remoteRemoveConnection')} name={selected?.name||draft.name||draft.address} description={t(waiting||uncertain?'settings.remoteRemovePendingHelp':'settings.remoteRemoveHelp')} action={t('settings.remoteRemoveConnection')} failure={t('settings.remoteRemoveUnconfirmed')} onAction={remove} onClose={()=>setRemoving(false)}/>}
-  {configOpen&&<SSHConfigDialog call={call} onClose={()=>{setConfigOpen(false);void loadConfig()}} onSaved={()=>void loadConfig()}/>}
  </SettingsDialog>;
 }
 export function MachineRequestsDialog({requestID,value,readError=false,call=backend,onClose,onChanged}:{requestID?:string;value:WorkerSharing|null;readError?:boolean;call?:typeof backend;onClose:()=>void;onChanged:()=>Promise<void>}){
