@@ -268,7 +268,14 @@ func Run(assets fs.FS) error {
 	}
 
 	s.pickSSHIdentity = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickSSHKeyTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
+		picker := nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).ShowHiddenFiles(true).SetTitle(s.text("native.pickSSHKeyTitle", nil)).SetButtonText(s.text("native.choose", nil))
+		if home, err := os.UserHomeDir(); err == nil {
+			directory := filepath.Join(home, ".ssh")
+			if info, err := os.Stat(directory); err == nil && info.IsDir() {
+				picker.SetDirectory(directory)
+			}
+		}
+		return picker.PromptForSingleSelection()
 	}
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickRuntimeTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
