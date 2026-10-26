@@ -15,6 +15,7 @@ const History=lazy(()=>import('./Panel').then(m=>({default:m.History})));
 const Settings=lazy(()=>import('./Settings').then(m=>({default:m.Settings})));
 const ContextWindow=lazy(()=>import('./ContextWindow').then(m=>({default:m.ContextWindow})));
 const ArtifactPreviewWindow=lazy(()=>import('./ArtifactPreviewWindow').then(m=>({default:m.ArtifactPreviewWindow})));
+const WorkerTaskWindow=lazy(()=>import('./WorkerTaskWindow').then(m=>({default:m.WorkerTaskWindow})));
 const Bubble=lazy(()=>import('./Bubble').then(m=>({default:m.Bubble})));
 
 function Pet() {
@@ -64,4 +65,4 @@ const stopStatusMotion=observeStatusMotion(document.body);
 if(import.meta.hot)import.meta.hot.dispose(stopStatusMotion);
 // Presentation only: native capabilities and authorization stay with the host.
 document.documentElement.dataset.platform = navigator.platform.toLowerCase().startsWith('win') ? 'windows' : 'other';
-createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary><Suspense fallback={null}>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'capture' ? <WindowsCapture /> : surface === 'windows-tasks' ? <WindowsTaskDock /> : surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</Suspense></SurfaceBoundary></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary><Suspense fallback={null}>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'capture' ? <WindowsCapture /> : surface === 'windows-tasks' ? <WindowsTaskDock /> : surface === 'context' ? <ContextWindow /> : surface === 'artifact-preview' ? <ArtifactPreviewWindow /> : surface === 'worker-task' ? <WorkerTaskWindow /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <div className="context-window" data-view="settings"><Settings /></div> : <Pet />}</React.StrictMode>}</Suspense></SurfaceBoundary></I18nProvider>);

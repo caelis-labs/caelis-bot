@@ -28,7 +28,7 @@ export function WebApp({client}:{client:WebClient}){
  const lastTask=useRef('');
  if(nav?.task)lastTask.current=nav.task;
  const openTasks=()=>{if(settingsHasModal())return;const id=lastTask.current||taskState.tasks[0]?.id;if(id)void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true));else setTasksOpen(true);};
- const closeTasks=()=>{setTasksOpen(false);void client.navigation({view:'chat'}).catch(()=>setNavigationFailed(true));};
+ const closeTasks=()=>{setTasksOpen(false);void client.navigation({view:'chat'}).then(()=>requestAnimationFrame(()=>workspace.current?.querySelector<HTMLElement>('.composer-editor[contenteditable=true]')?.focus({preventScroll:true}))).catch(()=>setNavigationFailed(true));};
  const [preview,setPreview]=useState<{id:string;text:string;truncated:boolean}|null>(null),[notice,setNotice]=useState('');
  const content=useRef<HTMLDivElement>(null),workspace=useRef<HTMLDivElement>(null),settingsPanel=useRef<HTMLDivElement>(null);
  const settingsOpen=nav?.view==='settings'&&!onboarding;
@@ -76,7 +76,7 @@ export function WebApp({client}:{client:WebClient}){
       <div className="web-tools">{(taskState.tasks.length>0||taskState.error)&&<button className="web-task-toggle" aria-label="后台任务" title="后台任务" aria-expanded={!!taskOpen} onClick={taskOpen?closeTasks:openTasks}><ListChecksIcon size={19}/></button>}</div>
       <History composerGeneration={editorGeneration} settingsEntry={<ChatSettingsButton/>}/>
      </div>
-     <WebTasks client={client} tasks={taskState.tasks} selected={workspaceNav?.task} onSelect={id=>void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true))} onClose={closeTasks} listError={taskState.error} onRetryList={taskState.retry}/>
+     <WebTasks active={!!taskOpen&&!settingsOpen} client={client} tasks={taskState.tasks} selected={workspaceNav?.task} onSelect={id=>void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true))} onClose={closeTasks} listError={taskState.error} onRetryList={taskState.retry}/>
     </div>
     <div className="web-settings-layer" hidden={!settingsOpen} onPointerDown={event=>{if(event.target===event.currentTarget&&!settingsHasModal())void desktop('CloseSettings').catch(()=>setNavigationFailed(true));}}>
      <div className="web-settings web-settings-panel" ref={settingsPanel} role="dialog" aria-modal="true" aria-label="CaelisBot" data-settings-panel tabIndex={-1} onKeyDown={event=>{

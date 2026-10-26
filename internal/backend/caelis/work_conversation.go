@@ -20,7 +20,7 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 	s.mu.Lock()
 	w, owned := s.state.Workers[id]
 	c, connected := s.client, s.connected && !s.closed
-	sid := w.Binding.SessionId
+	sid, generation, instance := w.Binding.SessionId, s.generation, s.state.InstanceID
 	s.mu.Unlock()
 	if !owned {
 		return nil, errors.New("only Bot-created tasks can be read")
@@ -33,8 +33,34 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 	var ordered []api.TaskConversationMessage
 	seen := map[string]bool{}
 	before := ""
+	readTurns := map[string]bool{}
+	cursors := map[string]bool{}
 	for pageNumber := 0; pageNumber < 1000; pageNumber++ {
 		projection := newWorkerTranscript(sid)
+		pageTurns := map[string]bool{}
+		eventKeys := map[string]bool{}
+		apply := func(event wire.Envelope) error {
+			// history_turns pages are turn-atomic. An overlapping turn could
+			// otherwise return just a message suffix or invent a fallback ID.
+			turn := value(event.TurnId)
+			if turn != "" && readTurns[turn] {
+				return errors.New("native Worker history split a turn across boundaries")
+			}
+			if turn != "" {
+				pageTurns[turn] = true
+			}
+			key := value(event.ProjectionId)
+			if key == "" {
+				key = value(event.EventId)
+			}
+			if key != "" {
+				if eventKeys[key] {
+					return nil
+				}
+				eventKeys[key] = true
+			}
+			return projection.apply(event)
+		}
 		path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=" + strconv.Itoa(64)
 		if before != "" {
 			path += "&history_before=" + url.QueryEscape(before)
@@ -72,7 +98,7 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 				}
 				page++
 				for _, event := range delivery.Events {
-					if err := projection.apply(event); err != nil {
+					if err := apply(event); err != nil {
 						return err
 					}
 				}
@@ -87,7 +113,7 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 				}
 				appended = true
 				for _, event := range delivery.Events {
-					if err := projection.apply(event); err != nil {
+					if err := apply(event); err != nil {
 						return err
 					}
 				}
@@ -105,6 +131,22 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 		})
 		if !errors.Is(err, historyComplete) || !bootstrap || !synced {
 			return nil, errors.New("original native Worker history is unreadable; no empty result was inferred")
+		}
+		s.mu.Lock()
+		current, exists := s.state.Workers[id]
+		same := exists && s.client == c && s.connected && !s.closed && s.generation == generation && s.state.InstanceID == instance && sameWorkerOwner(w, current)
+		s.mu.Unlock()
+		if !same {
+			return nil, errors.New("original native Worker changed during history read")
+		}
+		for turn := range pageTurns {
+			readTurns[turn] = true
+		}
+		if next != "" {
+			if cursors[next] {
+				return nil, errors.New("native Worker history repeated its cursor")
+			}
+			cursors[next] = true
 		}
 		var older []api.TaskConversationMessage
 		for _, item := range projection.completed() {

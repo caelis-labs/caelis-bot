@@ -15,7 +15,6 @@ import { readComposer, writeComposer, composerSelection, insertComposerReference
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
 import { ArtifactLink } from './ArtifactLink';
-import {WorkerTaskDialog} from './WorkerTaskDialog';
 import { chatTimeline, chatTimeLabel, type ChatTimeAnchor } from './chat-time';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
@@ -647,7 +646,7 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError(t('chat.loadEarlierFailed'));}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');setConnectionError('');try{await backend(method);}catch(e){setConnectionError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);try{await refresh();}catch{setConnectionError(previous=>previous||t('chat.actionFailed'));}}};
  return <main className="history-surface" aria-label={t('chat.historyAriaLabel')}>
-  <WorkerTaskDialog active={active}/>
+
   {settingsEntry&&<div className="chat-settings-entry">{settingsEntry}</div>}
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
