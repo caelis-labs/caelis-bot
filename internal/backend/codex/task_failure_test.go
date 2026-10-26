@@ -100,8 +100,8 @@ func TestWorkerFailureRetryAndGenerationFences(t *testing.T) {
 		t.Fatal("intermediate error became terminal")
 	}
 	s.observeTaskTurn(task, nativeTurn{ID: "one", Status: "failed"})
-	if task.View.Failure.Code != "serverOverloaded" || task.View.Failure.WillRetry != nil {
-		t.Fatal("transient retry promise escaped terminal")
+	if task.View.Failure.Code != "unknown" || task.View.Failure.WillRetry != nil {
+		t.Fatal("transient error became an unproven terminal cause")
 	}
 	task.SupersededRuns = []string{"one"}
 	s.observeTaskTurn(task, nativeTurn{ID: "two", Status: "inProgress"})

@@ -794,7 +794,10 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 			if previous == nil && t.View.Failure != nil && t.View.Failure.Execution == failure.Execution {
 				previous = t.View.Failure
 			}
-			if previous == nil {
+			// A retrying stream error may have recovered before a different
+			// terminal failure. Only an explicit non-retrying error can fill
+			// an otherwise absent terminal cause.
+			if previous == nil && t.LastError != nil && t.LastError.WillRetry != nil && !*t.LastError.WillRetry {
 				previous = t.LastError
 			}
 			if previous != nil && previous.Execution == failure.Execution {
