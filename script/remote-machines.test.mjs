@@ -99,3 +99,10 @@ test('legacy entries and saved endpoints do not masquerade as unsent requests',(
  assert.equal(remoteMachineLabel({state:'legacy',pairingStatus:''}),'settings.remoteLegacy');
  assert.equal(remoteMachineLabel({...ready,savedAddress:'http://new.test:9317'}),'settings.remoteSavedAddress');
 });
+
+test('legacy bare Host remains SSH while explicit saved addresses determine the next channel',()=>{
+ assert.deepEqual(sshTarget('fedora',true),{host:'fedora',port:9317});
+ assert.equal(sshTarget('fedora'),undefined);
+ assert.equal(sshTarget('http://fedora.test:9317',true),undefined);
+ assert.deepEqual(sshTarget('ssh://fedora:19329',true),{host:'fedora',port:19329});
+});

@@ -10,6 +10,7 @@ const files=[{id:'fixture-file',name:'fixture-notes.txt',size:32,type:'text/plai
 const option={model:'fixture/model',name:'Saved Model',efforts:['low','high'],defaultEffort:'high',serviceTiers:[],default:false,imageInput:false};
 const selections=[];
 const remote=['list','pending','unknown','unsent'].includes(params.get('machines'))?[{id:'bot-fixture',name:'Fedora',address:'http://fedora.test:9317',connectionType:'bot',pairingStatus:'approved',state:'ready',checkedAt:Date.now(),issue:''},{id:'bot-pending',name:'Build server',address:'http://build.test:9317',connectionType:'bot',pairingStatus:'pending',state:'authorization',checkedAt:Date.now(),issue:'peer_pairing_pending'},{id:'bot-revoked',name:'Mac Studio',address:'http://studio.test:9317',connectionType:'bot',pairingStatus:'revoked',state:'offline',checkedAt:Date.now(),issue:'peer_authorization_revoked'}]:[];
+if(params.get('machines')==='legacy')remote.push({id:'legacy-fixture',name:'Legacy Fedora',address:'fedora',state:'legacy',issue:'machine_legacy'});
 if(['unknown','unsent'].includes(params.get('machines')))remote.splice(0,remote.length,{...remote[1],id:'bot-unknown',pairingStatus:'unknown'});
 let sshStatus={state:'idle'};
 let sharing={address:'http://100.64.0.5:9317',listen:'0.0.0.0:9317',listening:true,managed:false,peer:'synthetic-local',requests:[{id:'fixture-request',name:'MacBook Air',address:'100.64.0.8',fingerprint:'0123456789abcdef'.repeat(4),expiresAt:Math.floor(Date.now()/1000)+300}],sources:[{id:'synthetic-source-A',name:'Mac Studio',pairedAt:1}]};

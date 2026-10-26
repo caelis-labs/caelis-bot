@@ -12,7 +12,7 @@ import {mutateMachine,MachineMutationError,pendingMachineMutation} from './machi
 
 export function MachineEditDialog({machine,call=backend,onClose,onSaved}:{machine:Machine;call?:typeof backend;onClose:()=>void;onSaved:(v:Machine)=>void}){
  const {t}=useI18n(),[name,setName]=useState(machine.name),[address,setAddress]=useState(machine.savedAddress||machine.address),[port,setPort]=useState('');
- const [target,setTarget]=useState<SSHTarget|undefined>(()=>sshTarget(address)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(()=>!!pendingMachineMutation(machine.id,'save'));const submitting=useRef(false);
+ const [target,setTarget]=useState<SSHTarget|undefined>(()=>sshTarget(address,machine.state==='legacy'&&!machine.savedAddress)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(()=>!!pendingMachineMutation(machine.id,'save'));const submitting=useRef(false);
  const save=async()=>{if(submitting.current)return;submitting.current=true;setBusy(true);setError('');try{
   const result=await mutateMachine(call,{id:crypto.randomUUID(),machineId:machine.id,action:'save',name,address:target?sshAddress(target):address===machine.address&&!port?address:botAddress(address,port)});
   onSaved(result.machine);onClose();

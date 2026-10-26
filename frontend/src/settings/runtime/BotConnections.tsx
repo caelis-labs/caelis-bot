@@ -12,8 +12,9 @@ import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors
 export function BotConnectionDialog({machines,initial,call=backend,onClose,onSaved,onChanged}:{machines:Machine[];initial?:Machine;call?:typeof backend;onClose:()=>void;onSaved:(fresh?:Machine)=>void;onChanged:(fresh?:Machine)=>Promise<void>}){
  const {t}=useI18n();const legacy=initial?.state==='legacy';const creation=useRef(!initial||legacy);
  const [draft,setDraft]=useState<BotConnectionInput>(()=>({id:(!legacy&&initial?.id)||'bot-'+crypto.randomUUID(),name:legacy?'':initial?.name||'',address:initial?.savedAddress||initial?.address||''}));
- const [method,setMethod]=useState(initial?.address.startsWith('ssh://')?'ssh':'address');
- const [sshDraft,setSSHDraft]=useState<SSHTarget>(()=>sshTarget(initial?.savedAddress||initial?.address||'')||{host:'',port:9317});
+ const initialSSH=sshTarget(initial?.savedAddress||initial?.address||'',legacy&&!initial?.savedAddress);
+ const [method,setMethod]=useState(initialSSH?'ssh':'address');
+ const [sshDraft,setSSHDraft]=useState<SSHTarget>(()=>initialSSH||{host:'',port:9317});
  const [port,setPort]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const pending=useRef(false);
  const selected=machines.find(v=>v.id===draft.id)||(!legacy?initial:undefined);
  const run=async(action:()=>Promise<unknown>)=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await action()}catch(cause){const recovery=(cause as {botRecovery?:{profileId:string}})?.botRecovery;if(recovery?.profileId)setDraft(old=>({...old,id:recovery.profileId}));setError(cause instanceof Error?cause.message:'unclassified');await onChanged()}finally{pending.current=false;setBusy(false)}};
@@ -34,7 +35,7 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
 
  return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteConnect')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
   <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)submit()}}>
-   {!initial&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
+   {creation.current&&!status&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
    <div className="remote-add-body">
    {!waiting&&!uncertain&&!ssh.status?.prompt&&!(creation.current&&status==='approved')&&<>
    {method==='ssh'?<SSHFields value={sshDraft} onChange={setSSHDraft} disabled={blocked} call={call}/>:<div className="remote-endpoint-row">
