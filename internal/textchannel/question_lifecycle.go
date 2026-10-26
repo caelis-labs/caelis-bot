@@ -24,7 +24,7 @@ func closedAsync(state string) bool {
 	return state == "dismissed" || state == "expired" || state == "superseded"
 }
 func questionCard(q AsyncButtonQuestion) api.QuestionCard {
-	card := api.QuestionCard{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, ExpiresAt: q.ExpiresAt, Reason: q.Reason}
+	card := api.QuestionCard{RejectedReplyID: q.RejectedReplyID, ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, ExpiresAt: q.ExpiresAt, Reason: q.Reason}
 	if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) == nil {
 		card.Title, card.Context, card.Options = q.Presentation.Title, q.Presentation.Context, append([]string(nil), q.Presentation.Options...)
 	}
@@ -163,7 +163,7 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 				}
 			}
 			if ok {
-				card.State, card.Reason, card.ExpiresAt = q.State, q.Reason, q.ExpiresAt
+				card.State, card.Reason, card.ExpiresAt, card.RejectedReplyID = q.State, q.Reason, q.ExpiresAt, q.RejectedReplyID
 				if q.TaskTitle != "" {
 					card.TaskTitle = q.TaskTitle
 				}
@@ -250,7 +250,7 @@ func (s *Store) PresentWorkerQuestion(id string, presentation *api.QuestionPrese
 	for _, entry := range s.asyncQuestionsLocked(q.ItemID, q.Fingerprint) {
 		field := entry.Question
 		if field.Presented {
-			item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{ShortID: entry.ID, Fingerprint: field.Fingerprint, Title: field.Title, Options: append([]string(nil), field.Options...), State: field.State, TaskTitle: field.TaskTitle, Reason: field.Reason, ExpiresAt: field.ExpiresAt, Presentation: field.Presentation}))
+			item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{RejectedReplyID: field.RejectedReplyID, ShortID: entry.ID, Fingerprint: field.Fingerprint, Title: field.Title, Options: append([]string(nil), field.Options...), State: field.State, TaskTitle: field.TaskTitle, Reason: field.Reason, ExpiresAt: field.ExpiresAt, Presentation: field.Presentation}))
 		}
 	}
 	return item, nil

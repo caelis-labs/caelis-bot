@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {workerMessages} from '../frontend/src/worker-messages.ts';
+import {workerMessages,workerMessageStart} from '../frontend/src/worker-messages.ts';
 import {createWorkerOutputReader,retainWorkerOutput} from '../frontend/src/worker-output-read.ts';
 
 const observation=(items,status='running')=>({task:{id:'original-task',status},items,revision:'fixture'});
@@ -139,4 +139,41 @@ test('completed native history covers the real Codex prefix and Caelis UTF-8 tai
   assert.equal(workerMessages(history,[item])[0].text,full,'an older bounded snapshot cannot replace full completed text');
   assert.deepEqual(retainWorkerOutput([], [item],history),[]);
  }
+});
+
+test('native activity files remain accessible without exposing tool prose or inventing file IDs',()=>{
+ const artifacts=[{id:'task-file:original-task:image-output',name:'result.png'},{id:'task-file:original-task:file-change',name:'report.md'}];
+ const tool={id:'tool-output',historyId:'native-tool',kind:'activity',status:'completed',text:'PRIVATE_TOOL_BODY',artifacts};
+ const retained=retainWorkerOutput([tool],[],{messages:[{id:'native-answer',role:'assistant',text:'Ready'}]});
+ const messages=workerMessages(undefined,retained);
+ assert.deepEqual(messages,[{id:'native-tool',role:'assistant',text:'',status:'completed',artifacts}]);
+ assert.deepEqual(workerMessages({messages:[{id:'native-tool',role:'tool',text:'PRIVATE_TOOL_BODY',artifacts}]}),messages);
+ assert.equal(workerMessages(undefined,[{...tool,id:'no-files',artifacts:[]}]).length,0);
+ assert.equal(workerMessages(undefined,[{...tool,id:'',artifacts}]).length,0,'unbound files cannot become message identity');
+});
+
+test('history text alone cannot discard validated files attached to the original observation',()=>{
+ const artifact={id:'task-file:original-task:output',name:'report.md'};
+ const item={id:'live',historyId:'message',kind:'assistant',status:'completed',text:'Done',artifacts:[artifact]};
+ const history={messages:[{id:'message',role:'assistant',text:'Done in full'}]};
+ const retained=retainWorkerOutput([], [item],history);
+ assert.deepEqual(retained,[item]);
+ const [merged]=workerMessages(history,retained);
+ assert.equal(merged.text,'Done in full');assert.deepEqual(merged.artifacts,[artifact]);
+ history.messages[0].artifacts=[artifact];
+ assert.deepEqual(retainWorkerOutput(retained,[],history),[],'history now owns both text and exact file');
+ assert.deepEqual(workerMessages(history,[item])[0].artifacts,[artifact],'same native artifact remains one entry');
+});
+
+test('paused Worker history keeps its starting message through append and earlier-page expansion',()=>{
+ const messages=Array.from({length:90},(_,index)=>({id:'message-'+(index+1)}));
+ const first=messages.slice(0,50),start=workerMessageStart(first,40),anchor=first[start].id;
+ assert.equal(anchor,'message-11');
+ const appended=messages.slice(0,51);
+ assert.equal(appended[workerMessageStart(appended,40,anchor)+9].id,'message-20','appending does not shift the same reading offset to message 21');
+ const expandedAnchor=appended[Math.max(0,workerMessageStart(appended,40,anchor)-40)].id;
+ assert.equal(expandedAnchor,'message-1');
+ assert.equal(workerMessageStart(messages,51,expandedAnchor),0,'loading earlier then appending retains the expanded original window');
+ assert.equal(workerMessageStart(messages,40),50,'explicit latest resumes the bounded tail');
+ assert.equal(workerMessageStart(messages,40,'missing-original-id'),50,'missing identity has a safe bounded fallback');
 });

@@ -193,6 +193,7 @@ export interface Question {
   options: Array<Choice>;
 }
 export interface QuestionCard {
+  rejectedReplyId?: string;
   context?: string;
   taskTitle?: string;
   expiresAt?: number;

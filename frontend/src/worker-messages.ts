@@ -24,8 +24,9 @@ export function historyCoversObservation(full:string,observed:string):boolean {
 }
 
 function historical(message:TaskConversationMessage):WorkerMessage[] {
- return message.id && (message.role==='user'||message.role==='assistant')
-  ?[{...message,role:message.role,status:'completed',artifacts:message.artifacts??[]}]:[];
+ const chat=message.role==='user'||message.role==='assistant';
+ return message.id && (chat||message.artifacts?.length)
+  ?[{...message,role:chat?message.role as WorkerMessage['role']:'assistant',text:chat?message.text:'',status:'completed',artifacts:message.artifacts??[]}]:[];
 }
 
 export function workerMessages(conversation?:TaskConversation,items:Item[]=[]):WorkerMessage[] {
@@ -33,17 +34,20 @@ export function workerMessages(conversation?:TaskConversation,items:Item[]=[]):W
  for(const message of conversation?.messages??[])for(const row of historical(message))history.set(row.id,row);
  const live=new Map<string,WorkerMessage>();
  for(const item of items){
-  if(!item.id||!['user','assistant'].includes(item.kind))continue;
+  const message=['user','assistant'].includes(item.kind);
+  // Tool/activity prose stays hidden, but its host-validated files are still
+  // task output. Native history does not necessarily include these items.
+  if(!item.id||!message&&!item.artifacts?.length)continue;
   const id=item.historyId||`observed:${item.id}`;
-  const row:WorkerMessage={id,role:item.kind as WorkerMessage['role'],text:item.text,status:item.status,artifacts:item.artifacts??[]};
+  const row:WorkerMessage={id,role:message?item.kind as WorkerMessage['role']:'assistant',text:message?item.text:'',status:item.status,artifacts:item.artifacts??[]};
   const final=history.get(id);
   // History supplies full completed text (the live window may be truncated).
   // A resumed native message may extend its previous completed history row.
   if(final){
    const growing=item.status==='inProgress'&&!historyCoversObservation(final.text,row.text);
    const extended=row.text!==final.text&&row.text.startsWith(final.text);
-   if(!growing&&!extended)continue;
    row.artifacts=[...new Map([...final.artifacts,...row.artifacts].map(file=>[file.id,file])).values()];
+   if(!growing&&!extended){history.set(id,{...final,artifacts:row.artifacts});continue;}
   }
   live.set(id,row);
  }
@@ -63,4 +67,11 @@ export function workerMessages(conversation?:TaskConversation,items:Item[]=[]):W
  const rows:WorkerMessage[]=[];
  for(const [id,message] of history){rows.push(...(before.get(id)??[]),live.get(id)??message);}
  return [...rows,...tail];
+}
+
+// While reading history, appending output must not slide the start of the
+// rendered window. The anchor is an original message ID, never its text/index.
+export function workerMessageStart(messages:Pick<WorkerMessage,'id'>[],limit:number,startID?:string):number {
+ const anchored=startID?messages.findIndex(message=>message.id===startID):-1;
+ return anchored>=0?anchored:Math.max(0,messages.length-limit);
 }

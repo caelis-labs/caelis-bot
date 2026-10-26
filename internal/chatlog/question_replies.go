@@ -25,6 +25,9 @@ func (l *Log) ResolveQuestionReply(request, binding, outcome string) {
 	}
 	value := questionOutcome{binding, outcome}
 	l.questionOutcomes[request] = value
+	if item, waiting := l.pendingInputs["input:"+request]; waiting && applyQuestionOutcome(&item, value) {
+		l.pendingInputs["input:"+request] = item
+	}
 	for n := range l.items {
 		if l.items[n].RequestID == request && applyQuestionOutcome(&l.items[n], value) {
 			l.dirty[key(l.items[n])] = l.items[n]
@@ -49,17 +52,12 @@ func preserveQuestionReply(item *api.Item, previous api.Item) bool {
 	if old == nil {
 		return false
 	}
-	if item.QuestionReply == nil {
-		item.QuestionReply, item.Text, item.Status = old, previous.Text, previous.Status
-		return true
+	copy := *old
+	if next := item.QuestionReply; next != nil && next.Binding == old.Binding && old.Outcome != "accepted" && old.Outcome != "rejected" {
+		copy.Outcome = next.Outcome
 	}
-	if item.QuestionReply.Binding == old.Binding && (old.Outcome == "accepted" || old.Outcome == "rejected") && (item.QuestionReply.Outcome == "sending" || item.QuestionReply.Outcome == "unknown") {
-		copy := *item.QuestionReply
-		copy.Outcome = old.Outcome
-		item.QuestionReply, item.Status = &copy, previous.Status
-		return true
-	}
-	return false
+	item.QuestionReply, item.Text, item.Status = &copy, previous.Text, copy.Outcome
+	return true
 }
 
 func persistQuestionOutcomes(ctx context.Context, tx *sql.Tx, values map[string]questionOutcome) error {

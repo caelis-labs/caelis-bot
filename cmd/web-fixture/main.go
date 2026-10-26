@@ -159,6 +159,7 @@ func (e *engine) SurfaceTaskConversation(_ context.Context, id string) (api.Task
 }
 
 func main() {
+	interactions := flag.Bool("interactions", false, "controlled Runtime receipt acceptance")
 	root := flag.String("data-dir", "", "dedicated fixture profile")
 	assets := flag.String("assets", "frontend/dist", "compiled shared assets")
 	listen := flag.String("listen", "127.0.0.1:9318", "listener")
@@ -177,43 +178,55 @@ func main() {
 		}
 	}
 	_ = os.WriteFile(filepath.Join(*root, "result.txt"), []byte("CaelisBot Linux Web fixture result\n"), 0600)
-	b, s, err := desktop.NewWebFixture(*root, e)
+	var runtime api.Engine = e
+	var controlled *interactionEngine
+	if *interactions {
+		controlled = newInteractionEngine(e)
+		runtime = controlled
+	}
+	b, s, err := desktop.NewWebFixture(*root, runtime)
 	if err != nil {
 		log.Fatal(err)
 	}
 	b.ConfigureInitialization(e)
+	observe := func() { b.ObserveChat(e.Snapshot()) }
+	if controlled != nil {
+		observe = configureInteractions(controlled, b)
+	}
 	go func() {
 		for range time.Tick(100 * time.Millisecond) {
-			b.ObserveChat(e.Snapshot())
+			observe()
 		}
 	}()
-	b.SetQuestionLifecycle(func(items []api.Item) ([]api.Item, uint64) {
-		v := e.Snapshot()
-		for i := range items {
-			for _, original := range v.Items {
-				if items[i].ID == original.ID {
-					items[i].QuestionCards = original.QuestionCards
+	if controlled == nil {
+		b.SetQuestionLifecycle(func(items []api.Item) ([]api.Item, uint64) {
+			v := e.Snapshot()
+			for i := range items {
+				for _, original := range v.Items {
+					if items[i].ID == original.ID {
+						items[i].QuestionCards = original.QuestionCards
+					}
 				}
 			}
-		}
-		return items, 0
-	}, nil, nil)
-	b.SetQuestionAnswerer(func(_ context.Context, id, binding, value, request string) string {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		for i := range e.state.Items {
-			for j := range e.state.Items[i].QuestionCards {
-				q := &e.state.Items[i].QuestionCards[j]
-				if q.ShortID == id && q.Binding == binding && q.State == "" {
-					q.State = "answered"
-					e.state.Items = append(e.state.Items, api.Item{ID: request, Kind: "user", Text: value, Status: "completed"})
-					e.save()
-					return "回答已提交，等待后续回复。"
+			return items, 0
+		}, nil, nil)
+		b.SetQuestionAnswerer(func(_ context.Context, id, binding, value, request string) string {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			for i := range e.state.Items {
+				for j := range e.state.Items[i].QuestionCards {
+					q := &e.state.Items[i].QuestionCards[j]
+					if q.ShortID == id && q.Binding == binding && q.State == "" {
+						q.State = "answered"
+						e.state.Items = append(e.state.Items, api.Item{ID: request, Kind: "user", Text: value, Status: "completed"})
+						e.save()
+						return "回答已提交，等待后续回复。"
+					}
 				}
 			}
-		}
-		return "问题已结束。"
-	})
+			return "问题已结束。"
+		})
+	}
 	server, err := websurface.New(websurface.Config{Directory: filepath.Join(*root, "Web"), Origins: []string{*origin}, Version: "FIXTURE · no real model"}, websurface.Services{App: e, Backend: b, Surface: s}, os.DirFS(*assets))
 	if err != nil {
 		log.Fatal(err)

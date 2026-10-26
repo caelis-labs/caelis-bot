@@ -91,6 +91,7 @@ func (s *Store) migrateAnswerReceipt(q asyncQuestion) asyncQuestion {
 // Rejection proves no answer effect, but cannot undo a prior local task/owner
 // closure. All three receipt paths use the same presentation boundary.
 func (s *Store) rejectedAsyncLocked(q asyncQuestion) asyncQuestion {
+	q.RejectedReplyID = q.ReplyID
 	q.State, q.ReplyID, q.OperationID = "", "", ""
 	switch {
 	case q.ClosedAt > 0 && q.Reason != "":

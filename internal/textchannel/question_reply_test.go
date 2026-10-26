@@ -128,3 +128,43 @@ func TestLateQuestionOutcomeNotifiesOnlyAfterOriginalReceipt(t *testing.T) {
 		})
 	}
 }
+
+func TestOriginalRejectedReplyIdentityUnlocksOnlyItsOwnQuestionAttempt(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := api.Item{ID: "question", TurnKey: "turn", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose?", Options: []string{"A", "B"}}}}
+	card, err := s.AsyncCard(item, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := card.QuestionCards[0]
+	s.SetAsyncAnswerer(func(context.Context, Inbound, string) (api.Receipt, error) {
+		return api.Receipt{Outcome: "unknown"}, nil
+	})
+	snapshot := api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}
+	s.HandleDesktopQuestion(t.Context(), "original", q.ShortID, q.Binding, "2", snapshot)
+	snapshot.LastReceipt = api.Receipt{ID: "unrelated", Outcome: "rejected"}
+	if err = s.ReconcileAsync(snapshot, nil); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := s.ProjectQuestions([]api.Item{card})
+	if cards[0].QuestionCards[0].State != "unknown" || cards[0].QuestionCards[0].RejectedReplyID != "" {
+		t.Fatal(cards)
+	}
+	snapshot.LastReceipt.ID = "original"
+	if err = s.ReconcileAsync(snapshot, nil); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, _ = restored.ProjectQuestions([]api.Item{card})
+	got := cards[0].QuestionCards[0]
+	if got.State != "" || got.RejectedReplyID != "original" || got.Binding != q.Binding {
+		t.Fatalf("wrong original rejection: %+v", got)
+	}
+}

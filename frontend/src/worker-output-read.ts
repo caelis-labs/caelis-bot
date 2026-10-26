@@ -17,8 +17,9 @@ export function retainWorkerOutput(previous:Item[],current:Item[],history?:TaskC
  const merged=new Map<string,Item>();
  for(const item of [...previous,...current]){
   const final=item.historyId?read.get(item.historyId):undefined;
-  if(final&&historyCoversObservation(final.text,item.text)){merged.delete(item.id);continue;}
-  if(final&&item.status!=='inProgress'&&!item.text.startsWith(final.text)){merged.delete(item.id);continue;}
+  const filesCovered=!(item.artifacts??[]).some(file=>!final?.artifacts?.some(stored=>stored.id===file.id));
+  if(final&&filesCovered&&historyCoversObservation(final.text,item.text)){merged.delete(item.id);continue;}
+  if(final&&filesCovered&&item.status!=='inProgress'&&!item.text.startsWith(final.text)){merged.delete(item.id);continue;}
   merged.set(item.id,item);
  }
  let bytes=0;

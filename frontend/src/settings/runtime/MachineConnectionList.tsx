@@ -3,6 +3,7 @@ import {useI18n} from '../../i18n';
 import {DesktopTowerIcon,SettingsChevron} from '../../SettingsIcons';
 import {DotsThreeIcon} from '@phosphor-icons/react/dist/csr/DotsThree';
 import {remoteMachineStatus,remoteMachineLabel} from './machine-status';
+import {peerSourceLabel} from './peer-source-label';
 
 function ConnectionRow({name,address,direction,status,online=false,attention=false,onOpen,onMenu}:{name:string;address?:string;direction:string;status:string;online?:boolean;attention?:boolean;onOpen:()=>void;onMenu?:(anchor:HTMLElement)=>void}){
  const {t}=useI18n();
@@ -16,6 +17,6 @@ export function MachineConnectionList({machines,sources,requests,unread,sourcesU
  return <ul className="machine-list remote-machine-list">
   {requests.map(request=><ConnectionRow key={`request:${request.id}`} name={request.name||t('settings.botConnectedSource')} address={request.address} direction={t('settings.remoteIncomingDirection')} status={t('settings.remoteNeedsDecision')} attention onOpen={()=>onRequest(request)}/>)}
   {machines.map(machine=><ConnectionRow key={`outgoing:${machine.id}`} name={machine.name} address={machine.address.startsWith('ssh://')?'SSH · '+machine.address.slice(6).replace(/:9317$/,''):machine.address.replace(/^https?:\/\//,'')} direction={t('settings.remoteOutgoingDirection')} status={t(unread[machine.id]?'settings.remoteCheckUnreadable':remoteMachineLabel(machine))} online={remoteMachineStatus(machine)==='online'&&!unread[machine.id]} onOpen={()=>onMachine(machine)} onMenu={anchor=>onMachineMenu(machine,anchor)}/>)}
-  {sources.map(source=><ConnectionRow key={`incoming:${source.id}`} name={source.name||t('settings.botConnectedSource')} direction={t('settings.remoteAllowedDirection')} status={t(sourcesUnread?'settings.remoteCheckUnreadable':'settings.remoteAllowed')} onOpen={()=>onSource(source)} onMenu={anchor=>onSourceMenu(source,anchor)}/>)}
+  {sources.map(source=><ConnectionRow key={`incoming:${source.id}`} name={peerSourceLabel(source,sources,t('settings.botConnectedSource'))} direction={t('settings.remoteAllowedDirection')} status={t(sourcesUnread?'settings.remoteCheckUnreadable':'settings.remoteAllowed')} onOpen={()=>onSource(source)} onMenu={anchor=>onSourceMenu(source,anchor)}/>)}
  </ul>;
 }

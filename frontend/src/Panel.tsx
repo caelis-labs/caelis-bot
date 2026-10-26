@@ -29,7 +29,7 @@ import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
 import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, visibleDraftFiles, readDraftAndFiles, retryRead, sameComposerSnapshot } from './chat-observation';
 import { useI18n } from './i18n';
-import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
+import { decisionNotDispatched, approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
 import type { MessageKey } from './i18n/catalogs';
 
@@ -103,7 +103,10 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     if(submitted.current || !enabled)return;
     submitted.current=true;setAwaiting(true);setBusy(true); setError('');
     try { await backend('Decide', { id: value.id, choice, answers } satisfies Decision); }
-    catch { setError(t('chat.decisionUnconfirmed')); }
+    catch (cause) {
+      if(decisionNotDispatched(cause)){submitted.current=false;setAwaiting(false);setError(t('chat.replyRejected'));}
+      else setError(t('chat.decisionUnconfirmed'));
+    }
     finally { setBusy(false); refresh(); }
   };
   const button = (c: typeof value.choices[number]) => <SetupButton key={c.id} busy={busy} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</SetupButton>;

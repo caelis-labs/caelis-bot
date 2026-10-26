@@ -27,6 +27,7 @@ func TestIMPersistsOnlyHumanMessagesAndReopensOffline(t *testing.T) {
 	l := Open(path)
 	l.Observe([]api.Item{{ID: "native-user", RequestID: "original-input", Kind: "user", Text: "hello", Details: "tool bytes"}, {ID: "answer", Kind: "assistant", Text: "stream"}, {ID: "tool", Kind: "activity", Text: "private tool output"}})
 	l.Observe([]api.Item{{ID: "echo-user", RequestID: "original-input", Kind: "user", Text: "hello"}, {ID: "answer", Kind: "assistant", Text: "complete"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 2 })
 	before, _ := l.Snapshot()
 	l.Close()
 	restored := Open(path)
@@ -51,6 +52,7 @@ func TestChannelInputKeepsDisplayIdentityWhenNativeEchoArrives(t *testing.T) {
 	defer l.Close()
 	l.Observe([]api.Item{{ID: "channel-input", RequestID: "same", Kind: "user", Text: "original", Status: "received", SeenAt: 100}})
 	l.Observe([]api.Item{{ID: "native-input", RequestID: "same", Kind: "user", Text: "<reference>internal wrapper</reference>\noriginal", Status: "completed"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 1 })
 	items, _ := l.Snapshot()
 	if len(items) != 1 || items[0].ID != "channel-input" || items[0].SeenAt != 100 || items[0].Status != "completed" || items[0].Text != "original" {
 		t.Fatal(items)
@@ -202,6 +204,7 @@ func TestQuestionReplySurvivesEchoAndOfflineReload(t *testing.T) {
 	reply := api.Item{ID: "control-input:reply", RequestID: "reply", Kind: "user", Text: "使用远端", Status: "unknown", QuestionReply: &api.QuestionReply{ShortID: "Q1", Binding: "original-binding", Title: "选择环境？", Answer: "使用远端", Outcome: "unknown"}}
 	l.Observe([]api.Item{reply})
 	l.Observe([]api.Item{{ID: "native", RequestID: "reply", Kind: "user", Text: "/answer Q1 2", Status: "completed"}})
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 1 })
 	items, _ := l.Snapshot()
 	if len(items) != 1 || items[0].Text != reply.Text || items[0].Status != "unknown" || items[0].QuestionReply.Outcome != "unknown" {
 		t.Fatal(items)

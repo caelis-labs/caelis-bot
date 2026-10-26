@@ -15,6 +15,7 @@ let sshConfig={path:'/Synthetic/Bot/Machines/SSH/config',userPath:'/Synthetic/.s
 let sharing={address:'http://100.64.0.5:9317',listen:'0.0.0.0:9317',listening:true,managed:false,peer:'synthetic-local',requests:[{id:'fixture-request',name:'MacBook Air',address:'100.64.0.8',fingerprint:'0123456789abcdef'.repeat(4),expiresAt:Math.floor(Date.now()/1000)+300}],sources:[{id:'synthetic-source-A',name:'Mac Studio',pairedAt:1}]};
 if(params.get('inbox')!=='pending')sharing.requests=[];
 if(params.get('sources')!=='yes')sharing.sources=[];
+if(params.get('sources')==='duplicates')sharing.sources=['12345678a','12345678b'].map(prefix=>({id:prefix+'0'.repeat(55),name:'fedora',pairedAt:1}));
 if(params.get('receiveIssue'))sharing.issue=params.get('receiveIssue');
 window.fixtureMachines=remote;
 window.fixtureRemoteFailure=params.get('machines')==='error';

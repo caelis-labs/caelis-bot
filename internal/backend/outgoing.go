@@ -122,9 +122,21 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 			// while the IM still has no row. This grants no receipt authority.
 			if s.chat != nil {
 				s.chat.Observe([]api.Item{pending.item})
+				// A cache miss waits for the original persisted display. Keep
+				// this already-visible outgoing row until that read publishes it.
+				confirmed = false
+				visible, _ := s.chat.Snapshot()
+				for _, item := range visible {
+					if item.Kind == "user" && item.RequestID == pending.item.RequestID {
+						confirmed = true
+						break
+					}
+				}
 			}
-			s.messageMedia.Resolve(pending.item.RequestID)
-			continue
+			if confirmed {
+				s.messageMedia.Resolve(pending.item.RequestID)
+				continue
+			}
 		}
 		if v.LastReceipt.ID == pending.item.RequestID && v.LastReceipt.Outcome != "" {
 			pending.item.Status = v.LastReceipt.Outcome

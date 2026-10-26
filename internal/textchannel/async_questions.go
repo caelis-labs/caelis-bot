@@ -21,6 +21,7 @@ import (
 // server requests. Their replies enter the same Bot conversation as a new user
 // submission, with the exact question item identity supplied to the model.
 type asyncQuestion struct {
+	RejectedReplyID                                    string                    `json:"rejectedReplyId,omitempty"`
 	Presentation                                       *api.QuestionPresentation `json:"presentation,omitempty"`
 	ItemID, TurnKey, CallID, Owner, Fingerprint, Title string
 	WorkID                                             string
@@ -37,6 +38,7 @@ type asyncQuestion struct {
 // question. The short ID and fingerprint are stable for this item generation;
 // transports still submit through Handle for owner and receipt checks.
 type AsyncButtonQuestion struct {
+	RejectedReplyID                    string
 	Presented                          bool
 	Presentation                       *api.QuestionPresentation
 	ShortID, Title, Fingerprint, State string
@@ -351,7 +353,7 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	item.QuestionCards = nil
 	for _, entry := range entries {
 		q := entry.Question
-		item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{ShortID: entry.ID, Fingerprint: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented}))
+		item.QuestionCards = append(item.QuestionCards, questionCard(AsyncButtonQuestion{RejectedReplyID: q.RejectedReplyID, ShortID: entry.ID, Fingerprint: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State, TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented}))
 	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
@@ -362,7 +364,7 @@ func (s *Store) asyncButtonQuestionsLocked(itemID, fingerprint string) []AsyncBu
 	var result []AsyncButtonQuestion
 	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
 		q := entry.Question
-		result = append(result, AsyncButtonQuestion{ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...), TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented})
+		result = append(result, AsyncButtonQuestion{RejectedReplyID: q.RejectedReplyID, ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...), TaskTitle: q.TaskTitle, Reason: q.Reason, ExpiresAt: q.ExpiresAt, Presentation: q.Presentation, Presented: q.Presented})
 	}
 	return result
 }

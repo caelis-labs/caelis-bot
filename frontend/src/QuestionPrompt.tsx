@@ -1,4 +1,4 @@
-import {useId,useRef,useState} from 'react';
+import {useId,useRef,useState,useEffect} from 'react';
 import type {QuestionCard} from './backend/contract';
 import {SetupButton} from './SetupLoading';
 import {backend} from './desktop';
@@ -9,23 +9,25 @@ export function QuestionPrompt({card,refresh,onAnswered}:{card:QuestionCard;refr
  const {t,locale}=useI18n();
  const id=useId();
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const [settled,setSettled]=useState('');
+ const [settled,setSettled]=useState<{requestID:string;state:string}>();
  const inFlight=useRef(false);
- const state=card.state||settled,done=!!state;
+ const state=card.state||(settled&&card.rejectedReplyId!==settled.requestID?settled.state:''),done=!!state;
+ useEffect(()=>{if(settled&&card.rejectedReplyId===settled.requestID)setSettled(undefined);},[card.rejectedReplyId,settled]);
  const copy=questionCopy(card.title,card.context);
  const act=async(kind:'answer'|'dismiss',answer='')=>{
   if(inFlight.current||busy||done||(kind==='answer'&&!answer.trim()))return;
-  inFlight.current=true;setBusy(true);setError('');
+  inFlight.current=true;setBusy(true);setError('');setSettled(undefined);
+  const requestID=crypto.randomUUID();
   try {
    const feedback=kind==='answer'
-    ?await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,crypto.randomUUID())
-    :await backend<string>('DismissQuestion',card.shortId,card.binding,crypto.randomUUID());
-   if(kind==='answer'&&(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。')){setSettled('answered');onAnswered(card);}
-   else if(kind==='dismiss'&&feedback==='问题已关闭，未提供答案。')setSettled('dismissed');
-   else if(feedback.includes('待核对')||feedback.includes('不会自动重发')||feedback.includes('投递后'))setSettled('unknown');
+    ?await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,requestID)
+    :await backend<string>('DismissQuestion',card.shortId,card.binding,requestID);
+   if(kind==='answer'&&(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。')){setSettled({requestID,state:'answered'});onAnswered(card);}
+   else if(kind==='dismiss'&&feedback==='问题已关闭，未提供答案。')setSettled({requestID,state:'dismissed'});
+   else if(feedback.includes('待核对')||feedback.includes('不会自动重发')||feedback.includes('投递后'))setSettled({requestID,state:'unknown'});
    else setError(t('chat.replyRejected'));
    refresh();
-  } catch {setSettled('unknown');}
+  } catch {setSettled({requestID,state:'unknown'});}
   finally {inFlight.current=false;setBusy(false);}
  };
  if(questionAnswered(state))return null;
