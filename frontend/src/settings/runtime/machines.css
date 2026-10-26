@@ -33,7 +33,7 @@
 .settings-window .remote-methods button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px #0001}
 .remote-endpoint-row{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:12px}
 .remote-endpoint-row>label{min-width:0}
-.remote-endpoint-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.remote-endpoint-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
 .remote-form-help{margin:0 0 20px;color:var(--muted);font-size:12px;line-height:1.65}
 .settings-window .remote-bot-dialog .settings-select{width:100%}
 .settings-window .remote-bot-dialog .settings-select-trigger{height:40px;min-height:40px;text-align:left;justify-content:space-between;font-size:13px;color:var(--ink)}
@@ -65,9 +65,10 @@
 .remote-ssh-auth pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;font-family:inherit;max-height:150px;overflow:auto}
 .settings-window .remote-ssh-auth .remote-dialog-footer{margin:12px 0 20px}
 .settings-window .remote-ssh-config-dialog{width:560px}
-.remote-config-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.remote-config-list{list-style:none;margin:0;padding:0}
 .remote-config-list li{display:flex;align-items:center;gap:12px;padding:20px 0;border-bottom:1px solid var(--line)}
-.remote-config-list li:last-child{border-bottom:0}
+.remote-config-list li:first-child{padding-top:0}
+.remote-config-list li:last-child{border-bottom:0;padding-bottom:0}
 .remote-config-icon{flex:none;color:var(--muted)}
 .remote-config-copy{flex:1;min-width:0}
 .remote-config-copy strong{font-size:13px;font-weight:500}
