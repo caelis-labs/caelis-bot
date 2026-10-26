@@ -177,5 +177,6 @@
   "windowsUpdateDownloading": "Downloading and verifying the update…",
   "windowsUpdateReady": "Update downloaded. Open Settings > About & Help and choose Restart and install when ready.",
   "windowsUpdateRecovery": "The previous update needs review. Reinstall from the release page if necessary; your data is preserved.",
-  "closeSettings": "Close settings"
+  "closeSettings": "Close settings",
+  "pickSSHKeyTitle": "Choose SSH private key"
 }

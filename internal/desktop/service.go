@@ -33,10 +33,8 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
-	readSSHConfiguration    func(string) (api.SSHConfigurationDocument, error)
-	prepareSSHConfiguration func(string) (api.SSHConfigurationDocument, error)
-	openConfigurationFile   func(string) error
-	revealConfigurationFile func(string) error
+	pickSSHIdentity         func() (string, error)
+	registerSSHIdentity     func(string) (api.SSHIdentity, error)
 	captureMenuChanged      func()
 	pluginSnapshot          func(context.Context) (plugins.Snapshot, error)
 	pluginAction            func(context.Context, string, string) (plugins.Snapshot, error)

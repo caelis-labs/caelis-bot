@@ -1,10 +1,8 @@
 package backend
 
 import (
-	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"time"
 )
 
 func (s *Service) sshConnections() (api.SSHConnections, error) {
@@ -14,21 +12,19 @@ func (s *Service) sshConnections() (api.SSHConnections, error) {
 	}
 	return v, nil
 }
-func (s *Service) SSHConfiguration() (api.SSHConfiguration, error) {
+func (s *Service) SSHHosts() (api.SSHHosts, error) {
 	v, e := s.sshConnections()
 	if e != nil {
-		return api.SSHConfiguration{}, e
+		return api.SSHHosts{}, e
 	}
-	return v.SSHConfiguration()
+	return v.SSHHosts()
 }
-func (s *Service) SaveSSHConfiguration(in api.SSHConfigurationSave) (api.SSHConfiguration, error) {
+func (s *Service) RegisterSSHIdentity(path string) (api.SSHIdentity, error) {
 	v, e := s.sshConnections()
 	if e != nil {
-		return api.SSHConfiguration{}, e
+		return api.SSHIdentity{}, e
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return v.SaveSSHConfiguration(ctx, in)
+	return v.RegisterSSHIdentity(path)
 }
 func (s *Service) StartSSHConnection(in api.SSHTarget) (api.SSHConnectionStatus, error) {
 	v, e := s.sshConnections()
@@ -57,18 +53,4 @@ func (s *Service) StopSSHConnection(in api.SSHTarget) error {
 		return e
 	}
 	return v.StopSSHConnection(in)
-}
-func (s *Service) ReadSSHConfiguration(kind string) (api.SSHConfigurationDocument, error) {
-	p, ok := s.machines.(api.SSHConfigurationFiles)
-	if !ok {
-		return api.SSHConfigurationDocument{}, errors.New("ssh_unavailable")
-	}
-	return p.ReadSSHConfiguration(kind)
-}
-func (s *Service) PrepareSSHConfigurationEdit(kind string) (api.SSHConfigurationDocument, error) {
-	p, ok := s.machines.(api.SSHConfigurationFiles)
-	if !ok {
-		return api.SSHConfigurationDocument{}, errors.New("ssh_unavailable")
-	}
-	return p.PrepareSSHConfigurationEdit(kind)
 }

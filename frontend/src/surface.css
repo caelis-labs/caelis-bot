@@ -908,3 +908,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .interaction-reply-status{display:block;margin-top:8px;font-size:10px;line-height:1.5;color:var(--muted)}
 
 .interaction-reply-context{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+
+.setup-button-label { display:inline-flex;align-items:center;justify-content:center;gap:inherit; }
+.setup-button-label>svg { display:block;flex:none; }

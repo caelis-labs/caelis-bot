@@ -8,9 +8,12 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 )
 
-func (s *Service) SSHConfiguration() (api.SSHConfiguration, error) { return s.ssh.Configuration() }
-func (s *Service) SaveSSHConfiguration(ctx context.Context, in api.SSHConfigurationSave) (api.SSHConfiguration, error) {
-	return s.ssh.Save(ctx, in)
+func (s *Service) SSHHosts() (api.SSHHosts, error) {
+	v, e := s.ssh.Configuration()
+	return api.SSHHosts{Hosts: v.Hosts, Issue: v.Issue}, e
+}
+func (s *Service) RegisterSSHIdentity(path string) (api.SSHIdentity, error) {
+	return s.ssh.RegisterIdentity(path)
 }
 func (s *Service) StartSSHConnection(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 	return s.ssh.Start(v)
@@ -91,10 +94,4 @@ func (s *Service) checkedSSHAddress(ctx context.Context, address, peer string) (
 		}
 	}
 	return a, nil
-}
-func (s *Service) ReadSSHConfiguration(kind string) (api.SSHConfigurationDocument, error) {
-	return s.ssh.Document(kind)
-}
-func (s *Service) PrepareSSHConfigurationEdit(kind string) (api.SSHConfigurationDocument, error) {
-	return s.ssh.PrepareEdit(kind)
 }

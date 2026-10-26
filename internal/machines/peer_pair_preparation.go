@@ -38,7 +38,7 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 	id := in.ID
 	if _, exists := s.state.Profiles[id]; !exists {
 		for key, p := range s.state.Profiles {
-			if p.View.Address == address {
+			if !p.Legacy && p.View.Address == address {
 				id = key
 				break
 			}
@@ -59,6 +59,9 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		}
 		next = profile{PairingEpoch: workerpeer.NewPairingID(), PairingName: sourceName, Peer: workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}, View: api.Machine{ID: id, Name: name, Address: address, ConnectionType: "bot", State: "authorization", PairingStatus: "unknown"}}
 	} else {
+		if next.Legacy {
+			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "machine_legacy"}
+		}
 		if next.Peer.Token == "" {
 			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "original_peer_proof_required"}
 		}

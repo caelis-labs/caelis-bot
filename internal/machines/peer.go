@@ -666,6 +666,9 @@ func validPeerDisplayName(name string) bool {
 // Display metadata never rewrites the original connection intent.
 func machineView(p profile) api.Machine {
 	v := p.View
+	if p.SavedAddress != "" && p.SavedAddress != v.Address {
+		v.SavedAddress = p.SavedAddress
+	}
 	if p.Label != "" {
 		v.Name = p.Label
 	} else if v.Name == v.Address || v.Name == "" {

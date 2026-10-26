@@ -11,7 +11,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
-	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +19,8 @@ import (
 )
 
 type profile struct {
+	SavedAddress string                `json:"savedAddress,omitempty"`
+	Legacy       bool                  `json:"legacy,omitempty"`
 	Label        string                `json:"label,omitempty"`
 	LabelPending bool                  `json:"labelPending,omitempty"`
 	PairingEpoch string                `json:"pairingEpoch"`
@@ -28,15 +29,19 @@ type profile struct {
 	View         api.Machine           `json:"view"`
 }
 type disk struct {
-	Version         int                `json:"version"`
-	ProfileID       string             `json:"profileId"`
-	Profiles        map[string]profile `json:"profiles"`
-	Routes          map[string]string  `json:"routes"`
-	Runtimes        map[string]string  `json:"runtimes"`
-	Reservations    map[string]bool    `json:"reservations,omitempty"`
-	ReservationKeys map[string]string  `json:"reservationKeys,omitempty"`
+	Mutations       map[string]api.MachineMutationResult `json:"mutations,omitempty"`
+	Version         int                                  `json:"version"`
+	ProfileID       string                               `json:"profileId"`
+	Profiles        map[string]profile                   `json:"profiles"`
+	Routes          map[string]string                    `json:"routes"`
+	Runtimes        map[string]string                    `json:"runtimes"`
+	Reservations    map[string]bool                      `json:"reservations,omitempty"`
+	ReservationKeys map[string]string                    `json:"reservationKeys,omitempty"`
 }
 type Service struct {
+	registry                string
+	mutationMu              sync.Mutex
+	mutations               map[string]api.MachineMutationResult
 	ssh                     *sshtransport.Transport
 	pairingActive           map[string]int
 	peerApprovalFingerprint string
@@ -59,14 +64,36 @@ func Open(root string, local api.WorkRuntime) (*Service, error) {
 	}
 	s := &Service{root: root, local: local, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 2, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}, Runtimes: map[string]string{}, Reservations: map[string]bool{}, ReservationKeys: map[string]string{}}}
 	s.ssh = sshtransport.New(filepath.Join(root, "SSH"))
-	data, err := os.ReadFile(filepath.Join(root, "machines.json"))
+	s.registry = filepath.Join(root, "machines.json")
+	if _, err := os.Stat(filepath.Join(root, "machines-v2.json")); err == nil {
+		s.registry = filepath.Join(root, "machines-v2.json")
+	}
+	data, err := os.ReadFile(s.registry)
 	if err == nil {
-		if json.Unmarshal(data, &s.state) != nil || s.state.Version != 2 || s.state.ProfileID == "" || s.state.Profiles == nil || s.state.Routes == nil || s.state.Runtimes == nil {
+		if json.Unmarshal(data, &s.state) != nil || (s.state.Version != 1 && s.state.Version != 2) || s.state.ProfileID == "" || s.state.Profiles == nil || s.state.Routes == nil || s.state.Runtimes == nil {
 			s.loadErr = errors.New("machine store invalid")
 		}
 	} else if !os.IsNotExist(err) {
 		s.loadErr = err
 	}
+	if s.loadErr == nil && s.state.Version == 1 {
+		// Keep the complete original v1 document, including legacy credentials and
+		// routes. The new registry never invents v2 authorization for these rows.
+		s.registry = filepath.Join(root, "machines-v2.json")
+		s.state.Version = 2
+		for id, p := range s.state.Profiles {
+			p.Legacy = true
+			p.Label = p.View.Name
+			p.View.State = "legacy"
+			p.View.Issue = "machine_legacy"
+			p.View.PairingStatus = ""
+			s.state.Profiles[id] = p
+		}
+	}
+	if s.state.Mutations == nil {
+		s.state.Mutations = map[string]api.MachineMutationResult{}
+	}
+	s.mutations = map[string]api.MachineMutationResult{}
 	if s.state.Reservations == nil {
 		s.state.Reservations = map[string]bool{}
 	}
@@ -85,7 +112,7 @@ func (s *Service) save() error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
-	return localstate.Write(filepath.Join(s.root, "machines.json"), s.state)
+	return localstate.Write(s.registry, s.state)
 }
 func (s *Service) Machines() []api.Machine {
 	s.mu.Lock()
@@ -102,10 +129,10 @@ func (s *Service) Machines() []api.Machine {
 // Adopt only the repaired original registry. Removing an unreadable registry
 // cannot authorize replacing its owners/routes with a fresh profile.
 func (s *Service) reloadLocked() {
-	if s.loadErr == nil {
+	if s.loadErr == nil || s.loadErr.Error() == "machine_save_unknown" {
 		return
 	}
-	b, err := os.ReadFile(filepath.Join(s.root, "machines.json"))
+	b, err := os.ReadFile(s.registry)
 	var restored disk
 	if err != nil || json.Unmarshal(b, &restored) != nil || restored.Version != 2 || restored.ProfileID == "" || restored.Profiles == nil || restored.Routes == nil {
 		return
@@ -120,6 +147,9 @@ func (s *Service) reloadLocked() {
 		if restored.Runtimes[id] != "codex" && restored.Runtimes[id] != "caelis" {
 			return
 		}
+	}
+	if restored.Mutations == nil {
+		restored.Mutations = map[string]api.MachineMutationResult{}
 	}
 	if restored.Reservations == nil {
 		restored.Reservations = map[string]bool{}
@@ -136,74 +166,15 @@ func (s *Service) machineProfile(id string) (profile, bool) {
 }
 func sameConnectionConfiguration(a, b profile) bool { return sameBotConfiguration(a, b) }
 func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.Machine, error) {
+	if p, ok := s.machineProfile(id); ok && p.Legacy {
+		return machineView(p), nil
+	}
 	return s.inspectBot(ctx, id, false, true)
 }
-func (s *Service) RemoveMachine(ctx context.Context, id string) (result error) {
-	s.mu.Lock()
-	p, ok := s.state.Profiles[id]
-	defer func() {
-		if result == nil {
-			if target, ok := sshtransport.Target(p.Peer.Address); ok {
-				_ = s.ssh.Stop(target)
-			}
-		}
-	}()
-	if !ok {
-		s.mu.Unlock()
-		return errors.New("machine_unknown")
-	}
-	// Existing new-protocol tasks retain their original routes. Removing a
-	// presentation must never cancel work or discard the only control proof.
-	if p.View.PairingStatus == "pending" || p.View.PairingStatus == "unknown" {
-		old := p
-		p.View.Archived = true
-		s.state.Profiles[id] = p
-		err := s.save()
-		if err != nil {
-			s.state.Profiles[id] = old
-		}
-		s.mu.Unlock()
-		return err
-	}
-	for _, machine := range s.state.Routes {
-		if machine == id {
-			old := p
-			p.View.Archived = true
-			s.state.Profiles[id] = p
-			err := s.save()
-			if err != nil {
-				s.state.Profiles[id] = old
-			}
-			s.mu.Unlock()
-			return err
-		}
-	}
-	s.mu.Unlock()
-	// An unapproved request grants no execution. Forgetting it is local only;
-	// B can reject/expire its inbox item. An approved source is unpaired first.
-	if p.View.PairingStatus == "approved" {
-		c, cancel := context.WithTimeout(ctx, 8*time.Second)
-		_, err := s.peerCall(c, p.Peer, workerpeer.Request{Action: "unpair"})
-		cancel()
-		if err != nil {
-			return errors.New("peer_unpair_unconfirmed")
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, ok := s.state.Profiles[id]
-	if !ok {
-		return nil
-	}
-	if !sameBotConfiguration(current, p) {
-		return errors.New("machine_connection_changed")
-	}
-	before := s.state.Profiles
-	s.state.Profiles = maps.Clone(before)
-	delete(s.state.Profiles, id)
-	if err := s.save(); err != nil {
-		s.state.Profiles = before
-		return err
+func (s *Service) RemoveMachine(ctx context.Context, id string) error {
+	result := s.ManageMachine(api.MachineMutation{ID: rand.Text(), MachineID: id, Action: "remove"})
+	if result.Status != "succeeded" {
+		return errors.New(result.Code)
 	}
 	return nil
 }

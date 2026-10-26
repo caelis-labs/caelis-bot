@@ -13,6 +13,8 @@ export function remoteMachineStatus(machine:Machine,now=Date.now()):'online'|'of
 
 import type {MessageKey} from '../../i18n/catalogs';
 export function remoteMachineLabel(machine:Machine):MessageKey {
+ if(machine.savedAddress)return 'settings.remoteSavedAddress';
+ if(machine.state==='legacy')return 'settings.remoteLegacy';
  if(machine.issue==='pairing_request_not_dispatched')return 'settings.remoteNotSentLabel';
  const pairing:Record<string,MessageKey>={pending:'settings.remotePending',unknown:'settings.remoteUnconfirmed',rejected:'settings.remoteRejected',expired:'settings.remoteExpired',revoked:'settings.remoteRevoked'};
  if(Object.hasOwn(pairing,machine.pairingStatus))return pairing[machine.pairingStatus];

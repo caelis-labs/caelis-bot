@@ -135,6 +135,7 @@ export interface LocalWorkerSettings {
   runtimeDefault: WorkExecutionSettings | null;
 }
 export interface Machine {
+  savedAddress?: string;
   id: string;
   name: string;
   remoteName?: string;
@@ -147,6 +148,20 @@ export interface Machine {
   archived?: boolean;
   peerId?: string;
   pairingStatus: string;
+}
+export interface MachineMutation {
+  address?: string;
+  id: string;
+  machineId: string;
+  action: string;
+  name?: string;
+}
+export interface MachineMutationResult {
+  id: string;
+  status: string;
+  code?: string;
+  machine: Machine;
+  digest?: string;
 }
 export interface MediaImage {
   id: string;
@@ -417,30 +432,20 @@ export interface SSHAnswer {
   id: string;
   value: string;
   cancel: boolean;
-}
-export interface SSHConfiguration {
-  path: string;
-  userPath: string;
-  systemPath: string;
-  text: string;
-  revision: string;
-  hosts: Array<string>;
-  issue?: string;
-}
-export interface SSHConfigurationDocument {
-  kind: string;
-  text: string;
-  path: string;
-  exists: boolean;
-}
-export interface SSHConfigurationSave {
-  text: string;
-  revision: string;
+  target?: SSHTarget | null;
 }
 export interface SSHConnectionStatus {
   state: string;
   issue?: string;
   prompt?: SSHPrompt | null;
+}
+export interface SSHHosts {
+  hosts: Array<string>;
+  issue?: string;
+}
+export interface SSHIdentity {
+  id: string;
+  name: string;
 }
 export interface SSHPrompt {
   id: string;
@@ -450,6 +455,10 @@ export interface SSHPrompt {
 export interface SSHTarget {
   host: string;
   port: number;
+  sshPort?: number;
+  user?: string;
+  authentication?: string;
+  identity?: string;
 }
 export interface ScreenImage {
   id: string;

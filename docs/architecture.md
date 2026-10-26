@@ -1223,3 +1223,13 @@ diffs are not reconstructed from assistant prose or exposed by a new interface.
 The optional `serve` entry point assembles the same `app.Application` without a native window driver. Bot identity, schedules, channels, Worker routing and recovery remain owned by the existing product services. Browser disconnect is not a shutdown or cancellation signal. The browser uses the same React surfaces through an explicit Web transport; native desktop calls remain the default transport.
 
 `internal/websurface` owns only authenticated ingress, operation correlation, bounded snapshot delivery and file transfer. It exposes an explicit operation allowlist rather than generic Wails/Core RPC. Direct loopback bootstrap preserves Origin/Host/CSRF checks; nonlocal clients pair. The optional host-loopback relay authenticates local container port forwarding without trusting NAT peers or forwarded headers, and has no execution authority. See [deployment and boundary contracts](headless-web.md) and [acceptance evidence and limits](headless-web-acceptance.md). Linux/WSL headless does not imply Linux desktop or Windows GUI support.
+
+
+Local remote-connection metadata uses atomic save/remove receipts keyed by the
+original operation ID. Unknown disk outcomes fence writes until durable readback;
+UI transport loss never causes mutation replay. Version-1 metadata is retained in
+place and local management uses a version-2 companion registry, preserving original
+task routes without reviving the retired helper protocol. SSH manual login stores
+only non-secret target options and an opaque native key reference. Passwords and
+passphrases use the transient askpass broker. SSH file-management APIs are removed;
+existing Host resolution still reads the compatible configuration layers internally.

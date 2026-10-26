@@ -9,9 +9,10 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/tasks/worker-conversation", Function: b.WorkerTaskConversation, Read: true},
 		{Path: "/api/v1/tasks/worker-observation", Function: b.WorkerTaskObservation, Read: true},
 		{Path: "/api/v1/files/worker-copy", Function: b.WorkerFileCopy, Read: true},
-		{Path: "/api/v1/machines/ssh-document", Function: b.ReadSSHConfiguration, Read: true},
-		{Path: "/api/v1/machines/ssh-config", Function: b.SSHConfiguration, Read: true},
-		{Path: "/api/v1/machines/ssh-config-save", Function: b.SaveSSHConfiguration, Local: true},
+		{Path: "/api/v1/machines/ssh-hosts", Function: b.SSHHosts, Read: true},
+		// These local effects own their durable original receipts; never replay.
+		{Path: "/api/v1/machines/manage", Function: b.ManageMachine, Local: true},
+		{Path: "/api/v1/machines/mutation", Function: b.MachineMutation, Read: true},
 		{Path: "/api/v1/machines/ssh-start", Function: b.StartSSHConnection, Local: true},
 		{Path: "/api/v1/machines/ssh-status", Function: b.SSHConnectionStatus, Read: true},
 		// Credentials are transient. Never put SSHAnswer in the Web operation journal.

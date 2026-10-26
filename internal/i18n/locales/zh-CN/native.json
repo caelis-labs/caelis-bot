@@ -177,5 +177,6 @@
   "windowsUpdateDownloading": "正在下载并验证更新…",
   "windowsUpdateReady": "更新已下载。请在“设置 → 关于与帮助”中，准备好后选择“重启并安装”。",
   "windowsUpdateRecovery": "上次更新需要核对。必要时从发布页重新安装，已有数据会保留。",
-  "closeSettings": "关闭设置"
+  "closeSettings": "关闭设置",
+  "pickSSHKeyTitle": "选择 SSH 私钥"
 }

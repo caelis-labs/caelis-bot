@@ -83,21 +83,28 @@ try{
  let connectionAddress=relay.url,sshTest;
  if(process.argv.includes('--ssh')){
   sshTest=await sshFixture(root,children);
-  const current=(await host(a,'/api/v1/machines/ssh-config')).body.value;
-  const saved=await host(a,'/api/v1/machines/ssh-config-save',[{text:sshTest.config,revision:current.revision}]);assert.equal(saved.status,200);
+  // Seed only this test's private compatibility layer; no product file editor.
+  await mkdir(join(A.data,'Machines','SSH'),{recursive:true,mode:0o700});
+  await writeFile(join(A.data,'Machines','SSH','config'),sshTest.config,{mode:0o600});
   connectionAddress='ssh://e2e-bot:'+new URL(relay.url).port;
   evidence.ssh={build:'system OpenSSH (version recorded by test runner)',generatedFixtureKeys:true,actualBrowserPrompt:true};
  }
 
  async function submit(page,address,name){await page.getByRole('button',{name:'添加机器',exact:true}).click();
-  if(address.startsWith('ssh://')){const u=new URL(address);await page.getByRole('button',{name:'SSH',exact:true}).click();await page.getByRole('button',{name:'SSH 连接',exact:true}).click();await page.getByRole('menuitemradio',{name:u.hostname,exact:true}).click();await page.locator('.remote-connection-options summary').click();await page.getByLabel('Bot 端口',{exact:true}).fill(u.port);await page.getByRole('button',{name:'连接',exact:true}).click();
+  if(address.startsWith('ssh://')){const u=new URL(address);await page.getByRole('button',{name:'SSH',exact:true}).click();await page.getByRole('button',{name:'SSH 连接',exact:true}).click();await page.getByRole('menuitemradio',{name:u.hostname,exact:true}).click();await page.getByLabel('Bot 端口',{exact:true}).fill(u.port);await page.getByRole('button',{name:'连接',exact:true}).click();
    const trust=page.getByRole('button',{name:'信任此主机',exact:true});await trust.waitFor();assert.ok((await page.locator('.remote-ssh-auth').innerText()).includes(sshTest.fingerprint));await shot(page,'A-native-SSH-fingerprint');await trust.click();
   }else{await page.getByLabel('机器地址',{exact:true}).fill(address);await page.getByRole('button',{name:'连接',exact:true}).click()}
   await page.getByText('请求已送达，请在对方 Bot 中批准。',{exact:true}).waitFor();await page.locator('.runtime-close').click();await page.locator('.runtime-dialog').waitFor({state:'hidden'});
  }
 
  async function approve(page){await page.reload();await page.locator('.remote-inbox-action').click();await page.getByRole('button',{name:'允许连接',exact:true}).click();await until('B request decided',async()=>await page.locator('.remote-request-list li').count()===0);await page.locator('.runtime-close').click();}
- async function check(page,name,rename){const label=name.replace(/^ssh:\/\//,'SSH · ').replace(/^https?:\/\//,'').replace(/:9317$/,'');await page.locator('.machine-row').filter({hasText:label}).click();await page.locator('.remote-bot-dialog').getByRole('button',{name:'重新检查',exact:true}).click();await page.getByRole('button',{name:'保存连接',exact:true}).waitFor();if(rename){await page.getByLabel('机器名称',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存连接',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}else await page.locator('.runtime-close').click();await page.locator('.machine-row').filter({hasText:rename||label}).locator('.machine-status.ready').waitFor();}
+ async function check(page,name,rename){
+  const label=name.startsWith('ssh://')?new URL(name).hostname:name.replace(/^https?:\/\//,'').replace(/:9317$/,'');
+  const row=page.locator('.machine-row').filter({hasText:label});
+  await row.getByRole('button').last().click();await page.getByRole('menuitem',{name:'重新检查',exact:true}).click();await row.locator('.machine-status.ready').waitFor();
+  if(rename){await row.getByRole('button').first().click();await page.getByLabel('机器标识',{exact:true}).fill(rename);await page.getByRole('button',{name:'保存',exact:true}).click();await page.locator('.remote-bot-dialog').waitFor({state:'hidden'});}
+  await page.locator('.machine-row').filter({hasText:rename||label}).locator('.machine-status.ready').waitFor();
+ }
  await submit(a,connectionAddress,'B synthetic');
  const originalConnection=(await host(a,'/api/v1/machines/machines')).body.value.find(v=>v.address===connectionAddress);assert.equal(originalConnection.pairingStatus,'pending');
  assert.equal(Object.keys(JSON.parse(await readFile(join(B.data,'WorkerPeers','peers.json'),'utf8')).grants).length,0,'submitting a request never grants authority');

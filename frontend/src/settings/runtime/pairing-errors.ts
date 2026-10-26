@@ -20,6 +20,15 @@ export function pairingProblem(value:string) {
 
 export function connectionProblem(value:string){
  const keys={
+  machine_store_unavailable:'settings.remoteStoreUnavailable',
+  machine_save_failed:'settings.remoteSaveFailed',
+  machine_save_unknown:'settings.remoteSaveUnknown',
+  machine_unknown:'settings.remoteAlreadyRemoved',
+  machine_change_invalid:'settings.remoteInvalidChange',
+  machine_legacy:'settings.remoteLegacyHelp',
+  bot_name_in_use:'settings.machineIdentifierDuplicate',
+  'machine store invalid':'settings.remoteStoreUnavailable',
+
   duplicate_bot_name:'settings.machineIdentifierDuplicate',
   invalid_bot_name:'settings.machineIdentifierInvalid',
   bot_connection_target_unconfirmed:'settings.remoteTargetUnconfirmed',

@@ -3,7 +3,6 @@ package sshtransport
 import (
 	"context"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +33,7 @@ func put(t *testing.T, path, text string) {
 		t.Fatal(e)
 	}
 }
-func TestConfigurationIsInertAndSaveChecksRevision(t *testing.T) {
+func TestConfigurationIndexIsInertAndKeepsExistingFiles(t *testing.T) {
 	v := fixtureTransport(t)
 	marker := filepath.Join(v.root, "must-not-execute")
 	put(t, v.path(), "Host private\n HostName 127.0.0.1\n")
@@ -52,26 +51,8 @@ func TestConfigurationIsInertAndSaveChecksRevision(t *testing.T) {
 	if _, e = os.Stat(marker); !os.IsNotExist(e) {
 		t.Fatal("preview executed Match exec")
 	}
-	saved, e := v.Save(t.Context(), api.SSHConfigurationSave{Revision: a.Revision, Text: "Host updated\n HostName 127.0.0.1\n"})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = os.Stat(marker); !os.IsNotExist(e) {
-		t.Fatal("validation executed Match exec")
-	}
-	info, _ := os.Stat(v.path())
-	if !localstate.HasPrivateMode(v.path(), info, 0600) {
-		t.Fatal(info.Mode())
-	}
-	put(t, v.path(), "# external edit\n")
-	if _, e = v.Save(t.Context(), api.SSHConfigurationSave{Revision: saved.Revision, Text: "# stale"}); e == nil || e.Error() != "ssh_config_changed" {
-		t.Fatal(e)
-	}
-	bad, _ := v.Configuration()
-	if _, e = v.Save(t.Context(), api.SSHConfigurationSave{Revision: bad.Revision, Text: "NotAnSSHOption yes\n"}); e == nil || e.Error() != "ssh_config_syntax" {
-		t.Fatal(e)
-	}
 }
+
 func TestSystemSSHResolvesPriorityAndRelativeSystemIncludes(t *testing.T) {
 	v := fixtureTransport(t)
 	put(t, v.path(), "Host target\n User bot-user\nHost *\n")
@@ -115,24 +96,6 @@ func TestTargetRejectsShellOptionsAndKeepsBotPortSeparate(t *testing.T) {
 		t.Fatal(a, e)
 	}
 }
-func TestExternalEditDuringValidationWins(t *testing.T) {
-	v := fixtureTransport(t)
-	a, _ := v.Configuration()
-	script := filepath.Join(t.TempDir(), "fake-ssh")
-	if os.PathSeparator == '\\' {
-		t.Skip("POSIX fixture script")
-	}
-	put(t, script, "#!/bin/sh\nprintf '# external\\n' > "+"'"+v.path()+"'"+"\n")
-	os.Chmod(script, 0700)
-	v.binary = script
-	if _, e := v.Save(t.Context(), api.SSHConfigurationSave{Revision: a.Revision, Text: "# draft\n"}); e == nil || e.Error() != "ssh_config_changed" {
-		t.Fatal(e)
-	}
-	b, _ := os.ReadFile(v.path())
-	if string(b) != "# external\n" {
-		t.Fatal("external edit overwritten")
-	}
-}
 func TestDynamicSystemIncludeFailsExplicitlyAtConnection(t *testing.T) {
 	v := fixtureTransport(t)
 	put(t, v.system, "Include ${HOME}/conditional\n")
@@ -162,27 +125,5 @@ func TestInertIndexAndValidationNeverMirrorPrivateKeyFile(t *testing.T) {
 		if strings.Contains(string(b), "SENTINEL-FAKE") {
 			t.Fatal("private key mirrored")
 		}
-	}
-}
-func TestScopedDocumentsAndExternalEditorDoNotOverwriteConfiguration(t *testing.T) {
-	v := fixtureTransport(t)
-	if _, e := v.Document("../private"); e == nil {
-		t.Fatal("arbitrary path read")
-	}
-	if _, e := v.PrepareEdit("/etc/passwd"); e == nil {
-		t.Fatal("arbitrary path prepared")
-	}
-	d, e := v.PrepareEdit("bot")
-	if e != nil || !d.Exists || d.Text != "" {
-		t.Fatal(d, e)
-	}
-	put(t, v.path(), "Host external-edit\n HostName 127.0.0.1\n")
-	d, e = v.PrepareEdit("bot")
-	if e != nil || !strings.Contains(d.Text, "external-edit") {
-		t.Fatal("editor preparation overwrote file", d, e)
-	}
-	a, e := v.Configuration()
-	if e != nil || len(a.Hosts) != 1 || a.Hosts[0] != "external-edit" {
-		t.Fatal("external save not indexed", a, e)
 	}
 }

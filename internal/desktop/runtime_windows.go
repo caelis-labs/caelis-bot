@@ -99,7 +99,6 @@ func Run(assets fs.FS) error {
 	}
 	// Remote SSH transport remains explicitly unsupported. Machine setup does
 	// not borrow a local task's runtime endpoint when a remote route is absent.
-	s.openConfigurationFile = windowsOpenTextFile
 	s.openArtifactFile = windowsOpenURL
 	s.openReleasePage = func() error { return windowsOpenURL(updates.ReleasePage) }
 	appName, _ := applicationIdentity()

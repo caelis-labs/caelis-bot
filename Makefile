@@ -57,3 +57,8 @@ e2e-worker-peer-real-url:
 .PHONY: e2e-worker-peer-ssh
 e2e-worker-peer-ssh:
 	bash script/e2e-worker-peer.sh --ssh
+
+# Real system OpenSSH against an isolated password server and generated keys.
+.PHONY: test-ssh-auth
+test-ssh-auth:
+	bash -c 'set -e; source script/env.sh; mkdir -p .cache/ssh-auth; go -C script/ssh-auth-fixture build -o ../../.cache/ssh-auth/server .; CAELIS_BOT_SSH_AUTH_FIXTURE="$$PWD/.cache/ssh-auth/server" CAELIS_BOT_TEST_SSHD=1 go test -count=1 -v ./internal/sshtransport -run TestNativeOpenSSH'

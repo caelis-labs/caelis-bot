@@ -271,20 +271,20 @@ func TestCompactBudgetPreservesMutationReceipt(t *testing.T) {
 
 type sshConfigTasks struct{ compactTasks }
 
-func (*sshConfigTasks) SSHConfiguration() (api.SSHConfiguration, error) {
-	return api.SSHConfiguration{Path: "/fixture/Machines/SSH/config", UserPath: "/fixture/.ssh/config", SystemPath: "/etc/ssh/ssh_config", Revision: "fixture-revision", Hosts: []string{"fedora"}, Text: "must not expose potentially private config via list"}, nil
+func (*sshConfigTasks) SSHHosts() (api.SSHHosts, error) {
+	return api.SSHHosts{Hosts: []string{"fedora"}}, nil
 }
-func TestSSHConfigDiscoveryIsReadOnlyAndSharesActualFile(t *testing.T) {
+func TestSSHHostsExposeSuggestionsWithoutFileManagement(t *testing.T) {
 	r, _, _ := fixture(t)
 	f := &sshConfigTasks{}
 	r.ConfigureTasks(f, nil)
-	out := invokeCompact(t, r, "bot_tasks", `{"request":{"type":"ssh_config"}}`)
-	data := out.StructuredContent["data"].(map[string]any)
-	if data["path"] != "/fixture/Machines/SSH/config" || data["revision"] != "fixture-revision" || data["text"] != nil || f.starts != 0 {
-		t.Fatal(data)
+	out := invokeCompact(t, r, "bot_tasks", `{"request":{"type":"ssh_hosts"}}`)
+	b, _ := json.Marshal(out.StructuredContent)
+	if !strings.Contains(string(b), "fedora") || strings.Contains(string(b), "path") || f.starts != 0 {
+		t.Fatal(string(b))
 	}
-	if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"ssh_config","text":"execute"}}`)).IsError {
-		t.Fatal("read-only discovery gained a write")
+	if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"ssh_config"}}`)).IsError {
+		t.Fatal("retired file management route exposed")
 	}
 }
 

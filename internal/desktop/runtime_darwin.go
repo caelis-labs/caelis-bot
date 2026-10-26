@@ -135,7 +135,6 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
-	s.openConfigurationFile = func(path string) error { return exec.Command("/usr/bin/open", "-t", path).Run() }
 	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
 
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }
@@ -268,6 +267,9 @@ func Run(assets fs.FS) error {
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
 
+	s.pickSSHIdentity = func() (string, error) {
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickSSHKeyTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
+	}
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickRuntimeTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
 	}
