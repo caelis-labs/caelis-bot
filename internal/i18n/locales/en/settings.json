@@ -792,7 +792,7 @@
   "remoteAddressPlaceholder": "IP address or hostname",
   "remotePort": "Port",
   "remoteDefaultPort": "Default 9317",
-  "remoteManageTitle": "Machine settings",
+  "remoteManageTitle": "Edit machine",
   "remotePending": "Awaiting approval",
   "remoteUnconfirmed": "Unconfirmed",
   "remoteRejected": "Declined",

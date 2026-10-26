@@ -791,7 +791,7 @@
   "remoteAddressPlaceholder": "IP 或主机名",
   "remotePort": "端口",
   "remoteDefaultPort": "默认 9317",
-  "remoteManageTitle": "机器设置",
+  "remoteManageTitle": "编辑机器",
   "remotePending": "待对方批准",
   "remoteUnconfirmed": "尚未确认",
   "remoteRejected": "已拒绝",

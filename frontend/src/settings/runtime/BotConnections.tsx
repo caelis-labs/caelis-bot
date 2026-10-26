@@ -5,7 +5,6 @@ import {useI18n} from '../../i18n';
 import {SSHConfigDialog,SSHAuthentication,useSSHConnect,sshEndpoint,sshTarget,sshProblem} from './SSHConnection';
 import {SetupButton} from '../../SetupLoading';
 import {SettingsDialog} from './SettingsDialog';
-import {ConnectionActionDialog} from './ConnectionActionDialog';
 import {SettingsSelect} from '../../SettingsSelect';
 import {botAddress,botAddressPort} from './bot-address';
 import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors';
@@ -24,7 +23,6 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  });
  const check=()=>run(async()=>{const address=endpoint();const fresh=selected&&address!==selected.address?await call<Machine>('ConnectBot',{...draft,address,reconnect:true}):await call<Machine>('InspectMachine',draft.id,'');await onChanged(fresh)});
  const recover=()=>run(async()=>{const fresh=await call<Machine>('RecoverBotWork',draft.id);await onChanged(fresh)});
- const remove=async()=>{await call('RemoveMachine',draft.id);onSaved()};
  const status=selected?.pairingStatus,unsent=selected?.issue==='pairing_request_not_dispatched',uncertain=status==='unknown'&&!unsent,waiting=status==='pending';
  const problem=connectionProblem(error),approvedUnready=status==='approved'&&selected?.state!=='ready';
  const afterSSH=useRef<'connect'|'check'>('connect');
@@ -36,12 +34,11 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  const reconnectSSH=async()=>{if(blocked)return;afterSSH.current='check';try{await call('StopSSHConnection',{host,port:Number(port)||9317});await ssh.start({host,port:Number(port)||9317})}catch{ssh.setError('ssh_connection_failed')}};
 
  const blocked=busy||ssh.working;
- const [configOpen,setConfigOpen]=useState(false),[removing,setRemoving]=useState(false);
+ const [configOpen,setConfigOpen]=useState(false);
  const connected=creation.current&&status==='approved'&&!approvedUnready;
 
  // Replace the active dialog while retaining its draft, rather than stacking backdrops.
  if(configOpen)return <SSHConfigDialog call={call} onClose={()=>{setConfigOpen(false);void loadConfig()}} onSaved={()=>void loadConfig()}/>;
- if(removing)return <ConnectionActionDialog title={t('settings.remoteRemoveConnection')} name={selected?.name||draft.name||draft.address} description={t(waiting||uncertain?'settings.remoteRemovePendingHelp':'settings.remoteRemoveHelp')} action={t('settings.remoteRemoveConnection')} failure={t('settings.remoteRemoveUnconfirmed')} onAction={remove} onClose={()=>setRemoving(false)}/>;
 
  return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteManageTitle')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
   <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)submit()}}>
@@ -66,7 +63,7 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    {status==='approved'&&selected?.issue==='worker_not_ready'&&<div className="remote-inline-state">{!creation.current&&<span>{t('settings.remoteWorkUnavailable')}</span>}<button type="button" className="text-action" disabled={blocked} onClick={()=>void recover()}>{t('settings.remoteRecoverWork')}</button></div>}
    {error&&<p role="alert" className="remote-dialog-error">{t(problem.key)}</p>}
    </div>
-   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{selected&&!(creation.current&&status==='approved')&&<button type="button" className="text-action remote-remove" disabled={blocked} onClick={()=>setRemoving(true)}>{t('settings.remoteRemoveConnection')}</button>}{!connected&&<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain||creation.current&&status==='approved'?'common.close':'common.cancel')}</button>}{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start({host,port:Number(port)||9317})}else void check()}}>{t(waiting||uncertain?'settings.remoteCheckApproval':'settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?host.trim():draft.address.trim())}>{t(initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteConnect')}</SetupButton>}</div>}
+   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{!connected&&<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain||creation.current&&status==='approved'?'common.close':'common.cancel')}</button>}{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start({host,port:Number(port)||9317})}else void check()}}>{t(waiting||uncertain?'settings.remoteCheckApproval':'settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?host.trim():draft.address.trim())}>{t(initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteConnect')}</SetupButton>}</div>}
   </form>
  </SettingsDialog>;
 }

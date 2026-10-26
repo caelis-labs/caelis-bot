@@ -43,9 +43,8 @@
 .remote-connection-state strong{font-size:15px;font-weight:500;color:var(--ink)}
 .remote-connection-state p{margin:8px 0 0}
 .remote-dialog-status{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.6}
-.settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
+.settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:24px}
 .settings-window .remote-dialog-footer>button,.settings-window .remote-request-actions>button{font-size:12px;min-height:34px;padding:7px 12px;border-radius:8px}
-.settings-window .remote-dialog-footer .remote-remove{margin-right:auto;padding-inline:0}
 .remote-dialog-error{font-size:12px;line-height:1.6;margin:14px 0 0;color:var(--caelis-danger,var(--ink))}
 .remote-dialog-error p{margin:0 0 8px}
 .remote-inline-state{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px;font-size:12px;line-height:1.6;padding:14px 0;color:var(--muted)}
