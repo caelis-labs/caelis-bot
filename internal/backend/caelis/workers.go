@@ -478,11 +478,13 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.state.Views[sid] = p
 	}
 	prior := p.State
+	priorHead := p.HeadTarget
 	priorRetired := maps.Clone(p.RetiredTurns)
 	if retiredRunHead(p, value(state.Run.TurnId)) {
 		return projected, errors.New("original worker read referenced an older turn")
 	}
 	retireRunHead(p, value(state.Run.TurnId))
+	observeStateHead(p, state.Run)
 	p.State = state
 	p.Observed++
 	current.Activity = "idle"
@@ -495,6 +497,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 			delete(s.state.Views, sid)
 		} else {
 			p.State = prior
+			p.HeadTarget = priorHead
 			p.RetiredTurns = priorRetired
 			p.Observed--
 		}

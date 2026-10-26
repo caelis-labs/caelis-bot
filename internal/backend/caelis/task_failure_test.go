@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -177,5 +178,57 @@ func TestWorkerStopAckSaveFailureRemainsUnconfirmed(t *testing.T) {
 	s.path = originalPath
 	if s.WorkStates()[0].StopAcknowledged {
 		t.Fatal("restart invented confirmed stop")
+	}
+}
+
+func TestWorkerStateReadsRetainMessageFreeSuccessor(t *testing.T) {
+	for _, saveFailure := range []bool{false, true} {
+		t.Run(fmt.Sprint(saveFailure), func(t *testing.T) {
+			var reads atomic.Int32
+			next := nativeWorkHead("two")
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/state") {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				state := next
+				if reads.Add(1) > 1 {
+					state.Run = wire.RunState{Active: pointer(false), Status: pointer("interrupted"), RunId: pointer("sdk-two")}
+				}
+				writeFixture(w, state)
+			})
+			head := nativeWorkHead("one")
+			addServiceWorker(s, "task", "work", head)
+			target := wire.TurnTarget{HandleId: "h", RunId: "r-one", TurnId: "one"}
+			s.state.Views["work"].HeadTarget = target
+			stop := api.WorkStop{ID: "task", RequestID: "original-stop", ExecutionKey: workStopExecutionKey(head)}
+			s.state.Operations["stop"] = journal{StopTarget: &target, Work: &workIntent{TaskID: "task", RequestID: stop.RequestID, Kind: "stop", Fingerprint: api.WorkFingerprint(stop)}, Outcome: "accepted"}
+			if saveFailure {
+				s.path = t.TempDir()
+			}
+			_, err := s.ReadWork(t.Context(), "task")
+			if saveFailure {
+				if err == nil || s.state.Views["work"].HeadTarget != target {
+					t.Fatal("failed read did not roll back target", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.ReadWork(t.Context(), "task"); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.state = restored
+			state := s.WorkStates()[0]
+			if state.ExecutionKey != "two" || state.StopAcknowledged {
+				t.Fatal("idle read reused old turn's stop", state)
+			}
+		})
 	}
 }
