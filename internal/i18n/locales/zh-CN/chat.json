@@ -74,7 +74,7 @@
   "copyArtifactPath": "复制路径",
   "copyArtifactContent": "复制内容",
   "artifactPreviewTruncated": "仅显示文件开头 256 KiB；可用默认应用打开完整文件。",
-  "taskUnavailable": "终端暂未打开，请重试此 Worker",
+  "taskUnavailable": "暂时无法打开此任务，请重试。",
   "mediaOpen": "查看 {name}",
   "mediaUnavailable": "图片预览不可用",
   "draftLoadFailed": "暂时无法读取草稿",
