@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"os"
@@ -448,5 +449,33 @@ func TestSelectedTaskWorkspaceReachesNativeSandboxAndResume(t *testing.T) {
 	}
 	if s.WorkStates()[0].Task.Workspace != workspace {
 		t.Fatal("native worker lost selected workspace")
+	}
+}
+
+func TestPrivateNotebookCreationRejectedBeforeNativeDispatch(t *testing.T) {
+	s, f, d, m := taskPair(t)
+	sendSynthetic(t, s, "private-workspace-parent")
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.opts.BotTools = &api.ToolConnection{NotebookDirectory: workspace}
+	v, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "private-workspace", Title: "Private workspace", Prompt: "Read", Workspace: workspace})
+	var rejected *api.WorkMessageRejection
+	if !errors.As(err, &rejected) || v.Outcome != "rejected" {
+		t.Fatalf("missing definite rejection: %#v %v", v, err)
+	}
+	f.mu.Lock()
+	starts := d.starts
+	f.mu.Unlock()
+	if starts != 0 {
+		t.Fatal("native worker was created")
+	}
+	s.mu.Lock()
+	rec := s.binding.Tasks[v.ID]
+	thread := rec.Thread
+	s.mu.Unlock()
+	if thread != "" {
+		t.Fatal("rejected creation acquired native history")
 	}
 }

@@ -558,6 +558,7 @@ export interface Submission {
   quoted?: QuotedMessage | null;
 }
 export interface Task {
+  failure?: TaskFailure | null;
   createdAt?: string;
   machineName?: string;
   machine?: string;
@@ -569,6 +570,7 @@ export interface Task {
   result?: string;
 }
 export interface TaskConversation {
+  failure?: TaskFailure | null;
   status: string;
   messages: Array<TaskConversationMessage>;
 }
@@ -577,6 +579,15 @@ export interface TaskConversationMessage {
   role: string;
   text: string;
   artifacts?: Array<Artifact>;
+}
+export interface TaskFailure {
+  source: string;
+  execution: string;
+  code: string;
+  reason: string;
+  retryable: boolean | null;
+  willRetry: boolean | null;
+  retryExhausted: boolean | null;
 }
 export interface TaskFileCopy {
   id: string;

@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -284,5 +285,40 @@ func TestSSHConfigDiscoveryIsReadOnlyAndSharesActualFile(t *testing.T) {
 	}
 	if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"ssh_config","text":"execute"}}`)).IsError {
 		t.Fatal("read-only discovery gained a write")
+	}
+}
+
+type rejectedCreationTasks struct {
+	compactTasks
+	err error
+}
+
+func (f *rejectedCreationTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
+	f.starts++
+	f.start = in
+	return api.Task{ID: "rejected-original", Status: "failed", Outcome: "rejected"}, f.err
+}
+func TestDelegateDefiniteCreationRejectionNotUnconfirmed(t *testing.T) {
+	for _, definite := range []bool{true, false} {
+		r, _, _ := fixture(t)
+		cause := errors.New("private workspace")
+		var err error = cause
+		if definite {
+			err = &api.WorkMessageRejection{Cause: cause}
+		}
+		f := &rejectedCreationTasks{err: err}
+		r.ConfigureTasks(f, nil)
+		ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "codex", Session: "resident", Turn: "turn", CallID: "creation"})
+		out := r.CallTool(ctx, "bot_delegate", json.RawMessage(`{"title":"Review","prompt":"Review project"}`))
+		want := "unconfirmed"
+		if definite {
+			want = "submission_rejected"
+		}
+		if !out.IsError || out.StructuredContent["error"].(map[string]string)["code"] != want || f.starts != 1 {
+			t.Fatalf("wrong receipt: %#v", out)
+		}
+		if out.StructuredContent["data"].(map[string]any)["id"] != "rejected-original" {
+			t.Fatal("original identity lost")
+		}
 	}
 }

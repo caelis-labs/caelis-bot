@@ -84,6 +84,7 @@ func (s *Session) ObserveWork(ctx context.Context, id string) (api.WorkObservati
 	if v := s.state.Views[w.Binding.SessionId]; v != nil {
 		out.State.ExecutionKey = observedTurn(v)
 		out.State.StopExecutionKey = workStopExecutionKey(v.State)
+		out.State.StopAcknowledged = s.workerStopAcknowledged(w, out.State.StopExecutionKey)
 		out.State.TurnKey = observedTurn(v)
 		// A bounded current view is enough for live output; explicit history uses the
 		// native reader and is never confused with this window.
@@ -353,3 +354,33 @@ var _ api.WorkStopper = (*Session)(nil)
 var _ api.WorkDecider = (*Session)(nil)
 var _ api.WorkOperationReader = (*Session)(nil)
 var _ api.WorkFileReader = (*Session)(nil)
+
+// Match the persisted command's original intent to the full current target.
+// A task-level stopped flag cannot suppress a later native turn's report.
+func (s *Session) workerStopAcknowledged(w worker, execution string) bool {
+	for _, receipt := range s.state.Operations {
+		intent := receipt.Work
+		if intent == nil || intent.TaskID != w.Task.ID || intent.Kind != "stop" || !succeeded(wire.Outcome(receipt.Outcome)) {
+			continue
+		}
+		if execution != "" {
+			stop := api.WorkStop{ID: w.Task.ID, RequestID: intent.RequestID, ExecutionKey: execution}
+			if intent.Fingerprint == api.WorkFingerprint(stop) {
+				return true
+			}
+			continue
+		}
+		// Idle /state omits the Gateway target and exposes a different SDK RunID.
+		// Only canonical terminal evidence can match the saved original cancel.
+		p := s.state.Views[w.Binding.SessionId]
+		if p == nil || receipt.StopTarget == nil || workerNativeActive(p.State) ||
+			p.HeadTarget != *receipt.StopTarget || observedTurn(p) != receipt.StopTarget.TurnId {
+			continue
+		}
+		switch p.Turns[receipt.StopTarget.TurnId] {
+		case "cancelled", "stopped", "interrupted":
+			return true
+		}
+	}
+	return false
+}

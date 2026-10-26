@@ -212,10 +212,18 @@ func (s *Session) rememberChild(id string) {
 func (s *Session) childEvent(event Notification, thread, turn string) {
 	if event.Method == "error" {
 		var n struct {
-			Error turnError `json:"error"`
+			Error     turnError `json:"error"`
+			WillRetry *bool     `json:"willRetry"`
 		}
 		if s.decodeEvent(event, &n, false) {
 			s.logEvent(event, "worker_error", diagnosticlog.Reason(n.Error.Message))
+			for _, t := range s.binding.Tasks {
+				if t.Thread == thread && t.Run == turn && !terminal(t.View.Status) {
+					t.LastError = workerFailure(thread, turn, &n.Error)
+					t.LastError.WillRetry = n.WillRetry
+					_ = s.save()
+				}
+			}
 		}
 		return // The worker's terminal fact, not an error notice, owns its outcome.
 	}

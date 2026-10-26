@@ -60,15 +60,16 @@ type TaskPage struct {
 }
 
 type Task struct {
-	CreatedAt   string `json:"createdAt,omitempty"`
-	MachineName string `json:"machineName,omitempty"`
-	Machine     string `json:"machine,omitempty"`
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Workspace   string `json:"workspace"`
-	Status      string `json:"status"`
-	Outcome     string `json:"outcome,omitempty"`
-	Result      string `json:"result,omitempty"`
+	Failure     *TaskFailure `json:"failure,omitempty"`
+	CreatedAt   string       `json:"createdAt,omitempty"`
+	MachineName string       `json:"machineName,omitempty"`
+	Machine     string       `json:"machine,omitempty"`
+	ID          string       `json:"id"`
+	Title       string       `json:"title"`
+	Workspace   string       `json:"workspace"`
+	Status      string       `json:"status"`
+	Outcome     string       `json:"outcome,omitempty"`
+	Result      string       `json:"result,omitempty"`
 }
 type TaskStart struct {
 	Attachments []TaskFileReference `json:"attachments,omitempty"`
@@ -116,6 +117,7 @@ type TaskConversationReader interface {
 }
 
 type TaskConversation struct {
+	Failure  *TaskFailure              `json:"failure,omitempty"`
 	Status   string                    `json:"status"`
 	Messages []TaskConversationMessage `json:"messages"`
 }

@@ -134,6 +134,9 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 		var rejected *api.WorkMessageRejection
 		if task.Outcome == "rejected" && errors.As(err, &rejected) {
 			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
+			if taskID == "" {
+				message = "Worker creation was definitively rejected; no Worker input was accepted. Check the selected workspace and native limits. For workspace errors, use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+			}
 		}
 		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
 			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
@@ -270,7 +273,8 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		if id := str(q, "messageId"); id != "" {
 			for _, message := range conversation.Messages {
 				if message.ID == id {
-					return fullTaskValue(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "message": message}}, q)
+					data := map[string]any{"status": conversation.Status, "message": message}
+					return taskReadValue(data, conversation.Failure, q)
 				}
 			}
 			return compactError("message_not_found", errors.New("messageId is not a completed User or Assistant message in this task"))
@@ -289,7 +293,7 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		for i := range messages {
 			messages[i].Text = collapsedTaskText(messages[i].Text)
 		}
-		return boundedData(map[string]any{"ok": true, "data": map[string]any{"status": conversation.Status, "messages": messages}}, q)
+		return taskReadValue(map[string]any{"status": conversation.Status, "messages": messages}, conversation.Failure, q)
 	case "observe":
 		p, ok := provider.(api.TaskObserver)
 		if !ok {
@@ -303,7 +307,11 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		// Adapter counters may advance on a read with identical native facts.
 		// Page the content revision; keep the observer counter outside chunks.
 		data["revision"] = interactionFingerprint(data)
-		return fullTaskValue(map[string]any{"ok": true, "data": data, "nativeRevision": v.Revision}, q)
+		value := map[string]any{"ok": true, "data": data, "nativeRevision": v.Revision}
+		if v.State.Task.Failure != nil {
+			value["failure"] = v.State.Task.Failure
+		}
+		return fullTaskValue(value, q)
 	case "reconcile":
 		p, ok := provider.(api.TaskOperationReader)
 		if !ok {
@@ -364,4 +372,15 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 		return compactValue(map[string]any{"ok": true, "data": map[string]any{"id": item.ID, "status": item.Status, "pinned": item.Pinned}}, false)
 	}
 	return compactError("invalid_arguments", errors.New("unsupported task operation"))
+}
+
+// Keep a short failure accessible even when large original messages are chunked.
+// The chunked JSON retains the same fact as metadata, never an invented message.
+func taskReadValue(data map[string]any, failure *api.TaskFailure, q map[string]any) api.ToolResult {
+	value := map[string]any{"ok": true, "data": data}
+	if failure != nil {
+		data["failure"] = failure
+		value["failure"] = failure
+	}
+	return fullTaskValue(value, q)
 }

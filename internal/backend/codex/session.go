@@ -177,7 +177,7 @@ type Session struct {
 	children               map[string]bool
 	childRuns              map[string]string
 	childTerminals         map[string]bool
-	childTerminalStatus    map[string]string
+	childTerminalStatus    map[string]workerTerminal
 	childWatching          map[string]bool
 	childSubscribed        map[string]bool
 	childObservationFailed map[string]bool
@@ -320,7 +320,7 @@ func (s *Session) resetProjection() {
 	}
 	s.childRuns = map[string]string{}
 	s.childTerminals = map[string]bool{}
-	s.childTerminalStatus = map[string]string{}
+	s.childTerminalStatus = map[string]workerTerminal{}
 	s.childWatching = map[string]bool{}
 	s.childSubscribed = map[string]bool{}
 	s.childObservationFailed = map[string]bool{}

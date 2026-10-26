@@ -101,6 +101,9 @@ type WorkState struct {
 	// StopExecutionKey fences the complete native cancellation target, which
 	// may include a handle/run in addition to the completion generation.
 	StopExecutionKey string
+	// StopAcknowledged comes from the exact native stop receipt for this turn.
+	// It does not prove interruption; only an interrupted terminal can suppress a report.
+	StopAcknowledged bool
 	StopRequested    bool
 	// StopPending identifies an uncertain capacity stop that still awaits the
 	// original Turn's terminal fact. It must not suppress that later report.

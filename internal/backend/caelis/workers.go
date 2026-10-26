@@ -79,7 +79,7 @@ func (s *Session) WorkStates() []api.WorkState {
 		if !s.connected {
 			activity = ""
 		}
-		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopExecutionKey: stopKey, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
+		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopExecutionKey: stopKey, StopRequested: w.Stopped, StopAcknowledged: s.workerStopAcknowledged(w, stopKey), StartFingerprint: w.Fingerprint})
 	}
 	return out
 }
@@ -95,6 +95,7 @@ func workerNativeActive(state wire.SessionState) bool {
 }
 func (s *Session) workerViewLocked(w worker) api.Task {
 	out := w.Task
+	out.Failure = nil
 	if w.Start != nil {
 		out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
 		return out
@@ -172,6 +173,9 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 			if i.Kind == "assistant" && (turn == "" || i.TurnKey == turn) {
 				result = append(result, i.Text)
 			}
+		}
+		if out.Status == "failed" {
+			out.Failure = api.UnknownTaskFailure("caelis", api.WorkFingerprint([]string{s.state.StoreID, w.Binding.SessionId, turn}))
 		}
 		out.Result = strings.Join(result, "\n")
 		if len(out.Result) > 16000 {
@@ -474,11 +478,13 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.state.Views[sid] = p
 	}
 	prior := p.State
+	priorHead := p.HeadTarget
 	priorRetired := maps.Clone(p.RetiredTurns)
 	if retiredRunHead(p, value(state.Run.TurnId)) {
 		return projected, errors.New("original worker read referenced an older turn")
 	}
 	retireRunHead(p, value(state.Run.TurnId))
+	observeStateHead(p, state.Run)
 	p.State = state
 	p.Observed++
 	current.Activity = "idle"
@@ -491,6 +497,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 			delete(s.state.Views, sid)
 		} else {
 			p.State = prior
+			p.HeadTarget = priorHead
 			p.RetiredTurns = priorRetired
 			p.Observed--
 		}

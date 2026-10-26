@@ -52,3 +52,9 @@ A hidden card or disconnected terminal does not make its files unused. Preserve
 resources that may still be in use, then follow [Working resources](resources.md)
 once the original work is reconciled. Carry retained paths and cleanup obligations
 in the ongoing notes or handoff.
+
+A `submission_rejected` creation response proves no Worker input was accepted;
+correct the rejected workspace/input before a new intent. An `unconfirmed`
+response retains the original task/request and must be reconciled without replay.
+A failed native turn can still have an accepted submission receipt. Inspect its
+safe `failure` metadata using the original task; unknown fields stay unknown.

@@ -65,6 +65,7 @@ func (f *fixtureRuntime) SendWork(_ context.Context, in api.TaskMessage) (api.Ta
 func (f *fixtureRuntime) StopWork(_ context.Context, id string) (api.Task, error) {
 	s := f.states[id]
 	s.StopRequested = true
+	s.StopAcknowledged = true
 	f.states[id] = s
 	return s.Task, nil
 }
@@ -265,7 +266,9 @@ func TestReadAndStopSuppressReportsButNewTurnReportsOnce(t *testing.T) {
 	if _, e := m.StopTask(t.Context(), other.ID); e != nil {
 		t.Fatal(e)
 	}
-	f.complete(other.ID)
+	stopped := f.states[other.ID]
+	stopped.Task.Status = "interrupted"
+	f.states[other.ID] = stopped
 	_ = m.DeliverTaskReport(t.Context())
 	if f.reports != 1 {
 		t.Fatal("stopped task woke secretary")
