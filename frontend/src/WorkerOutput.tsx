@@ -22,8 +22,10 @@ export function useWorkerOutput(id:string,active:boolean,readHistory:(id:string)
  return {conversation:histories[id],observation:observations[id],historyFailed:historyFailures[id]??false,observationFailed:observationFailures[id]??false,retry:()=>setAttempt(value=>value+1)};
 }
 
+export function workerTaskStatusKey(status?:string){
+ return ['running','working'].includes(status??'')?'native.taskRunning':status==='completed'?'native.taskFinished':status==='failed'?'native.taskFailed':['cancelled','interrupted','stopped'].includes(status??'')?'native.taskInterrupted':['approval','waiting_approval','awaiting_approval'].includes(status??'')?'native.taskApproval':['idle','queued','pending'].includes(status??'')?'native.taskIdle':'native.taskUnknown';
+}
 export function WorkerTaskStatus({status}:{status?:string}){
  const {t}=useI18n();
- const key=['running','working'].includes(status??'')?'native.taskRunning':status==='completed'?'native.taskFinished':status==='failed'?'native.taskFailed':['cancelled','interrupted','stopped'].includes(status??'')?'native.taskInterrupted':['approval','waiting_approval','awaiting_approval'].includes(status??'')?'native.taskApproval':['idle','queued','pending'].includes(status??'')?'native.taskIdle':'native.taskUnknown';
- return <>{t(key)}</>;
+ return <>{t(workerTaskStatusKey(status))}</>;
 }

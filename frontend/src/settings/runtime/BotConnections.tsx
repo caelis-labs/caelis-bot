@@ -57,8 +57,8 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    <SSHAuthentication ssh={ssh}/>
    {ssh.error&&<p role="alert" className="remote-dialog-error">{t(sshProblem(ssh.error))}</p>}
 
-   {!creation.current&&initial&&<label>{t('settings.machineName')}<input maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} disabled={blocked||waiting||uncertain}/></label>}
-   {creation.current&&status==='approved'&&<div className="remote-connection-state" role="status"><strong>{t(approvedUnready?'settings.remoteAuthorizedUnavailable':'settings.remoteConnectedTitle')}</strong><p>{approvedUnready?t(selected?.issue==='worker_not_ready'?'settings.remoteWorkUnavailable':connectionProblem(selected?.issue||'').key):(selected?.remoteName||selected?.name||'')}</p></div>}
+   {(!creation.current||!status)&&<label>{t('settings.machineIdentifier')}<input placeholder={t('settings.machineIdentifierAuto')} maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} disabled={blocked||waiting||uncertain}/></label>}
+   {creation.current&&status==='approved'&&<div className="remote-connection-state" role="status"><strong>{t(approvedUnready?'settings.remoteAuthorizedUnavailable':'settings.remoteConnectedTitle')}</strong><p>{approvedUnready?t(selected?.issue==='worker_not_ready'?'settings.remoteWorkUnavailable':connectionProblem(selected?.issue||'').key):(selected?.name||'')}</p></div>}
    {unsent&&<p className="remote-dialog-status" role="status">{t('settings.remoteNotSent')}</p>}
    {waiting&&<div className="remote-connection-state" role="status"><strong>{t('settings.remotePendingTitle')}</strong><p>{t('settings.remoteAwaitingApproval')}</p></div>}
    {uncertain&&<p className="remote-dialog-status" role="status">{t('settings.remoteRequestUnknown')}</p>}

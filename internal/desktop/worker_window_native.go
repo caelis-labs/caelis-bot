@@ -20,7 +20,7 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 			window := windows[task.ID]
 			if window == nil {
 				window = app.Window.NewWithOptions(application.WebviewWindowOptions{
-					Name: "worker-" + task.ID, Title: task.Title,
+					Name: "worker-" + task.ID, Title: task.Title + " [" + task.MachineName + "]",
 					Width: 880, Height: 680, MinWidth: 360, MinHeight: 340,
 					URL:            "/?surface=worker-task&task=" + url.QueryEscape(task.ID),
 					BackgroundType: application.BackgroundTypeSolid,
@@ -40,7 +40,6 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 					})
 				})
 			}
-			window.SetTitle(task.Title)
 			window.UnMinimise()
 			window.Show()
 			if display != nil {
@@ -49,6 +48,13 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 			focus(window)
 		})
 		return nil
+	}
+	s.updateWorkerWindowTitle = func(id, title string) {
+		application.InvokeSync(func() {
+			if window := windows[id]; window != nil {
+				window.SetTitle(title)
+			}
+		})
 	}
 	s.closeWorkerWindow = func(id string) {
 		application.InvokeSync(func() {

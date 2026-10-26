@@ -901,5 +901,9 @@
   "remotePairAllowedHelp": "{name} can now use this machine.",
   "remotePairDeniedHelp": "{name} was not granted access.",
   "sshWebHelp": "Edit SSH configuration on the machine running this Bot.",
-  "remoteAllowHelp": "Allow this machine to create background tasks here. To use the other machine, add a separate connection."
+  "remoteAllowHelp": "Allow this machine to create background tasks here. To use the other machine, add a separate connection.",
+  "machineIdentifier": "Machine identifier",
+  "machineIdentifierAuto": "Assigned automatically",
+  "machineIdentifierDuplicate": "This identifier is already in use. Choose another.",
+  "machineIdentifierInvalid": "Use an identifier of up to 80 characters without line breaks."
 }

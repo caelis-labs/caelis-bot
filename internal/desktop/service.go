@@ -55,6 +55,7 @@ type Service struct {
 	workerTaskSelection     string
 	openWorkerTask          func(api.Task) error
 	closeWorkerWindow       func(string)
+	updateWorkerWindowTitle func(string, string)
 	closeWorkerContext      func() bool
 	workerWindowsOpen       func() bool
 	workerWindowsChanged    func(string)

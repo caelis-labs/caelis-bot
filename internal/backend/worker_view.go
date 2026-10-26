@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"slices"
 )
 
 func (s *Service) ConfigureWorkerTaskView(v api.WorkerTaskViewer) { s.workerView = v }
@@ -11,7 +12,19 @@ func (s *Service) WorkerTasks() []api.Task {
 	if s.workerView == nil {
 		return []api.Task{}
 	}
-	return s.workerView.ListTasks()
+	tasks := slices.Clone(s.workerView.ListTasks())
+	if s.machines != nil {
+		names := map[string]string{}
+		for _, machine := range s.machines.Machines() {
+			names[machine.ID] = machine.Name
+		}
+		for i := range tasks {
+			if name := names[tasks[i].Machine]; name != "" {
+				tasks[i].MachineName = name
+			}
+		}
+	}
+	return tasks
 }
 func (s *Service) WorkerTaskConversation(ctx context.Context, id string) (api.TaskConversation, error) {
 	if s.workerView == nil {

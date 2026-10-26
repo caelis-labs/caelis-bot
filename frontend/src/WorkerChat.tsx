@@ -11,7 +11,7 @@ type Output=ReturnType<typeof useWorkerOutput>;
 
 // Presentation only: the same message protocol, Markdown, files and reading
 // intent serve the independent native window and the Web split pane.
-export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=true}:{id:string;task?:Pick<Task,'title'|'status'|'machineName'>;output:Output;onClose:()=>void;heading?:ReactNode;closeLabel?:string;active?:boolean}){
+export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=true,hideHeading=false}:{id:string;task?:Pick<Task,'title'|'status'|'machineName'>;output:Output;onClose?:()=>void;heading?:ReactNode;closeLabel?:string;active?:boolean;hideHeading?:boolean}){
  const {t}=useI18n();
  const messages=useMemo(()=>workerMessages(output.conversation,output.observation?.items),[output.conversation,output.observation]);
  const [error,setError]=useState(''),[limit,setLimit]=useState(40),[following,setFollowing]=useState(true);
@@ -39,7 +39,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
  const status=output.observation?.task.status??output.conversation?.status??task?.status;
  const failed=output.historyFailed||output.observationFailed;
  return <section className="worker-chat" data-updates={output.observationFailed?'unavailable':'available'} aria-label={t('chat.taskPanel')}>
-  <header className="worker-chat-heading"><div className="worker-chat-title"><div className="worker-chat-title-line">{heading??<h2>{task?.title||t('chat.taskTitle')}</h2>}<span className="worker-chat-status" role="status">{output.observationFailed&&<>{t('chat.taskLastStatus')} </>}<WorkerTaskStatus status={status}/></span></div><span className="worker-chat-machine">{task?(task.machineName||t('chat.taskLocalMachine')):''}</span></div><button className="worker-chat-close" onClick={onClose} aria-label={t('chat.closeTaskPanel')}>{closeLabel??t('chat.taskReturn')}</button></header>
+  {!hideHeading&&<header className="worker-chat-heading"><div className="worker-chat-title"><div className="worker-chat-title-line">{heading??<h2>{task?.title||t('chat.taskTitle')}</h2>}<span className="worker-chat-status" role="status">{output.observationFailed&&<>{t('chat.taskLastStatus')} </>}<WorkerTaskStatus status={status}/></span></div><span className="worker-chat-machine">{task?(task.machineName||t('chat.taskLocalMachine')):''}</span></div>{onClose&&<button className="worker-chat-close" onClick={onClose} aria-label={t('chat.closeTaskPanel')}>{closeLabel??t('chat.taskReturn')}</button>}</header>}
   {failed&&<div className="worker-chat-notice" role="status"><span>{t('chat.taskUpdateUnavailable')}</span><button className="text-action" onClick={output.retry}>{t('chat.taskRetryRead')}</button></div>}
   <div className="worker-chat-body"><div className="worker-chat-scroll" ref={viewport} onScroll={()=>{if(active&&scroll.current&&viewport.current){const follows=scroll.current.scrolled();setFollowing(follows);reading.current.set(id,{top:viewport.current.scrollTop,following:follows,limit})}}}>
    <div ref={content} className="worker-chat-content">

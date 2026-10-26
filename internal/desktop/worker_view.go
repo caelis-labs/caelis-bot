@@ -20,3 +20,11 @@ func (s *Service) notifyWorkerWindows(script string) {
 		s.workerWindowsChanged(script)
 	}
 }
+
+// UpdateWorkerTaskWindowTitle changes only an already-open presentation. The
+// shared reader supplies the original Runtime status; no task record is written.
+func (s *Service) UpdateWorkerTaskWindowTitle(id, title string) {
+	if s.updateWorkerWindowTitle != nil {
+		s.updateWorkerWindowTitle(id, title)
+	}
+}
