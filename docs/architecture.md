@@ -631,7 +631,9 @@ resource budgets never hide approvals. All interactions retain original native
 IDs/choices, including sensitive and opaque requests. A owns their existing UI and
 returns decisions to the exact execution owner; B never presents foreign task UI.
 
-Local and peer cards share A's Worker output/history view and scoped file paths.
+Local desktop cards use the original native terminal controller and owned Runtime
+target. Peer cards use A's read-only Worker output/history view and scoped file paths;
+the browser task view remains read-only for both local and peer work.
 Remote paths are not A-local paths; verified inputs/outputs use task-scoped bytes,
 metadata/digests and the existing storage/cache authority. Retrieved output stays
 readable offline. See [implementation](bot-to-bot.md), [UI](remote-machines-ui.md)
