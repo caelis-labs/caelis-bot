@@ -40,17 +40,17 @@ export function useWebTasks(client:WebClient,active:boolean){
  return {tasks,error,retry:()=>setAttempt(n=>n+1)};
 }
 
-export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRetryList}:{client:WebClient;tasks:WebTask[];selected?:string;onSelect:(id:string)=>void;onClose:()=>void;listError:boolean;onRetryList:()=>void}){
+export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRetryList,active=true}:{client:WebClient;tasks:WebTask[];selected?:string;onSelect:(id:string)=>void;onClose:()=>void;listError:boolean;onRetryList:()=>void;active?:boolean}){
  const {t}=useI18n();
  const recentSelection=useRef('');
  useEffect(()=>{if(selected)recentSelection.current=selected;},[selected]);
  const id=selected||tasks.find(t=>t.id===recentSelection.current)?.id||tasks[0]?.id||'',task=tasks.find(t=>t.id===id);
- const output=useWorkerOutput(id,true,client.taskConversation,client.taskObservation,task?.status);
+ const output=useWorkerOutput(id,active,client.taskConversation,client.taskObservation,task?.status);
  const shownTask=output.observation?.task??task;
  const heading=tasks.length>1?<SettingsSelect compact centered={false} aria-label={t('chat.taskChoose')} value={id} onChange={e=>onSelect(e.target.value)}>
   {tasks.map(t=><option key={t.id} value={t.id} title={t.title}><TaskTitle task={t}/></option>)}
  </SettingsSelect>:<h2><TaskTitle task={shownTask}/></h2>;
  return <aside className="web-task-pane" aria-label={t('chat.taskPanel')}>
-  {id?<WorkerChat id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p>}
+  {id?<WorkerChat active={active} id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p>}
  </aside>;
 }
