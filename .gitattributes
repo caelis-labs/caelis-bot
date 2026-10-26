@@ -3,6 +3,8 @@ internal/plugins/packages/** -text
 protocol/caelis/openapi.json -text
 internal/backend/codex/schema/** -text
 internal/backend/caelis/wire/control_v1.gen.go -text
+# Frozen callback catalogs retain the original byte hashes on Windows too.
+internal/bot/catalog_history/** -text
 frontend/src/backend/contract.ts text eol=lf
 # Finished character resources are hashed as bytes by resources/character-pack.json.
 frontend/public/models/** -text
