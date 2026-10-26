@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/caelis-labs/caelis-bot/compare/v0.18.3...v0.19.0) (2026-10-26)
+
+
+### Features
+
+* **ui:** streamline remote machines and unify chat interactions ([#231](https://github.com/caelis-labs/caelis-bot/issues/231)) ([013da9d](https://github.com/caelis-labs/caelis-bot/commit/013da9d78e90ed06b965df9fc98cce93edc3cb1a))
+
+
+### Bug Fixes
+
+* finish task interactions and collect temporary control state ([#229](https://github.com/caelis-labs/caelis-bot/issues/229)) ([fdba8cb](https://github.com/caelis-labs/caelis-bot/commit/fdba8cbf0b55ae4303aa63661d76df8d26b4d7dc))
+* preserve Worker failure details and stop outcomes ([#232](https://github.com/caelis-labs/caelis-bot/issues/232)) ([8a67314](https://github.com/caelis-labs/caelis-bot/commit/8a6731461e313114260dacc316d3037be4651b9e))
+
 ## [0.18.3](https://github.com/caelis-labs/caelis-bot/compare/v0.18.2...v0.18.3) (2026-10-26)
 
 ### Remote connections
