@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0](https://github.com/caelis-labs/caelis-bot/compare/v0.18.3...v0.19.0) (2026-10-26)
+
+### Remote machines and chat
+
+* Simplify remote machines into one connection and authorization list with clear direction, editing and SSH controls. Keep readable machine names consistent across dispatch, task lists and observation windows without changing connection identity or task routing. ([#231](https://github.com/caelis-labs/caelis-bot/pull/231))
+* Unify desktop remote and Web Worker chat, preserve reading position and unsent Web drafts, and open local tasks in their original terminal session. Questions and approvals show the selected answer and actual processing result while preserving original requests, receipts and uncertain submissions. ([#231](https://github.com/caelis-labs/caelis-bot/pull/231))
+
+### Worker outcomes
+
+* Distinguish confirmed local or native task-creation refusals from uncertain dispatch, preserving attachment refusal handling and the original request. ([#232](https://github.com/caelis-labs/caelis-bot/pull/232))
+* Deliver bounded Worker failure details through task reads, observation, remote transport and the original host report. Use validated native failure facts where available; retain unknown when the runtime cannot establish a cause. ([#232](https://github.com/caelis-labs/caelis-bot/pull/232))
+* Suppress a redundant interrupted-task notification only after a confirmed manual stop of that exact native target. Unconfirmed stops, completion or failure races, and later turns still report their outcomes. Preserve original-task continuation guidance for occasional Codex capacity failures without adding model switching or automatic retry loops. ([#232](https://github.com/caelis-labs/caelis-bot/pull/232))
+
+### Task interaction lifecycle
+
+* Let the Bot finish inspected terminal or idle task interactions after validating the original owner and result. Bound temporary questions, approval payloads, drafts and feedback while keeping minimal uncertain receipts tied to their original operations. Finishing does not answer questions, approve actions, stop native work or replay uncertain effects. Preserve existing callbacks and prevent collected history from resurfacing as new questions. ([#229](https://github.com/caelis-labs/caelis-bot/pull/229))
+
 ## [0.18.3](https://github.com/caelis-labs/caelis-bot/compare/v0.18.2...v0.18.3) (2026-10-26)
 
 ### Remote connections
