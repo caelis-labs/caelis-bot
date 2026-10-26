@@ -127,7 +127,7 @@ func (m *Manager) ReadTaskConversation(ctx context.Context, id string) (api.Task
 			a.ID = api.TaskArtifactID(id, a.ID)
 		}
 	}
-	return api.TaskConversation{Status: view.Status, Messages: messages}, nil
+	return api.TaskConversation{Status: view.Status, Failure: view.Failure, Messages: messages}, nil
 }
 
 var _ api.TaskHistoryCatalog = (*Manager)(nil)

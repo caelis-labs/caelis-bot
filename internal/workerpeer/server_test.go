@@ -344,3 +344,32 @@ func TestUnknownOperationReadsOriginalReceiptAndScopedFiles(t *testing.T) {
 		t.Fatal("browser Origin inherited peer authority")
 	}
 }
+
+func TestPeerCarriesFailureAndOriginalStopFacts(t *testing.T) {
+	server, httpServer, owners := peerFixture(t)
+	connection := pairFixture(t, server, httpServer, "failure-source")
+	start := api.WorkStart{TaskStart: api.TaskStart{RequestID: "original-create", Title: "fixture", Prompt: "fixture"}, ID: "failure-task", Workspace: filepath.Join(t.TempDir(), "work")}
+	if _, err := Call(t.Context(), connection, Request{Action: "start", Start: start}); err != nil {
+		t.Fatal(err)
+	}
+	owner := owners["failure-source"]
+	owner.mu.Lock()
+	state := owner.tasks[start.ID]
+	state.Task.Status = "failed"
+	state.Task.Failure = api.UnknownTaskFailure("caelis", "original-native-turn")
+	state.StopAcknowledged = true
+	owner.tasks[start.ID] = state
+	owner.mu.Unlock()
+	out, err := Call(t.Context(), connection, Request{Action: "observe", ID: start.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := DecodeObservation(out.Observation)
+	if got.State.Task.Failure == nil || got.State.Task.Failure.Execution != "original-native-turn" || got.State.Task.Failure.Retryable != nil || !got.State.StopAcknowledged {
+		t.Fatal("peer lost native failure/stop facts", got)
+	}
+	read, err := Call(t.Context(), connection, Request{Action: "read", ID: start.ID})
+	if err != nil || read.Task.Failure == nil || read.Task.Failure.Code != "unknown" {
+		t.Fatal("peer read lost failure", read, err)
+	}
+}

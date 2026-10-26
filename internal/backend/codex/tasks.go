@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
+	LastError         *api.TaskFailure               `json:"lastError,omitempty"`
 	AsyncAdmission    asyncAdmission                 `json:"asyncAdmission,omitempty"`
 	Owner             string                         `json:"owner,omitempty"`
 	Build             string                         `json:"build,omitempty"`
@@ -122,17 +124,18 @@ func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) 
 }
 
 type taskReceipt struct {
-	Kind              string `json:"kind,omitempty"`
-	IntentFingerprint string `json:"intentFingerprint,omitempty"`
-	ExecutionKey      string `json:"executionKey,omitempty"`
-	ControlTarget     string `json:"controlTarget,omitempty"`
-	Fingerprint       string `json:"fingerprint"`
-	Outcome           string `json:"outcome"`
-	PriorStatus       string `json:"priorStatus,omitempty"`
-	PriorRun          string `json:"priorRun,omitempty"`
-	PriorResult       string `json:"priorResult,omitempty"`
-	PriorSuppressed   bool   `json:"priorSuppressed,omitempty"`
-	Phase             string `json:"phase,omitempty"`
+	Kind              string           `json:"kind,omitempty"`
+	IntentFingerprint string           `json:"intentFingerprint,omitempty"`
+	ExecutionKey      string           `json:"executionKey,omitempty"`
+	ControlTarget     string           `json:"controlTarget,omitempty"`
+	Fingerprint       string           `json:"fingerprint"`
+	Outcome           string           `json:"outcome"`
+	PriorStatus       string           `json:"priorStatus,omitempty"`
+	PriorRun          string           `json:"priorRun,omitempty"`
+	PriorFailure      *api.TaskFailure `json:"priorFailure,omitempty"`
+	PriorResult       string           `json:"priorResult,omitempty"`
+	PriorSuppressed   bool             `json:"priorSuppressed,omitempty"`
+	Phase             string           `json:"phase,omitempty"`
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -221,7 +224,7 @@ func (s *Session) workStatesLocked() []api.WorkState {
 				resolution = t.StopPendingStatus
 			}
 		}
-		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopAcknowledged: s.workerStopAcknowledged(t), StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
 			if len(question.Questions) == 0 || question.ObservedAt > 0 && time.Since(time.Unix(question.ObservedAt, 0)) >= 24*time.Hour {
 				continue
@@ -400,6 +403,9 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		_ = s.save()
 		v := t.View
 		s.mu.Unlock()
+		if definiteTaskRejection(err) {
+			err = &api.WorkMessageRejection{Cause: err}
+		}
 		return v, err
 	}
 	t.Thread = response.Thread.ID
@@ -585,7 +591,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	if in.RequestID == t.StartRequest {
 		kind, intent = "start", t.StartIntent
 	}
-	t.Requests[in.RequestID] = taskReceipt{Kind: kind, IntentFingerprint: intent, Fingerprint: workMessageFingerprint(in), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
+	t.Requests[in.RequestID] = taskReceipt{Kind: kind, IntentFingerprint: intent, Fingerprint: workMessageFingerprint(in), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorFailure: t.View.Failure, PriorSuppressed: t.SuppressReport}
 	t.Pending = in.RequestID
 	t.Activity = "" // New dispatch invalidates preceding idle capacity evidence.
 	t.SuppressReport = false
@@ -598,6 +604,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	t.View.Status = "unknown"
 	t.View.Outcome = "unknown"
 	t.View.Result = ""
+	t.View.Failure = nil
 	if err := s.save(); err != nil {
 		delete(t.Requests, in.RequestID)
 		t.View, t.Run, t.Pending, t.SuppressReport, t.SupersededRuns = previousView, previousRun, previousPending, previousSuppression, previousSuperseded
@@ -697,8 +704,8 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		if t.Run == "" || t.Run == turn.ID || slices.Contains(t.SupersededRuns, t.Run) {
 			t.AsyncAdmission.begin(turn.ID)
 			s.observeTaskTurn(t, turn)
-			if status := s.childTerminalStatus[opaque(t.Thread, turn.ID)]; status != "" && t.Run == turn.ID && !terminal(t.View.Status) {
-				s.observeTaskTurn(t, nativeTurn{ID: turn.ID, Status: status})
+			if ended := s.childTerminalStatus[opaque(t.Thread, turn.ID)]; ended.Status != "" && t.Run == turn.ID && !terminal(t.View.Status) {
+				s.observeTaskTurn(t, nativeTurn{ID: turn.ID, Status: ended.Status})
 			}
 			if !s.childTerminals[opaque(t.Thread, turn.ID)] && !terminal(t.View.Status) {
 				s.childRuns[t.Thread] = turn.ID
@@ -710,6 +717,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		t.Pending = ""
 		if t.Run == "" || t.Run == r.PriorRun {
 			t.View.Status, t.View.Result, t.Run, t.SuppressReport = r.PriorStatus, r.PriorResult, r.PriorRun, r.PriorSuppressed
+			t.View.Failure = r.PriorFailure
 			if r.PriorRun != "" && terminal(r.PriorStatus) {
 				t.SupersededRuns = slices.DeleteFunc(t.SupersededRuns, func(run string) bool { return run == r.PriorRun })
 			}
@@ -753,7 +761,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 	}
 	view, pending, run, report, reportState := t.View, t.Pending, t.Run, t.ReportID, t.ReportState
 	defer func() {
-		changed = changed || view != t.View || pending != t.Pending || run != t.Run || report != t.ReportID || reportState != t.ReportState
+		changed = changed || !reflect.DeepEqual(view, t.View) || pending != t.Pending || run != t.Run || report != t.ReportID || reportState != t.ReportState
 	}()
 	if turn.ID == "" {
 		return
@@ -779,7 +787,33 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 		}
 	}
 	if terminal(turn.Status) {
-		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
+		failure := (*api.TaskFailure)(nil)
+		if turn.Status == "failed" {
+			failure = workerFailure(t.Thread, turn.ID, turn.Error)
+			previous := s.childTerminalStatus[opaque(t.Thread, turn.ID)].Failure
+			if previous == nil && t.View.Failure != nil && t.View.Failure.Execution == failure.Execution {
+				previous = t.View.Failure
+			}
+			if previous == nil {
+				previous = t.LastError
+			}
+			if previous != nil && previous.Execution == failure.Execution {
+				if turn.Error == nil {
+					copy := *previous
+					failure = &copy
+				}
+				if previous.Code == failure.Code && previous.WillRetry != nil && !*previous.WillRetry {
+					failure.WillRetry = previous.WillRetry
+				}
+			}
+			// A prior retrying stream event is not a promise to retry a terminal turn.
+			if failure.WillRetry != nil && *failure.WillRetry {
+				copy := *failure
+				copy.WillRetry = nil
+				failure = &copy
+			}
+		}
+		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = workerTerminal{Status: turn.Status, Failure: failure}
 		if t.StopPendingRequest != "" && t.StopPendingTurn == turn.ID && t.StopPendingStatus != turn.Status {
 			t.StopPendingStatus = turn.Status
 			s.markStopTerminalSavePendingLocked("task:" + t.View.ID)
@@ -809,6 +843,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 		t.Run = turn.ID
 		t.SuppressReport = false
 		t.View.Result = ""
+		t.View.Failure = nil
 	}
 	if turn.Status == "inProgress" && !s.childTerminals[opaque(t.Thread, turn.ID)] {
 		t.Activity = "active"
@@ -816,6 +851,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 	}
 	if terminal(turn.Status) {
 		t.Activity = "idle"
+		t.View.Failure = s.childTerminalStatus[opaque(t.Thread, turn.ID)].Failure
 		t.Run = turn.ID
 		t.View.Status = turn.Status
 		reportID := "task-report-" + opaque(t.Thread, turn.ID)
@@ -849,6 +885,7 @@ func settlePreparedTask(t *taskRecord) {
 	t.Requests[t.Pending] = r
 	t.Pending = ""
 	t.Run, t.View.Status, t.View.Result, t.SuppressReport = r.PriorRun, r.PriorStatus, r.PriorResult, r.PriorSuppressed
+	t.View.Failure = r.PriorFailure
 	t.View.Outcome = "rejected"
 	t.SupersededRuns = slices.DeleteFunc(t.SupersededRuns, func(id string) bool { return id == r.PriorRun })
 }

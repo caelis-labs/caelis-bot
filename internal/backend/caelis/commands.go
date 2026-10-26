@@ -49,6 +49,10 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j := s.state.Operations[op]
 		copy := *intent
 		j.Work = &copy
+		if cancel, ok := req.(wire.CancelRequest); ok && intent.Kind == "stop" {
+			target := cancel.Target
+			j.StopTarget = &target
+		}
 		s.state.Operations[op] = j
 	}
 	if len(scheduled) > 0 {

@@ -20,6 +20,8 @@ func TestQuotedCodexInputReachesNativeTextAndProjectsOnlyBody(t *testing.T) {
 	if modelText != "<reference>\n旧回复\n</reference>\n\n本次正文" {
 		t.Fatal(modelText)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.binding.ContextInputs = map[string]int{in.ID: len(in.ModelQuotePrefix())}
 	native, err = s.prepareContextLocked(t.Context(), in.ID, native)
 	if err != nil || s.binding.ContextInputs[in.ID] != len(in.ModelQuotePrefix())+len("[private seed]\n") {
@@ -44,6 +46,8 @@ func TestAsyncReplyCodexInputUsesOnlyEnvelopeAndKeepsVisibleCommand(t *testing.T
 	if err != nil || len(native) != 1 || native[0]["text"] != envelope {
 		t.Fatalf("not exact native reply envelope: %#v %v", native, err)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.binding.ContextInputs = map[string]int{in.ID: len(in.ModelQuotePrefix())}
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: envelope}}}, true)
 	visible := s.state.Items[s.items[opaque("turn", "user")]].Text

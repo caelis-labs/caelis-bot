@@ -148,3 +148,30 @@ type largeMessageTasks struct {
 func (f *largeMessageTasks) ReadTaskConversation(_ context.Context, _ string) (api.TaskConversation, error) {
 	return api.TaskConversation{Status: "completed", Messages: []api.TaskConversationMessage{{ID: "original", Role: "assistant", Text: f.message}}}, nil
 }
+
+type failureReadTasks struct{ largeMessageTasks }
+
+func (f *failureReadTasks) ReadTaskConversation(ctx context.Context, id string) (api.TaskConversation, error) {
+	v, err := f.largeMessageTasks.ReadTaskConversation(ctx, id)
+	v.Status = "failed"
+	v.Failure = api.UnknownTaskFailure("codex", "original-turn")
+	return v, err
+}
+func (f *failureReadTasks) ObserveTask(context.Context, string) (api.WorkObservation, error) {
+	return api.WorkObservation{State: api.WorkState{Task: api.Task{ID: "owned", Status: "failed", Failure: api.UnknownTaskFailure("codex", "original-turn")}}, Items: []api.Item{{Text: f.message}}}, nil
+}
+func TestWorkerFailureVisibleBesideChunkedMessagesAndObservation(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &failureReadTasks{largeMessageTasks: largeMessageTasks{message: strings.Repeat("prior progress ", 10000)}}
+	r.ConfigureTasks(f, nil)
+	for _, request := range []map[string]any{{"type": "read", "task": "owned", "messageId": "original"}, {"type": "read", "task": "owned"}, {"type": "observe", "task": "owned"}} {
+		out := r.CallTool(t.Context(), "bot_tasks", encoded(map[string]any{"request": request}))
+		if out.IsError || out.StructuredContent["failure"] == nil {
+			t.Fatal("bounded output hid failure", out)
+		}
+		failure := out.StructuredContent["failure"].(*api.TaskFailure)
+		if failure.Execution != "original-turn" || failure.Retryable != nil {
+			t.Fatal("original metadata changed")
+		}
+	}
+}

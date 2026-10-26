@@ -146,7 +146,7 @@ func (s *Session) reconcileCapacityStopOnce(key, threadID, request, turnID strin
 		return false
 	}
 	if observed.Status != "inProgress" || phase != "requested" || currentPhase != "requested" ||
-		(key == "bot" && terminal(s.runs[turnID])) || (key != "bot" && s.childTerminalStatus[opaque(threadID, turnID)] != "") {
+		(key == "bot" && terminal(s.runs[turnID])) || (key != "bot" && s.childTerminalStatus[opaque(threadID, turnID)].Status != "") {
 		s.mu.Unlock()
 		return true
 	}
@@ -168,14 +168,20 @@ func (s *Session) reconcileCapacityStopOnce(key, threadID, request, turnID strin
 	s.mu.Unlock()
 	err = callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turnID}, nil)
 	s.mu.Lock()
-	if currentPhase, _, currentEpoch, stillValid = s.capacityStopTargetLocked(key, threadID, request, turnID); stillValid &&
+	if currentPhase, _, currentEpoch, stillValid = s.capacityStopTargetLocked(key, threadID, request, turnID, true); stillValid &&
 		s.client == c && currentEpoch == epoch && currentPhase == "attempted" && err == nil {
 		if key == "bot" {
 			s.binding.CapacityStopPhase = "acknowledged"
 		} else {
 			s.binding.Tasks[key[len("task:"):]].StopPendingPhase = "acknowledged"
 		}
-		_ = s.save()
+		if saveErr := s.save(); saveErr != nil {
+			if key == "bot" {
+				s.binding.CapacityStopPhase = "attempted"
+			} else {
+				s.binding.Tasks[key[len("task:"):]].StopPendingPhase = "attempted"
+			}
+		}
 		s.update()
 	}
 	s.mu.Unlock()
@@ -184,12 +190,12 @@ func (s *Session) reconcileCapacityStopOnce(key, threadID, request, turnID strin
 
 // Returns a phase only for the saved original request, native thread and Turn.
 // Called with s.mu held.
-func (s *Session) capacityStopTargetLocked(key, threadID, request, turnID string) (string, *Client, uint64, bool) {
+func (s *Session) capacityStopTargetLocked(key, threadID, request, turnID string, allowTerminal ...bool) (string, *Client, uint64, bool) {
 	if s.closed || s.closing || s.state.Connection != "ready" {
 		return "", nil, 0, false
 	}
 	if key == "bot" {
-		if s.binding.CapacityStopThread != threadID || !s.binding.CapacityStopAccepted || s.binding.CapacityStopRequest != request || s.binding.CapacityStopTurn != turnID || s.binding.CapacityStopStatus != "" {
+		if s.binding.CapacityStopThread != threadID || !s.binding.CapacityStopAccepted || s.binding.CapacityStopRequest != request || s.binding.CapacityStopTurn != turnID || s.binding.CapacityStopStatus != "" && len(allowTerminal) == 0 {
 			return "", nil, 0, false
 		}
 		phase := s.binding.CapacityStopPhase
@@ -199,7 +205,7 @@ func (s *Session) capacityStopTargetLocked(key, threadID, request, turnID string
 		return phase, s.client, s.epoch, true
 	}
 	t := s.binding.Tasks[key[len("task:"):]]
-	if t == nil || t.Thread != threadID || t.StopPendingRequest != request || t.StopPendingTurn != turnID || t.StopPendingStatus != "" {
+	if t == nil || t.Thread != threadID || t.StopPendingRequest != request || t.StopPendingTurn != turnID || t.StopPendingStatus != "" && len(allowTerminal) == 0 {
 		return "", nil, 0, false
 	}
 	phase := t.StopPendingPhase

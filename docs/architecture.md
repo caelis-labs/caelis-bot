@@ -430,6 +430,23 @@ Initial pairing and legacy Weixin records baseline the current history instead
 of replaying it. Host task wakeups and automatic review progress stay internal;
 the Bot's subsequent visible response follows each channel's delivery policy.
 This is a snapshot projection, not a separate Bot session or a general event bus.
+
+Worker failures retain one bounded native projection on `Task.failure`, carried
+through the existing owner binding, task ledger, read/observe metadata and original
+host report. Codex uses typed `codexErrorInfo`; Caelis currently exposes unknown
+where Control supplies only unstructured text. Retry fields are nullable native
+facts, never authorization to replay tools or unknown submissions. Messages and
+`Result` remain native assistant output. Raw errors/additionalDetails never enter
+this projection. Each report freezes its text before the original durable dispatch;
+late details remain readable without a new report ID.
+
+An acknowledged stop suppresses only the original turn's interrupted report.
+Unknown/rejected stops, completion/failure races and later native turns still
+report. This is derived from original stop receipts and terminal facts, not a
+persistent task-wide mute. Caelis retains the canonical head target and original
+cancel target across idle bootstrap states, which omit the active target; those
+saved identities never authorize a new cancellation.
+
 The first accepted or unconfirmed `bot_delegate` start emits one durable,
 user-visible conversation item with the task title (or a shortened prompt). It
 is mirrored to Telegram and to Weixin for a Weixin-owned Turn; Weixin emphasizes

@@ -48,7 +48,10 @@ Chat Stop interrupts the current conversation and its blocking child work, not
 independent tasks. Use `bot_tasks` `stop` for one of those tasks. When replacing
 work, stop the old task explicitly and check its result before starting a
 replacement; a stop acknowledgement does not prove all effects ended. A hidden
-card or closed terminal does not mean the user cancelled work.
+card or closed terminal does not mean the user cancelled work. A confirmed stop
+followed by interruption of that exact turn does not send another completion
+notice. Keep the tool's actual result: an unconfirmed/rejected stop, a completion
+or failure that wins the race, and later turns can still report normally.
 
 ## Inspect retained work
 
@@ -65,6 +68,22 @@ unfinished text, reasoning and tool payloads are not conversation history.
 `observe` provides bounded current output. Status and readable history are separate
 facts: a completed task may have unreadable history, and a failed read is not an
 empty result. Reading does not continue the Worker or consume its completion notice.
+
+Failed native turns may include `failure` metadata in `read`, `observe`, and their
+original completion notice. Its `source`, typed `code`, safe `reason`, and opaque
+`execution` identify the original failure. Retry fields use null for unknown;
+`willRetry:false` does not mean permanently unretryable. Caelis currently exposes
+unknown where its public protocol lacks reliable structured details. Never infer
+an error category from assistant prose, raw messages, or a failed observation.
+Large reads retain the short failure alongside their JSON chunks. Do not turn
+this internal metadata into technical user-facing alerts.
+
+For an occasional confirmed Codex capacity failure, continue the original task
+when the user's recovery preference authorizes that step. Repeated failures call
+for diagnosis. Use `bot_delegate` with the same `task` and `prompt:"继续"`; keep
+the failed turn's identity. This is a new input after a known terminal, not replay
+of an unknown submission. Do not switch models automatically or bypass a native
+authorization, budget, policy, or explicit stop.
 
 A model or connection preference change does not move old tasks. Use their
 original handles even when new work uses another default. An interrupted turn

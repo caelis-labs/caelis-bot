@@ -24,6 +24,7 @@ type pendingInput struct {
 }
 
 type journal struct {
+	StopTarget     *wire.TurnTarget   `json:"stopTarget,omitempty"`
 	Work           *workIntent        `json:"work,omitempty"`
 	OriginRequests []string           `json:"originRequests,omitempty"`
 	OriginOwner    string             `json:"originOwner,omitempty"`
@@ -40,6 +41,9 @@ type journal struct {
 	Source         wire.SessionSource `json:"source"`
 }
 type view struct {
+	// Last canonical main target survives idle bootstrap states that omit it.
+	// This is observation evidence only, never authority for a new cancellation.
+	HeadTarget      wire.TurnTarget                  `json:"headTarget,omitempty"`
 	WorkerOutput    *workerTranscript                `json:"workerOutput,omitempty"`
 	InputScopes     map[string]inputScope            `json:"inputScopes,omitempty"`
 	Usage           api.ContextUsage                 `json:"-"`

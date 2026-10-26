@@ -57,6 +57,9 @@ func observedTurn(v *view) string {
 	if turn := value(v.State.Run.TurnId); turn != "" {
 		return turn
 	}
+	if v.HeadTarget.TurnId != "" {
+		return v.HeadTarget.TurnId
+	}
 	for i := len(v.Items) - 1; i >= 0; i-- {
 		if v.Items[i].TurnKey != "" {
 			return v.Items[i].TurnKey
@@ -66,7 +69,7 @@ func observedTurn(v *view) string {
 }
 
 func retireRunHead(v *view, next string) {
-	prior := value(v.State.Run.TurnId)
+	prior := observedTurn(v)
 	if prior == "" || next == "" || prior == next {
 		return
 	}
@@ -374,6 +377,15 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 		finishAssistantStream(v, value(e.TurnId))
 	}
 	if e.TurnId != nil && head {
+		if v.HeadTarget.TurnId != *e.TurnId {
+			v.HeadTarget = wire.TurnTarget{TurnId: *e.TurnId}
+		}
+		if e.HandleId != nil {
+			v.HeadTarget.HandleId = *e.HandleId
+		}
+		if e.RunId != nil {
+			v.HeadTarget.RunId = *e.RunId
+		}
 		v.State.Run.TurnId = e.TurnId
 	}
 	if e.HandleId != nil && head {

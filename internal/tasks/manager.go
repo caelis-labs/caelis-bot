@@ -49,6 +49,7 @@ type record struct {
 	Provider            string                             `json:"provider"`
 	Fingerprint         string                             `json:"fingerprint,omitempty"`
 	Execution           string                             `json:"execution,omitempty"`
+	ReportText          string                             `json:"reportText,omitempty"`
 	ReportID            string                             `json:"reportId,omitempty"`
 	ReportState         string                             `json:"reportState,omitempty"`
 	StopResolution      string                             `json:"stopResolution,omitempty"`
@@ -299,9 +300,10 @@ func (m *Manager) refresh() error {
 			}
 			r.Execution = v.ExecutionKey
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
+			r.ReportText = ""
 			r.ReportState = "pending"
 		}
-		if v.StopRequested && !v.StopPending && v.StopResolution == "" && r.ReportState == "pending" {
+		if v.StopAcknowledged && !v.StopPending && (v.Task.Status == "interrupted" || v.Task.Status == "cancelled" || v.Task.Status == "canceled") && r.ReportState == "pending" {
 			r.ReportState = "observed"
 		}
 	}
@@ -577,7 +579,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		var err error
 		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
 		if err != nil {
-			return api.Task{}, err
+			return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: err}
 		}
 	}
 	if e := workerAction(m, in.Machine, func() error { return m.validateWorkerInputs(ctx, id, in.Files) }); e != nil {
@@ -625,7 +627,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		}
 		v := r.View
 		m.mu.Unlock()
-		return v, errors.Join(e, saveErr)
+		return v, &api.WorkMessageRejection{Cause: errors.Join(e, saveErr)}
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)
@@ -1072,12 +1074,6 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 		m.mu.Unlock()
 		return nil
 	}
-	selected.ReportState = "dispatching"
-	if e := m.write(); e != nil {
-		selected.ReportState = "pending"
-		m.mu.Unlock()
-		return e
-	}
 	id := selected.ReportID
 	text := fmt.Sprintf("Task %s is %s.", selected.View.ID, selected.View.Status)
 	if selected.StopResolution == "interrupted" {
@@ -1085,14 +1081,36 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	} else if selected.StopResolution != "" {
 		text = fmt.Sprintf("Task %s: stop was requested, but its original native turn ended %s without confirmed timely interruption. The native result may have taken effect.", selected.View.ID, selected.StopResolution)
 	}
+	if selected.View.Failure != nil && selected.View.Status == "failed" {
+		failure, _ := json.Marshal(selected.View.Failure)
+		text += " Failure: " + string(failure)
+	}
+	if selected.ReportText == "" {
+		selected.ReportText = text
+	}
+	text = selected.ReportText
+	selected.ReportState = "dispatching"
+	if e := m.write(); e != nil {
+		selected.ReportState = "pending"
+		m.mu.Unlock()
+		return e
+	}
 	m.mu.Unlock()
 	receipt, e := m.reports.SubmitReport(ctx, api.Submission{ID: id, Text: text})
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if receipt.ID == id && receipt.Outcome == "accepted" {
-		selected.ReportState = "delivered"
-	} else if e == nil && receipt.ID == id && receipt.Outcome == "rejected" {
-		selected.ReportState = "pending"
+	if selected.ReportID == id {
+		if receipt.ID == id && receipt.Outcome == "accepted" {
+			selected.ReportState = "delivered"
+		} else if e == nil && receipt.ID == id && receipt.Outcome == "rejected" {
+			selected.ReportState = "pending"
+		}
+	} else if receipt.ID == id && receipt.Outcome == "accepted" {
+		for i := range selected.PreviousReports {
+			if selected.PreviousReports[i].ID == id {
+				selected.PreviousReports[i].State = "delivered"
+			}
+		}
 	}
 	return errors.Join(e, m.write())
 }
