@@ -2,8 +2,9 @@ package textchannel
 
 import (
 	"context"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 func TestDesktopReplyPresentationUsesOriginalBindingAndReceipt(t *testing.T) {
@@ -88,7 +89,7 @@ func TestLateQuestionOutcomeNotifiesOnlyAfterOriginalReceipt(t *testing.T) {
 	for _, outcome := range []string{"accepted", "rejected"} {
 		t.Run(outcome, func(t *testing.T) {
 			s, _ := Open(t.TempDir(), nil)
-			card, _ := s.AsyncCard(api.Item{ID: "question", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "继续？"}}}, "owner")
+			card, _ := s.AsyncCard(api.Item{ID: "question", TurnKey: "turn", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "继续？"}}}, "owner")
 			s.SetAsyncAnswerer(func(context.Context, Inbound, string) (api.Receipt, error) {
 				return api.Receipt{Outcome: "unknown"}, nil
 			})
