@@ -38,8 +38,8 @@ Never infer authorization from a handle or partial chunk. Closed or uncertain re
 read original Worker conversation content with `bot_tasks` only when needed. Paging
 does not close a question or clear an unknown decision.
 
-`bot_interactions` keeps its exact native approval and question IDs. Its answer
-answer requires the `binding` from the original question read/list. Its
+`bot_interactions` keeps its exact native approval and question IDs. Answering
+requires the `binding` from the original question read/list. Its
 requestId belongs to the original question decision, not to `bot_delegate`.
 Do not use a task continuation as a substitute for answering a pending native
 question or retrying an uncertain decision.
