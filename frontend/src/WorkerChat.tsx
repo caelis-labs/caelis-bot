@@ -45,7 +45,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
    <div ref={content} className="worker-chat-content">
     {messages.length>limit&&<button className="worker-chat-earlier text-action" onClick={earlier}>{t('chat.taskEarlier')}</button>}
     {messages.slice(-limit).map(message=><article key={message.id} data-worker-message={message.id} className={`worker-message ${message.role}`}>
-     <div className="worker-message-label"><span>{message.role==='user'?'Bot':'Worker'}</span><CopyText text={message.text} report={setError}/></div>
+     <div className="worker-message-actions"><CopyText text={message.text} report={setError}/></div>
      <MessageContent text={message.text} report={setError}/>
      {!!message.artifacts.length&&<div className="artifacts">{message.artifacts.map(file=><ArtifactLink key={file.id} file={file} report={setError}/>)}</div>}
     </article>)}

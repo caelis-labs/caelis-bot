@@ -143,3 +143,5 @@ Native approval choices and outcomes remain Runtime-owned. A submitted decision
 waits for its original record instead of becoming an optimistic approval.
 
 Remote-machine connections share one settings list. Every row keeps its original direction and authority: outgoing access, an incoming request, or a granted incoming source. A name/address match is not enough to merge identities. Incoming-only state must not render an empty “first machine” prompt. Request decisions show the actual successful result and lead back to the retained grant; failed or unknown results remain explicit. Removing an outgoing connection and revoking incoming access are separately named actions with their effects explained before submission.
+
+The shared Worker conversation uses tinted bubbles for user-side messages and plain assistant messages separated by quiet rules. Do not repeat role labels above every message. Preserve a copy action without a separate label row. The observation surface and user bubbles round all four corners; native window controls and behavior remain available.
