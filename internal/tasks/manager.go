@@ -25,6 +25,7 @@ import (
 )
 
 type record struct {
+	FinishedExecution   string                             `json:"finishedExecution,omitempty"`
 	FileStorageVersion  int                                `json:"fileStorageVersion,omitempty"`
 	InputReferences     map[string][]api.TaskFileReference `json:"inputReferences,omitempty"`
 	InputPaths          map[string][]string                `json:"inputPaths,omitempty"`
@@ -67,6 +68,8 @@ type state struct {
 }
 
 type Manager struct {
+	finished             func(api.WorkState) error
+	operationObserver    func(api.WorkOperation) error
 	environmentMu        sync.Mutex
 	environmentOps       map[string]*environmentOperation // live target locks, no execution state
 	inputMu              sync.Mutex
@@ -807,6 +810,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if e := m.owned(in.ID); e != nil {
 		return m.rejectMessage(in, e)
 	}
+	if err := m.reconcileFinishedBeforeInput(in.ID); err != nil {
+		return m.rejectMessage(in, err)
+	}
 	m.mu.Lock()
 	alreadyRecorded := slices.Contains(m.state.Records[in.ID].Requests, in.RequestID)
 	m.mu.Unlock()
@@ -819,6 +825,10 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	current := m.state.Records[in.ID]
 	status := current.View.Status
 	duplicate := slices.Contains(current.Requests, in.RequestID)
+	if !duplicate && api.WorkerQuestionAnswer(ctx) != "" && current.FinishedExecution != "" && current.FinishedExecution == current.Execution {
+		m.mu.Unlock()
+		return m.rejectMessage(in, errors.New("original task explicitly finished"))
+	}
 	if duplicate {
 		prior := current.View
 		outcome := current.RequestOutcomes[in.RequestID]

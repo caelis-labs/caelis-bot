@@ -83,7 +83,7 @@ func TestUncertainWorkerQuestionPayloadSurvivesQueueCleanupAndRestart(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(s.WorkerAsyncQuestions()) != 1 || s.state.AsyncClosed[asyncKey(q)].Title != q.Title || s.state.AsyncQuestions["Q1"].ReplyID != q.ReplyID {
+			if len(s.WorkerAsyncQuestions()) != 1 || s.state.AsyncReceipts[asyncKey(q)].Title != "" || s.state.AsyncQuestions["Q1"].ReplyID != q.ReplyID {
 				t.Fatal("uncertain original was pruned")
 			}
 		})
@@ -115,12 +115,12 @@ func TestTerminalHistoryPayloadRetentionKeepsCachedOriginalAndUncertainty(t *tes
 			full++
 		}
 	}
-	if full > 128 || s.state.AsyncClosed[asyncKey(old)].Title != "" || s.state.AsyncClosed[asyncKey(uncertain)].ReplyID != "original-receipt" || s.state.AsyncClosed[asyncKey(uncertain)].Title == "" {
+	if full > 128 || s.state.AsyncClosed[asyncKey(old)].Title != "" || s.state.AsyncReceipts[asyncKey(uncertain)].ReplyID != "original-receipt" || s.state.AsyncReceipts[asyncKey(uncertain)].Title != "" {
 		t.Fatal("retention changed receipt evidence or retained unbounded payloads")
 	}
 	card := api.Item{ID: old.ItemID, QuestionCards: []api.QuestionCard{{ShortID: old.ShortID, Binding: old.Fingerprint, Title: old.Title, TaskTitle: old.TaskTitle, Options: old.Options}}}
 	result, _ := s.ProjectQuestions([]api.Item{card})
-	if result[0].QuestionCards[0].Title != old.Title || result[0].QuestionCards[0].TaskTitle != old.TaskTitle || result[0].QuestionCards[0].State != "dismissed" {
+	if result[0].QuestionCards[0].Title != old.Title || result[0].QuestionCards[0].TaskTitle != old.TaskTitle || result[0].QuestionCards[0].State != "expired" {
 		t.Fatal("compaction erased cached original")
 	}
 }

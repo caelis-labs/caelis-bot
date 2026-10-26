@@ -41,7 +41,7 @@ func TestBotWorkerInteractionToolPreservesNativeFields(t *testing.T) {
 	if f.decision.ID != "native-worker" || f.decision.Choice != "once" || f.decision.Answers["reason"][0] != "read only" {
 		t.Fatalf("native Worker decision altered: %+v", f.decision)
 	}
-	invokeCompact(t, r, "bot_interactions", `{"request":{"type":"answer","question":"Q7","value":"2","requestId":"stable-worker-answer"}}`)
+	invokeCompact(t, r, "bot_interactions", `{"request":{"type":"answer","question":"Q7","binding":"original-binding","value":"2","requestId":"stable-worker-answer"}}`)
 	if f.answer != "2" {
 		t.Fatal("Worker answer missing", f.answer)
 	}

@@ -51,12 +51,12 @@ func interactionTerminal(state string) bool {
 func interactionPage(port api.WorkerInteractionPort, q map[string]any) api.ToolResult {
 	entries := []interactionEntry{}
 	for _, a := range port.WorkerApprovals() {
-		if !interactionTerminal(a.Status) {
+		if a.Status == "pending" {
 			entries = append(entries, interactionEntry{"approval", a.ID, a})
 		}
 	}
 	for _, v := range port.WorkerQuestions() {
-		if !interactionTerminal(v.State) {
+		if v.State == "" {
 			entries = append(entries, interactionEntry{"question", v.ID, v})
 		}
 	}

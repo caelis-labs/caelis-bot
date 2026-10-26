@@ -1,6 +1,9 @@
 package api
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // TaskProvider is the host-only application coordinator. These handles name
 // Bot-owned work, never arbitrary provider conversations or UI sessions.
@@ -94,6 +97,12 @@ type TaskMessage struct {
 // must never replay an uncertain submission or run a model to poll idle work.
 type TaskReporter interface{ DeliverTaskReport(context.Context) error }
 
+// TaskFinisher records the Bot's explicit conclusion after inspecting a result.
+// It closes temporary interactions, never stops execution or settles receipts.
+type TaskFinisher interface {
+	FinishTask(context.Context, string, string) (Task, error)
+}
+
 // TaskRequestReader resolves an already-owned original submission without replay.
 type TaskRequestReader interface {
 	ReadTaskRequest(context.Context, string) (Task, error)
@@ -138,4 +147,29 @@ type TaskHistoryEntry struct {
 // A missing or changed identity must never follow a subsequent continuation.
 type TaskExecutionSource interface {
 	ObserveTaskExecution(string) (Task, string, error)
+}
+
+// TaskFinishToken binds inspection to the original owner/task/native generation.
+// It is opaque to the model; reading a different generation invalidates it.
+func TaskFinishToken(v WorkState) string {
+	if v.ExecutionKey == "" || v.Activity != "idle" || v.StopPending {
+		return ""
+	}
+	switch v.Task.Status {
+	case "completed", "failed", "cancelled", "canceled", "interrupted":
+	default:
+		return ""
+	}
+	questions := []string{}
+	for _, q := range v.AsyncQuestions {
+		questions = append(questions, WorkFingerprint(struct {
+			ID, Turn, Call string
+			Questions      []AsyncQuestion
+		}{q.ID, q.TurnKey, q.AsyncCallID, q.AsyncQuestions}))
+	}
+	slices.Sort(questions)
+	return WorkFingerprint(struct {
+		Runtime, Task, Machine, Execution, Status, Result string
+		Questions                                         []string
+	}{v.Runtime, v.Task.ID, v.Task.Machine, v.ExecutionKey, v.Task.Status, v.Task.Result, questions})
 }

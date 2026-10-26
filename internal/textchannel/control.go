@@ -50,12 +50,18 @@ type prompt struct {
 	Free, Required, Multiple, Secret                                              bool
 	IssuedAt                                                                      int64 `json:"issuedAt,omitempty"`
 }
-type claim struct{ State, Feedback string }
+type claim struct {
+	State, Feedback string
+	IssuedAt        int64 `json:"issuedAt,omitempty"`
+}
 type cardBinding struct {
+	IssuedAt                  int64 `json:"issuedAt,omitempty"`
 	NativeID, Schema, ShortID string
+	RetiredPrivate            bool `json:"retiredPrivate,omitempty"`
 	Ambiguous, Secret         bool
 }
 type document struct {
+	RetiredSecretCards         []byte `json:"retiredSecretCards,omitempty"`
 	Version                    int
 	NextApproval, NextQuestion uint64
 	Origins                    map[string]Origin              // exact accepted submission ID, saved before dispatch
@@ -68,9 +74,10 @@ type document struct {
 	SecretShortIDs             map[string]bool                `json:"secretShortIds,omitempty"` // bounded by the Q-number pool; protects stale bare answers after reuse
 	ReplyOrder                 []string
 	AsyncQuestions             map[string]asyncQuestion `json:"asyncQuestions,omitempty"`
-	AsyncClosed                map[string]asyncQuestion `json:"asyncClosed,omitempty"`  // retained generations, independent of recycled numbers and display identity
-	AsyncRetired               map[string]bool          `json:"asyncRetired,omitempty"` // display retirement is independent of unknown answer receipts
-	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`  // item ID -> exact question fingerprint
+	AsyncReceipts              map[string]asyncQuestion `json:"asyncReceipts,omitempty"` // minimal uncertain input evidence, never actionable
+	AsyncClosed                map[string]asyncQuestion `json:"asyncClosed,omitempty"`   // retained generations, independent of recycled numbers and display identity
+	AsyncRetired               map[string]bool          `json:"asyncRetired,omitempty"`  // display retirement is independent of unknown answer receipts
+	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`   // item ID -> exact question fingerprint
 }
 type Store struct {
 	revision        uint64
@@ -173,6 +180,17 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 		}
 	}
 	for id, q := range s.state.AsyncQuestions {
+		if q.State == "dispatching" {
+			q.State = "unknown"
+			migrated = true
+		}
+		if q.State == "unknown" {
+			updated := s.migrateAnswerReceipt(q)
+			if updated.OperationID != q.OperationID {
+				q = updated
+				migrated = true
+			}
+		}
 		if q.Presentation != nil && validateQuestionPresentation(*q.Presentation, q.Title, q.Options) != nil {
 			q.Presentation = nil
 			migrated = true
@@ -210,7 +228,11 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 			}
 		}
 	}
-	if s.compactClosedQuestionCopies() {
+	beforeMaintenance, _ := json.Marshal(s.state)
+	s.compactClosedQuestionCopies()
+	s.compactNativeControls()
+	afterMaintenance, _ := json.Marshal(s.state)
+	if string(beforeMaintenance) != string(afterMaintenance) {
 		migrated = true
 	}
 	if migrated {
@@ -221,8 +243,14 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	return s, nil
 }
 func (s *Store) save() error {
+	previous := s.state
+	previousSecret := maps.Clone(s.secretAnswers)
+	s.state = cloneMaintenanceState(s.state)
 	s.compactClosedQuestionCopies()
+	s.compactNativeControls()
 	if err := localstate.Write(s.path, s.state); err != nil {
+		s.state = previous
+		s.secretAnswers = previousSecret
 		return err
 	}
 	s.revision++
@@ -362,6 +390,7 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 	}
 	changed := false
 	previous := maps.Clone(s.state.Prompts)
+	previousClaims := maps.Clone(s.state.Claims)
 	previousSecret := maps.Clone(s.state.SecretShortIDs)
 	for id, p := range s.state.Prompts {
 		approval, exists := current[p.NativeID]
@@ -369,7 +398,10 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 			continue
 		}
 		if s.state.Claims[p.NativeID].State == "unknown" {
-			continue
+			if !exists || approval.Status != "resolved" || approval.Owner != p.Owner || approval.TurnKey != p.TurnKey || catalogFingerprint(approval) != p.Schema {
+				continue
+			}
+			s.state.Claims[p.NativeID] = claim{State: "resolved", Feedback: "原请求已处理。" + resolutionText(approval.Resolution), IssuedAt: time.Now().Unix()}
 		}
 		if p.Secret {
 			s.state.SecretShortIDs[id] = true
@@ -380,6 +412,7 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 	if changed {
 		if err := s.save(); err != nil {
 			s.state.Prompts = previous
+			s.state.Claims = previousClaims
 			s.state.SecretShortIDs = previousSecret
 			return err
 		}
@@ -694,7 +727,7 @@ func (s *Store) BindCard(channel, conversation, messageID string, a api.Approval
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	binding := cardBinding{NativeID: a.ID, Schema: catalogFingerprint(a)}
+	binding := cardBinding{NativeID: a.ID, Schema: catalogFingerprint(a), IssuedAt: time.Now().Unix()}
 	for _, q := range a.Questions {
 		binding.Secret = binding.Secret || q.Secret
 	}
@@ -712,6 +745,10 @@ func (s *Store) BindCard(channel, conversation, messageID string, a api.Approval
 	}
 	key := cardKey(channel, conversation, messageID)
 	old, existed := s.state.Cards[key]
+
+	if existed {
+		binding.IssuedAt = old.IssuedAt
+	}
 	if existed && old == binding {
 		return nil
 	}
@@ -733,7 +770,11 @@ func (s *Store) referencedPrompt(in Inbound) (cardBinding, prompt, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b, ok := s.state.Cards[cardKey(in.Channel, in.Reference.Conversation, in.Reference.MessageID)]
+	key := cardKey(in.Channel, in.Reference.Conversation, in.Reference.MessageID)
+	b, ok := s.state.Cards[key]
+	if !ok && s.retiredSecretCard(key) {
+		return cardBinding{RetiredPrivate: true, ShortID: "retired-private-reference"}, prompt{}, true
+	}
 	if !ok {
 		return cardBinding{}, prompt{}, false
 	}
@@ -788,6 +829,9 @@ func (s *Store) privateAnswer(in Inbound) (string, bool) {
 		return "", false
 	}
 	b, _, ok := s.referencedPrompt(in)
+	if ok && b.RetiredPrivate {
+		return b.ShortID, false
+	}
 	if ok && b.Secret {
 		return b.ShortID, true
 	}

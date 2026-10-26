@@ -112,10 +112,12 @@ func TestWorkerPromptAndAnswerDoNotDependOnResidentTurnOrClosedQuestions(t *test
 func TestWorkerQuestionPayloadExpiryCannotReviveOrLoseOriginalReceipt(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir(), StateFile: filepath.Join(t.TempDir(), "binding.json")})
 	task := &taskRecord{Thread: "original-thread", View: api.Task{ID: "original", Status: "working"}, Requests: map[string]taskReceipt{"answer-unknown": {Kind: "send", Outcome: "unknown", Fingerprint: "original-fingerprint"}}}
+	task.AsyncAdmission.begin("original-run")
 	item := workerQuestionFixture()
 	if !s.recordWorkerAsync(task, "original-run", item) {
 		t.Fatal("question missing")
 	}
+	task.AsyncAdmission.Deadline = time.Now().Add(-time.Hour).Unix()
 	for key, q := range task.AsyncQuestions {
 		q.ObservedAt = time.Now().Add(-25 * time.Hour).Unix()
 		task.AsyncQuestions[key] = q

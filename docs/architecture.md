@@ -334,6 +334,8 @@ These references are fenced to the original Codex thread and item schema and
 are never reused after an uncertain send. Codex async questions have a separate [24-hour lifecycle](design/async-question-lifecycle.md):
 answer, dismiss and expiry are durable and cached IM cards resolve against that ledger.
 Closing supplies no answer or authorization. A host clock expires them offline.
+Explicit product task finish, source admission epochs, compact receipt retention
+and upgrade migration are specified in the [v0.18.3 follow-up](design/interaction-lifecycle-followup.md).
 Closures are local interaction state: they never steer a Worker or enter later
 model input. Worker start/continue receives the submitted prompt unchanged. `bot_interactions` can present the original Worker question directly, with
 one shared answer/close state and its task source. Native approvals keep the

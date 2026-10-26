@@ -178,3 +178,29 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 		t.Fatal("retired memory executed from historical compact binding")
 	}
 }
+
+// Produced by ConfigureBotTools in untouched 52e5d7a2 (v0.18.3).
+const v0183ToolsVersion = "bfb76ad7042d0fea2b758ba410669677b810d40ba2adbbc7ba60ee1eb28dc218"
+
+func TestV0183CallbackDigestRestoredWithoutRebindingRequest(t *testing.T) {
+	root := t.TempDir()
+	r, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{Directory: filepath.Join(root, "binding")})
+	if err := s.ConfigureBotTools(&api.ToolConnection{Host: r, ApprovedTools: botpolicy.ApprovedTools()}); err != nil {
+		t.Fatal(err)
+	}
+	old := s.catalogs[v0183ToolsVersion]
+	if old == nil || old["bot_event"] == nil || old["bot_tasks"] == nil || old["bot_interactions"] == nil {
+		t.Fatal("original v0183 callback digest lost")
+	}
+	out := old["bot_interactions"].CallTool(t.Context(), "bot_interactions", json.RawMessage(`{"request":{"type":"answer","question":"Q24","value":"original","requestId":"unchanged-original-request"}}`))
+	if !out.IsError || out.StructuredContent["error"].(map[string]string)["code"] != "question_binding_required" {
+		t.Fatal("old answer was rebound or dispatched")
+	}
+	if s.profile.ToolsVersion == v0183ToolsVersion {
+		t.Fatal("new turns advertised the old catalog")
+	}
+}

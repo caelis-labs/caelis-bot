@@ -344,6 +344,7 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
 		r.previousCompactToolConnection(),
 		{Host: priorLifecycleTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
+		{Host: priorFollowupTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorPresenceTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},

@@ -69,7 +69,7 @@ func (r *Runtime) callCompactInteractions(ctx context.Context, q map[string]any)
 		}
 		return compactValue(map[string]any{"ok": receipt.Outcome == "accepted", "outcome": receipt.Outcome, "data": receipt}, receipt.Outcome != "accepted")
 	case "answer":
-		receipt, err := port.AnswerWorkerQuestion(ctx, str(q, "question"), str(q, "value"), str(q, "requestId"))
+		receipt, err := port.AnswerWorkerQuestion(ctx, str(q, "question")+"@"+str(q, "binding"), str(q, "value"), str(q, "requestId"))
 		if err != nil {
 			return compactValue(map[string]any{"ok": false, "outcome": "unknown", "data": receipt, "error": map[string]string{"code": "worker_answer", "message": err.Error()}}, true)
 		}

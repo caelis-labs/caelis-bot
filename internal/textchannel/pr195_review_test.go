@@ -108,7 +108,7 @@ func TestRetiredUnknownReceiptSurvivesRestartAndLateDispatch(t *testing.T) {
 	if prior.State != "unknown" || prior.ReplyID != "original-unknown-request" || !s.state.AsyncRetired[prior.Fingerprint] {
 		t.Fatal("lost unknown receipt", prior)
 	}
-	if archived := s.state.AsyncClosed[asyncKey(prior)]; archived.State != "unknown" || archived.ReplyID != prior.ReplyID {
+	if archived := s.state.AsyncReceipts[asyncKey(prior)]; archived.State != "unknown" || archived.ReplyID != prior.ReplyID {
 		t.Fatal("lost archived receipt", archived)
 	}
 }

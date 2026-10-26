@@ -77,6 +77,7 @@ func (a *Application) repairFeaturesLocked() error {
 				return err
 			}
 		}
+		a.configureInteractionLifecycle(manager)
 		if err := a.companion.ConfigureTasks(manager, manager); err != nil {
 			return err
 		}

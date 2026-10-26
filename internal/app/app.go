@@ -52,53 +52,54 @@ type Host struct {
 }
 
 type Application struct {
-	modelSelections     *modelSelections
-	localWork           *localWorkers
-	peer                *peerHost
-	machines            *machines.Service
-	taskPreferences     *tasks.PreferencesStore
-	setup               *runtimeSetup
-	Backend             *backend.Service
-	Telegram            *telegram.Bridge
-	Weixin              *weixin.Bridge
-	textControl         *textchannel.Store
-	engine              api.Engine
-	engineMu            sync.RWMutex
-	resolve             factoryResolver
-	lifecycleMu         sync.Mutex
-	runtimeWorkers      sync.WaitGroup
-	host                Host
-	root                string
-	mu                  sync.Mutex
-	pluginAdmission     sync.Mutex
-	pluginSyncMu        sync.Mutex
-	pluginSyncRunning   bool
-	pluginSyncPending   bool
-	pluginSyncRevision  uint64
-	pluginSyncError     bool
-	pluginChanges       map[string]uint64 // Package-local desired revisions awaiting projection.
-	updateMu            sync.Mutex
-	interactionNoticeMu sync.Mutex
-	started, closed     bool
-	updatePrepared      bool
-	cancel              context.CancelFunc
-	startupCancel       context.CancelFunc
-	dreamReady          bool
-	nativeSourcesReady  bool
-	workers             sync.WaitGroup
-	companion           *bot.Runtime
-	bridge              *bot.Bridge
-	tasks               *tasks.Manager
-	personal            *botmemory.Store
-	notebook            *notebook.Vault
-	skillPath           string
-	initialization      *bot.Initializer
-	plugins             *plugins.Manager
-	pluginDetailMu      sync.Mutex
-	pluginIndexMu       sync.Mutex
-	pluginDetailCache   map[string]pluginDetailCacheEntry
-	closeOnce           sync.Once
-	closeErr            error
+	questionReceiptAttempts map[string]int
+	modelSelections         *modelSelections
+	localWork               *localWorkers
+	peer                    *peerHost
+	machines                *machines.Service
+	taskPreferences         *tasks.PreferencesStore
+	setup                   *runtimeSetup
+	Backend                 *backend.Service
+	Telegram                *telegram.Bridge
+	Weixin                  *weixin.Bridge
+	textControl             *textchannel.Store
+	engine                  api.Engine
+	engineMu                sync.RWMutex
+	resolve                 factoryResolver
+	lifecycleMu             sync.Mutex
+	runtimeWorkers          sync.WaitGroup
+	host                    Host
+	root                    string
+	mu                      sync.Mutex
+	pluginAdmission         sync.Mutex
+	pluginSyncMu            sync.Mutex
+	pluginSyncRunning       bool
+	pluginSyncPending       bool
+	pluginSyncRevision      uint64
+	pluginSyncError         bool
+	pluginChanges           map[string]uint64 // Package-local desired revisions awaiting projection.
+	updateMu                sync.Mutex
+	interactionNoticeMu     sync.Mutex
+	started, closed         bool
+	updatePrepared          bool
+	cancel                  context.CancelFunc
+	startupCancel           context.CancelFunc
+	dreamReady              bool
+	nativeSourcesReady      bool
+	workers                 sync.WaitGroup
+	companion               *bot.Runtime
+	bridge                  *bot.Bridge
+	tasks                   *tasks.Manager
+	personal                *botmemory.Store
+	notebook                *notebook.Vault
+	skillPath               string
+	initialization          *bot.Initializer
+	plugins                 *plugins.Manager
+	pluginDetailMu          sync.Mutex
+	pluginIndexMu           sync.Mutex
+	pluginDetailCache       map[string]pluginDetailCacheEntry
+	closeOnce               sync.Once
+	closeErr                error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -545,6 +546,7 @@ func (a *Application) startRuntime() error {
 	}
 	resident := a.companion
 	if manager != nil {
+		a.configureInteractionLifecycle(manager)
 		err = resident.ConfigureTasks(manager, manager)
 	}
 	resident.ConfigureWorkerInteractions(a)

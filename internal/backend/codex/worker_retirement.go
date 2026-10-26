@@ -110,7 +110,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 			latestRun = turn.ID
 		}
 		if task := s.taskByThread(id); task != nil {
-			s.observeTaskTurn(task, turn)
+			s.observeTaskTurn(task, turn, true)
 		}
 		if turn.Status == "inProgress" && !s.supersededTaskRun(id, turn.ID) {
 			active = true

@@ -85,6 +85,10 @@ func (s *Session) applyTurn(thread string, turn nativeTurn, history bool) {
 	if terminal(s.runs[turn.ID]) && !terminal(turn.Status) {
 		return
 	}
+	if !history && turn.Status == "inProgress" && !terminal(s.runs[turn.ID]) {
+		s.binding.AsyncAdmission.begin(turn.ID)
+		_ = s.save()
+	}
 	_, knownTurn := s.runs[turn.ID]
 	s.runs[turn.ID] = turn.Status
 	for id, source := range s.binding.HostReportTurns {
@@ -240,6 +244,7 @@ func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) 
 		view.Text = item.Text
 		if item.Delivery == "async" && len(item.Questions) > 0 {
 			view.AsyncCallID = item.ID
+			view.AsyncExpiresAt = s.binding.AsyncAdmission.expiry(run)
 			for _, q := range item.Questions {
 				view.AsyncQuestions = append(view.AsyncQuestions, api.AsyncQuestion{Title: q.Title, Options: append([]string(nil), q.Options...)})
 			}

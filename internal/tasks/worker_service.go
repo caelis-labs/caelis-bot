@@ -110,5 +110,44 @@ func (m *Manager) ReconcileTaskRequest(ctx context.Context, id, request string) 
 	if !ok {
 		return api.WorkOperation{}, errors.New("original_operation_digest_unavailable")
 	}
-	return m.ReconcileTaskOperation(ctx, q)
+	v, err := m.ReconcileTaskOperation(ctx, q)
+	if err != nil {
+		return v, err
+	}
+	if v.WorkOperationQuery != q {
+		return api.WorkOperation{}, errors.New("original operation identity mismatch")
+	}
+	if v.Outcome != "accepted" && v.Outcome != "rejected" {
+		return v, nil
+	}
+	m.mu.Lock()
+	observer := m.operationObserver
+	r := m.state.Records[id]
+	if r.RequestOutcomes == nil {
+		r.RequestOutcomes = map[string]string{}
+	}
+	previous, had := r.RequestOutcomes[request]
+	r.RequestOutcomes[request] = v.Outcome
+	err = m.write()
+	if err != nil {
+		if had {
+			r.RequestOutcomes[request] = previous
+		} else {
+			delete(r.RequestOutcomes, request)
+		}
+	}
+	m.mu.Unlock()
+	if err != nil {
+		return v, err
+	}
+	if observer != nil {
+		err = observer(v)
+	}
+	return v, err
+}
+
+func (m *Manager) SetOperationObserver(f func(api.WorkOperation) error) {
+	m.mu.Lock()
+	m.operationObserver = f
+	m.mu.Unlock()
 }

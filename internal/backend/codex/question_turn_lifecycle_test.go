@@ -17,6 +17,7 @@ func TestWorkerAnswerContinuationDoesNotEndUnansweredQuestions(t *testing.T) {
 	s := NewSession(opts)
 	task := &taskRecord{Thread: "original-worker", Run: "question-turn", View: api.Task{ID: "work", Status: "working"}}
 	s.binding.Tasks = map[string]*taskRecord{"work": task}
+	task.AsyncAdmission.begin("question-turn") // original locally accepted start, before terminal notification
 	s.observeTaskTurn(task, nativeTurn{ID: "question-turn", Status: "completed", Items: []nativeItem{{ID: "call", Type: "agentMessage", Delivery: "async", Questions: []struct {
 		Title   string   `json:"title"`
 		Options []string `json:"options"`

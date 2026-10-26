@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -220,7 +221,10 @@ func TestHeldPeerIOPreservesIndependentLocalAndPeerControls(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("native boundary did not enter")
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+			// Five sequential durable operations share this budget. The remote I/O
+			// stays explicitly held throughout, so a global-lock regression still
+			// cannot pass; disk contention is not mistaken for peer blocking.
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
 			independent := make(chan error, 1)
 			go func() {
@@ -311,5 +315,61 @@ func TestPauseDuringPeerPreparationDoesNotDispatchOrLoseOtherOwners(t *testing.T
 	m.ResumeAfterUpdate()
 	if _, e := m.StartTask(t.Context(), input("local-after-update")); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestRemoteFinishReadDoesNotBlockLocalStopOrWriteAfterHandoff(t *testing.T) {
+	for _, pause := range []bool{false, true} {
+		t.Run(fmt.Sprint(pause), func(t *testing.T) {
+			f := &isolationReviewRuntime{fixtureRuntime: newRuntime(), entered: make(chan struct{}), release: make(chan struct{})}
+			m := isolationReviewManager(t, f)
+			local := start(t, m, "finish-local")
+			in := input("finish-remote")
+			in.Machine = "peer-B"
+			remote, err := m.StartTask(t.Context(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.mu.Lock()
+			state := f.states[remote.ID]
+			state.Task.Status = "completed"
+			state.Activity = "idle"
+			f.states[remote.ID] = state
+			f.mu.Unlock()
+			token := api.TaskFinishToken(state)
+			f.remoteRead = remote.ID
+			done := make(chan error, 1)
+			go func() { _, e := m.FinishTask(t.Context(), remote.ID, token); done <- e }()
+			<-f.entered
+			localDone := make(chan error, 1)
+			go func() { _, e := m.StopTask(t.Context(), local.ID); localDone <- e }()
+			select {
+			case err := <-localDone:
+				if err != nil {
+					t.Error(err)
+				}
+			case <-time.After(time.Second):
+				close(f.release)
+				<-done
+				t.Fatal("remote finish blocked local stop")
+			}
+			if pause {
+				if err := m.PauseForUpdate(func() error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			close(f.release)
+			err = <-done
+			if pause {
+				m.mu.Lock()
+				finished := m.state.Records[remote.ID].FinishedExecution
+				m.mu.Unlock()
+				if err == nil || finished != "" {
+					t.Fatal("finish wrote during paused handoff")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

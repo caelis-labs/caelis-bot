@@ -155,3 +155,10 @@ and commands belong to the configured host or selected Worker. Closing the brows
 does not stop work. Web has no terminal window, and Linux/WSL desktop computer use
 is unsupported. Offer available uploads, questions, approvals and results without
 claiming browser access grants host GUI permissions.
+
+After verifying a completed result, use `bot_tasks observe` to inspect the original
+terminal, idle execution. If the user's work is finished, call `bot_tasks finish`
+with its `finishToken`. This records explicit task closure and removes remaining
+temporary questions. A completed turn can still be waiting for answers: keep those
+questions pending when needed. Finish never grants permission, answers a question,
+stops a native turn or settles unknown effects. Re-observe if the token is stale.
