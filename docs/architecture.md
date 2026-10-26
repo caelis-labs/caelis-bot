@@ -1161,6 +1161,32 @@ arbitrary event publication is introduced. The packaged Bot-core skill makes
 follow-through a core work mode with progressively loaded examples; automated
 contract coverage does not prove every model will choose to arrange follow-ups.
 
+## Read-only Worker messages
+
+The Worker view is a Bot–Worker conversation, with the original Runtime as the
+message and task-state authority. `TaskConversationMessage` carries completed
+history; `Item` carries the bounded current view. Both Runtime adapters use the
+same canonical message key: `Item.HistoryID == TaskConversationMessage.ID`.
+`Item.ID` is an observation key and `TurnKey` is a grouping key; neither prose nor
+a turn boundary is a message identity. `worker-messages.ts` projects these inputs
+to `{id, role, text, status, artifacts}` for both native and Web presentation.
+History fills completed text beyond the bounded live window; native progress or
+an extension of the same message stays visible until history catches up.
+Independent read guards keep slow history from blocking observations. Failed
+reads retain received messages; closing a view fences late replies and stops
+only its polling. No new execution or tool-history interface is involved.
+
+The native host reuses an independent read-only window for each remote task.
+Closing that window releases its WebView without stopping or continuing work.
+Desktop local cards retain their original native terminal controller, including
+the macOS coordinate-placement path. Web uses the same `WorkerChat`, Markdown,
+artifact components and scroll controller in its task pane. It keeps the Bot
+composer reachable on narrow screens and provides an explicit return to chat.
+The view initially follows latest messages, retains reading intent across new
+output and resizing, and prepends older rendered rows without moving the current
+text. Questions and approvals remain in the Bot conversation. Tool output and
+diffs are not reconstructed from assistant prose or exposed by a new interface.
+
 ## Headless and browser surface
 
 The optional `serve` entry point assembles the same `app.Application` without a native window driver. Bot identity, schedules, channels, Worker routing and recovery remain owned by the existing product services. Browser disconnect is not a shutdown or cancellation signal. The browser uses the same React surfaces through an explicit Web transport; native desktop calls remain the default transport.

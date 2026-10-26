@@ -53,6 +53,11 @@ type Service struct {
 	featureGuide            permissionGuide
 	workerTaskView          func(context.Context, string) (bool, error)
 	workerTaskSelection     string
+	openWorkerTask          func(api.Task) error
+	closeWorkerWindow       func(string)
+	closeWorkerContext      func() bool
+	workerWindowsOpen       func() bool
+	workerWindowsChanged    func(string)
 	taskPreferences         func() tasks.Preferences
 	saveTaskPreferences     func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices         func() []taskterminal.Choice

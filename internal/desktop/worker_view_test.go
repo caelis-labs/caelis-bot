@@ -45,7 +45,8 @@ func workerRoutingAssembly(t *testing.T) (*productAssembly, *int) {
 		{ID: "peer"}, {ID: "stale"},
 	})
 	opened := 0
-	s.openHistory = func() { opened++ }
+	s.openHistory = func() { t.Fatal("worker routing opened the Bot conversation") }
+	s.openWorkerTask = func(task api.Task) error { opened++; return nil }
 	return a, &opened
 }
 

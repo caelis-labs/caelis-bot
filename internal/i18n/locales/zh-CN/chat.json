@@ -276,5 +276,13 @@
   "urlPageSubmitted": "网站已接收此提交。请处理原请求以继续。",
   "urlPageRejected": "尚未提交表单，请检查填写内容后重试。",
   "urlPageSubmit": "提交",
-  "urlPageCheck": "核对原提交"
+  "urlPageCheck": "核对原提交",
+  "taskReturn": "关闭",
+  "taskUpdateUnavailable": "更新暂不可用，已接收的消息保留在此。",
+  "taskEarlier": "加载更早消息",
+  "taskLatest": "回到最新",
+  "taskReadonly": "只读 · 问题和审批请回 Bot",
+  "taskDismiss": "收起",
+  "taskBackToChat": "返回聊天",
+  "taskLastStatus": "上次状态："
 }

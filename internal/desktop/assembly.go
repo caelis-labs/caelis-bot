@@ -56,27 +56,27 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 	s.prepareSSHConfiguration = back.PrepareSSHConfigurationEdit
 	s.revealConfigurationFile = host.RevealFile
 	s.workerTaskView = func(ctx context.Context, id string) (bool, error) {
-		owned := false
 		for _, task := range back.WorkerTasks() {
-			if task.ID == id {
-				// An empty machine is the native local environment. Keep its
-				// original terminal controller (including reuse and uncertainty)
-				// rather than intercepting it with the remote output viewer.
-				if task.Machine == "" {
-					return false, nil
-				}
-				owned = true
-				break
+			if task.ID != id {
+				continue
 			}
+			// An empty machine is the native local environment. The original
+			// terminal controller owns local reuse and launch uncertainty.
+			if task.Machine == "" {
+				return false, nil
+			}
+			if s.openWorkerTask == nil {
+				return true, errors.New("worker_view_unavailable")
+			}
+			if err := s.openWorkerTask(task); err != nil {
+				return true, err
+			}
+			s.mu.Lock()
+			s.workerTaskSelection = id
+			s.mu.Unlock()
+			return true, nil
 		}
-		if !owned {
-			return true, errors.New("worker_view_unavailable")
-		}
-		s.mu.Lock()
-		s.workerTaskSelection = id
-		s.mu.Unlock()
-		s.OpenHistory()
-		return true, nil
+		return true, errors.New("worker_view_unavailable")
 	}
 	s.resolveArtifact = func(id string) (string, error) { return backend.ResolveRemoteArtifact(back, id) }
 	s.resolveArtifactCopy = func(id string) (api.TaskFileCopy, error) { return backend.ResolveRemoteArtifactCopy(back, id) }

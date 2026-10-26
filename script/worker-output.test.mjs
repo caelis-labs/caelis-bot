@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {workerMessages} from '../frontend/src/worker-messages.ts';
 import {createWorkerOutputReader,retainWorkerOutput} from '../frontend/src/worker-output-read.ts';
 
 const observation=(items,status='running')=>({task:{id:'original-task',status},items,revision:'fixture'});
@@ -61,10 +62,10 @@ test('synchronous and malformed observation failures release the in-flight guard
 });
 
 test('overlapping ticks do not duplicate reads and a closed task view ignores late replies',async()=>{
- let finish,reads=0;
- const f=reader({readObservation:()=>{reads++;return new Promise(resolve=>finish=resolve)}});
+ let finish,finishHistory,reads=0;
+ const f=reader({readObservation:()=>{reads++;return new Promise(resolve=>finish=resolve)},readHistory:()=>new Promise(resolve=>finishHistory=resolve)});
  const first=f.poll.read();await Promise.resolve();await f.poll.read();assert.equal(reads,1);
- f.poll.close();finish(observation([{id:'late',text:'old surface'}]));await first;await f.poll.read();
+ f.poll.close();finish(observation([{id:'late',text:'old surface'}]));finishHistory(transcript('late history'));await first;await f.poll.read();
  assert.equal(reads,1);assert.deepEqual(f.observations,[]);assert.deepEqual(f.histories,[]);
 });
 
@@ -74,4 +75,52 @@ test('completed is separate from history readability and history read resumes af
  await f.poll.read();assert.equal(f.historyFailures.at(-1),true);assert.equal(f.observations[0].task.status,'completed');
  f.advance();await f.poll.read();assert.equal(f.histories.at(-1).messages[0].text,'final native result');
  f.advance();await f.poll.read();assert.equal(histories,2,'settled terminal history does not need repeated reads');
+});
+
+
+test('the unified Worker message protocol joins only exact Runtime identities and includes live user input',()=>{
+ const user={id:'native-user-live',historyId:'msg-user',kind:'user',text:'same',status:'completed'};
+ const reply={id:'native-reply-live',historyId:'msg-reply',kind:'assistant',text:'same',status:'inProgress'};
+ const live=workerMessages(undefined,[user,reply]);
+ assert.deepEqual(live.map(m=>[m.id,m.role]),[['msg-user','user'],['msg-reply','assistant']]);
+ const history={messages:[{id:'msg-user',role:'user',text:'same'},{id:'msg-reply',role:'assistant',text:'same'}]};
+ assert.deepEqual(workerMessages(history,[user,{...reply,status:'completed'}]).map(m=>m.id),['msg-user','msg-reply']);
+ assert.equal(workerMessages(history,[{...reply,historyId:'',id:'legacy'}]).length,3,'legacy IDs cannot deduplicate by matching prose');
+});
+test('history and bounded streaming snapshots preserve a canonical message key and current text',()=>{
+ const h={messages:[{id:'message',role:'assistant',text:'old progress'}]};
+ const i={id:'live',historyId:'message',kind:'assistant',status:'inProgress',text:'new progress'};
+ assert.equal(workerMessages(h,[i])[0].text,'new progress');
+ assert.equal(workerMessages({messages:[{id:'message',role:'assistant',text:'new progress completed'}]},[i])[0].text,'new progress completed');
+ assert.equal(workerMessages(undefined,[i])[0].id,workerMessages(h,[i])[0].id);
+ const resumed={...i,text:'old progress extended',status:'completed'};
+ assert.equal(retainWorkerOutput([], [resumed],h).length,1,'a completed native extension awaits its own full history');
+ assert.equal(workerMessages(h,[resumed])[0].text,resumed.text);
+});
+test('unfinished replies stay between their completed native history anchors',()=>{
+ const h={messages:[{id:'first',role:'user',text:'instruction'},{id:'third',role:'user',text:'steer'}]};
+ const items=[['first','user'],['second','assistant'],['third','user']].map(([id,kind])=>({id:'live-'+id,historyId:id,kind,text:id,status:'inProgress'}));
+ assert.deepEqual(workerMessages(h,items).map(m=>m.id),['first','second','third']);
+});
+test('slow native history does not block live messages, and close fences both channels',async()=>{
+ let finish,reads=0;
+ const f=reader({readHistory:()=>new Promise(resolve=>finish=resolve),readObservation:async()=>observation([{id:'u',historyId:'msg-u',kind:'user',text:'input '+(++reads),status:'completed'}])});
+ const first=f.poll.read();await new Promise(resolve=>setImmediate(resolve));
+ await f.poll.read();assert.equal(reads,2);assert.equal(f.observations.at(-1).items[0].text,'input 2');
+ f.poll.close();finish(transcript('late history'));await first;
+ assert.deepEqual(f.histories,[]);
+});
+test('a restarted view retains received messages while both native reads are unavailable',async()=>{
+ const cached=observation([{id:'u',historyId:'msg-u',kind:'user',text:'preserved',status:'completed'}]);
+ const f=reader({initialObservation:cached,readObservation:async()=>observation(null),readHistory:async()=>{throw Error('offline')}});
+ await f.poll.read();assert.equal(workerMessages(undefined,f.observations[0].items)[0].text,'preserved');
+});
+
+
+test('terminal history arriving before the first running snapshot cannot stop history polling',async()=>{
+ let resolveFirst,histories=0,observations=0;
+ const f=reader({readHistory:async()=>{histories++;return transcript('finished previous turn','completed')},readObservation:()=>{observations++;return observations===1?new Promise(resolve=>resolveFirst=resolve):Promise.resolve(observation([],'working'))}});
+ const first=f.poll.read();await new Promise(resolve=>setImmediate(resolve));
+ resolveFirst(observation([],'working'));await first;f.advance();await f.poll.read();
+ assert.equal(histories,2);
 });
