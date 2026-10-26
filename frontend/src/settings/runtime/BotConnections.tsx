@@ -7,7 +7,7 @@ import {SetupButton} from '../../SetupLoading';
 import {SettingsDialog} from './SettingsDialog';
 import {ConnectionActionDialog} from './ConnectionActionDialog';
 import {SettingsSelect} from '../../SettingsSelect';
-import {botAddress} from './bot-address';
+import {botAddress,botAddressPort} from './bot-address';
 import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors';
 
 export function BotConnectionDialog({machines,initial,call=backend,onClose,onSaved,onChanged}:{machines:Machine[];initial?:Machine;call?:typeof backend;onClose:()=>void;onSaved:(fresh?:Machine)=>void;onChanged:(fresh?:Machine)=>Promise<void>}){
@@ -44,16 +44,17 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    {!initial&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
    <div className="remote-add-body">
    {!waiting&&!uncertain&&!ssh.status?.prompt&&!(creation.current&&status==='approved')&&<>
-   <p className="remote-form-help">{t(method==='ssh'?'settings.remoteSSHHelp':'settings.remoteAddressHelp')}</p>
+   <div className="remote-endpoint-row">
    <label>{t(method==='ssh'?'settings.sshHost':'settings.remoteAddress')}{method==='ssh'?<SettingsSelect aria-label={t('settings.sshHost')} value={host} disabled={blocked||!!initial} placeholder={t('settings.sshHostPlaceholder')} searchable centered={false} searchLabel={t('settings.sshHostSearch')} onCreate={setHost} createLabel={value=>t('settings.sshUseAlias',{name:value})} onChange={e=>setHost(e.target.value)}>{config?.hosts.map(v=><option key={v} value={v}>{v}</option>)}</SettingsSelect>:<input autoFocus required autoComplete="off" spellCheck={false} placeholder={t('settings.remoteAddressPlaceholder')} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} disabled={blocked}/>}</label>
-   {method==='ssh'&&<button type="button" className="text-action remote-config-link" disabled={blocked} onClick={()=>setConfigOpen(true)}>{t('settings.remoteConfigManage')}</button>}
-   <details className="remote-connection-options"><summary>{t('settings.remoteConnectionOptions')}</summary><label>{t('settings.sshBotPort')}<input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} autoComplete="off" placeholder={t('settings.remoteDefaultPort')} value={port} onChange={e=>setPort(e.target.value)} disabled={blocked||method==='ssh'&&!!initial}/></label>{method==='ssh'&&initial&&<button type="button" className="text-action" disabled={blocked} onClick={()=>void reconnectSSH()}>{t('settings.sshReconnectAction')}</button>}</details>
+   <label>{t('settings.sshBotPort')}<input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} autoComplete="off" placeholder={method==='ssh'?'9317':botAddressPort(draft.address)} value={port} onChange={e=>setPort(e.target.value)} disabled={blocked||method==='ssh'&&!!initial}/></label>
+   </div>
+   {method==='ssh'&&<div className="remote-endpoint-actions"><button type="button" className="text-action link-action remote-config-link" disabled={blocked} onClick={()=>setConfigOpen(true)}>{t('settings.remoteConfigManage')}</button>{initial&&<button type="button" className="text-action link-action" disabled={blocked} onClick={()=>void reconnectSSH()}>{t('settings.sshReconnectAction')}</button>}</div>}
    </>}
    <SSHAuthentication ssh={ssh}/>
    {ssh.error&&<p role="alert" className="remote-dialog-error">{t(sshProblem(ssh.error))}</p>}
 
    {!creation.current&&initial&&<label>{t('settings.machineName')}<input maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} disabled={blocked||waiting||uncertain}/></label>}
-   {creation.current&&status==='approved'&&<div className="remote-connection-state" role="status"><strong>{t(approvedUnready?'settings.remoteAuthorizedUnavailable':'settings.remoteConnectedTitle')}</strong><p>{approvedUnready?t(selected?.issue==='worker_not_ready'?'settings.remoteWorkUnavailable':connectionProblem(selected?.issue||'').key):t('settings.remoteConnectedHelp',{name:selected?.remoteName||selected?.name||''})}</p></div>}
+   {creation.current&&status==='approved'&&<div className="remote-connection-state" role="status"><strong>{t(approvedUnready?'settings.remoteAuthorizedUnavailable':'settings.remoteConnectedTitle')}</strong><p>{approvedUnready?t(selected?.issue==='worker_not_ready'?'settings.remoteWorkUnavailable':connectionProblem(selected?.issue||'').key):(selected?.remoteName||selected?.name||'')}</p></div>}
    {unsent&&<p className="remote-dialog-status" role="status">{t('settings.remoteNotSent')}</p>}
    {waiting&&<div className="remote-connection-state" role="status"><strong>{t('settings.remotePendingTitle')}</strong><p>{t('settings.remoteAwaitingApproval')}</p></div>}
    {uncertain&&<p className="remote-dialog-status" role="status">{t('settings.remoteRequestUnknown')}</p>}

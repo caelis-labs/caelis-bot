@@ -3,7 +3,7 @@ import {test,after} from 'node:test';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});after(()=>server.close());
 const {remoteMachineStatus,remoteMachineLabel}=await server.ssrLoadModule('/src/settings/runtime/machine-status.ts');
-const {botAddress,botProfileAt}=await server.ssrLoadModule('/src/settings/runtime/bot-address.ts');
+const {botAddress,botAddressPort,botProfileAt}=await server.ssrLoadModule('/src/settings/runtime/bot-address.ts');
 const {pairingProblem,connectionProblem,incomingProblem}=await server.ssrLoadModule('/src/settings/runtime/pairing-errors.ts');
 const ready={state:'ready',checkedAt:100000,issue:'',connectionType:'bot',pairingStatus:'approved'};
 test('only fresh authorization and native admission show online',()=>{
@@ -27,6 +27,13 @@ test('IP connection keeps explicit ports, optional port and unsafe inputs visibl
  assert.equal(botAddress('http://100.64.0.2:39317'),'http://100.64.0.2:39317');
  assert.equal(botAddress('https://bot.example'),'https://bot.example');
  assert.equal(botAddress('https://secret@bot.example/private?token=1'),'https://secret@bot.example/private?token=1');
+});
+test('visible port matches bare host, pasted endpoint and explicit protocol defaults',()=>{
+ assert.equal(botAddressPort(''),'9317');
+ assert.equal(botAddressPort('fedora'),'9317');
+ assert.equal(botAddressPort('http://127.0.0.1:19329'),'19329');
+ assert.equal(botAddressPort('https://bot.example'),'443');
+ assert.equal(botAddressPort('http://bot.example'),'80');
 });
 test('nondefault separate port reuses only the original Bot profile and proof route',()=>{
  const original={id:'original',connectionType:'bot',address:'http://100.64.0.2:29317'};
