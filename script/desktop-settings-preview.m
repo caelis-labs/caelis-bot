@@ -31,8 +31,8 @@
  self.timings=[NSMutableArray new];self.autorun=getenv("BOT_SETTINGS_AUTORUN")!=NULL;
  self.chat=[self window:NO];self.settings=[self window:YES];[self.chat makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
  NSMenu *main=[NSMenu new];NSMenuItem *root=[NSMenuItem new];[main addItem:root];NSMenu *menu=[NSMenu new];root.submenu=menu;
- NSArray *titles=@[@"Connections",@"Plugins",@"Slow refresh",@"Fail Codex refresh",@"Native navigation regression",@"Save evidence",@"Quit fixture",@"Chat read failure",@"Recover chat read",@"Unknown send fixture",@"Renderer failure"];
- for(NSUInteger i=0;i<titles.count;i++){NSMenuItem *item=[menu addItemWithTitle:titles[i] action:@selector(command:) keyEquivalent:@""];item.tag=i;item.target=self;}
+ NSArray *titles=@[@"Connections",@"Plugins",@"Slow refresh",@"Fail Codex refresh",@"Native navigation regression",@"Save evidence",@"Quit fixture",@"Chat read failure",@"Recover chat read",@"Unknown send fixture",@"Renderer failure",@"Toggle appearance",@"Narrow settings",@"Wide settings"];
+ for(NSUInteger i=0;i<titles.count;i++){NSMenuItem *item=[menu addItemWithTitle:titles[i] action:@selector(command:) keyEquivalent:@""];item.tag=i;item.target=self;if(i==5)item.keyEquivalent=@"s";}
  NSMenuItem *editRoot=[main addItemWithTitle:@"Edit" action:nil keyEquivalent:@""];NSMenu *edit=[NSMenu new];editRoot.submenu=edit;
  [edit addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
  NSMenuItem *redo=[edit addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"z"];redo.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;
@@ -125,6 +125,8 @@
  if([message.body isEqual:@"hide"])[self windowShouldClose:message.webView==self.settingsWeb?self.settings:self.chat];
 }
 - (void)command:(NSMenuItem *)item {
+ if(item.tag==11){self.settings.appearance=[NSAppearance appearanceNamed:[self.settings.effectiveAppearance.name isEqual:NSAppearanceNameDarkAqua]?NSAppearanceNameAqua:NSAppearanceNameDarkAqua];return;}
+ if(item.tag==12||item.tag==13){[self.settings setContentSize:item.tag==12?NSMakeSize(620,720):NSMakeSize(1040,740)];return;}
  if(item.tag==6){[NSApp terminate:nil];return;}
  if(item.tag==5){[self capture];return;}
  if(item.tag==4){[self regression];return;}

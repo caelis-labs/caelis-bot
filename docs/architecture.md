@@ -584,6 +584,19 @@ fingerprint only. It never falls back to the latest active messaging window.
 Ingress and Worker receipts are likewise never replayed; see
 [POC scope](weixin-channel-poc.md).
 
+### Question response presentation
+
+The text-channel controller publishes a display-only `QuestionReply` on the IM
+user item after validating the original short ID and fingerprint and durably
+claiming dispatch. It retains the exact answer and original request ID while the
+Runtime/IM command envelope stays unchanged. Desktop buttons suppress their
+synthetic command echo; native echoes preserve the controller-owned display.
+Original resident receipts and Worker operation receipts can settle only that
+same request and binding. The IM log persists those outcome patches even when
+the message is outside the loaded page or the initial database load is pending.
+This transcript copy is never a dispatch or approval authority, and old raw
+commands without a proven original binding are not relabeled by guesswork.
+
 ## Remote machines
 
 Bot peers and local adapters implement the same `api.WorkRuntime`. A's existing

@@ -276,5 +276,9 @@
   "urlPageSubmitted": "The website accepted this submission. Respond to the original request to continue.",
   "urlPageRejected": "The form was not submitted. Check the fields before trying again.",
   "urlPageSubmit": "Submit",
-  "urlPageCheck": "Check submission"
+  "urlPageCheck": "Check submission",
+  "decisionSubmitting": "Submitting…",
+  "decisionAwaiting": "Submitted · checking the result",
+  "decisionUnconfirmed": "The result is not confirmed. Check the original request.",
+  "replyRejected": "Not submitted. Check the original question and try again."
 }

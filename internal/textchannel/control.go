@@ -80,17 +80,19 @@ type document struct {
 	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`   // item ID -> exact question fingerprint
 }
 type Store struct {
-	revision        uint64
-	mu              sync.Mutex
-	path            string
-	state           document
-	secretAnswers   map[string]map[string][]string // intentionally memory-only; lost on restart
-	decide          func(context.Context, api.Decision) error
-	answerAsyncWork func(context.Context, Inbound, string, string, string, string) (api.Receipt, error)
-	onNotice        func(Notice)
-	onInbound       func(Inbound)
-	onAsyncUpdate   func(api.Item)
-	answerAsync     func(context.Context, Inbound, string) (api.Receipt, error)
+	revision               uint64
+	mu                     sync.Mutex
+	path                   string
+	state                  document
+	secretAnswers          map[string]map[string][]string // intentionally memory-only; lost on restart
+	decide                 func(context.Context, api.Decision) error
+	answerAsyncWork        func(context.Context, Inbound, string, string, string, string) (api.Receipt, error)
+	onNotice               func(Notice)
+	onInbound              func(Inbound)
+	onQuestionReply        func(api.Item)
+	onQuestionReplyOutcome func(string, string, string)
+	onAsyncUpdate          func(api.Item)
+	answerAsync            func(context.Context, Inbound, string) (api.Receipt, error)
 }
 
 const shortIDMaxAge = 7 * 24 * time.Hour

@@ -96,7 +96,10 @@ func (s *Store) HandleDesktopQuestion(ctx context.Context, requestID, shortID, b
 	if binding == "" {
 		return "这条问题卡片已失效，请使用最新卡片。"
 	}
-	return s.Handle(ctx, Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value, expectedQuestionBinding: binding}, snapshot)
+	if err := s.RecordOrigin(requestID, Origin{Channel: "desktop", Conversation: "local"}); err != nil {
+		return "本地记录不可用，回答未提交；请重试。"
+	}
+	return s.Handle(ctx, Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value, expectedQuestionBinding: binding, observed: true}, snapshot)
 }
 
 func (s *Store) AsyncButtonItemIDs() []string {
@@ -135,6 +138,18 @@ func (s *Store) SetAsyncWorkAnswerer(answer func(context.Context, Inbound, strin
 func (s *Store) SetAsyncUpdateObserver(observer func(api.Item)) {
 	s.mu.Lock()
 	s.onAsyncUpdate = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) SetQuestionReplyOutcomeObserver(observer func(string, string, string)) {
+	s.mu.Lock()
+	s.onQuestionReplyOutcome = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) SetQuestionReplyObserver(observer func(api.Item)) {
+	s.mu.Lock()
+	s.onQuestionReply = observer
 	s.mu.Unlock()
 }
 
@@ -511,6 +526,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	s.mu.Unlock()
 	var receipt api.Receipt
 	var err error
+	s.observeQuestionReply(in, q, chosen, "sending")
 	if q.WorkID != "" {
 		receipt, err = answerWork(ctx, in, q.WorkID, q.Owner, q.ItemID, modelInput)
 	} else {
@@ -558,11 +574,34 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	}
 	updated := s.asyncUpdateLocked(q)
 	observer := s.onAsyncUpdate
+	outcome := "unknown"
+	switch s.state.AsyncQuestions[id].State {
+	case "answered":
+		outcome = "accepted"
+	case "", "dismissed", "expired", "superseded":
+		outcome = "rejected"
+	}
 	s.mu.Unlock()
+	s.observeQuestionReply(in, q, chosen, outcome)
 	if observer != nil {
 		observer(updated)
 	}
 	return s.reply(key, feedback)
+}
+
+// Only the controller that validated the original question can publish this
+// display copy. Keep the command/model envelope unchanged for IM and Runtime.
+func (s *Store) observeQuestionReply(in Inbound, q asyncQuestion, answer, outcome string) {
+	if in.Channel == "bot" {
+		return
+	}
+	s.mu.Lock()
+	observer := s.onQuestionReply
+	s.mu.Unlock()
+	if observer != nil {
+		observer(api.Item{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: answer, Status: outcome,
+			QuestionReply: &api.QuestionReply{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Answer: answer, Outcome: outcome}})
+	}
 }
 
 func (s *Store) asyncUpdateLocked(q asyncQuestion) api.Item {

@@ -1,36 +1,54 @@
-/* Quiet settings utility: the breadcrumb owns the page title. */
-.machine-section.machine-page{margin:0;border:0;padding:0;max-width:760px}
-.remote-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:36px;margin:0 0 12px}
-.remote-list-caption{font-size:12px;color:var(--muted)}
-.remote-primary-actions{display:flex;align-items:center;gap:8px}
-.settings-window .remote-primary-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:32px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:transparent;color:var(--ink);transition:background .12s,border-color .12s}
-.settings-window .remote-primary-actions .remote-icon-action{width:32px;height:32px;padding:0;flex:none}
-.settings-window .remote-primary-actions .remote-add{background:var(--ink);color:var(--caelis-content);border-color:transparent}
-.settings-window .remote-inbox-action{padding:0 10px}
-.settings-window .remote-primary-actions>button:hover{background:var(--wash)}
-.settings-window .remote-primary-actions .remote-add:hover{opacity:.85;background:var(--ink)}
-.remote-empty{margin:0;padding:28px 0 30px;border-block:1px solid var(--line);color:var(--muted);font-size:13px;line-height:1.6}
+/* Remote machines share the settings shell, fields, selectors and dialog. */
+.machine-section.machine-page{margin:0;border:0;padding:0;max-width:680px}
+.remote-list-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:12px;min-height:40px;margin:8px 0 10px}
+.remote-primary-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
+.settings-window .remote-primary-actions>button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:32px;padding:6px;border:0;border-radius:7px;background:transparent;color:var(--muted);transition:background .14s,color .14s}
+.settings-window .remote-primary-actions>button:hover{background:var(--wash);color:var(--ink)}
+.settings-window .remote-primary-actions .remote-add{color:var(--accent)}
+.settings-window .remote-inbox-action{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:7px 0;border:0;background:transparent;color:var(--accent)}
+.remote-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:56px 24px;border-block:1px solid var(--line);color:var(--muted)}
+.remote-empty h3{margin:4px 0 0;color:var(--ink);font-size:15px;font-weight:500}
+.remote-empty p{margin:0;font-size:12px;line-height:1.6}
+.settings-window .remote-empty button{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;padding:8px 12px}
 .remote-machine-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.remote-machine-list>li{display:flex;align-items:center;border-bottom:1px solid var(--line);gap:8px}
-.settings-window .remote-machine-list .machine-row{display:flex;align-items:center;gap:12px;text-align:left;background:transparent;border:0;border-radius:0;padding:14px 0;flex:1;min-width:0;min-height:68px}
-.machine-row-copy{display:grid;gap:4px;flex:1;min-width:0}
-.machine-icon{display:grid;place-items:center;flex:none;width:30px;height:30px;color:var(--muted)}
-.machine-row strong{font-size:13px;font-weight:500}
+.remote-machine-list>li{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);transition:background .14s}
+.remote-machine-list>li:hover{background:var(--wash)}
+.settings-window .remote-machine-list .machine-row{display:flex;align-items:center;gap:14px;flex:1;min-width:0;min-height:76px;padding:12px;text-align:left;border:0;border-radius:0;background:transparent}
+.machine-icon{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:10px;background:var(--wash);color:var(--muted)}
+.machine-row-copy{display:grid;gap:5px;flex:1;min-width:0}
+.machine-row strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}
 .machine-row small{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.machine-row .remote-pending-note{font-size:11px;white-space:normal;line-height:1.5}
-.machine-status{flex:none;color:var(--muted);font-size:12px}
+.machine-status{display:flex;align-items:center;gap:6px;flex:none;color:var(--muted);font-size:11px;line-height:1.5}
 .machine-status.ready{color:var(--success)}
-.settings-window .machine-more{border:0;background:transparent;padding:7px;color:var(--muted);border-radius:6px;min-width:32px;min-height:32px}
+.machine-status-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.settings-window .machine-more{display:grid;place-items:center;border:0;background:transparent;padding:7px;margin-right:4px;color:var(--muted);border-radius:7px;min-width:32px;min-height:32px}
 .settings-window .machine-more:hover{background:var(--wash);color:var(--ink)}
-.settings-window .remote-bot-dialog,.settings-window .remote-requests-dialog{width:420px;max-width:calc(100vw - 40px);padding:24px}
-.settings-window .remote-bot-dialog .runtime-dialog-heading,.settings-window .remote-requests-dialog .runtime-dialog-heading{margin-bottom:22px;align-items:center}
-.settings-window .remote-bot-dialog .runtime-dialog-heading h2,.settings-window .remote-requests-dialog .runtime-dialog-heading h2{font-size:17px;line-height:24px;margin:0}
-.settings-window .remote-bot-dialog label{display:flex;flex-direction:column;gap:8px;margin:0 0 18px;font-size:12px;color:var(--muted)}
-.settings-window .remote-bot-dialog input{width:100%;height:38px;min-height:38px;padding:8px 10px;font-size:13px;color:var(--ink);border-radius:7px}
-.settings-window .remote-bot-dialog input::placeholder{color:var(--muted);opacity:.7}
+.settings-window :is(.remote-bot-dialog,.remote-requests-dialog,.remote-ssh-config-dialog){width:440px;max-width:calc(100vw - 32px);padding:24px}
+.settings-window :is(.remote-bot-dialog,.remote-requests-dialog,.remote-ssh-config-dialog) .runtime-dialog-heading{margin-bottom:24px;align-items:center}
+.settings-window :is(.remote-bot-dialog,.remote-requests-dialog,.remote-ssh-config-dialog) .runtime-dialog-heading h2{font-size:17px;line-height:24px;margin:0}
+.settings-window .remote-bot-dialog label{display:flex;flex-direction:column;gap:8px;margin:0 0 18px;font-size:12px;color:var(--ink)}
+.settings-window .remote-bot-dialog input{box-sizing:border-box;width:100%;height:38px;min-height:38px;padding:8px 10px;font-size:13px;color:var(--ink);border-radius:8px}
+.settings-window .remote-bot-dialog input::placeholder{color:var(--muted);opacity:.75}
+.remote-methods{display:flex;gap:4px;margin-bottom:18px;padding:3px;background:var(--wash);border-radius:9px}
+.settings-window .remote-methods button{flex:1;border:0;background:transparent;color:var(--muted);padding:7px 14px;font-size:12px;min-height:32px;border-radius:7px;transition:background .14s,color .14s}
+.settings-window .remote-methods button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px #0001}
+.remote-add-body{min-height:152px}
+.remote-form-help{margin:0 0 20px;color:var(--muted);font-size:12px;line-height:1.65}
+.settings-window .remote-bot-dialog .settings-select{width:100%}
+.settings-window .remote-bot-dialog .settings-select-trigger{height:38px;min-height:38px;text-align:left;justify-content:space-between;font-size:13px;color:var(--ink)}
+.settings-window .remote-bot-dialog .settings-select-trigger[data-placeholder=true]{color:var(--muted)}
+.settings-window .remote-config-link{display:block;margin:-8px 0 20px;padding:0;font-size:12px;color:var(--accent)}
+.remote-connection-options{font-size:12px;color:var(--muted)}
+.remote-connection-options summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;margin:4px 0 12px;width:fit-content}
+.remote-connection-options summary::before{content:'›';display:inline-block;font-size:16px;line-height:16px;transition:transform .14s}
+.remote-connection-options[open] summary::before{transform:rotate(90deg)}
+.settings-window .remote-connection-options label{width:112px;margin:0}
+.remote-connection-state{padding:16px 0;color:var(--muted);font-size:12px;line-height:1.6}
+.remote-connection-state strong{font-size:15px;font-weight:500;color:var(--ink)}
+.remote-connection-state p{margin:8px 0 0}
 .remote-dialog-status{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.6}
-.settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:22px}
-.settings-window .remote-dialog-footer>button,.settings-window .remote-request-actions>button{font-size:12px;min-height:32px;padding:7px 12px;border-radius:7px}
+.settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
+.settings-window .remote-dialog-footer>button,.settings-window .remote-request-actions>button{font-size:12px;min-height:34px;padding:7px 12px;border-radius:8px}
 .settings-window .remote-dialog-footer .remote-remove{margin-right:auto;padding-inline:0}
 .remote-dialog-error{font-size:12px;line-height:1.6;margin:14px 0 0;color:var(--caelis-danger,var(--ink))}
 .remote-dialog-error p{margin:0 0 8px}
@@ -53,58 +71,27 @@
 .remote-request-identity span,.remote-request-direction{font-size:12px;color:var(--muted);line-height:1.6}
 .remote-request-direction{margin:16px 0 12px}
 .remote-request-fingerprint{display:flex;align-items:baseline;gap:12px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.remote-request-fingerprint>span{flex:none}
 .remote-request-fingerprint code{font-size:11px;color:var(--ink)}
 .remote-request-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
-@media(max-width:700px){.machine-row{gap:8px}.machine-status{font-size:11px}.remote-endpoint-fields{grid-template-columns:minmax(0,1fr) 86px;gap:10px}}
-@media(prefers-reduced-motion:reduce){.settings-window .remote-primary-actions>button{transition:none}}
-
-.remote-request-fingerprint>span{flex:none;white-space:nowrap}
-
-.remote-methods{display:flex;gap:4px;margin:0 0 20px;padding:3px;background:var(--wash);border-radius:8px;width:fit-content}
-.settings-window .remote-methods button{border:0;background:transparent;color:var(--muted);min-width:70px;padding:6px 14px;font-size:12px;min-height:30px;border-radius:6px}
-.settings-window .remote-methods button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px #0001}
 .remote-ssh-auth{border-top:1px solid var(--line);padding-top:14px;margin-top:12px}
-.remote-ssh-auth pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;max-height:150px;overflow:auto;font-family:inherit}
+.remote-ssh-auth pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;font-family:inherit;max-height:150px;overflow:auto}
 .settings-window .remote-ssh-auth .remote-dialog-footer{margin:12px 0 20px}
-.settings-window .remote-ssh-config-dialog{width:560px;max-width:calc(100vw - 40px);padding:24px}
-.settings-window .remote-ssh-config-dialog .runtime-dialog-heading{margin-bottom:20px}
-.settings-window .remote-ssh-config-dialog .runtime-dialog-heading h2{font-size:17px;line-height:24px;margin:0}
-@media(max-height:700px){.settings-window .remote-ssh-config-dialog textarea{height:150px}}
-
-.settings-window .remote-bot-dialog input{box-sizing:border-box}
-/* Remote settings use the shared shell header, selector, menus and dialog. */
-.settings-page-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}
-.settings-window .remote-primary-actions .remote-ssh-entry{min-height:32px;padding:5px 9px;font-size:12px}
-.settings-window .remote-primary-actions .remote-add{background:var(--accent);color:var(--on-accent);border-color:transparent}
-.settings-window .remote-primary-actions .remote-add:hover{background:var(--caelis-action-hover)}
-.settings-window .remote-bot-dialog{width:400px}
-.remote-add-body{min-height:152px}
-.remote-connection-options{font-size:12px;color:var(--muted)}
-.remote-connection-options summary{cursor:pointer;margin:4px 0 12px;width:fit-content}
-.settings-window .remote-connection-options label{width:112px;margin:0}
-.remote-connection-state{padding:12px 0;color:var(--muted);font-size:12px;line-height:1.6}
-.remote-connection-state strong{font-size:14px;font-weight:500;color:var(--ink)}
-.remote-connection-state p{margin:8px 0 0}
-.settings-window .remote-bot-dialog .settings-select-trigger{height:40px;min-height:40px;text-align:left;justify-content:space-between;font-size:13px}
-.settings-window .remote-bot-dialog .settings-select{width:100%}
-.settings-window .remote-ssh-config-dialog{width:500px}
+.settings-window .remote-ssh-config-dialog{width:560px}
 .remote-config-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.remote-config-list li{display:flex;align-items:center;gap:6px;min-height:66px;border-bottom:1px solid var(--line)}
-.remote-config-list li>strong{flex:1;font-size:13px;font-weight:500}
-.settings-window .remote-config-list button{font-size:12px;min-height:30px;padding:5px 10px}
-.remote-config-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;min-height:150px;overflow:auto;margin:0;padding:12px;background:var(--wash);border-radius:7px;font:12px/1.7 ui-monospace,SFMono-Regular,monospace}
+.remote-config-list li{display:flex;align-items:center;gap:12px;padding:20px 0;border-bottom:1px solid var(--line)}
+.remote-config-list li:last-child{border-bottom:0}
+.remote-config-icon{flex:none;color:var(--muted)}
+.remote-config-copy{flex:1;min-width:0}
+.remote-config-copy strong{font-size:13px;font-weight:500}
+.remote-config-copy p{margin:5px 0 0;font-size:11px;line-height:1.6;color:var(--muted)}
+.remote-config-actions{display:flex;align-items:center;gap:5px}
+.settings-window .remote-config-actions button{font-size:12px;min-height:32px;padding:6px 9px}
+.remote-config-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;min-height:150px;overflow:auto;margin:0;padding:14px;background:var(--wash);border-radius:8px;font:12px/1.7 ui-monospace,SFMono-Regular,monospace}
 .settings-window .settings-action-menu{padding:4px;width:168px;border-radius:8px}
 .settings-action-menu .runtime-dialog-heading{display:none}
 .settings-window .settings-action-menu button{display:block;width:100%;text-align:left;font-size:12px;min-height:32px;padding:6px 10px;border:0;background:transparent;border-radius:5px}
 .settings-window .settings-action-menu button:hover{background:var(--wash)}
-@media(max-width:700px){.settings-window .remote-ssh-config-dialog{width:400px}.settings-page-actions{gap:4px}.settings-window .settings-toolbar:has(.remote-primary-actions){gap:4px}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs{padding-right:0}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs li:first-child{display:none}.settings-toolbar:has(.remote-primary-actions) .settings-breadcrumbs li:last-child>span[aria-hidden]{display:none}}
-
-.settings-window{--remote-gutter:32px}
-.settings-window .settings-toolbar:has(.remote-primary-actions){padding-left:var(--remote-gutter);padding-right:max(var(--remote-gutter),calc(100% - 760px - var(--remote-gutter)))}
-.settings-window .remote-connection-options summary{list-style:none;display:flex;align-items:center;gap:6px}
-.remote-connection-options summary::before{content:'›';display:inline-block;font-size:16px;line-height:16px;transition:transform .12s}
-.remote-connection-options[open] summary::before{transform:rotate(90deg)}
-.settings-window .remote-bot-dialog .settings-select-trigger{color:var(--ink)}
-.settings-window .remote-bot-dialog .settings-select-trigger[data-placeholder=true]{color:var(--muted)}
-@media(max-width:800px){.settings-window{--remote-gutter:24px}}
-@media(max-width:680px){.web-settings .settings-window{--remote-gutter:16px}}
+@media(max-width:700px){.remote-config-list li{flex-wrap:wrap}.remote-config-copy{flex-basis:calc(100% - 40px)}.remote-config-actions{margin-left:34px}}
+@media(max-width:480px){.settings-window .remote-machine-list .machine-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:6px 12px;padding-block:14px}.machine-icon{grid-row:span 2}.machine-status{grid-column:2}}
+@media(prefers-reduced-motion:reduce){.remote-primary-actions>button,.remote-machine-list>li,.remote-methods button,.remote-connection-options summary::before{transition:none}}

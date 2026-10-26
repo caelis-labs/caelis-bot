@@ -1,5 +1,6 @@
-import {useId,useState} from 'react';
+import {useId,useRef,useState} from 'react';
 import type {QuestionCard} from './backend/contract';
+import {SetupButton} from './SetupLoading';
 import {backend} from './desktop';
 import {useI18n} from './i18n';
 import {questionAnswered,questionStatusKey,questionCopy,optionWords,displayUnits} from './question-presentation';
@@ -9,21 +10,23 @@ export function QuestionPrompt({card,refresh,onAnswered}:{card:QuestionCard;refr
  const id=useId();
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [settled,setSettled]=useState('');
+ const inFlight=useRef(false);
  const state=card.state||settled,done=!!state;
  const copy=questionCopy(card.title,card.context);
  const act=async(kind:'answer'|'dismiss',answer='')=>{
-  if(busy||done||(kind==='answer'&&!answer.trim()))return;
-  setBusy(true);setError('');
+  if(inFlight.current||busy||done||(kind==='answer'&&!answer.trim()))return;
+  inFlight.current=true;setBusy(true);setError('');
   try {
    const feedback=kind==='answer'
     ?await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,crypto.randomUUID())
     :await backend<string>('DismissQuestion',card.shortId,card.binding,crypto.randomUUID());
    if(kind==='answer'&&(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。')){setSettled('answered');onAnswered(card);}
    else if(kind==='dismiss'&&feedback==='问题已关闭，未提供答案。')setSettled('dismissed');
-   else setError(feedback);
+   else if(feedback.includes('待核对')||feedback.includes('不会自动重发')||feedback.includes('投递后'))setSettled('unknown');
+   else setError(t('chat.replyRejected'));
    refresh();
-  } catch(e) {setError(e instanceof Error?e.message:t('chat.approvalFailed'));}
-  finally {setBusy(false);}
+  } catch {setSettled('unknown');}
+  finally {inFlight.current=false;setBusy(false);}
  };
  if(questionAnswered(state))return null;
  if(done)return <p className="question-result" role="status"><span>{card.title}</span><small>{t(questionStatusKey(state))}</small></p>;
@@ -46,8 +49,9 @@ export function QuestionPrompt({card,refresh,onAnswered}:{card:QuestionCard;refr
   }}>{card.options.map((option,index)=><button type="button" key={index} aria-label={option} disabled={busy} className={displayUnits(option)>28?"question-long-option":undefined} onClick={()=>void act('answer',String(index+1))}>{optionWords(option,locale).map((word,n)=><span key={n}>{word}</span>)}</button>)}</div>}
   <form className="question-prompt-entry" onSubmit={e=>{e.preventDefault();void act('answer',value);}}>
    <input id={id+'-answer'} value={value} disabled={busy} aria-label={t('chat.questionYourAnswer')} placeholder={t('chat.questionPlaceholder')} onChange={e=>setValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.nativeEvent.isComposing||e.nativeEvent.keyCode===229))e.preventDefault();}}/>
-   <button type="submit" disabled={busy||!value.trim()}>{t('chat.questionSend')}</button>
+   <SetupButton type="submit" busy={busy} disabled={!value.trim()}>{t('chat.questionSend')}</SetupButton>
   </form>
+  {busy&&<p className="question-feedback" role="status">{t('chat.decisionSubmitting')}</p>}
   {error&&<p className="question-feedback error" role="alert">{error}</p>}
  </section>;
 }

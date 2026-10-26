@@ -32,7 +32,7 @@ window.fixtureSet=kind=>{
  snapshot.items=[{id:'answer',turnKey:'fixture',kind:'assistant',text:kind==='short'?short:long,status:'completed',artifacts:[]}];
  if(['read','edit','web','execute'].includes(kind))snapshot.activity={kind,target:kind==='read'?'README.md':kind==='edit'?'notes.md':''};
  if(kind==='review')snapshot.reviews=[{id:'review',status:'inProgress',action:'',rationale:''}];
- if(kind==='approval')snapshot.approvals=[{id:'approval',title:'允许读取所选文件？',status:'pending',action:'cat README.md',details:'',target:'README.md',questions:[],choices:[{id:'allow',label:'允许一次',scope:'once'},{id:'deny',label:'拒绝',scope:'once'}]}];
+ if(kind==='approval')snapshot.approvals=[{id:'approval',title:'允许读取所选文件？',status:'pending',action:'cat README.md',details:'',target:'README.md',questions:[],choices:[{id:'allow',label:'允许一次',scope:'once'},{id:'deny',label:'拒绝',scope:'deny'}]}];
  if(kind==='completed')Object.assign(snapshot,{phase:'completed',canInterrupt:false,activity:null});
  if(kind==='stop')Object.assign(snapshot,{phase:'interrupting',activity:null});
  if(kind==='table'){
@@ -50,6 +50,7 @@ window.fixtureSet=kind=>{
 
 };
 window.fixtureSet('short');
+window.fixtureReviewApproval=()=>{fixtureSet('approval');snapshot.items[0].text='需要读取 README.md，继续前请确认访问权限。';revision++;};
 if(previewParams.get('fixture')==='approval'){
  window.fixtureSet('approval');
  snapshot.approvals[0]={id:'synthetic-computer-use',title:'Allow Computer Use',action:'Allow Computer Use',status:'pending',description:'Synthetic window only',details:'',target:'',questions:[],choices:[
@@ -411,13 +412,19 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='HistoryVisible')return true;
  if(method==='Interrupt')window.fixtureSet('stop');
  if(method==='DismissPreview')snapshot.previewDismissed=true;
- if(method==='Decide')window.fixtureSet('read');
+ if(method==='Decide'){const p=snapshot.approvals.find(p=>p.id===args[0].id);if(p){p.status='sent';revision++;await new Promise(r=>setTimeout(r,900));p.status='resolved';p.resolution={choiceId:args[0].choice,outcome:args[0].choice.includes('deny')?'declined':'allowed',scope:'once'};revision++;}return;}
  if(method==='AnswerQuestion'||method==='DismissQuestion'){
   const card=snapshot.items.flatMap(item=>item.questionCards??[]).find(card=>card.shortId===args[0]&&card.binding===args[1]);
   if(!card)return '这条问题卡片已失效，请使用最新卡片。';
   window.fixtureQuestionResult=args;
-  card.state=method==='AnswerQuestion'?'answered':'dismissed';revision++;
-  return method==='AnswerQuestion'?'回答已提交，等待后续回复。':'问题已关闭，未提供答案。';
+  if(method==='AnswerQuestion'){
+   const selected=card.options[Number(args[2])-1]??args[2],requestId=args[3];
+   const reply={id:'control-input:'+requestId,requestId,kind:'user',text:selected,status:'sending',seenAt:Date.now()*1000,questionReply:{shortId:card.shortId,binding:card.binding,title:card.title,answer:selected,outcome:'sending'}};
+   snapshot.items.push(reply);revision++;await new Promise(r=>setTimeout(r,600));
+   reply.status=reply.questionReply.outcome=window.fixtureReplyOutcome||previewParams.get('replyOutcome')||'accepted';
+   card.state=reply.status==='accepted'?'answered':reply.status==='unknown'?'unknown':'';
+  }else card.state='dismissed';revision++;
+  return method==='AnswerQuestion'?(card.state==='unknown'?'回答投递结果待核对，不会自动重发。':card.state==='answered'?'回答已提交，等待后续回复。':'回答未提交。'):'问题已关闭，未提供答案。';
  }
 
  if(method==='OpenApproval')window.dispatchEvent(new Event('bubble-expand'));

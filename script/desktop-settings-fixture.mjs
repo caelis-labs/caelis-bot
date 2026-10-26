@@ -51,7 +51,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'Display':case 'DisplayState':return {scale:1};
  // Read-only presentation fixtures for the remaining common settings pages.
  // Unsupported mutations still fail below; these never touch host preferences.
- case 'DisplayPreferences':return {mode:params.get('theme')||'light',theme:'default',revision:1};
+ case 'DisplayPreferences':return {mode:params.get('theme')||'system',theme:'default',revision:1};
  case 'ContentState':return {appearance:{revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'},characters:[{id:'builtin:caelis',name:'Caelis',pack:'',group:''}],avatars:[],packs:[],notice:''};
  case 'Placement':return {scale:1};
  case 'LoginAtLoginStatus':return {supported:true,enabled:false,state:'off',registered:false};

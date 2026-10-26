@@ -2,7 +2,9 @@ import {useEffect,useRef,useState} from 'react';
 import {backend,desktop} from '../../desktop';
 import {useI18n} from '../../i18n';
 import type {Machine,WorkerSharing} from '../../backend/contract';
-import {SettingsPageActions} from '../SettingsToolbar';
+import {SetupLoading,SetupButton} from '../../SetupLoading';
+import {ArrowClockwiseIcon} from '@phosphor-icons/react/dist/csr/ArrowClockwise';
+import {GearSixIcon} from '@phosphor-icons/react/dist/csr/GearSix';
 import {SettingsActionMenu} from '../SettingsActionMenu';
 import {SSHConfigDialog} from './SSHConnection';
 import {BotConnectionDialog,MachineRequestsDialog} from './BotConnections';
@@ -42,15 +44,17 @@ export function MachineSettings({standalone=false,call=backend,active=true}:{sta
  useEffect(()=>{const next=Math.min(...[...(sharing?.requests||[]).map(v=>v.expiresAt*1000),...machines.filter(v=>v.pairingStatus==='approved'&&v.state==='ready').map(v=>(v.checkedAt||0)+60000)].filter(v=>v>requestClock));if(!Number.isFinite(next))return;const timer=setTimeout(()=>setRequestClock(Date.now()),Math.max(0,next-Date.now()+20));return()=>clearTimeout(timer)},[sharing,machines,requestClock]);
  const visible=machines.filter(v=>!v.archived),pending=sharing?.requests?.filter(v=>v.expiresAt*1000>Date.now())||[];
  return <section className={`machine-section ${standalone?'machine-page':''}`} aria-label={t('settings.machines')}>
-  <SettingsPageActions><div className="remote-primary-actions">
-
+  <div className="remote-list-toolbar">
    {pending.length>0&&<button className="remote-inbox-action" onClick={()=>setRequests(true)} title={t('settings.remoteRequests',{count:pending.length})}><BellIcon size={17} aria-hidden="true"/>{t('settings.remoteRequests',{count:pending.length})}</button>}
-   <button className="text-action remote-ssh-entry" onClick={()=>setSSHConfig(true)}>{t('settings.sshConfigTitle')}</button>
-   <button className="remote-icon-action remote-add" title={t('settings.remoteAdd')} aria-label={t('settings.remoteAdd')} onClick={()=>setEditor(true)}><PlusIcon size={20} weight="bold"/></button>
-  </div></SettingsPageActions>
-  {!loaded?<p className="remote-empty" role="status">{t('settings.remoteLoading')}</p>:listError&&visible.length===0?<div className="remote-inline-state" role="status"><span>{t('settings.remoteListUnavailable')}</span><button className="text-action" disabled={checking} onClick={()=>void refresh()}>{t('settings.remoteRetry')}</button></div>:visible.length===0?<p className="remote-empty">{t('settings.remoteEmpty')}</p>:<ul className="machine-list remote-machine-list">{visible.map(v=>{
+   <div className="remote-primary-actions">
+    <button className="remote-add" title={t('settings.remoteAdd')} aria-label={t('settings.remoteAdd')} onClick={()=>setEditor(true)}><PlusIcon size={18}/></button>
+    <button className="remote-ssh-entry" title={t('settings.sshConfigTitle')} aria-label={t('settings.sshConfigTitle')} onClick={()=>setSSHConfig(true)}><GearSixIcon size={18}/></button>
+    <SetupButton className="remote-refresh" busy={checking} disabled={!loaded} onClick={()=>void refresh()} aria-label={t('settings.machineRecheck')} title={t('settings.machineRecheck')}><ArrowClockwiseIcon size={18}/></SetupButton>
+   </div>
+  </div>
+  {!loaded?<SetupLoading/>:listError&&visible.length===0?<div className="remote-inline-state" role="status"><span>{t('settings.remoteListUnavailable')}</span><button className="text-action" disabled={checking} onClick={()=>void refresh()}>{t('settings.remoteRetry')}</button></div>:visible.length===0?<div className="remote-empty"><DesktopTowerIcon size={32}/><h3>{t('settings.remoteEmptyTitle')}</h3><p>{t('settings.remoteEmptyHelp')}</p><button className="primary" onClick={()=>setEditor(true)}><PlusIcon size={16}/>{t('settings.remoteAdd')}</button></div>:<ul className="machine-list remote-machine-list">{visible.map(v=>{
    const state=remoteMachineStatus(v);
-   return <li key={v.id}><button className="machine-row" onClick={()=>setEditor(v)}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span className="machine-row-copy"><strong>{v.name}</strong><small>{v.address.startsWith('ssh://')?'SSH · '+v.address.slice(6).replace(/:9317$/,''):v.address.replace(/^https?:\/\//,'')}</small></span><span className={`machine-status ${state==='online'&&!unread[v.id]?'ready':''}`}>{t(unread[v.id]?'settings.remoteCheckUnreadable':remoteMachineLabel(v))}</span></button><button className="machine-more" aria-haspopup="dialog" aria-label={t('settings.remoteManage',{name:v.name})} onClick={event=>setMenu({machine:v,anchor:event.currentTarget})}><DotsThreeIcon size={20}/></button></li>
+   return <li key={v.id}><button className="machine-row" onClick={()=>setEditor(v)}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span className="machine-row-copy"><strong>{v.name}</strong><small>{v.address.startsWith('ssh://')?'SSH · '+v.address.slice(6).replace(/:9317$/,''):v.address.replace(/^https?:\/\//,'')}</small></span><span className={`machine-status ${state==='online'&&!unread[v.id]?'ready':''}`}><span className="machine-status-dot" aria-hidden="true"/>{t(unread[v.id]?'settings.remoteCheckUnreadable':remoteMachineLabel(v))}</span></button><button className="machine-more" aria-haspopup="dialog" aria-label={t('settings.remoteManage',{name:v.name})} onClick={event=>setMenu({machine:v,anchor:event.currentTarget})}><DotsThreeIcon size={20}/></button></li>
   })}</ul>}
   {listError&&visible.length>0&&<div role="status" className="remote-inline-state"><span>{t('settings.remoteListStale')}</span></div>}
   {(sourceError||sharing?.issue)&&<div role="status" className="remote-inline-state remote-receive-issue"><span>{t(sourceError==='revoke'?'settings.remoteRevokeUnconfirmed':sourceError==='read'?'settings.remoteInboxUnreadable':incomingProblem(sharing?.issue||''))}</span><button className="text-action" disabled={checking} onClick={()=>void refresh()}>{t('settings.remoteRetry')}</button>{sharing?.issue?.startsWith('worker_peer_state_')&&<button className="text-action" onClick={()=>void desktop('ExportDiagnostics')}>{t('settings.remoteSaveDiagnostics')}</button>}</div>}

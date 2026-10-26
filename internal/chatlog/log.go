@@ -24,19 +24,20 @@ import (
 const pageSize = 200
 
 type Log struct {
-	mu           sync.Mutex
-	path         string
-	items        []api.Item
-	dirty        map[string]api.Item
-	loaded       bool
-	earlier      bool
-	before       int64
-	cancel       context.CancelFunc
-	done         chan struct{}
-	issue        error
-	revision     uint64
-	closeOnce    sync.Once
-	visibleLimit int
+	mu               sync.Mutex
+	path             string
+	items            []api.Item
+	dirty            map[string]api.Item
+	questionOutcomes map[string]questionOutcome
+	loaded           bool
+	earlier          bool
+	before           int64
+	cancel           context.CancelFunc
+	done             chan struct{}
+	issue            error
+	revision         uint64
+	closeOnce        sync.Once
+	visibleLimit     int
 }
 
 func Open(path string) *Log {
@@ -68,6 +69,10 @@ func copyItem(i api.Item) api.Item {
 		i.Task = &task
 	}
 	i.QuestionCards = append([]api.QuestionCard(nil), i.QuestionCards...)
+	if i.QuestionReply != nil {
+		reply := *i.QuestionReply
+		i.QuestionReply = &reply
+	}
 	for n := range i.QuestionCards {
 		i.QuestionCards[n].Options = append([]string(nil), i.QuestionCards[n].Options...)
 	}
@@ -93,6 +98,9 @@ func (l *Log) Observe(items []api.Item) {
 			continue
 		}
 		item = copyItem(item)
+		if outcome, ok := l.questionOutcomes[item.RequestID]; ok {
+			applyQuestionOutcome(&item, outcome)
+		}
 		found := false
 		for n, old := range l.items {
 			if key(old) != key(item) {
@@ -100,6 +108,7 @@ func (l *Log) Observe(items []api.Item) {
 			}
 			found = true
 			if item.Kind == "user" {
+				preserveQuestionReply(&item, old)
 				nativeEcho := !strings.HasPrefix(item.ID, "outgoing:") && !strings.HasPrefix(item.ID, "channel-input:") && !strings.HasPrefix(item.ID, "control-input:")
 				if nativeEcho && old.Text != "" {
 					item.Text = old.Text // model-only quote wrapping never replaces the visible user body
@@ -220,11 +229,14 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 			// native echo may contain a model-only reference wrapper.
 			changed := false
 			if previous.Kind == "user" {
+				if preserveQuestionReply(&l.items[pos], previous) {
+					changed = true
+				}
 				if l.items[pos].ID != previous.ID {
 					l.items[pos].ID = previous.ID
 					changed = true
 				}
-				if previous.Text != "" && l.items[pos].Text != previous.Text {
+				if previous.Text != "" && l.items[pos].Text != previous.Text && (l.items[pos].QuestionReply == nil || previous.QuestionReply != nil) {
 					l.items[pos].Text = previous.Text
 					changed = true
 				}
@@ -252,6 +264,11 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 	l.items = append(prefix, l.items...)
 	l.before = earliest
 	l.earlier = more
+	for n := range l.items {
+		if outcome, ok := l.questionOutcomes[l.items[n].RequestID]; ok {
+			applyQuestionOutcome(&l.items[n], outcome)
+		}
+	}
 	l.loaded = true
 	l.revision++
 	return nil
@@ -277,7 +294,7 @@ func (l *Log) LoadEarlier(ctx context.Context) error {
 }
 func (l *Log) flush(ctx context.Context) error {
 	l.mu.Lock()
-	loaded, empty := l.loaded, len(l.dirty) == 0
+	loaded, empty := l.loaded, len(l.dirty) == 0 && len(l.questionOutcomes) == 0
 	l.mu.Unlock()
 	if loaded && empty {
 		return nil
@@ -318,10 +335,24 @@ func (l *Log) flush(ctx context.Context) error {
 			return err
 		}
 	}
+	l.mu.Lock()
+	outcomes := make(map[string]questionOutcome, len(l.questionOutcomes))
+	for k, v := range l.questionOutcomes {
+		outcomes[k] = v
+	}
+	l.mu.Unlock()
+	if err = persistQuestionOutcomes(ctx, tx, outcomes); err != nil {
+		return err
+	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
 	l.mu.Lock()
+	for k, v := range outcomes {
+		if l.questionOutcomes[k] == v {
+			delete(l.questionOutcomes, k)
+		}
+	}
 	for k, v := range dirty {
 		if current, ok := l.dirty[k]; ok && same(current, v) {
 			delete(l.dirty, k)

@@ -276,5 +276,9 @@
   "urlPageSubmitted": "网站已接收此提交。请处理原请求以继续。",
   "urlPageRejected": "尚未提交表单，请检查填写内容后重试。",
   "urlPageSubmit": "提交",
-  "urlPageCheck": "核对原提交"
+  "urlPageCheck": "核对原提交",
+  "decisionSubmitting": "正在提交…",
+  "decisionAwaiting": "已提交，正在核对处理结果",
+  "decisionUnconfirmed": "处理结果尚未确认，请检查原请求状态。",
+  "replyRejected": "未提交，请检查原问题后重试。"
 }

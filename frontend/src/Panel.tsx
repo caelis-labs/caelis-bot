@@ -1,4 +1,5 @@
 import {isWebSurface} from './transport';
+import {SetupButton} from './SetupLoading';
 import {QuestionPrompt} from './QuestionPrompt';
 import {ApprovalPage} from './ApprovalPage';
 import {questionIdentity,visibleQuestionMessages} from './question-presentation';
@@ -31,10 +32,6 @@ import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue
 import { useI18n } from './i18n';
 import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
-import { CaretDownIcon } from '@phosphor-icons/react/dist/csr/CaretDown';
-import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
-import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
-import { CaretUpIcon } from '@phosphor-icons/react/dist/csr/CaretUp';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
@@ -99,16 +96,19 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
   const resultLabel=approvalResult(value,locale);
   const [answers, setAnswers] = useState<Record<string,string[]>>({});
   const [busy, setBusy] = useState(false);
+  const submitted = useRef(false);
+  const [awaiting, setAwaiting] = useState(false);
   const [error, setError] = useState('');
-  const enabled = value.status === 'pending' && !busy;
+  const enabled = value.status === 'pending' && !busy && !awaiting;
   const decide = async (choice: string) => {
-    setBusy(true); setError('');
+    if(submitted.current || !enabled)return;
+    submitted.current=true;setAwaiting(true);setBusy(true); setError('');
     try { await backend('Decide', { id: value.id, choice, answers } satisfies Decision); }
-    catch (e) { setError(e instanceof Error ? e.message : t('chat.approvalFailed')); }
+    catch { setError(t('chat.decisionUnconfirmed')); }
     finally { setBusy(false); refresh(); }
   };
-  const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
-  return <section className="approval" data-approval-id={value.id} aria-label={title}>
+  const button = (c: typeof value.choices[number]) => <SetupButton key={c.id} busy={busy} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</SetupButton>;
+  return <section className="approval" aria-busy={busy} data-approval-id={value.id} aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
     <h3>{title}</h3>
     {value.taskTitle && <p>{t('chat.approvalTask',{name:value.taskTitle})}</p>}
@@ -129,24 +129,27 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
         {freeText&&<input id={`question-${q.id}`} type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={custom} onChange={e => { const selected=q.multiple?current.filter(answer=>options.some(option=>option.id===answer)):[]; setAnswers({ ...answers, [q.id]:e.target.value?[...selected,e.target.value]:selected }); }} />}
       </div>;
     })}
-    {error && <Recovery message={error} onRetry={()=>{setError('');void refresh();}}/>}
-    {value.status === 'pending' ? <>
+    {error && <p role="status" className="question-feedback">{error}</p>}
+    {value.status === 'pending' && awaiting ? <p className="approval-result quiet" role="status">{t(busy?'chat.decisionSubmitting':'chat.decisionAwaiting')}<button type="button" className="text-action" disabled={busy} onClick={refresh}>{t('settings.machineRecheck')}</button></p> : value.status === 'pending' ? <>
       <div className="approval-choices" onKeyDown={decisionKeys}>{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
         <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
+function ApprovalMessage({value,refresh}:{value:Approval;refresh:()=>void}) {
+ return <article className="message-row assistant interaction-message"><BotAvatar clip="companion"/><div className="message assistant state-bubble approval-bubble"><Prompt value={value} refresh={refresh}/></div></article>;
+}
 type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; refresh:()=>void; onQuestionAnswered:(card:QuestionCard)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
 const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, refresh, onQuestionAnswered, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
-  const delivery=item.kind==='user'&&['unknown','rejected'].includes(item.status)?statusLabel:'';
+  const delivery=!item.questionReply&&item.kind==='user'&&['unknown','rejected'].includes(item.status)?statusLabel:'';
   const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}${item.questionCards?.length?' question-message':''}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&item.status==='inProgress'&&!incomplete}/> : <p>{item.text}</p>}
+    {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&item.status==='inProgress'&&!incomplete}/> : <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <ArtifactLink file={file} report={report} key={file.id}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
@@ -160,6 +163,7 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
  JSON.stringify(before.item.media)===JSON.stringify(after.item.media)&&
  JSON.stringify(before.item.quoted)===JSON.stringify(after.item.quoted)&&
  JSON.stringify(before.item.questionCards)===JSON.stringify(after.item.questionCards)&&
+ JSON.stringify(before.item.questionReply)===JSON.stringify(after.item.questionReply)&&
  JSON.stringify(before.item.task)===JSON.stringify(after.item.task));
 
 export function useConversation(active: boolean, pet=false, chat=false) {
@@ -549,10 +553,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
 export function History({composerGeneration=0,settingsEntry}:{composerGeneration?:number;settingsEntry?:ReactNode}={}) {
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
- const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
  const [approvalPage,setApprovalPage]=useState('');
  useEffect(()=>{const open=(event:Event)=>{const id=(event as CustomEvent<unknown>).detail;if(typeof id==='string')setApprovalPage(id)};window.addEventListener('approval-page-open',open);return()=>window.removeEventListener('approval-page-open',open)},[]);
- const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
  const [feedbackTarget,setFeedbackTarget]=useState<HTMLDivElement|null>(null);
  const composerMounted=useRef(false);if(active)composerMounted.current=true;
@@ -612,29 +614,11 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  const timeAnchors=useRef<ReadonlyMap<string,ChatTimeAnchor>>(new Map());
  const timeline=useMemo(()=>chatTimeline(messages,timeAnchors.current),[messages]);
  useLayoutEffect(()=>{timeAnchors.current=timeline.anchors;},[timeline]);
- const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')+JSON.stringify(i.questionCards??[])+(i.artifacts??[]).map(a=>a.id+a.name).join('')).join(''),[messages]);
+ const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')+JSON.stringify([i.questionCards,i.questionReply])+(i.artifacts??[]).map(a=>a.id+a.name).join('')).join(''),[messages]);
  const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
  const interactions=prompts.map(approval=>({key:`approval:${approval.id}`,approval}));
- const currentInteraction=Math.min(interactionIndex,Math.max(0,interactions.length-1));
- const interactionKey=interactions.map(entry=>entry.key).join('|');
+ const interactionKey=(snapshot?.approvals??[]).map(p=>p.id+p.status+JSON.stringify(p.resolution)).join('|');
  const refreshQuestions=useCallback(()=>{void refresh().catch(()=>{});},[refresh]);
- useEffect(()=>{
-  setInteractionIndex(index=>Math.min(index,Math.max(0,interactions.length-1)));
-  if(!interactions.length)setInteractionOpen(false);
- },[interactions.length]);
- useEffect(()=>{
-  if(!interactionOpen||!active)return;
-  const outside=(event:PointerEvent)=>{if(!interactionDock.current?.contains(event.target as Node))setInteractionOpen(false);};
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();setInteractionOpen(false);interactionDock.current?.querySelector('button')?.focus();}};
-  window.addEventListener('pointerdown',outside,true);
-  window.addEventListener('keydown',escape,true);
-  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
- },[interactionOpen,active]);
- useLayoutEffect(()=>{
-  if(!active||!interactionOpen)return;
-  const entry=interactionDock.current?.querySelector<HTMLElement>('[data-interaction]:not([hidden])');
-  entry?.querySelector<HTMLElement>('.approval-choices button:not(:disabled)')?.focus({preventScroll:true});
- },[interactionOpen,currentInteraction]);
  const activity=chatActivity(snapshot,outgoing);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -669,10 +653,11 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{timeline.rows.map(({key,item:i,dividerAt})=><div key={key} className="history-message-group">
+   <div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
     {dividerAt!==undefined&&<div className="history-time-divider"><time dateTime={new Date(dividerAt/1000).toISOString()}>{chatTimeLabel(dividerAt,locale)}</time></div>}
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} refresh={refreshQuestions} onQuestionAnswered={questionAnswered} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
-   </div>)}</div>
+   </div>,...(snapshot?.approvals??[]).filter(p=>p.turnKey&&p.turnKey===i.turnKey&&!timeline.rows.slice(index+1).some(row=>row.item.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)])}
+   {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
    {connection&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
@@ -697,13 +682,6 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
-  {!!interactions.length&&<aside ref={interactionDock} className="approval-dock" aria-label={t('chat.interactionEyebrow')}>
-   <button className="approval-dock-trigger" type="button" aria-expanded={interactionOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setInteractionOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentInteraction+1,total:interactions.length})}{interactionOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
-   <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.interactionEyebrow')} hidden={!interactionOpen}>
-    <div className="approval-dock-nav"><span>{t('chat.approvalEyebrow')}{interactions.length>1&&` · ${currentInteraction+1}/${interactions.length}`}</span><div>{interactions.length>1&&<><button type="button" aria-label={t('chat.interactionPrevious')} disabled={currentInteraction===0} onClick={()=>setInteractionIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.interactionNext')} disabled={currentInteraction>=interactions.length-1} onClick={()=>setInteractionIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setInteractionOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
-    {interactions.map((entry,index)=><div data-interaction key={entry.key} hidden={index!==currentInteraction}><Prompt value={entry.approval} refresh={refreshQuestions}/></div>)}
-   </div>
-  </aside>}
   <footer>
    {composerMounted.current&&<Composer key={composerGeneration} snapshot={snapshot} active={active} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed} feedbackTarget={feedbackTarget}/>}
   </footer>

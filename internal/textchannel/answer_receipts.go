@@ -27,7 +27,17 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var replies []struct{ request, binding, outcome string }
+	observer := s.onQuestionReplyOutcome
+	committed := false
+	defer func() {
+		s.mu.Unlock()
+		if committed && observer != nil {
+			for _, reply := range replies {
+				observer(reply.request, reply.binding, reply.outcome)
+			}
+		}
+	}()
 	previous := s.state
 	s.state = cloneMaintenanceState(s.state)
 	changed := false
@@ -35,6 +45,7 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 		if q.WorkID != work || q.OperationID != operation || q.State != "unknown" {
 			continue
 		}
+		replies = append(replies, struct{ request, binding, outcome string }{q.ReplyID, q.Fingerprint, outcome})
 		if outcome == "accepted" {
 			q.State = "answered"
 			q.ClosedAt = time.Now().Unix()
@@ -53,6 +64,7 @@ func (s *Store) SettleAsyncOperation(work, operation, outcome string) error {
 			return err
 		}
 	}
+	committed = true
 	return nil
 }
 

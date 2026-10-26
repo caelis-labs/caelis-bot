@@ -2,7 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import type {BotConnectionInput,Machine,WorkerSharing,SSHConfiguration} from '../../backend/contract';
 import {useI18n} from '../../i18n';
-import {SSHAuthentication,useSSHConnect,sshEndpoint,sshTarget,sshProblem} from './SSHConnection';
+import {SSHConfigDialog,SSHAuthentication,useSSHConnect,sshEndpoint,sshTarget,sshProblem} from './SSHConnection';
+import {SetupButton} from '../../SetupLoading';
 import {SettingsDialog} from './SettingsDialog';
 import {SettingsSelect} from '../../SettingsSelect';
 import {botAddress} from './bot-address';
@@ -34,13 +35,16 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  const reconnectSSH=async()=>{if(blocked)return;afterSSH.current='check';try{await call('StopSSHConnection',{host,port:Number(port)||9317});await ssh.start({host,port:Number(port)||9317})}catch{ssh.setError('ssh_connection_failed')}};
 
  const blocked=busy||ssh.working;
+ const [configOpen,setConfigOpen]=useState(false);
 
- return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteManageTitle')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
+ return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteManageTitle')} className="remote-bot-dialog" blocked={configOpen} busy={busy} onClose={onClose}>
   <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)submit()}}>
    {!initial&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
    <div className="remote-add-body">
    {!waiting&&!uncertain&&!ssh.status?.prompt&&!(creation.current&&status==='approved')&&<>
+   <p className="remote-form-help">{t(method==='ssh'?'settings.remoteSSHHelp':'settings.remoteAddressHelp')}</p>
    <label>{t(method==='ssh'?'settings.sshHost':'settings.remoteAddress')}{method==='ssh'?<SettingsSelect aria-label={t('settings.sshHost')} value={host} disabled={blocked||!!initial} placeholder={t('settings.sshHostPlaceholder')} searchable centered={false} searchLabel={t('settings.sshHostSearch')} onCreate={setHost} createLabel={value=>t('settings.sshUseAlias',{name:value})} onChange={e=>setHost(e.target.value)}>{config?.hosts.map(v=><option key={v} value={v}>{v}</option>)}</SettingsSelect>:<input autoFocus required autoComplete="off" spellCheck={false} placeholder={t('settings.remoteAddressPlaceholder')} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} disabled={blocked}/>}</label>
+   {method==='ssh'&&<button type="button" className="text-action remote-config-link" disabled={blocked} onClick={()=>setConfigOpen(true)}>{t('settings.remoteConfigManage')}</button>}
    <details className="remote-connection-options"><summary>{t('settings.remoteConnectionOptions')}</summary><label>{t('settings.sshBotPort')}<input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} autoComplete="off" placeholder={t('settings.remoteDefaultPort')} value={port} onChange={e=>setPort(e.target.value)} disabled={blocked||method==='ssh'&&!!initial}/></label>{method==='ssh'&&initial&&<button type="button" className="text-action" disabled={blocked} onClick={()=>void reconnectSSH()}>{t('settings.sshReconnectAction')}</button>}</details>
    </>}
    <SSHAuthentication ssh={ssh}/>
@@ -55,8 +59,9 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    {status==='approved'&&selected?.issue==='worker_not_ready'&&<div className="remote-inline-state"><span>{t('settings.remoteWorkUnavailable')}</span><button type="button" className="text-action" disabled={blocked} onClick={()=>void recover()}>{t('settings.remoteRecoverWork')}</button></div>}
    {error&&<p role="alert" className="remote-dialog-error">{t(problem.key)}</p>}
    </div>
-   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{selected&&<button type="button" className="text-action remote-remove" disabled={blocked} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain?'common.close':'common.cancel')}</button>{uncertain||waiting||(creation.current&&approvedUnready)?<button key="check-original" type="button" className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start({host,port:Number(port)||9317})}else void check()}}>{t(busy?'settings.remoteChecking':'settings.machineRecheck')}</button>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<button key="send-explicit" type="submit" className="primary" disabled={blocked||!(method==='ssh'?host.trim():draft.address.trim())}>{t(busy?'settings.machineConnecting':initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteConnect')}</button>}</div>}
+   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{selected&&<button type="button" className="text-action remote-remove" disabled={blocked} onClick={()=>void remove()}>{t('settings.machineRemove')}</button>}<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain?'common.close':'common.cancel')}</button>{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start({host,port:Number(port)||9317})}else void check()}}>{t('settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?host.trim():draft.address.trim())}>{t(initial&&status==='approved'?'settings.botSaveConnection':'settings.remoteConnect')}</SetupButton>}</div>}
   </form>
+  {configOpen&&<SSHConfigDialog call={call} onClose={()=>{setConfigOpen(false);void loadConfig()}} onSaved={()=>void loadConfig()}/>}
  </SettingsDialog>;
 }
 export function MachineRequestsDialog({value,readError=false,call=backend,onClose,onChanged}:{value:WorkerSharing|null;readError?:boolean;call?:typeof backend;onClose:()=>void;onChanged:()=>Promise<void>}){

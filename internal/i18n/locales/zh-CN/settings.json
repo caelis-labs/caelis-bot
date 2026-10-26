@@ -788,7 +788,6 @@
   "remoteRequestsFull": "对方暂时无法接收新请求。请查看对方的连接状态。",
   "remoteWorkUnavailable": "对方的 Worker 暂时不可用。",
   "remoteRecoverWork": "重新连接 Worker",
-  "remoteMachineCount": "{count} 台机器",
   "remoteAddressPlaceholder": "IP 或主机名",
   "remotePort": "端口",
   "remoteDefaultPort": "默认 9317",
@@ -816,7 +815,6 @@
   "remoteNotSentLabel": "尚未发送",
   "remoteCheckUnreadable": "未能检查",
   "remoteListStale": "未能刷新，显示上次的机器列表。",
-  "remoteListTitle": "机器列表",
   "remoteRevokeUnconfirmed": "撤销结果尚未确认。请检查原授权状态。",
   "sshConnectionMethod": "连接方式",
   "sshAddressMethod": "地址",
@@ -881,5 +879,12 @@
   "sshEditorUnavailable": "未能打开默认编辑器，请确认已安装可用的文本编辑器。",
   "sshLocationUnavailable": "无法显示此文件，请确认文件仍然存在。",
   "sshEditOnHost": "请在运行此 Bot 的机器上编辑",
-  "remoteAuthorizedUnavailable": "已授权，暂不可用"
+  "remoteAuthorizedUnavailable": "已授权，暂不可用",
+  "remoteEmptyTitle": "添加第一台机器",
+  "remoteEmptyHelp": "通过网络地址或 SSH 连接另一台 Bot。",
+  "remoteAddressHelp": "填写对方 Bot 的网络地址，连接需要对方确认。",
+  "remoteSSHHelp": "选择已配置的 SSH 主机，建立通往对方 Bot 的连接。",
+  "sshPrivateHelp": "仅供此 Bot 使用，不修改系统 SSH 配置。",
+  "sshSystemHelp": "复用本机已有的 SSH 主机与连接设置。",
+  "remoteConfigManage": "管理配置"
 }

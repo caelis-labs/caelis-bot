@@ -115,6 +115,8 @@ type Item struct {
 	// QuestionCards are safe display handles for an already registered async
 	// question. Native call IDs and model envelopes remain host-only.
 	QuestionCards []QuestionCard `json:"questionCards,omitempty"`
+	// QuestionReply is a receipt-backed display copy, never a decision target.
+	QuestionReply *QuestionReply `json:"questionReply,omitempty"`
 	// Native async call metadata is host-only. QuestionCards carry only the
 	// presentation-safe short references registered by the shared controller.
 	AsyncCallID    string          `json:"-"`
@@ -147,6 +149,14 @@ type QuestionCard struct {
 	Title     string   `json:"title"`
 	Options   []string `json:"options"`
 	State     string   `json:"state"`
+}
+
+type QuestionReply struct {
+	ShortID string `json:"shortId"`
+	Binding string `json:"binding"`
+	Title   string `json:"title"`
+	Answer  string `json:"answer"`
+	Outcome string `json:"outcome"` // sending, accepted, rejected, unknown
 }
 
 type AsyncQuestion struct {

@@ -40,12 +40,25 @@ func (s *Store) closeAsyncLocked(id string, q asyncQuestion, state, reason strin
 // Missing bounded history and an unobserved Worker are never terminal evidence.
 func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var replies []struct{ request, binding, outcome string }
+	observer := s.onQuestionReplyOutcome
+	committed := false
+	defer func() {
+		s.mu.Unlock()
+		if committed && observer != nil {
+			for _, reply := range replies {
+				observer(reply.request, reply.binding, reply.outcome)
+			}
+		}
+	}()
 	previous := s.state
 	s.state = cloneMaintenanceState(s.state)
 	changed := s.compactClosedQuestionCopies()
 	for id, q := range s.state.AsyncQuestions {
 		if q.State == "unknown" && q.WorkID == "" && snapshot.RuntimeOwner == q.Owner && snapshot.LastReceipt.ID == q.ReplyID {
+			if snapshot.LastReceipt.Outcome == "accepted" || snapshot.LastReceipt.Outcome == "rejected" {
+				replies = append(replies, struct{ request, binding, outcome string }{q.ReplyID, q.Fingerprint, snapshot.LastReceipt.Outcome})
+			}
 			if snapshot.LastReceipt.Outcome == "accepted" {
 				q.State = "answered"
 				q.ClosedAt = time.Now().Unix()
@@ -107,6 +120,7 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 			return err
 		}
 	}
+	committed = true
 	return nil
 }
 
@@ -117,6 +131,22 @@ func (s *Store) ProjectQuestions(items []api.Item) ([]api.Item, uint64) {
 	defer s.mu.Unlock()
 	result := append([]api.Item(nil), items...)
 	for i, item := range result {
+		if reply := item.QuestionReply; reply != nil {
+			q, ok := s.state.AsyncQuestions[reply.ShortID]
+			if ok && q.Fingerprint == reply.Binding && q.ReplyID == item.RequestID {
+				copy := *reply
+				switch q.State {
+				case "answered":
+					copy.Outcome = "accepted"
+				case "dispatching":
+					copy.Outcome = "sending"
+				case "unknown":
+					copy.Outcome = "unknown"
+				}
+				item.QuestionReply, item.Status = &copy, copy.Outcome
+				result[i] = item
+			}
+		}
 		if len(item.QuestionCards) == 0 {
 			continue
 		}

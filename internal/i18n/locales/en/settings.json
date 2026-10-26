@@ -789,7 +789,6 @@
   "remoteRequestsFull": "The other machine cannot accept another request. Check its connection status.",
   "remoteWorkUnavailable": "The other machine’s Worker is unavailable.",
   "remoteRecoverWork": "Reconnect Worker",
-  "remoteMachineCount": "{count} machines",
   "remoteAddressPlaceholder": "IP address or hostname",
   "remotePort": "Port",
   "remoteDefaultPort": "Default 9317",
@@ -817,7 +816,6 @@
   "remoteNotSentLabel": "Not sent",
   "remoteCheckUnreadable": "Check unavailable",
   "remoteListStale": "Could not refresh. Showing the previous machine list.",
-  "remoteListTitle": "Machines",
   "remoteRevokeUnconfirmed": "Revocation has not been confirmed. Check the original authorization.",
   "sshConnectionMethod": "Connection method",
   "sshAddressMethod": "Address",
@@ -882,5 +880,12 @@
   "sshEditorUnavailable": "Could not open the default editor. Check that a text editor is available.",
   "sshLocationUnavailable": "Could not show this file. Check that it still exists.",
   "sshEditOnHost": "Edit in the Bot app on this machine",
-  "remoteAuthorizedUnavailable": "Authorized, not available yet"
+  "remoteAuthorizedUnavailable": "Authorized, not available yet",
+  "remoteEmptyTitle": "Add your first machine",
+  "remoteEmptyHelp": "Connect to another Bot by network address or SSH.",
+  "remoteAddressHelp": "Enter the other Bot’s network address. Its owner will confirm the connection.",
+  "remoteSSHHelp": "Choose a configured SSH host to reach the other Bot.",
+  "sshPrivateHelp": "Used only by this Bot. System SSH settings stay separate.",
+  "sshSystemHelp": "Reuse the SSH hosts and connections configured on this computer.",
+  "remoteConfigManage": "Manage configuration"
 }

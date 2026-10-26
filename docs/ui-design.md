@@ -126,3 +126,18 @@ selection/cancellation interaction; other RPCs keep bounded deadlines. A committ
 selection notifies the current composer to read its native state even if the original
 view was closed. This resolves [Issue #159](https://github.com/caelis-labs/caelis-bot/issues/159)
 without reopening a chooser or automatically submitting an attachment.
+
+## Machine and interaction surfaces
+
+Remote machine actions live together above the list, aligned right: add, SSH
+configuration, and refresh. The breadcrumb remains navigation only, matching
+other settings pages. Reuse settings dialogs, selectors, loading buttons and
+menus; keep machine state in the row and failure recovery local to that machine.
+
+Questions and approvals use the same Bot portrait, left alignment, bubble
+surface and spacing as assistant messages. A submitted question response is a
+user bubble containing the exact selected answer and a compact original-question
+reference. Show sending, accepted, rejected or uncertain delivery from the
+original controller; never reconstruct consent from a visible command string.
+Native approval choices and outcomes remain Runtime-owned. A submitted decision
+waits for its original record instead of becoming an optimistic approval.
