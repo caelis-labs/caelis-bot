@@ -263,3 +263,42 @@ func TestWorkerNativeCreationRejectionRemainsDistinctFromUnknown(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerStopAckSaveFailureRemainsUnconfirmed(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "save-failure-parent")
+	task := newTask(t, m, "save-failure-worker")
+	originalPath := s.opts.StateFile
+	blocked := t.TempDir()
+	f.mu.Lock()
+	previous := f.handle
+	f.handle = func(w wireMessage) (any, bool) {
+		if w.Method == "turn/interrupt" {
+			s.mu.Lock()
+			s.opts.StateFile = blocked
+			s.mu.Unlock()
+			return map[string]any{}, true
+		}
+		return previous(w)
+	}
+	f.mu.Unlock()
+	if _, err := m.StopTask(t.Context(), task.ID); err == nil {
+		t.Fatal("save failure hidden")
+	}
+	if s.WorkStates()[0].StopAcknowledged {
+		t.Fatal("unpersisted ACK suppresses interruption")
+	}
+	s.mu.Lock()
+	s.opts.StateFile = originalPath
+	s.mu.Unlock()
+	loaded := NewSession(s.opts)
+	defer loaded.cancelLife()
+	if loaded.workerStopAcknowledged(loaded.binding.Tasks[task.ID]) {
+		t.Fatal("restart invented confirmed stop")
+	}
+	finishTask(s, f, task.ID, "interrupted")
+	awaitState(t, s, func(api.Snapshot) bool { return s.WorkStates()[0].Task.Status == "interrupted" })
+	if s.WorkStates()[0].StopAcknowledged {
+		t.Fatal("terminal changed unknown receipt into accepted")
+	}
+}

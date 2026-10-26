@@ -1118,6 +1118,7 @@ func (s *Session) stopWork(ctx context.Context, id string, guarded *api.WorkStop
 	defer s.mu.Unlock()
 	if guarded != nil {
 		r := t.Requests[guarded.RequestID]
+		prior := r
 		if err == nil {
 			r.Outcome = "accepted"
 			r.Phase = "settled"
@@ -1127,6 +1128,9 @@ func (s *Session) stopWork(ctx context.Context, id string, guarded *api.WorkStop
 		}
 		t.Requests[guarded.RequestID] = r
 		if saveErr := s.save(); saveErr != nil {
+			// A tool result that cannot confirm its durable ACK must not
+			// silently suppress the subsequent interruption report.
+			t.Requests[guarded.RequestID] = prior
 			err = saveErr
 		}
 	}

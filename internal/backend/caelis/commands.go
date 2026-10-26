@@ -155,6 +155,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	}
 	s.mu.Lock()
 	j := s.state.Operations[op]
+	prior := j
 	j.Outcome = string(out.Outcome)
 	if j.Outcome != "unknown" {
 		j.PendingInput = nil
@@ -174,6 +175,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	s.state.Operations[op] = j
 	s.state.Context.Resolve(op, productOutcome(out.Outcome))
 	e = s.saveLocked()
+	if e != nil && j.Work != nil && j.Work.Kind == "stop" {
+		// Keep unconfirmed stop receipts aligned with the durable journal.
+		// An ACK that the tool could not confirm must not mute its report.
+		s.state.Operations[op] = prior
+	}
 	if e == nil {
 		s.cleanupContextLocked()
 	}

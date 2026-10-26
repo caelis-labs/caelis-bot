@@ -68,6 +68,30 @@ func observedTurn(v *view) string {
 	return ""
 }
 
+// Replacement history omits live transport IDs. Retain missing fields only
+// when its canonical turn and any explicit target fields agree with the saved
+// observation. This evidence is for reports, never a new cancel target.
+func retainHeadTarget(next, prior wire.TurnTarget) wire.TurnTarget {
+	if next.TurnId == "" || next.TurnId != prior.TurnId ||
+		next.HandleId != "" && next.HandleId != prior.HandleId ||
+		next.RunId != "" && next.RunId != prior.RunId {
+		return next
+	}
+	if next.HandleId == "" {
+		next.HandleId = prior.HandleId
+	}
+	if next.RunId == "" {
+		next.RunId = prior.RunId
+	}
+	return next
+}
+
+func observeStateHead(v *view, run wire.RunState) {
+	if value(run.TurnId) != "" {
+		v.HeadTarget = retainHeadTarget(wire.TurnTarget{TurnId: value(run.TurnId), HandleId: value(run.HandleId), RunId: value(run.RunId)}, v.HeadTarget)
+	}
+}
+
 func retireRunHead(v *view, next string) {
 	prior := observedTurn(v)
 	if prior == "" || next == "" || prior == next {
@@ -642,6 +666,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				return errors.New("恢复状态引用已被后续任务替代的 Turn")
 			}
 			retireRunHead(v, value(st.Run.TurnId))
+			observeStateHead(v, st.Run)
 			v.State = st
 			s.observeWorkerActivityLocked(sid, st)
 			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
@@ -746,6 +771,8 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				}
 				staged.WorkerOutput.retainMissing(v.WorkerOutput)
 			}
+			staged.HeadTarget = retainHeadTarget(staged.HeadTarget, v.HeadTarget)
+			observeStateHead(staged, bootstrap.Run)
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
@@ -954,6 +981,7 @@ func (s *Session) refreshMain(ctx context.Context, c *client, sid string) error 
 		}
 		approval := v.State.Approval
 		retireRunHead(v, value(state.Run.TurnId))
+		observeStateHead(v, state.Run)
 		v.State = state
 		v.State.Approval = approval
 	}
