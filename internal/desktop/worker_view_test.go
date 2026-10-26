@@ -96,3 +96,27 @@ func TestAssemblyLocalTerminalFailureDoesNotOpenHistory(t *testing.T) {
 		t.Fatal("stopped surface opened a remote window")
 	}
 }
+
+func TestAssemblyChatTaskEntrySurvivesCardRemoval(t *testing.T) {
+	a, viewed := workerRoutingAssembly(t)
+	s := a.Service
+	// Completing or unpinning a card does not remove the original task record.
+	s.observeTasks(nil)
+	var terminal string
+	s.taskWindows = &taskControllerStub{click: func(_ context.Context, id string) error { terminal = id; return nil }}
+	if err := s.OpenTaskTerminal("peer"); err != nil || *viewed != 1 {
+		t.Fatalf("hidden remote card blocked history: %v, viewed=%d", err, *viewed)
+	}
+	if err := s.OpenTaskTerminal("local-caelis"); err != nil || terminal != "local-caelis" {
+		t.Fatalf("hidden local card lost original terminal: %v, terminal=%s", err, terminal)
+	}
+	for _, id := range []string{"foreign", "stale"} {
+		if err := s.OpenTaskTerminal(id); err == nil {
+			t.Fatalf("%s bypassed original task ownership", id)
+		}
+	}
+	s.shutdown()
+	if err := s.OpenTaskTerminal("peer"); err == nil || *viewed != 1 {
+		t.Fatal("stopped surface opened history")
+	}
+}
