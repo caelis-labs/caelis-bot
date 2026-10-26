@@ -220,7 +220,7 @@ func Run(assets fs.FS) error {
 		dock.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); dock.Hide() })
 		windows := []*application.WebviewWindow{pet, bubble, history, settings, preview, dock}
 		s.configureWindowsContext(native, appName, history, settings, preview)
-		configureWorkerWindows(native, s, func(window *application.WebviewWindow) { window.Focus() }, nil)
+		configureWorkerWindows(native, s, func(window *application.WebviewWindow) { window.Focus() }, nil, nil)
 		broadcast := func(event string, value any) {
 			data, _ := json.Marshal(value)
 			s.notifyWorkerWindows("window.dispatchEvent(new CustomEvent('" + event + "',{detail:" + string(data) + "}))")

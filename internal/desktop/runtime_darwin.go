@@ -221,7 +221,7 @@ func Run(assets fs.FS) error {
 	configureWorkerWindows(nativeApp, s, func(window *application.WebviewWindow) {
 		syncDock(true)
 		window.Focus()
-	}, func() { syncDock(false) })
+	}, func() { syncDock(false) }, macWindowDisplay)
 	s.focusSettings = func() { application.InvokeSync(func() { settings.UnMinimise(); settings.Show(); settings.Focus() }) }
 	s.openSettings = func() {
 		if !s.prepareWindowRecall() {
@@ -438,6 +438,9 @@ func Run(assets fs.FS) error {
 	}
 	updateLanguage(s.LanguagePreferences())
 	s.displayChanged = func(state DisplayState) {
+		for _, window := range []*application.WebviewWindow{history, settings, preview} {
+			macWindowDisplay(window, state)
+		}
 		data, _ := json.Marshal(state)
 		s.notifyWorkerWindows("window.dispatchEvent(new CustomEvent('display-changed',{detail:" + string(data) + "}))")
 		for _, window := range []*application.WebviewWindow{pet, history, settings, bubble, prop, preview} {
@@ -463,6 +466,9 @@ func Run(assets fs.FS) error {
 	}
 	macTrackLoginLaunch()
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		for _, window := range []*application.WebviewWindow{history, settings, preview} {
+			macWindowDisplay(window, s.DisplayPreferences())
+		}
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")
 		}

@@ -1,5 +1,7 @@
-body[data-surface=worker-task]{background:transparent;color:var(--ink)}
+body[data-surface=worker-task]{background:var(--caelis-chat);color:var(--ink)}
 body[data-surface=worker-task] #root{height:100dvh}
+/* The native frame owns its outer corners, including the title bar. */
+body[data-surface=worker-task] .worker-chat{border-radius:0}
 .worker-chat{display:flex;flex-direction:column;height:100%;min-height:0;min-width:0;background:var(--caelis-chat);color:var(--ink);font-size:13px;border-radius:12px;overflow:hidden}
 .worker-chat-heading{display:flex;align-items:center;gap:16px;min-height:58px;padding:12px 20px;border-bottom:1px solid var(--line);flex:none}
 .worker-chat-title{flex:1;min-width:0;display:flex;align-items:center;gap:12px}

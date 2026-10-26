@@ -12,7 +12,7 @@ import (
 
 // This registry owns presentation only. Closing a window drops its webview and
 // reads, never the original Worker, native decisions, or task receipts.
-func configureWorkerWindows(app *application.App, s *Service, focus func(*application.WebviewWindow), closed func()) {
+func configureWorkerWindows(app *application.App, s *Service, focus func(*application.WebviewWindow), closed func(), display func(*application.WebviewWindow, DisplayState)) {
 	windows := map[string]*application.WebviewWindow{}
 	s.workerWindowsOpen = func() bool { return len(windows) > 0 }
 	s.openWorkerTask = func(task api.Task) error {
@@ -23,8 +23,7 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 					Name: "worker-" + task.ID, Title: task.Title,
 					Width: 880, Height: 680, MinWidth: 360, MinHeight: 340,
 					URL:            "/?surface=worker-task&task=" + url.QueryEscape(task.ID),
-					BackgroundType: application.BackgroundTypeTransparent,
-					Mac:            application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
+					BackgroundType: application.BackgroundTypeSolid,
 				})
 				windows[task.ID] = window
 				closing := window
@@ -44,6 +43,9 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 			window.SetTitle(task.Title)
 			window.UnMinimise()
 			window.Show()
+			if display != nil {
+				display(window, s.DisplayPreferences())
+			}
 			focus(window)
 		})
 		return nil
@@ -69,6 +71,9 @@ func configureWorkerWindows(app *application.App, s *Service, focus func(*applic
 	s.workerWindowsChanged = func(script string) {
 		application.InvokeSync(func() {
 			for _, window := range windows {
+				if display != nil {
+					display(window, s.DisplayPreferences())
+				}
 				window.ExecJS(script)
 			}
 		})

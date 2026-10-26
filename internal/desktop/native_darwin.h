@@ -9,6 +9,7 @@ int bot_screens(BotRect *rects, int capacity);
 void bot_apply(void *host, double x, double y, double scale, int visible);
 int bot_prepare_window_recall(void *host);
 int bot_window_open(void *window);
+void bot_window_display(void *window, int mode);
 int bot_window_visible(void *window);
 int bot_window_can_hide(void *window);
 int bot_window_pet_can_hide(void *window);
