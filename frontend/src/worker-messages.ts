@@ -10,6 +10,19 @@ export type WorkerMessage = {
  artifacts:Artifact[];
 };
 
+// Existing Runtime observation bounds: Codex keeps 16,000 runes plus an
+// ellipsis; Caelis keeps the final 128 KiB at a UTF-8 boundary. A full history
+// row for the same native ID must not shrink back to that bounded projection.
+export function historyCoversObservation(full:string,observed:string):boolean {
+ if(full.startsWith(observed))return true;
+ if(full.length>observed.length-1&&observed.endsWith('…')&&Array.from(observed).length===16001&&full.startsWith(observed.slice(0,-1)))return true;
+ if(observed.length>=((128<<10)-3)/3&&full.endsWith(observed)){
+  const bytes=new TextEncoder().encode(observed).length;
+  return bytes>=(128<<10)-3&&bytes<=(128<<10);
+ }
+ return false;
+}
+
 function historical(message:TaskConversationMessage):WorkerMessage[] {
  return message.id && (message.role==='user'||message.role==='assistant')
   ?[{...message,role:message.role,status:'completed',artifacts:message.artifacts??[]}]:[];
@@ -27,7 +40,7 @@ export function workerMessages(conversation?:TaskConversation,items:Item[]=[]):W
   // History supplies full completed text (the live window may be truncated).
   // A resumed native message may extend its previous completed history row.
   if(final){
-   const growing=item.status==='inProgress'&&!final.text.startsWith(row.text);
+   const growing=item.status==='inProgress'&&!historyCoversObservation(final.text,row.text);
    const extended=row.text!==final.text&&row.text.startsWith(final.text);
    if(!growing&&!extended)continue;
    row.artifacts=[...new Map([...final.artifacts,...row.artifacts].map(file=>[file.id,file])).values()];

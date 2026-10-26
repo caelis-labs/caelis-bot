@@ -124,3 +124,19 @@ test('terminal history arriving before the first running snapshot cannot stop hi
  resolveFirst(observation([],'working'));await first;f.advance();await f.poll.read();
  assert.equal(histories,2);
 });
+
+
+test('completed native history covers the real Codex prefix and Caelis UTF-8 tail bounds',()=>{
+ const full='原始消息🙂'.repeat(16000)+'complete';
+ const prefix=Array.from(full).slice(0,16000).join(''),codex=prefix+'…';
+ assert.equal(workerMessages({messages:[{id:'message',role:'assistant',text:prefix}]},[{id:'live',historyId:'message',kind:'assistant',status:'inProgress',text:codex}])[0].text,codex,'a shorter history row does not cover a truncated extension');
+ const encoded=new TextEncoder().encode(full),tail=encoded.slice(-(128<<10));
+ let start=0;while((tail[start]&0xc0)===0x80)start++;
+ const caelis=new TextDecoder().decode(tail.slice(start));
+ for(const text of [codex,caelis]){
+  const item={id:'native-live',historyId:'message',kind:'assistant',status:'inProgress',text};
+  const history={messages:[{id:'message',role:'assistant',text:full}]};
+  assert.equal(workerMessages(history,[item])[0].text,full,'an older bounded snapshot cannot replace full completed text');
+  assert.deepEqual(retainWorkerOutput([], [item],history),[]);
+ }
+});

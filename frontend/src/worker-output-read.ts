@@ -1,4 +1,5 @@
 import type {Item,TaskConversation, WorkerTaskObservation} from './backend/contract';
+import {historyCoversObservation} from './worker-messages.ts';
 
 export const workerTerminal=new Set(['completed','failed','cancelled','interrupted','stopped']);
 
@@ -16,7 +17,7 @@ export function retainWorkerOutput(previous:Item[],current:Item[],history?:TaskC
  const merged=new Map<string,Item>();
  for(const item of [...previous,...current]){
   const final=item.historyId?read.get(item.historyId):undefined;
-  if(final&&final.text.startsWith(item.text)){merged.delete(item.id);continue;}
+  if(final&&historyCoversObservation(final.text,item.text)){merged.delete(item.id);continue;}
   if(final&&item.status!=='inProgress'&&!item.text.startsWith(final.text)){merged.delete(item.id);continue;}
   merged.set(item.id,item);
  }
