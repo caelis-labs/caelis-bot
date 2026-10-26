@@ -109,6 +109,7 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 	remaining := s.outbox[:0]
 	for _, pending := range s.outbox {
 		confirmed := false
+		awaitingHistory := false
 		for _, item := range v.Items {
 			if item.Kind == "user" && item.RequestID == pending.item.RequestID {
 				confirmed = true
@@ -132,6 +133,7 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 						break
 					}
 				}
+				awaitingHistory = !confirmed
 			}
 			if confirmed {
 				s.messageMedia.Resolve(pending.item.RequestID)
@@ -143,7 +145,10 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 		}
 		// A terminal local bubble may remain beside its original anchor, but
 		// a bounded history replacement must not append it as new input.
-		if pending.item.Status == "accepted" || pending.item.Status == "rejected" {
+		// An exact native echo already proves this input belongs to the current
+		// window. Keep it while history checks its display, even if a terminal
+		// receipt arrived after its original anchor left that window.
+		if !awaitingHistory && (pending.item.Status == "accepted" || pending.item.Status == "rejected") {
 			anchored := false
 			for _, item := range v.Items {
 				if item.ID == pending.after || item.RequestID != "" && "outgoing:"+item.RequestID == pending.after {
