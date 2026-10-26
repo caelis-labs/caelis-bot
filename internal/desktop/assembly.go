@@ -59,8 +59,13 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		owned := false
 		for _, task := range back.WorkerTasks() {
 			if task.ID == id {
+				// An empty machine is the native local environment. Keep its
+				// original terminal controller (including reuse and uncertainty)
+				// rather than intercepting it with the remote output viewer.
+				if task.Machine == "" {
+					return false, nil
+				}
 				owned = true
-
 				break
 			}
 		}

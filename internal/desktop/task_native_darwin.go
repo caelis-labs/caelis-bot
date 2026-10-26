@@ -18,6 +18,11 @@ func (s *Service) openTaskAt(ctx context.Context, id string, point *taskterminal
 	if !s.taskWindowAllowed(id) {
 		return taskterminal.ErrWindowIdentity
 	}
+	if s.workerTaskView != nil {
+		if handled, err := s.workerTaskView(ctx, id); handled || err != nil {
+			return err
+		}
+	}
 	placer, ok := s.taskWindows.(interface {
 		Place(context.Context, string, taskterminal.Point) error
 	})
