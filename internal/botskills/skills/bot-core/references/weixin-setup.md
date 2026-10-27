@@ -1,34 +1,53 @@
 # Help the user connect Weixin
 
-Weixin is a private text entry to the same Bot conversation. Guide pairing in
-**Settings → Messaging → Weixin**. The user scans the code, confirms on the
-phone, and confirms the masked account on the Mac. If Weixin asks for a phone
-verification code, the user enters it in Settings. Do not request the code,
-pairing screenshot, or token in chat.
+Weixin is a private entry and additional delivery endpoint for the same Bot
+conversation. Guide pairing in **Settings → Messaging → Weixin**. The user scans,
+confirms on the phone, then confirms the masked account on the Mac. Phone
+verification codes belong in Settings; never request codes, tokens or pairing
+screenshots in chat.
 
-The channel sends merged progress, native approval and question cards, and the
-final reply for work started from Weixin. Reply files already exposed as Bot
-artifacts can be sent as separate file messages. Do not turn a file path in
-prose into an attachment or imply that an arbitrary local file was shared.
-It does not relay work started from the Mac or Telegram. The phone may show
-typing during a main Turn; typing does not renew its send allowance. HTTP
-acceptance does not prove phone display, for text or files.
+Each distinct valid phone text, including `/r`, `/answer` and `/approve`, refreshes
+the local receive allowance and context. Desktop or Telegram input does not close
+or renew that window. New shared Bot/Runtime/Worker output can use the remaining
+allowance regardless of which entry started the work. Private Worker transcripts
+and old conversation history are not copied into Weixin.
 
-The user can send `/r` or `/refresh` to resume delivery of unsent progress
-without starting another model request. `/status` reads current state, `/help`
-lists commands, and `/stop` requests the native interruption. `/approve` and
-`/answer` address the original pending Runtime request. If text delivery is
-deferred or rejected, ask the user to send `/r` and check the original result.
-`/r` resumes text progress, not a backlog of files. If a
-file was deferred for budget, keep its readable name in the final reply and
-invite the user to name the specific file they want. Expose that same owned
-artifact in the new reply only for the requested file. A file whose send
-result is unknown must not be replayed automatically. The Weixin connection
-status on the Mac distinguishes an unavailable file, upload failure, deferred
-file and uncertain or rejected file message. Ask the user to check the original
-artifact and the phone before claiming receipt.
+The first meaningful output is prompt; later short messages and stage results are
+combined. Active approvals precede questions, then results/status, then progress
+and nonurgent files. Native options and original action bindings stay intact.
+Already handled or expired interactions are not sent as actionable cards. A
+Runtime Final is not proof that all Worker work has ended.
 
-Weixin currently accepts one paired user's private text. Incoming attachments,
-group messages and quoted-message authority are outside this channel. Pausing
-keeps pairing; removing the connection deletes local credentials but does not
-revoke authorization inside Weixin.
+`/r` or `/refresh` continues retained unattempted body parts without starting a
+model request or rerunning work. It can also recover retired progress from the
+current shared IM's last 128 visible items within twelve hours and since channel
+observation began. Results come first; progress covered by a result is skipped.
+It does not scan older history or replay accepted, rejected or unknown sends.
+Normal new input drops old queued progress and
+nonurgent files; still-current important results may continue, while results held
+by an exhausted/paused window need `/r`. `/status` reads local state, `/help` lists
+commands, and `/stop` requests native interruption. `/approve` and `/answer` use
+the original pending request.
+
+The ten-send estimate, length caps and safety expiry are local conservative
+policy, not a guaranteed server quota or charging rule. Every attempted text part,
+card part or file message counts, including rejection/uncertainty. Upload and
+typing do not count. HTTP acceptance does not prove phone display. A new message
+cannot change the actual receipt of an old in-flight attempt.
+
+Markdown chunks are complete when the allowance can fit the reply. Otherwise the
+phone receives explicitly labelled complete-block excerpts and a route to the full
+shared desktop conversation. A preview is a separate delivery, never proof that
+the full body arrived. `/r` continues retained original body parts and does not
+replay the preview; uncertain original body parts still require reconciliation.
+If a body exceeds the bounded delivery cache, use the desktop entry for its full
+text. Do not treat excerpts as summaries or claim all key results fit. Keep useful conclusions clear in the actual reply. Native action
+options are never shortened. Files must be existing Bot-owned Artifacts, not paths
+in prose. Deferred file names remain readable; ask which file is needed and expose
+that same owned Artifact in the new reply. Unknown file delivery must not replay.
+Settings distinguishes preparation, unavailable/upload failures and uncertain or
+rejected message delivery. Check original receipts before claiming delivery.
+
+One paired user's private text is supported. Groups, incoming attachments and
+quoted-message authority are outside this channel. Pausing retains pairing;
+removal deletes local credentials, not server-side authorization.

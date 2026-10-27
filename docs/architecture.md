@@ -414,10 +414,13 @@ cannot promise otherwise.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
 its own durable delivery ledger. Telegram mirrors visible conversation items;
-Weixin sends only output attributable to its exact accepted input/Turn, including
-batched progress, actionable cards and the terminal reply. Unbound or mixed-origin
-Turns are not pushed to Weixin. Routine accepted answer/decision acknowledgements
-stay in the
+Weixin opens an additional delivery window on distinct authenticated owner
+text, including control commands. Desktop/Telegram inputs leave that window
+unchanged. Shared visible output is eligible regardless of its initiating Turn
+or input channel. Its delivery spool and priority/cadence policy do not change
+the shared transcript, native interaction authority or Telegram mirroring.
+Routine accepted
+answer/decision acknowledgements stay in the
 controller's durable deduplication ledger without consuming another IM or phone
 message; a later stale command still receives its actual state. The desktop
 chat shows async questions as native choice buttons or a free-text field backed
@@ -449,7 +452,7 @@ saved identities never authorize a new cancellation.
 
 The first accepted or unconfirmed `bot_delegate` start emits one durable,
 user-visible conversation item with the task title (or a shortened prompt). It
-is mirrored to Telegram and to Weixin for a Weixin-owned Turn; Weixin emphasizes
+is mirrored to Telegram and may be delivered within an active Weixin window; Weixin emphasizes
 the title with Markdown,
 without a second explanatory sentence. The desktop shows a compact
 chip on the desktop. Stable request replay emits no second item. Ongoing Worker
@@ -547,59 +550,78 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and output traced to Weixin-owned work are in scope.
-Outgoing files use the same Host-owned Artifact resolver as Telegram. The
-adapter accepts only projected Artifact IDs, bounded regular files and safe
-filenames, then requests a FILE upload URL, encrypts bytes with AES-128-ECB and
-PKCS#7 padding, and POSTs to an allowlisted Weixin CDN endpoint without bearer
-credentials or redirects. A successful upload yields one type-4 file item.
-File preparation runs away from the polling loop. Its durable `preparing` state
-may be retried after restart within the original input window because no
-message was attempted. Each file has its own message and send slot. The
-original Artifact ID and Turn key one send intent; a new user request can
-expose the same owned artifact in a new Turn. Budget-deferred files are terminal
-for that intent and never drain into later windows automatically. Final text
-keeps safe filenames as readable placeholders. Once the send slot and unknown
-intent are saved, no timeout, restart or new ingress replays that intent.
-Failures and deferred sends remain visible in Weixin settings. Incoming file
-messages and phone receipt remain outside this slice.
-The first completed commentary is sent as progress; subsequent completed items
-are merged in order after three items or near the safe single-message length.
-Progress attempts are capped at five per observed ten-send window. Native
-approvals, async questions, Worker-start items and terminal replies have separate
-priority; questions may wait when only the final-reply reserve remains. A final
-reply may absorb unsent progress from its Turn. `/r` or `/refresh` flushes pending
-progress without a model submission; `/help`, `/status`, and `/stop` are local
-controls (`/stop` uses the original native interrupt). Each actual text part
-reserves one slot in a durable owner/last-ingress window before HTTP; an old or unknown window never starts
-full after restart. This is a conservative estimate of observed service behavior,
-not a published quota contract. Weixin cannot edit a previous card or prove
-phone display from HTTP success. Unknown HTTP outcomes keep their original
-intent without automatic replay, because upstream client-ID deduplication is
-unproven. The Worker-start presentation carries the original Bot tool call's
-projected Turn identity; a native Worker approval carries its exact task ID.
-Weixin uses that persisted task-to-source binding instead of guessing from the
-most recent chat message. A later host report's original receipt ID resolves to
-that same task, so the Bot's resulting Turn retains its Weixin delivery source.
-This association travels as private structured snapshot metadata, independently
-of the hidden `hostNotice` item. The native adapter retains the exact report,
-runtime/conversation, turn and terminal phase across recovery; cached and recent
-snapshots preserve it without exposing it to renderer JSON. Native input sources
-also retain each item's actual scope: Codex captures the explicit native thread
-at projection, and Caelis persists the authenticated feed's instance/session/turn
-with the item. Retained Codex messages and Caelis PastSessions keep their original
-scope; Caelis also retains input evidence beyond canonical display eviction so
-reloading an older page cannot reassign it. Service only carries this evidence
-through chat assembly; neither native
-nor SQLite display history may inherit the current snapshot owner. Missing
-provenance on retained inputs stays unproven across native replay; newly observed
-inputs require an exact scoped native observation. The channel joins it
-to the persisted original task turn and checks the runtime/conversation scope.
-Missing or mismatched provenance fails closed before outbox admission and emits
-a bounded `route_source_unresolved` diagnostic with a classified reason and a
-fingerprint only. It never falls back to the latest active messaging window.
-Ingress and Worker receipts are likewise never replayed; see
-[POC scope](weixin-channel-poc.md).
+Only the paired owner's private text opens or refreshes a window. The durable
+receive cursor, inbox, context token and ten-attempt local allowance commit
+before dispatch, including `/r`, `/answer` and `/approve`. Duplicate polls,
+Desktop/TG inputs, typing and restart do not reset it. Every real text/card/file
+`sendmessage` attempt reserves one slot before HTTP, including rejected or
+unknown outcomes. Upload and typing do not count. Explicit rate/context errors,
+exhaustion or the local twelve-hour safety cutoff pause delivery until owner input.
+An old in-flight outcome cannot debit or exhaust a newer window.
+
+The scheduler consumes the shared IM's IDs and presentation timestamps for
+freshness, never parses prose or reconstructs conversation ownership. Native
+terminal facts only classify results; they do not constrain output to a Weixin
+input. Existing history is baselined. Ordinary new input discards queued ordinary
+progress and unattempted nonurgent files. Still-current pending important results
+continue in FIFO order; results held when the prior window paused require `/r`
+or `/refresh`. Those commands continue original unattempted body parts and restore
+retired progress from the current shared IM tail: at most 128 visible items from
+the last twelve hours, never before this channel's observation start. No history
+paging or second body archive is created. Results retain priority; progress covered
+by a known result and accepted/rejected/unknown intents are not replayed. A native
+P3-to-P2 classification change is observed separately from the text/status digest;
+only a retired candidate with no HTTP intent can regain result eligibility.
+Control feedback admission is saved under its original notice key before the
+existing text controller runs. A newly produced outcome may use any valid current
+window even after another input; pre-existing notices are history. The controller's
+routine acknowledgements remain silent. No new interaction authority is introduced.
+The original chunk/batch receipts survive migration and restart. There is no
+server readback API that proves an uncertain phone delivery; unknown stays unknown.
+
+Priority is active native approval, active question, valuable result/status,
+then progress/nonurgent file. The shared snapshot already hides Bot-coordinated
+Worker approvals; the text controller supplies current claims, question lifecycle
+and exact original options. The adapter rechecks these before send admission.
+Cards remain separate and unabridged. A card that cannot fit all remaining parts
+waits for a fresh allowance; a card larger than the entire allowance gets one
+non-actionable full-desktop entry while still pending; lower-priority results may use otherwise unusable
+space. New higher-priority work can preempt between parts, never an in-flight
+request. Equal priority and parts retain FIFO order. P0/P1 can use the final slot;
+ordinary output keeps a result reserve and P3 text and nonurgent files share a five-attempt cap.
+
+The first meaningful candidate is immediate. Subsequent same-priority short
+output batches at three items, 70% of the safe text length or a thirty-second
+ordinary interval. Idle with reliably no unfinished Worker uses a two-second
+coalescing delay. Idle with unfinished/unknown Workers uses ordinary aggregation;
+a native Turn Final does not end a Worker task. Only the existing `workerStates`
+read callback is added to the Weixin assembly. Explicit Worker finish/failure or
+Bot failure/interruption can release a combined batch promptly. No user setting
+or second task authority is introduced.
+
+Private queued delivery bodies and frozen parts are bounded; successful and
+uncertain attempts keep the existing digest/client-ID/response ledger. Text uses
+Markdown-aware 2,400 UTF-16 / 6,000-byte chunks. If complete output cannot fit,
+only complete initial Markdown blocks are shown as an explicit excerpt with a
+route to the full shared desktop conversation. This is not semantic summarization
+and does not pretend that important content can be inferred from arbitrary prose.
+Each preview has a separate intent, leaving original frozen parts and batch members
+unfinished for `/r`; a preview's accepted/unknown receipt cannot acknowledge the
+body. Existing 64 KiB per-body / approximately 512 KiB queued-body caps still apply:
+when only an excerpt was retained, the full desktop conversation remains the entry,
+and the body is not falsely marked accepted. No prior terminal receipt is rewritten.
+Native action options are never shortened. Ten attempts, length caps and expiry
+are local conservative policy, not a Tencent quota, charging or receipt guarantee.
+
+Outgoing files retain the Host-owned Artifact resolver, regular-file/filename and
+20 MiB validation, AES-128-ECB/PKCS#7 upload and allowlisted HTTPS CDN without
+bearer credentials or redirects. Preparation runs asynchronously, consumes no
+send slot and returns to the same priority scheduler. An unattempted preparation
+can be re-resolved after restart within its window; a new ordinary input retires
+old nonurgent files. Each actual type-4 message uses one slot. Accepted, rejected
+and uncertain sends never replay. Settings retains file failures, and readable
+filenames/full-desktop access remain available when phone capacity is insufficient.
+See [POC scope and verified protocol limits](weixin-channel-poc.md).
 
 ### Question response presentation
 

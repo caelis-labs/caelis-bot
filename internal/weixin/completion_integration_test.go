@@ -56,12 +56,8 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			host := Host{Snapshot: service.Snapshot, Submit: s.Submit, Recovery: func() api.RecoveryState { return api.RecoveryState{} }, TextControl: control, TaskForReport: func(id string) string {
-				if id == "completion-report" {
-					return "task-original"
-				}
-				return ""
-			}}
+			clock := time.Now()
+			host := Host{Now: func() time.Time { return clock }, Snapshot: service.Snapshot, Submit: s.Submit, Recovery: func() api.RecoveryState { return api.RecoveryState{} }, TextControl: control}
 			b, err := Open(root, host)
 			if err != nil {
 				t.Fatal(err)
@@ -73,15 +69,24 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 			if b.state.Inputs["wx-request"] != "accepted" {
 				t.Fatal("ingress was not accepted")
 			}
-			original := s.Snapshot()
+			original := awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool {
+				for _, item := range v.Items {
+					if item.Kind == "user" && item.RequestID == "wx-request" {
+						return true
+					}
+				}
+				return false
+			})
 			service.ObserveChat(original)
 			service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task-original", Kind: "assistant", TurnKey: original.CurrentTurn, Status: "completed", Text: "Worker started", Task: &api.TaskPresentation{ID: "task-original", Title: "Worker started", Status: "working"}}}})
 			server, texts := sentTexts(t, nil)
 			defer server.Close()
 			p := &protocol{client: server.Client(), base: server.URL, token: "fixture-token"}
+			clock = clock.Add(ordinaryDelay)
 			b.output(t.Context(), p)
 			f.complete(t, "wx-request", "Delegated")
 			service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
+			clock = clock.Add(ordinaryDelay)
 			b.output(t.Context(), p)
 			before := len(*texts)
 			if before != 2 || (*texts)[1] != "Delegated" {
@@ -103,6 +108,7 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 			service.ObserveChat(live)
 			assertHiddenCompletion(t, service.Snapshot())
 			if !restart {
+				clock = clock.Add(ordinaryDelay)
 				b.output(t.Context(), p)
 				if len(*texts) != before+1 || (*texts)[before] != "Checking completed work" {
 					t.Fatal("commentary did not inherit source", *texts)
@@ -118,7 +124,7 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 					t.Fatal(err)
 				}
 				f.complete(t, "later-desktop", "Desktop result")
-				awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+				service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
 				if err := service.Shutdown(); err != nil {
 					t.Fatal(err)
 				}
@@ -142,24 +148,28 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 				t.Fatal("chat did not restore completion reply")
 			}
 			assertHiddenCompletion(t, assembled)
+			clock = clock.Add(ordinaryDelay)
 			b.output(t.Context(), p)
 			for range 3 {
+				clock = clock.Add(ordinaryDelay)
 				b.output(t.Context(), p)
 			}
 			b, err = Open(root, host)
 			if err != nil {
 				t.Fatal(err)
 			}
+			clock = clock.Add(ordinaryDelay)
 			b.output(t.Context(), p)
 			countFinal, countProgress := 0, 0
 			for _, body := range (*texts)[before:] {
 				countFinal += strings.Count(body, "Final completion result")
 				countProgress += strings.Count(body, "Checking completed work")
-				if strings.Contains(body, "PRIVATE") || strings.Contains(body, "Desktop result") {
+				if strings.Contains(body, "PRIVATE") {
 					t.Fatal("unrelated input leaked")
 				}
 			}
-			if countFinal != 1 || countProgress != 1 {
+			expected := 1
+			if countFinal != expected || countProgress != expected {
 				t.Fatalf("completion delivery counts final=%d commentary=%d", countFinal, countProgress)
 			}
 			origin, ok := control.OriginOf("wx-request")
@@ -334,7 +344,7 @@ func (f *completionRuntime) complete(t *testing.T, turn, body string) {
 
 // Accepted ingress without a previously observed turn owner must not inherit
 // the next thread's scope through retained native history and a task card.
-func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
+func TestCodexRenewalKeepsSharedDeliveryWithoutResettingAllowance(t *testing.T) {
 	f := newCompletionRuntime(t)
 	root := t.TempDir()
 	s := codex.NewSession(codex.SessionOptions{Socket: f.path, RequiredSocket: true, Binary: "/fixture/no-cli", Directory: filepath.Join(root, "work"), StateFile: filepath.Join(root, "binding.json")})
@@ -344,12 +354,8 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	service := backend.NewService(s, nil, nil, nil, nil)
 	service.ConfigureChat(filepath.Join(root, "chat.sqlite"))
 	t.Cleanup(func() { _ = service.Shutdown() })
-	host := Host{Snapshot: service.Snapshot, Submit: s.Submit, Recovery: func() api.RecoveryState { return api.RecoveryState{} }, TaskForReport: func(id string) string {
-		if id == "completion-report" {
-			return "task-original"
-		}
-		return ""
-	}}
+	clock := time.Now()
+	host := Host{Now: func() time.Time { return clock }, Snapshot: service.Snapshot, Submit: s.Submit, Recovery: func() api.RecoveryState { return api.RecoveryState{} }}
 	b, err := Open(root, host)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +364,14 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	b.state.Window = sendWindow{OwnerID: "fixture-peer", InputID: "old-wx-request", ContextToken: "fixture-context", InputAt: time.Now().UnixMilli()}
 	b.state.Inbox = []inbound{{ID: "old-wx-request", Text: "Fixture old work", ContextToken: "fixture-context"}}
 	b.dispatch(t.Context())
-	original := s.Snapshot()
+	original := awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool {
+		for _, item := range v.Items {
+			if item.Kind == "user" && item.RequestID == "old-wx-request" {
+				return true
+			}
+		}
+		return false
+	})
 	service.ObserveChat(original)
 	service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task-original", Kind: "assistant", Status: "completed", TurnKey: original.CurrentTurn, Text: "Fixture task", Task: &api.TaskPresentation{ID: "task-original", Title: "Fixture task"}}}})
 	f.complete(t, "old-wx-request", "Old result")
@@ -374,7 +387,7 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	if receipt, err := s.SubmitReport(t.Context(), api.Submission{ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	f.complete(t, "completion-report", "Wrong-scope completion")
+	f.complete(t, "completion-report", "Renewed runtime report")
 	service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
 	assembled := service.Snapshot()
 	assertHiddenCompletion(t, assembled)
@@ -384,7 +397,7 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	if len(assembled.InputSources) != 1 || assembled.InputSources[0].RuntimeOwner != original.RuntimeOwner {
 		t.Fatal("retained native input lost original scope")
 	}
-	if b.state.Inputs["old-wx-request"] != "accepted" || len(b.state.TurnOwners) != 0 {
+	if b.state.Inputs["old-wx-request"] != "accepted" {
 		t.Fatal("fixture must start with accepted input and no observed turn scope")
 	}
 	if err := b.saveLocked(); err != nil {
@@ -398,27 +411,30 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	defer server.Close()
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	for range 3 {
+		clock = clock.Add(ordinaryDelay)
 		b.output(t.Context(), p)
 	}
-	if len(*texts) != 0 || len(b.state.Outputs) != 0 || len(b.state.TurnOwners) != 0 {
-		t.Fatal("retained prior-thread input authorized completion")
+	if !strings.Contains(strings.Join(*texts, "\n"), "Renewed runtime report") || b.state.Window.InputID != "old-wx-request" || b.state.Window.Used != len(*texts) {
+		t.Fatal("renewal lost shared output or reset allowance", *texts, b.state.Window)
 	}
-	// A genuinely new input in the new native thread still establishes its own
-	// source and delivers once, even alongside all the refused historical items.
+	before := len(*texts)
+	// A fresh phone input does not repeat already accepted shared output.
 	b.state.Window = sendWindow{OwnerID: "fixture-peer", InputID: "new-wx-request", ContextToken: "fixture-context", InputAt: time.Now().UnixMilli()}
 	b.state.Inbox = []inbound{{ID: "new-wx-request", Text: "Fixture new work", ContextToken: "fixture-context"}}
 	b.dispatch(t.Context())
 	f.complete(t, "new-wx-request", "New request result")
 	service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
 	for range 3 {
+		clock = clock.Add(ordinaryDelay)
 		b.output(t.Context(), p)
 	}
 	b, err = Open(root, host)
 	if err != nil {
 		t.Fatal(err)
 	}
+	clock = clock.Add(ordinaryDelay)
 	b.output(t.Context(), p)
-	if len(*texts) != 1 || (*texts)[0] != "New request result" || b.state.TurnOwners[original.CurrentTurn] != "" {
+	if len(*texts) != before+1 || (*texts)[before] != "New request result" {
 		t.Fatal("new input failed or historical output replayed", *texts)
 	}
 }

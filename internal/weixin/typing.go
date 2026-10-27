@@ -2,7 +2,6 @@ package weixin
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -29,26 +28,11 @@ func (b *Bridge) typing(ctx context.Context, p *protocol) {
 		b.mu.Lock()
 		owner, contextToken := b.state.OwnerID, b.state.ContextToken
 		enabled := b.state.Enabled && b.issue != "auth_expired" && b.issue != "storage" && b.state.PauseUntil <= time.Now().UnixMilli()
-		for _, item := range snapshot.Items {
-			if item.Kind == "user" && item.TurnKey == snapshot.CurrentTurn && strings.HasPrefix(item.RequestID, "weixin:") {
-				if token, ok := b.state.InputContexts[item.RequestID]; ok {
-					contextToken = token
-				}
-			}
-		}
+		activeWindow := b.remainingLocked(true) > 0
 		b.mu.Unlock()
 		recovery := b.host.Recovery()
-		working := enabled && owner != "" && weixinTypingTurn(snapshot) &&
+		working := enabled && owner != "" && activeWindow && weixinTypingTurn(snapshot) &&
 			!recovery.Automatic && !recovery.InProgress && !recovery.Manual
-		if working {
-			working = false
-			for _, item := range snapshot.Items {
-				if item.Kind == "user" && item.TurnKey == snapshot.CurrentTurn && strings.HasPrefix(item.RequestID, "weixin:") {
-					working = true
-					break
-				}
-			}
-		}
 		if !working && active {
 			work, stop := context.WithTimeout(ctx, 3*time.Second)
 			_ = p.sendTyping(work, owner, ticket, false)

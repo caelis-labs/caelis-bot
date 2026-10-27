@@ -3,22 +3,13 @@ package weixin
 import "github.com/caelis-labs/caelis-bot/internal/backend/api"
 
 // ObserveTurn records terminal state while it is visible. Codex clears
-// CurrentTurn at completion, so bind that terminal phase to the exact latest
-// accepted ingress or a previously observed running Turn.
+// CurrentTurn at completion, so classify the terminal item using the native receipt or previously observed
+// running Turn. This is scheduling evidence, never input-source routing.
 func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.state.HasInput || b.state.OwnerID == "" {
+	if b.state.Window.InputID == "" || b.state.OwnerID == "" {
 		return // a newly paired channel must not prime historical Turn replay
-	}
-	if b.state.AcceptedInputID == "" && snapshot.LastReceipt.Outcome == "accepted" && b.state.Inputs[snapshot.LastReceipt.ID] == "accepted" {
-		// An older ledger predates AcceptedInputID. Recover only from the
-		// original accepted ingress and the Runtime's matching receipt.
-		b.state.AcceptedInputID = snapshot.LastReceipt.ID
-		if b.saveLocked() != nil {
-			b.state.AcceptedInputID = ""
-			return
-		}
 	}
 	// Native report metadata survives hidden input filtering and recovery even
 	// when a newer receipt or turn has superseded the completion's global phase.
@@ -42,7 +33,7 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 		}
 		return
 	}
-	turn := terminalSnapshotTurn(snapshot, b.state.AcceptedInputID, b.state.ObservedTurn)
+	turn := terminalSnapshotTurn(snapshot, snapshot.LastReceipt.ID, b.state.ObservedTurn)
 	if snapshot.Phase == "completed" && !completedReplyForTurn(snapshot.Items, turn) {
 		return
 	}
@@ -57,7 +48,6 @@ func (b *Bridge) recordTurnPhaseLocked(turn, phase string) {
 	oldObserved := b.state.ObservedTurn
 	oldOrder := append([]string(nil), b.state.TurnOrder...)
 	evicted, evictedPhase := "", ""
-	evictedOrigin, evictedOwner := "", ""
 	if !existed {
 		b.state.TurnOrder = append(b.state.TurnOrder, turn)
 	}
@@ -66,13 +56,7 @@ func (b *Bridge) recordTurnPhaseLocked(turn, phase string) {
 	if len(b.state.TurnOrder) > 256 {
 		evicted = b.state.TurnOrder[0]
 		evictedPhase = b.state.TurnPhases[evicted]
-		evictedOrigin = b.state.TurnOrigins[evicted]
-		evictedOwner = b.state.TurnOwners[evicted]
 		delete(b.state.TurnPhases, evicted)
-		if !b.taskTurnReferencedLocked(evicted) {
-			delete(b.state.TurnOrigins, evicted)
-			delete(b.state.TurnOwners, evicted)
-		}
 		b.state.TurnOrder = b.state.TurnOrder[1:]
 	}
 	if b.saveLocked() != nil {
@@ -80,12 +64,6 @@ func (b *Bridge) recordTurnPhaseLocked(turn, phase string) {
 		b.state.ObservedTurn = oldObserved
 		if evicted != "" {
 			b.state.TurnPhases[evicted] = evictedPhase
-			if evictedOwner != "" {
-				b.state.TurnOwners[evicted] = evictedOwner
-			}
-			if evictedOrigin != "" {
-				b.state.TurnOrigins[evicted] = evictedOrigin
-			}
 		}
 		if existed {
 			b.state.TurnPhases[turn] = prior

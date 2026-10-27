@@ -1,8 +1,6 @@
 package weixin
 
 import (
-	"fmt"
-
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -30,9 +28,7 @@ func (b *Bridge) outputKinds(snapshot api.Snapshot) map[string]string {
 			kinds[item.ID] = "task"
 			continue
 		}
-		if item.TurnKey == "" {
-			continue // unscoped text cannot prove an active or terminal Turn
-		}
+		kinds[item.ID] = "progress"
 		if terminal[item.TurnKey] == "completed" {
 			kinds[item.ID] = "progress"
 			last[item.TurnKey] = item.ID
@@ -46,27 +42,7 @@ func (b *Bridge) outputKinds(snapshot api.Snapshot) map[string]string {
 	return kinds
 }
 
-// This is a deterministic excerpt of the original text, never a model summary.
-// It is used only when the remaining estimated window cannot fit every normal
-// Markdown-aware chunk. The full original remains in the shared local chat.
-func compactFinal(body string) string {
-	runes := []rune(body)
-	for keep := len(runes); keep > 0; keep -= 32 {
-		if keep > 1200 {
-			keep = 1200
-		}
-		if keep >= len(runes) && fitsText(body) {
-			return body
-		}
-		head := keep * 7 / 10
-		tail := keep - head
-		if head+tail >= len(runes) {
-			return body
-		}
-		text := fmt.Sprintf("%s\n\n[... 中间省略 %d 字符 ...]\n\n%s\n\n本条为原文节选；如需其余内容，请回复 Bot 继续发送。", string(runes[:head]), len(runes)-keep, string(runes[len(runes)-tail:]))
-		if fitsText(text) {
-			return text
-		}
-	}
-	return fmt.Sprintf("%s\n\n[... 中间省略 %d 字符 ...]\n\n如需其余内容，请回复 Bot 继续发送。", string(runes[:1]), len(runes)-1)
-}
+// Do not silently discard the middle of a result to fit an estimated allowance.
+// The shared conversation retains the complete result; the user chooses what
+// to retrieve next instead of automatically draining it into another window.
+const longReplyNotice = "完整回复较长，当前微信额度不足以完整发送。全文已保存在同一 Bot 对话，请在桌面查看，或回复 Bot 指定需要的部分。"
