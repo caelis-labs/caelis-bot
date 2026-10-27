@@ -332,18 +332,10 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		remote, remoteErr := weixin.Open(app.root, weixin.Host{
 			Diagnostics: app.host.Diagnostics,
 			Snapshot:    app.Backend.Snapshot,
+			WorkStates:  app.workerStates,
 			Recovery:    app.Backend.RecoveryState,
 			Interrupt:   app.Backend.Interrupt,
 			Artifact:    func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
-			TaskForReport: func(id string) string {
-				app.mu.Lock()
-				manager := app.tasks
-				app.mu.Unlock()
-				if manager == nil {
-					return ""
-				}
-				return manager.TaskForReportID(id)
-			},
 			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},

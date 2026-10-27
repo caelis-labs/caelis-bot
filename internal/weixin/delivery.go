@@ -15,13 +15,13 @@ import (
 const (
 	windowSendLimit   = 10
 	windowSoftLimit   = windowSendLimit - 1 // keep one attempt for a terminal reply
-	progressSendLimit = 5
+	progressSendLimit = 5                   // all P3 attempts, including nonurgent files
 	windowMaxAge      = 12 * time.Hour
 )
 
 func (b *Bridge) remainingLocked(critical bool) int {
 	w := b.state.Window
-	if w.OwnerID == "" || w.OwnerID != b.state.OwnerID || w.InputID == "" || w.ContextToken == "" || w.InputAt == 0 || w.Exhausted || time.Since(time.UnixMilli(w.InputAt)) > windowMaxAge {
+	if w.OwnerID == "" || w.OwnerID != b.state.OwnerID || w.InputID == "" || w.ContextToken == "" || w.InputAt == 0 || w.Exhausted || b.now().Sub(time.UnixMilli(w.InputAt)) > windowMaxAge {
 		return 0
 	}
 	limit := windowSoftLimit
@@ -42,7 +42,7 @@ func (b *Bridge) remainingProgressLocked() int {
 	return remaining
 }
 
-const exhaustedHint = "本轮微信推送预计已用尽（10/10）。发送 /r 继续接收，待发进展会合并补送。"
+const exhaustedHint = "本轮微信推送预计已用尽（10/10）。请回复 Bot 指定还需要的内容；完整记录保留在桌面。"
 
 func withExhaustedHint(body string) string {
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
@@ -80,15 +80,18 @@ func (b *Bridge) sendOne(ctx context.Context, p *protocol, key, body string, cri
 	return b.sendOnePolicy(ctx, p, key, body, critical, false)
 }
 
-func (b *Bridge) sendProgressOne(ctx context.Context, p *protocol, key, body string) (string, string) {
-	return b.sendOnePolicy(ctx, p, key, body, false, true)
-}
-
 func (b *Bridge) sendOnePolicy(ctx context.Context, p *protocol, key, body string, critical, progress bool) (string, string) {
 	if !fitsText(body) || body == "" {
 		return "", "unavailable"
 	}
+	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
+		return "", "superseded"
+	}
 	b.mu.Lock()
+	if !b.scopeWindowLocked(ctx) {
+		b.mu.Unlock()
+		return "", "superseded"
+	}
 	if old, exists := b.state.Outputs[key]; exists {
 		b.mu.Unlock()
 		if old.State == "accepted" && old.Digest == textDigest(body) {
@@ -115,7 +118,12 @@ func (b *Bridge) sendOnePolicy(ctx context.Context, p *protocol, key, body strin
 		return "", "unavailable"
 	}
 	oldWindow := b.state.Window
+	oldLastSent := b.state.Delivery.LastSent
 	b.state.Window.Used++
+	if scheduled(ctx) {
+		b.state.Window.Replied = true
+		b.state.Delivery.LastSent = b.now().UnixMilli()
+	}
 	if progress {
 		b.state.Window.ProgressUsed++
 	}
@@ -123,11 +131,12 @@ func (b *Bridge) sendOnePolicy(ctx context.Context, p *protocol, key, body strin
 	intent := outbound{
 		State: "unknown", ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]),
 		ContextToken: w.ContextToken, Digest: textDigest(body), Attempts: 1,
-		Bytes: len(body), Units: textUnits(body), InputAgeSec: int64(time.Since(time.UnixMilli(w.InputAt)).Seconds()), WindowUsed: w.Used,
+		Bytes: len(body), Units: textUnits(body), InputAgeSec: int64(b.now().Sub(time.UnixMilli(w.InputAt)).Seconds()), WindowUsed: w.Used,
 	}
 	b.state.Outputs[key] = intent
 	if b.saveLocked() != nil {
 		b.state.Window = oldWindow
+		b.state.Delivery.LastSent = oldLastSent
 		delete(b.state.Outputs, key)
 		b.mu.Unlock()
 		return "", "unavailable"

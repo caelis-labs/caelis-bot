@@ -61,27 +61,74 @@ backed by its own cache, but this observed payload supplies neither. See its
 and [inbound resolver](https://github.com/Tencent/openclaw-weixin/blob/main/src/messaging/inbound.ts).
 
 Telegram buttons call that same controller. Desktop and both companion channels
-remain one Bot conversation. Weixin sends only output traced to an accepted
-Weixin input and its Turn; mixed or unbound Turns and inputs from other entries
-are not pushed to Weixin. Telegram keeps its own mirroring behavior. Pairing and
-legacy records baseline existing history.
-The inbox and cursor are saved together before dispatch. A dispatching request
-that loses its result is not sent again automatically. A completed assistant
-item can still be commentary inside a working Turn. The first completed item
-is sent as progress; later items merge in order with a visible divider after
-three items or when the combined text approaches 70% of the safe chunk limit.
-No fixed timer drives sends. A terminal Turn identifies its last ordinary
-assistant item as the reply; unsent progress joins it when one message fits.
-Codex clears `CurrentTurn` on completion; the adapter binds that terminal
-snapshot to the exact latest accepted owner ingress receipt and its user-item
-TurnKey, or to a previously observed active Turn. An unrelated old receipt or
-unscoped item cannot turn historical commentary into a new reply.
-Native approval and async question cards, control receipts and Worker-start
-notices remain deliverable while the Turn is running. Questions wait rather than
-spend the last estimated slot reserved for a final reply. Direct Worker
-approval cards use the original task ID and its saved Bot tool source Turn to
-enforce the same Weixin-only routing rule. Later Worker reports use the native
-report receipt ID to resolve that task before routing the Bot's result Turn.
+remain one Bot conversation. Weixin is an additional delivery endpoint. Any valid,
+deduplicated paired-owner private text, including `/r`, `/answer` and `/approve`,
+refreshes its context token and local receive allowance before model/control
+dispatch. Desktop/TG messages neither renew nor close it. New visible Bot,
+Runtime and Worker output can use the remaining allowance without causal input
+or Turn filtering. Current shared IM projection, paired account and recipient
+boundaries remain authoritative. Private Worker transcripts and host notices
+are not imported. Existing history is baselined using shared IM presentation
+order; unknown historical items with no cursor do not become new output.
+`SeenAt` is local first presentation, not native generation time. A previously
+unseen native report newly exposed by the shared IM is treated as new visible
+output; the adapter cannot infer its earlier creation time or semantic value.
+
+A durable delivery spool stores known candidate IDs and frozen batches/parts.
+Ordinary input discards old unattempted progress and nonurgent files. Unattempted
+important results that were still current can continue; important results held
+by a paused/exhausted window require explicit `/r` recovery. `/r` and `/refresh`
+never execute work or replay accepted, rejected or unknown send intents. Recovery
+continues retained original body parts and also restores retired, unattempted
+progress from the current shared IM's last 128 visible items within twelve hours
+and since this channel's observation start. It does not page older history or
+retain another transcript. Progress covered by an assistant result with the same
+known Turn is excluded; a tool failure or missing Turn cannot prove coverage. Results
+stay ahead of recovered progress. Native classification upgrades are independent
+of text/status changes and can revive only never-attempted retired candidates.
+The spool holds at most 128 candidates; under pressure it evicts lower-priority unfrozen work first, then held
+older results for a new result. Dropped capacity is disclosed with the next text
+and a full-desktop entry; frozen parts and current higher/equal-priority work
+keep their order. Long result bodies use explicit complete-block excerpts and a full
+shared-desktop entry. A preview has its own HTTP intent; it does not complete the
+original parts or merged members. `/r` resumes those original body parts without
+replaying the preview, including when its receipt is unknown. An unknown/rejected
+original body part still stops that body's continuation. The existing 64 KiB
+per-body / approximately 512 KiB queued-body bounds remain; bodies retained only
+as excerpts require the desktop entry and are not marked fully accepted. Existing
+terminal receipts, including older-version records, are not reinterpreted from
+message appearance. This is a bounded delivery cache, not a second IM archive.
+
+The first meaningful candidate is sent immediately, with no synthetic ordinary
+acknowledgement. Later same-priority text coalesces at three items, 70% of the
+safe text length, or thirty seconds since the last push. Idle with reliably no
+unfinished Worker uses a two-second debounce; working, idle with Workers, and
+unknown Worker status use ordinary aggregation. Worker activity comes from the
+existing owner state, never the start chip or response prose. A native Final is
+not task completion and does not independently trigger a push. Explicit Worker
+finish/failure and Bot failure/interruption may promptly flush one combined batch.
+
+Priority is P0 active approvals, P1 active questions, P2 results/work status,
+then P3 progress/nonurgent files. Same-priority candidates are FIFO. Shared
+snapshot visibility and original controller claims/lifecycle are read again
+before sending, so handled/expired interactions cannot retain actionable cards.
+Native questions preserve original options and operation bindings. Cards are
+separate from text batches and do not wait for the ordinary timer. Higher priority
+may interrupt between chunks; already reserved HTTP requests finish with their
+real receipt. A complete card that cannot fit waits for a new window rather than
+stranding choices; a result may use the remaining capacity in the meantime. A card
+larger than a whole window gets a single non-actionable desktop entry, checked
+against the same live interaction state.
+
+Control feedback is admitted by its original notification key before the existing
+controller runs. New visible outcomes survive later controls/window changes and
+restart; prior notices are not replayed. Only feedback actually published by the
+controller is eligible, so its ordinary silent acknowledgements remain silent.
+
+The inbox, cursor and window are committed together. Authenticated ingress is
+recorded in the existing shared IM even while runtime recovery blocks submission.
+A message without a usable context token disables sends with the old token.
+Unknown submissions and sends retain their original identities without replay.
 Disposable typing may express
 progress, but does not refresh a context token or budget. Final text uses
 `sendmessage` and the latest owner ingress context token. A reply within 2,400 UTF-16
@@ -97,36 +144,32 @@ resend it. Later chunks remain unsent after an uncertain or rejected part. A suc
 response with absent `ret` follows the published client's success handling;
 it does not prove the phone displayed it. The private outbound ledger stores
 `ret`, `errcode`, a redacted `errmsg` class, a bounded result category and any
-confirmed server message ID for diagnosis, without reply text, raw error text
-or credentials. `ret=-2` alone is an unclassified rejection. Explicit rate
+confirmed server message ID for diagnosis, without raw error text or credentials in diagnostics; private queued bodies
+are removed when their delivery completes. `ret=-2` alone is an unclassified rejection. Explicit rate
 limit, context expiry, authentication and `prepare failed` remain distinct.
 
-The current phone-window estimate is ten attempted `sendmessage` calls after a
-distinct paired-owner input. Ordinary progress uses at most five attempts;
-other nonterminal output leaves one slot for a final reply. An actionable
-approval can use the last slot when it blocks the work, after which the user's
-decision supplies a fresh ingress. Each Markdown chunk and each card counts
-as a send; rejected and uncertain calls conservatively consume a slot. The
-window is saved with the owner, original input ID, context token and input
-time; duplicate updates, typing, restart and an older send result never refill
-it. A local twelve-hour age cutoff is conservative. Neither it nor the
-ten-send observation is a Tencent service contract. An upgraded legacy record
-with unknown remaining allowance waits for a fresh user input. When a full
-final reply needs more estimated slots than remain, Weixin sends one
-deterministic head/tail excerpt with an omission count and invitation to
-request the rest; the shared desktop record retains the complete text.
-Pending progress remains in the private Weixin delivery state across restart.
-`/refresh` and `/r` renew the local estimate from their original owner ingress
-and merge unsent progress without submitting a model request. `/help` and
-`/status` are local reads; `/stop` submits the native interrupt, not a prompt.
-Unknown sends are not replayed after a later ingress. A predicted tenth send
-adds a short `/r` hint when it fits; it is not a separate message. Approval
-options and commands are never abbreviated; a multi-part card waits for enough
-estimated space for every part. No estimate guarantees service acceptance after
-the server has exhausted its actual window.
-The adapter obtains a typing ticket
-from `getconfig` and renews `sendtyping` only while the paired user's main turn
-is active, cancelling it at turn end. Text uses finished sendmessage payloads;
+The local estimate is ten attempted `sendmessage` calls per distinct valid owner
+message. P0/P1 may use the last slot. P3 progress and nonurgent files share at most five attempts,
+and nonurgent output leaves one result opportunity. Each text part, card part or
+file attempt counts once; rejected/uncertain calls still count. Duplicate updates,
+invalidated queued items, polling, upload, typing and restart do not count or refill.
+The owner/input/context/time/used count is durable. Old in-flight results cannot
+charge a newer window. Explicit rate/context rejection, exhaustion and a local
+twelve-hour cutoff pause output until fresh owner input. Legacy unknown allowance
+starts closed. These are conservative local policies, not Tencent server billing,
+quota-reset, expiry or length guarantees.
+
+When full text cannot fit, the phone gets complete initial Markdown blocks labelled
+as an excerpt, plus the full shared desktop conversation entry (or only that entry
+if no block fits). The adapter cannot reliably infer the most valuable sentence;
+it does not fabricate a summary or silently remove the middle of a result. Native
+options are never abbreviated. An attempted uncertain part stops that result's
+remaining parts. Accepted and unknown records, including old progress batch
+memberships, are never expanded into new individual sends after restart or `/r`.
+Definite rejected intents also remain terminal; a new task request is not silently
+created to retry them. A tenth-slot hint is appended only when it fits.
+`/help` and `/status` read local state; `/stop` uses the original native interrupt.
+The adapter obtains a typing ticket from `getconfig` and renews `sendtyping` only while the shared Bot is working in an active delivery window, cancelling it at turn end. Text uses finished sendmessage payloads;
 the upstream text builder uses `message_state=FINISH`, and the public protocol
 does not document safe in-place edits. Text cards and terminal status therefore
 arrive as separate messages. Outgoing reply Artifacts use the Host-owned resolver
@@ -139,7 +182,7 @@ host, rejects redirects and foreign hosts, and never forwards the bot token.
 Upload retry may repeat encrypted bytes before any file message exists. The
 original Artifact ID and a persisted send intent fence the final send: an
 unknown result is not retried even after a new owner input. Unattempted files
-deferred by the estimate may resume after new input; file status is visible in
+deferred by the estimate do not resume after new input; file status is visible in
 Settings. HTTP acceptance alone does not prove phone receipt.
 Native approval buttons, groups, incoming attachments, edits,
 webhook delivery,
@@ -157,7 +200,16 @@ The send-window estimate is supported by independent observations in
 [Tencent issues #81](https://github.com/Tencent/openclaw-weixin/issues/81)
 and [#202](https://github.com/Tencent/openclaw-weixin/issues/202), and by
 [pushplus's ClawBot guide](https://www.pushplus.plus/doc/channel/clawbot.html).
-Those reports are not a formal server API contract. Separate reports show
+Those reports are not a formal server API contract. A 2026-10-27 read of the
+upstream protocol still documents context echoing and client request shapes,
+not an exact reset/quota/expiry or length guarantee. The upstream
+[`textChunkLimit: 4000`](https://github.com/Tencent/openclaw-weixin/blob/main/src/channel.ts)
+is a client setting. Our ten-attempt window, five-progress cap, final reserve,
+twelve-hour cutoff and 2,400 UTF-16/6,000-byte text caps remain conservative
+local policy. They do not establish billing, successful phone receipt, or the
+server counting rules for rejected requests and mixed media. Locally, each
+actual text chunk/card/file `sendmessage` reservation counts once; upload, typing,
+polling, duplicates and invalidated queued output do not count. Separate reports show
 [`rate limited`](https://github.com/Tencent/openclaw-weixin/issues/270),
 length-related [`prepare failed`](https://github.com/Tencent/openclaw-weixin/issues/284),
 and possible [stale context](https://github.com/Tencent/openclaw-weixin/issues/309)
@@ -169,8 +221,12 @@ was reviewed as a comparison, not imported as the policy authority.
 
 Local tests cover the published request/response shapes, lossless uint64 IDs,
 owner and direct-chat filtering, atomic cursor/inbox persistence, no replay of
-unknown submissions or sends, terminal-turn selection, budget persistence and
-control priority. A separate unauthenticated request to the
+unknown submissions or sends, shared-output freshness, budget persistence and
+control priority. Virtual-clock tests cover immediate first output, count/length/time
+batching, idle/working/unfinished Workers, multi-Final bursts, control resets,
+partial chunks, migration, restart, in-flight window changes and file preparation.
+Native socket/SQLite integration covers Worker completion and desktop output with
+one unchanged Weixin window. Other channels use the unchanged shared contracts. A separate unauthenticated request to the
 official `get_bot_qrcode?bot_type=3` endpoint verifies only handshake
 reachability and response shape. It does not verify account pairing, receiving
 a real Weixin message, or the phone seeing a reply. Those require the user's
