@@ -19,7 +19,7 @@ func TestPendingPeerIsNonblockingExcludedAndOnlyCheckedExplicitly(t *testing.T) 
 		t.Fatal(err)
 	}
 	before := time.Now()
-	v, err := s.ConnectBot(t.Context(), api.BotConnectionInput{ID: "pending", Address: target.http.URL})
+	v, err := s.ConnectBot(t.Context(), api.BotConnectionInput{Address: target.http.URL})
 	if err != nil || v.PairingStatus != "pending" || time.Since(before) > time.Second {
 		t.Fatal("request waited for human", v, err)
 	}
@@ -70,16 +70,16 @@ func TestUnconfirmedTargetCannotBeReplacedOrCertifiedByOtherPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "original", Address: drop.URL}, nil)
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: drop.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.ConnectPreparedBot(t.Context(), ref, api.BotConnectionInput{ID: "original", Address: drop.URL}); err == nil {
+	if _, _, err = s.ConnectPreparedBot(t.Context(), ref, api.BotConnectionInput{ID: ref.ID, Address: drop.URL}); err == nil {
 		t.Fatal("lost response became success")
 	}
-	changed, prepErr := s.PrepareBotConnection(api.BotConnectionInput{ID: "original", Address: second.http.URL, Reconnect: true}, nil)
+	changed, prepErr := s.PrepareBotConnection(api.BotConnectionInput{ID: ref.ID, Address: second.http.URL, Reconnect: true}, nil)
 	if prepErr == nil {
-		if _, _, err = s.ConnectPreparedBot(t.Context(), changed, api.BotConnectionInput{ID: "original", Address: second.http.URL, Reconnect: true}); err == nil {
+		if _, _, err = s.ConnectPreparedBot(t.Context(), changed, api.BotConnectionInput{ID: ref.ID, Address: second.http.URL, Reconnect: true}); err == nil {
 			t.Fatal("unknown target switched peer")
 		}
 	}
@@ -96,27 +96,27 @@ func TestLaterIntentCannotCertifyOriginalRequestOrCrossSourceProof(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "target", Address: target.http.URL}, nil)
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: target.http.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.ConnectPreparedBot(t.Context(), ref, api.BotConnectionInput{ID: "target", Address: target.http.URL}); err != nil {
+	if _, _, err = s.ConnectPreparedBot(t.Context(), ref, api.BotConnectionInput{ID: ref.ID, Address: target.http.URL}); err != nil {
 		t.Fatal(err)
 	}
 	if err = target.peer.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: ref.Pairing, Allow: false}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.InspectMachine(t.Context(), "target", ""); err != nil {
+	if _, err = s.InspectMachine(t.Context(), ref.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "target", Address: target.http.URL, Reconnect: true}, nil)
+	fresh, err := s.PrepareBotConnection(api.BotConnectionInput{ID: ref.ID, Address: target.http.URL, Reconnect: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fresh.Pairing == ref.Pairing {
 		t.Fatal("explicit new intent reused old ID")
 	}
-	if _, _, err = s.ConnectPreparedBot(t.Context(), fresh, api.BotConnectionInput{ID: "target", Address: target.http.URL}); err != nil {
+	if _, _, err = s.ConnectPreparedBot(t.Context(), fresh, api.BotConnectionInput{ID: ref.ID, Address: target.http.URL}); err != nil {
 		t.Fatal(err)
 	}
 	if err = target.peer.DecidePairing(t.Context(), api.WorkerPairingDecision{ID: fresh.Pairing, Allow: true}); err != nil {
@@ -136,7 +136,7 @@ func TestRejectedFirstRequestCanBeRemovedAndCorrected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: "first", Address: target.URL})
+	_, err = s.ConnectBot(t.Context(), api.BotConnectionInput{Address: target.URL})
 	var rejected *api.ActionRejectedError
 	if !errors.As(err, &rejected) || len(s.Machines()) != 0 {
 		t.Fatal("known no-write refusal retained an unusable profile", err, s.Machines())
@@ -148,7 +148,7 @@ func TestUndispatchedFirstIntentCanBeCertifiedWithoutNetworkReplay(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "first", Address: "http://127.0.0.1:1"}, nil)
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: "http://127.0.0.1:1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,45 +159,34 @@ func TestUndispatchedFirstIntentCanBeCertifiedWithoutNetworkReplay(t *testing.T)
 	}
 }
 
-func TestArchivedPendingReAddReadsOriginalWithoutResubmitting(t *testing.T) {
+func TestDeletedPendingCannotRestoreOldProof(t *testing.T) {
 	target := newDualPeerTarget(t)
 	s, err := Open(t.TempDir(), inert{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := s.ConnectBot(t.Context(), api.BotConnectionInput{ID: "original", Address: target.http.URL})
+	defer s.Close()
+	v, err := s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "fedora", Address: target.http.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := s.machineProfile(v.ID)
+	before := s.state.Profiles[v.ID]
 	if err = s.RemoveMachine(t.Context(), v.ID); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := s.ConnectBot(t.Context(), api.BotConnectionInput{ID: v.ID, Address: target.http.URL, Reconnect: true})
-	after, _ := s.machineProfile(v.ID)
-	if err != nil || restored.Archived || after.PairingEpoch != before.PairingEpoch || after.Peer != before.Peer || restored.PairingStatus != "pending" {
-		t.Fatal("archived original request could not be restored", restored, err)
+	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: v.ID, Address: target.http.URL, Reconnect: true}); err == nil {
+		t.Fatal("deleted ID resurrected")
 	}
-	if len(target.peer.Status().Requests) != 1 {
-		t.Fatal("restore created another request")
-	}
-	approveMachine(t, target, s, v.ID)
-	in := api.TaskStart{Machine: v.ID, RequestID: "start-original", Prompt: "fixture"}
-	workspace, prepErr := s.PrepareRemoteWork(t.Context(), in, "retained-task")
-	if prepErr != nil {
-		t.Fatal(prepErr)
-	}
-	if _, err = s.StartWork(t.Context(), api.WorkStart{ID: "retained-task", Workspace: workspace, TaskStart: in}); err != nil {
+	fresh, err := s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "fedora", Address: target.http.URL})
+	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ = s.machineProfile(v.ID)
-	if err = s.RemoveMachine(t.Context(), v.ID); err != nil {
-		t.Fatal(err)
+	after := s.state.Profiles[fresh.ID]
+	if fresh.ID == v.ID || after.Peer.Token == before.Peer.Token || after.Source == before.Source || after.PairingEpoch == before.PairingEpoch {
+		t.Fatal("new connection reused deleted identity")
 	}
-	restored, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: v.ID, Address: target.http.URL, Reconnect: true})
-	after, _ = s.machineProfile(v.ID)
-	if err != nil || restored.State != "ready" || restored.Archived || after.PairingEpoch != before.PairingEpoch || len(target.peer.Status().Requests) != 0 {
-		t.Fatal("approved restore demanded another authorization", restored, err)
+	if len(target.peer.Status().Requests) != 2 {
+		t.Fatal("old request changed instead of independent new authorization")
 	}
 }
 
@@ -206,7 +195,7 @@ func TestUndispatchedIntentCanCorrectAddressAndSendOriginalOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "first", Address: "http://127.0.0.1:1"}, nil)
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: "http://127.0.0.1:1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

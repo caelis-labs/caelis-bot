@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -31,14 +32,21 @@ func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutat
 		if old.Digest != digest {
 			return result
 		}
-		return old
+		return s.MachineMutation(in.ID)
 	}
 	s.mutations[in.ID] = api.MachineMutationResult{ID: in.ID, Status: "checking", Digest: digest}
 	s.mutationMu.Unlock()
 	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.mutationMu.Lock()
 		if old, ok := s.mutations[in.ID]; !ok || old.Status == "checking" || old.Digest == digest {
 			s.mutations[in.ID] = result
+		}
+		for id, r := range s.mutations {
+			if _, durable := s.state.Mutations[id]; !durable && r.Status != "checking" && !r.CleanupPending && mutationExpired(id, s.state.MutationFloor) {
+				delete(s.mutations, id)
+			}
 		}
 		s.mutationMu.Unlock()
 	}()
@@ -70,6 +78,13 @@ func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutat
 		}
 		return result
 	}
+	if mutationExpired(in.ID, s.state.MutationFloor) {
+		return expiredMutation(in.ID)
+	}
+	result.IssuedAt = time.Now().UnixMilli()
+	if stamp, valid := mutationTime(in.ID); valid {
+		result.IssuedAt = stamp
+	}
 	if s.loadErr != nil {
 		result.Code = "machine_store_unavailable"
 		return result
@@ -81,7 +96,7 @@ func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutat
 	}
 	switch in.Action {
 	case "remove":
-		p.View.Archived = true
+		// Delete the profile below, together with the operation receipt.
 	case "save":
 		name := strings.TrimSpace(in.Name)
 		if !validPeerDisplayName(name) {
@@ -117,20 +132,47 @@ func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutat
 	result.Status = "succeeded"
 	result.Code = ""
 	result.Machine = machineView(p)
+	if in.Action == "remove" {
+		delete(s.state.Profiles, in.MachineID)
+		s.state.Reservations = maps.Clone(s.state.Reservations)
+		s.state.ReservationKeys = maps.Clone(s.state.ReservationKeys)
+		for task, machine := range s.state.Routes {
+			if machine == in.MachineID {
+				delete(s.state.Reservations, task)
+				delete(s.state.ReservationKeys, task)
+			}
+		}
+		result.Machine = removedMachine(in.MachineID)
+		result.Status = "checking"
+		result.CleanupPending = true
+		// Keep operation IDs/outcomes/digests, not copies of deleted configuration.
+		for id, receipt := range s.state.Mutations {
+			if receipt.Machine.ID == in.MachineID {
+				receipt.Machine = removedMachine(in.MachineID)
+				s.state.Mutations[id] = receipt
+			}
+		}
+	}
 	s.state.Mutations[in.ID] = result
+	s.compactMutationReceiptsLocked(in.ID)
 	if err := localstate.WriteConfirmed(s.registry, s.state); err != nil {
 		// Directory sync can fail after rename. Verify the exact original receipt on
 		// disk before classifying; a cached Machines() projection cannot prove a write.
 		diskState, readErr := s.readMutationRegistryLocked()
-		if readErr == nil && diskState.Mutations[in.ID].Digest == digest && diskState.Mutations[in.ID].Status == "succeeded" {
+		if readErr == nil && diskState.Mutations[in.ID].Digest == digest && diskState.Mutations[in.ID].Status == result.Status {
 			if localstate.SyncParent(s.registry) == nil {
 				s.legacyUnpublished = false
+				if result.CleanupPending {
+					s.forgetDeletedRuntimeLocked(p)
+					result = s.finishDeletionLocked(result)
+				}
 				return result
 			}
 			readErr = errors.New("machine_save_unknown")
 		}
 		s.state = before
 		result.Status = "failed"
+		result.CleanupPending = false
 		result.Code = "machine_save_failed"
 		if readErr != nil && !os.IsNotExist(readErr) && !errors.Is(readErr, syscall.ENOTDIR) {
 			result.Status = "unknown"
@@ -138,8 +180,12 @@ func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutat
 			s.loadErr = errors.New("machine_save_unknown")
 		}
 	}
-	if result.Status == "succeeded" {
+	if result.Status == "succeeded" || result.CleanupPending && result.Status == "checking" {
 		s.legacyUnpublished = false
+		if result.CleanupPending {
+			s.forgetDeletedRuntimeLocked(p)
+			result = s.finishDeletionLocked(result)
+		}
 	}
 	return result
 }
@@ -157,7 +203,14 @@ func (s *Service) MachineMutation(id string) api.MachineMutationResult {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	r, ok := s.mutations[id]
-	if ok && r.Status != "unknown" {
+	if ok && r.Status != "unknown" && (!mutationExpired(id, s.state.MutationFloor) || s.state.Mutations[id].ID == id) {
+		if stored, exists := s.state.Mutations[id]; exists {
+			r = stored
+		}
+		if r.CleanupPending {
+			r = s.finishDeletionLocked(r)
+			s.mutations[id] = r
+		}
 		return r
 	}
 	value, err := s.readMutationRegistryLocked()
@@ -165,25 +218,41 @@ func (s *Service) MachineMutation(id string) api.MachineMutationResult {
 		return unknown
 	}
 	if receipt, found := value.Mutations[id]; found {
-		if receipt.ID != id || (ok && r.Digest != receipt.Digest) || (receipt.Status != "succeeded" && receipt.Status != "failed") {
+		if receipt.ID != id || (ok && r.Digest != receipt.Digest) || (receipt.Status != "succeeded" && receipt.Status != "failed" && !receipt.CleanupPending) {
 			return unknown
 		}
 		if localstate.SyncParent(s.registry) != nil {
 			return unknown
 		}
+		if receipt.CleanupPending {
+			before := s.state
+			s.state = value
+			if p, exists := before.Profiles[receipt.Machine.ID]; exists {
+				s.forgetDeletedRuntimeLocked(p)
+			}
+			receipt = s.finishDeletionLocked(receipt)
+		}
 		s.mutations[id] = receipt
 		if s.loadErr != nil && s.loadErr.Error() == "machine_save_unknown" {
-			s.state = value
+			if !receipt.CleanupPending {
+				s.state, _ = s.readMutationRegistryLocked()
+			}
 			s.loadErr = nil
 		}
 		return receipt
+	}
+	if mutationExpired(id, value.MutationFloor) {
+		return expiredMutation(id)
 	}
 	if s.loadErr != nil && s.loadErr.Error() != "machine_save_unknown" {
 		return unknown
 	}
 	// No in-flight admission exists under mutationMu; sync the original registry
 	// and publish the fence before reporting that this operation did not commit.
-	r = api.MachineMutationResult{ID: id, Status: "failed", Code: "machine_not_submitted"}
+	r = api.MachineMutationResult{ID: id, Status: "failed", Code: "machine_not_submitted", IssuedAt: time.Now().UnixMilli()}
+	if stamp, valid := mutationTime(id); valid {
+		r.IssuedAt = stamp
+	}
 	if ok {
 		r.Digest = s.mutations[id].Digest
 	}
@@ -201,8 +270,10 @@ func (s *Service) MachineMutation(id string) api.MachineMutationResult {
 }
 func (s *Service) persistMutationReceiptLocked(r api.MachineMutationResult) error {
 	before := s.state.Mutations
+	beforeFloor := s.state.MutationFloor
 	s.state.Mutations = maps.Clone(before)
 	s.state.Mutations[r.ID] = r
+	s.compactMutationReceiptsLocked(r.ID)
 	if err := localstate.WriteConfirmed(s.registry, s.state); err != nil {
 		value, readErr := s.readMutationRegistryLocked()
 		if readErr == nil && value.Mutations[r.ID] == r && localstate.SyncParent(s.registry) == nil {
@@ -210,6 +281,7 @@ func (s *Service) persistMutationReceiptLocked(r api.MachineMutationResult) erro
 			return nil
 		}
 		s.state.Mutations = before
+		s.state.MutationFloor = beforeFloor
 		return err
 	}
 	s.legacyUnpublished = false

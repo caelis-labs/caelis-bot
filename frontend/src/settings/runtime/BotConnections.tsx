@@ -12,7 +12,7 @@ import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors
 
 export function BotConnectionDialog({machines,initial,call=backend,onClose,onSaved,onChanged}:{machines:Machine[];initial?:Machine;call?:typeof backend;onClose:()=>void;onSaved:(fresh?:Machine)=>void;onChanged:(fresh?:Machine)=>Promise<void>}){
  const {t}=useI18n();const legacy=initial?.state==='legacy';const creation=useRef(!initial||legacy);
- const [draft,setDraft]=useState<BotConnectionInput>(()=>({id:(!legacy&&initial?.id)||'bot-'+crypto.randomUUID(),name:legacy?'':initial?.name||'',address:initial?.savedAddress||initial?.address||''}));
+ const [draft,setDraft]=useState<BotConnectionInput>(()=>({id:(!legacy&&initial?.id)||'',name:legacy?'':initial?.name||'',address:initial?.savedAddress||initial?.address||''}));
  const initialSSH=sshTarget(initial?.savedAddress||initial?.address||'',legacy&&!initial?.savedAddress);
  const [method,setMethod]=useState(initialSSH?'ssh':'address');
  const [sshDraft,setSSHDraft]=useState<SSHTarget>(()=>initialSSH||{host:'',port:9317});

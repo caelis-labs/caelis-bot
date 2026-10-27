@@ -119,7 +119,7 @@ func TestPeerAllApprovalsArriveWithoutDetailBeyondStreamBudget(t *testing.T) {
 func TestPeerHistoricalQuestionsDoNotStarveOnlyActiveApproval(t *testing.T) {
 	target, streams := r2ObservationTarget(t, false)
 	s, m, _, machine, _ := dualPeerConnect(t, target)
-	owner := target.owner(s.state.ProfileID, "codex")
+	owner := target.ownerFor(s, "codex")
 	for i := range 16 {
 		v, err := m.StartTask(t.Context(), api.TaskStart{Machine: machine, RequestID: fmt.Sprintf("historical-%d", i), Prompt: "fixture"})
 		if err != nil {

@@ -3,7 +3,6 @@ package machines
 import (
 	"bytes"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -124,7 +123,7 @@ func TestMutationReadbackAndAdmissionHaveOneTerminalResult(t *testing.T) {
 		wg.Wait()
 		final := s.MachineMutation("racing")
 		if final.Status == "succeeded" {
-			if write.Status != "succeeded" || !s.state.Profiles["one"].View.Archived || read.Status == "failed" {
+			if write.Status != "succeeded" || s.state.Profiles["one"].View.ID != "" || read.Status == "failed" {
 				t.Fatal(write, read, final)
 			}
 		} else if final.Status == "failed" {
@@ -169,29 +168,6 @@ func TestApplyingCandidateRetainsNewerSavedIntent(t *testing.T) {
 		t.Fatal("newer intent lost", p.SavedAddress, p.Label)
 	}
 }
-func TestArchivedSSHReclamationProtectsAllReferences(t *testing.T) {
-	s, err := Open(t.TempDir(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	add := func(id, address string, archived bool) {
-		s.state.Profiles[id] = profile{Peer: workerpeer.Connection{Address: address}, View: api.Machine{ID: id, Address: address, Archived: archived}}
-	}
-	add("unused", "ssh://unused:9317", true)
-	add("routed", "ssh://routed:9317", true)
-	s.state.Routes["history"] = "routed"
-	add("shared-archived", "ssh://shared:9317", true)
-	add("shared-active", "ssh://shared:0", false)
-	add("in-flight", "ssh://checking:9317", true)
-	s.pairingActive = map[string]int{"in-flight": 1}
-	add("selected", "ssh://selected:9317", true)
-	got := s.unusedArchivedSSHLocked("ssh://selected:9317")
-	if len(got) != 1 || got[0] != "ssh://unused:9317" {
-		t.Fatal(got)
-	}
-}
-
 func TestUndeliveredFirstLegacyEditFencesWithoutReplacingV1(t *testing.T) {
 	root := t.TempDir()
 	original := []byte(`{"version":1,"profileId":"original","profiles":{"old":{"view":{"id":"old","name":"fedora","address":"fedora"}}},"routes":{},"runtimes":{}}`)

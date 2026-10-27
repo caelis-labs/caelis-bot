@@ -113,3 +113,11 @@ test('invalid Bot ports never silently change the target',()=>{
  for(const port of ['1','65535'])assert.equal(new URL(botAddress('http://fedora:19329',port)).port,port);
  assert.equal(new URL(botAddress('http://fedora:19329')).port,'19329');
 });
+
+test('retired deletion receipt rereads the list and never submits another operation',async()=>{
+ const calls=[];await assert.rejects(()=>mutateMachine(async(method,...args)=>{
+  calls.push(method);if(method==='ManageMachine')return {id:args[0].id,status:'expired',code:'machine_receipt_expired'};
+  if(method==='Machines')return [];throw Error('unexpected read');
+ },{id:'retired-unique',machineId:'deleted-original',action:'remove'}),error=>error.code==='machine_receipt_expired'&&!error.uncertain);
+ assert.deepEqual(calls,['ManageMachine','Machines']);assert.equal(pendingMachineMutation('deleted-original','remove'),undefined);
+});

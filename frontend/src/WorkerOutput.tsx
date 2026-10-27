@@ -9,17 +9,19 @@ const retain=<T,>(old:Record<string,T>,id:string,value:T)=>Object.fromEntries([.
 // turn completed work into an empty successful transcript or erase cached text.
 export function useWorkerOutput(id:string,active:boolean,readHistory:(id:string)=>Promise<TaskConversation>,readObservation:(id:string)=>Promise<WorkerTaskObservation>,statusHint?:string){
  const [histories,setHistories]=useState<Record<string,TaskConversation>>({}),[observations,setObservations]=useState<Record<string,WorkerTaskObservation>>({});
+ const [environmentFailures,setEnvironmentFailures]=useState<Record<string,boolean>>({});
  const [historyFailures,setHistoryFailures]=useState<Record<string,boolean>>({}),[observationFailures,setObservationFailures]=useState<Record<string,boolean>>({}),[attempt,setAttempt]=useState(0);
  useEffect(()=>{
   if(!active||!id)return;
   setHistoryFailures(old=>retain(old,id,false));setObservationFailures(old=>retain(old,id,false));
   const reader=createWorkerOutputReader({id,readHistory,readObservation,initialHistory:histories[id],initialObservation:observations[id],
+   environmentUnavailable:value=>setEnvironmentFailures(old=>retain(old,id,value)),
    observation:next=>setObservations(old=>retain(old,id,next)),history:next=>setHistories(old=>retain(old,id,next)),
    observationFailed:failed=>setObservationFailures(old=>retain(old,id,failed)),historyFailed:failed=>setHistoryFailures(old=>retain(old,id,failed))});
   void reader.read();const timer=window.setInterval(()=>void reader.read(),1000);
   return()=>{reader.close();window.clearInterval(timer);};
  },[id,active,readHistory,readObservation,statusHint,attempt]);
- return {conversation:histories[id],observation:observations[id],historyFailed:historyFailures[id]??false,observationFailed:observationFailures[id]??false,retry:()=>setAttempt(value=>value+1)};
+ return {environmentUnavailable:environmentFailures[id]??false,conversation:histories[id],observation:observations[id],historyFailed:historyFailures[id]??false,observationFailed:observationFailures[id]??false,retry:()=>setAttempt(value=>value+1)};
 }
 
 export function workerTaskStatusKey(status?:string){

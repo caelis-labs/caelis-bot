@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Service) botConnectionReference(p profile, address string) api.BotConnectionReference {
-	return api.BotConnectionReference{ID: p.View.ID, Address: address, Peer: p.Peer.Peer, Pairing: p.PairingEpoch, Proof: api.WorkFingerprint(struct{ Source, Token string }{s.state.ProfileID, p.Peer.Token}), Configuration: api.WorkFingerprint(struct {
+	return api.BotConnectionReference{ID: p.View.ID, Address: address, Peer: p.Peer.Peer, Pairing: p.PairingEpoch, Proof: api.WorkFingerprint(struct{ Source, Token string }{s.connectionSource(p), p.Peer.Token}), Configuration: api.WorkFingerprint(struct {
 		Address, Name string
 		Archived      bool
 	}{p.View.Address, p.View.Name, p.View.Archived})}
@@ -36,7 +36,12 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		return api.BotConnectionReference{}, s.loadErr
 	}
 	id := in.ID
-	if _, exists := s.state.Profiles[id]; !exists {
+	if id != "" {
+		if _, exists := s.state.Profiles[id]; !exists {
+			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "machine_unknown"}
+		}
+	}
+	if id == "" {
 		for key, p := range s.state.Profiles {
 			if !p.Legacy && p.View.Address == address {
 				id = key
@@ -57,7 +62,7 @@ func (s *Service) PrepareBotConnection(in api.BotConnectionInput, _ *api.BotConn
 		if name == "" {
 			name = address
 		}
-		next = profile{PairingEpoch: workerpeer.NewPairingID(), PairingName: sourceName, Peer: workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}, View: api.Machine{ID: id, Name: name, Address: address, ConnectionType: "bot", State: "authorization", PairingStatus: "unknown"}}
+		next = profile{Source: rand.Text(), PairingEpoch: workerpeer.NewPairingID(), PairingName: sourceName, Peer: workerpeer.Connection{Address: address, Token: rand.Text() + rand.Text()}, View: api.Machine{ID: id, Name: name, Address: address, ConnectionType: "bot", State: "authorization", PairingStatus: "unknown"}}
 	} else {
 		if next.Legacy {
 			return api.BotConnectionReference{}, &api.ActionRejectedError{Code: "machine_legacy"}
@@ -136,7 +141,9 @@ func (s *Service) ConnectPreparedBot(ctx context.Context, ref api.BotConnectionR
 		s.pairingActive = map[string]int{}
 	}
 	s.pairingActive[ref.ID]++
-	source := s.state.ProfileID
+	releaseSSH := s.holdSSHLocked(ref.Address)
+	defer releaseSSH()
+	source := s.connectionSource(p)
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); s.pairingActive[ref.ID]--; s.mu.Unlock() }()
 	c, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -267,12 +274,14 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConnectionReference) (api.Machine, error) {
 	s.mu.Lock()
 	p, ok := s.state.Profiles[ref.ID]
-	source := s.state.ProfileID
+	source := s.connectionSource(p)
 	active := s.pairingActive[ref.ID] > 0
 	if s.pairingActive == nil {
 		s.pairingActive = map[string]int{}
 	}
 	s.pairingActive[ref.ID]++
+	releaseSSH := s.holdSSHLocked(ref.Address)
+	defer releaseSSH()
 	valid := ok && p.PairingEpoch == ref.Pairing && s.botConnectionReference(p, ref.Address).Proof == ref.Proof
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); s.pairingActive[ref.ID]--; s.mu.Unlock() }()
@@ -345,4 +354,14 @@ func (s *Service) AbortPreparedBotConnection(ref api.BotConnectionReference) err
 		return err
 	}
 	return nil
+}
+
+// Existing profiles retain their exact original source. A newly added connection
+// has an independent source, so deleting its proof never requires reusing that
+// identity or retargeting its old Worker tasks on B.
+func (s *Service) connectionSource(p profile) string {
+	if p.Source != "" {
+		return p.Source
+	}
+	return s.state.ProfileID
 }

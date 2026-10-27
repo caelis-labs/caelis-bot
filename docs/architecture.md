@@ -1255,3 +1255,19 @@ task routes without reviving the retired helper protocol. SSH manual login store
 only non-secret target options and an opaque native key reference. Passwords and
 passphrases use the transient askpass broker. SSH file-management APIs are removed;
 existing Host resolution still reads the compatible configuration layers internally.
+
+
+Local connection deletion publishes profile/proof removal and an unfinished
+cleanup receipt atomically. It then clears the matching v1 compatibility entry,
+legacy Keychain account and owned known_hosts file before confirming success.
+Cleanup is resumable under the same receipt; it never contacts the remote peer.
+Existing archived rows migrate through this deletion path. Task routes survive as
+historical identity references, without retaining connection configuration. New
+connections receive server-owned IDs and independent pairing sources; absent IDs
+cannot be recreated by stale callbacks or old ConnectBot inputs. Existing sources
+keep their original profile identity. SSH leases cover admitted network calls;
+only idle channels without another connection reference are reclaimed.
+Terminal mutation receipts compact to 1024 recent entries (pending cleanup is
+retained), with a persisted time floor rejecting retired IDs. An expired receipt
+states unknown historical outcome, never not-submitted or failed. The UI reads
+current state and requires a new dialog before a new, explicit operation.

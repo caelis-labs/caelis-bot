@@ -1,10 +1,12 @@
 package machines
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,7 +70,7 @@ func TestEmptyBotProfileHasBoundedReadinessAndFreshness(t *testing.T) {
 	if !s.TaskMachines()[0].Ready || len(s.state.Routes) != 0 {
 		t.Fatal("empty connection health required a Worker")
 	}
-	target.owner(s.state.ProfileID, "codex").connectFailure.Store(true)
+	target.ownerFor(s, "codex").connectFailure.Store(true)
 	view, err := s.InspectMachine(t.Context(), machine, "")
 	if err != nil || view.State != "setup" || view.Issue != "worker_not_ready" || view.CheckedAt == 0 {
 		t.Fatal("native readiness not distinguished from unreachable transport", view, err)
@@ -131,57 +133,44 @@ func TestBotReadinessDoesNotHoldRouteLockAndFencesStaleResults(t *testing.T) {
 	}
 }
 
-func TestArchivedRevokedBotRestoresSameProofAndRetainedTasks(t *testing.T) {
+func TestDeletedMachineKeepsTaskIdentityUnavailableAfterReadd(t *testing.T) {
 	target := newDualPeerTarget(t)
-	s, m, _, machine, _ := dualPeerConnect(t, target)
-	task, err := m.StartTask(t.Context(), api.TaskStart{Machine: machine, RequestID: "m1-retained-task", Title: "Retained", Prompt: "run"})
+	s, m, _, machine, ledger := dualPeerConnect(t, target)
+	task, err := m.StartTask(t.Context(), api.TaskStart{Machine: machine, RequestID: "original", Title: "Retained", Prompt: "run"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof := s.state.Profiles[machine].Peer
-	if err = target.peer.Revoke(s.state.ProfileID); err != nil {
+	original := s.state.Profiles[machine]
+	if err = s.RemoveMachine(t.Context(), machine); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RemoveMachine(t.Context(), machine); err != nil || len(s.TaskMachines()) != 0 || len(s.Machines()) != 1 || !s.Machines()[0].Archived {
-		t.Fatal("retained connection was deleted or stayed selectable", err)
-	}
-	if _, err = s.BindWork(t.Context(), api.TaskStart{Machine: machine}, "task-new-archived", ""); err == nil {
-		t.Fatal("archived target accepted new work")
-	}
-	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Name: "Archived rename"}); err != nil || !s.Machines()[0].Archived {
-		t.Fatal("local rename implicitly restored archived authorization", err)
+	if len(s.Machines()) != 0 || len(s.TaskMachines()) != 0 {
+		t.Fatal("deleted connection retained")
 	}
 	reopened, err := Open(s.root, &dualPeerLocal{})
-	if err != nil || reopened.state.Profiles[machine].Peer != proof || reopened.state.Routes[task.ID] != machine {
-		t.Fatal("archive lost sole original proof or task route", err)
-	}
-	restored, err := reopened.ConnectBot(t.Context(), api.BotConnectionInput{Address: proof.Address, Name: "Restored"})
-	if err == nil && restored.PairingStatus == "revoked" {
-		restored, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Name: "Restored", Reconnect: true})
-	}
-	if err == nil {
-		approveMachine(t, target, reopened, restored.ID)
-		restored = reopened.Machines()[0]
-	}
-	if err != nil || restored.ID != machine || restored.Archived || reopened.state.Profiles[machine].Peer.Token != proof.Token {
-		t.Fatal("re-add did not restore original authenticated profile", restored, err)
-	}
-	if got, err := reopened.ReadWork(t.Context(), task.ID); err != nil || got.ID != task.ID || got.Status != "working" {
-		t.Fatal("reauthorization lost original task", got, err)
-	}
-	if err = reopened.RemoveMachine(t.Context(), machine); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
-	if restored, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Name: "Restored", Reconnect: true}); err != nil || restored.Archived {
-		t.Fatal("explicit restore required pairing again", restored, err)
+	defer reopened.Close()
+	if reopened.state.Routes[task.ID] != machine {
+		t.Fatal("original route discarded")
 	}
-	if err = target.peer.Revoke(reopened.state.ProfileID); err != nil {
+	fresh, err := reopened.ConnectBot(t.Context(), api.BotConnectionInput{Address: original.Peer.Address, Name: machineView(original).Name})
+	if err != nil {
 		t.Fatal(err)
 	}
-	p := reopened.state.Profiles[machine]
-	p.Peer.Token = ""
-	reopened.state.Profiles[machine] = p
-	if _, err = reopened.ConnectBot(t.Context(), api.BotConnectionInput{ID: machine, Address: proof.Address, Reconnect: true}); err == nil || err.Error() != "original_peer_proof_required" {
-		t.Fatal("fresh code bypassed missing original proof", err)
+	approveMachine(t, target, reopened, fresh.ID)
+	if fresh.ID == machine {
+		t.Fatal("new identity reused")
+	}
+	if _, err = reopened.ReadWork(t.Context(), task.ID); err == nil {
+		t.Fatal("old task reached a replacement machine")
+	}
+	if _, err = reopened.BindWork(t.Context(), api.TaskStart{Machine: fresh.ID}, task.ID, "codex"); err == nil {
+		t.Fatal("old task rebound")
+	}
+	contents, err := os.ReadFile(ledger)
+	if err != nil || !bytes.Contains(contents, []byte(task.ID)) {
+		t.Fatal("task history erased", err)
 	}
 }

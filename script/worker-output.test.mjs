@@ -177,3 +177,14 @@ test('paused Worker history keeps its starting message through append and earlie
  assert.equal(workerMessageStart(messages,40),50,'explicit latest resumes the bounded tail');
  assert.equal(workerMessageStart(messages,40,'missing-original-id'),50,'missing identity has a safe bounded fallback');
 });
+
+test('deleted original environment preserves visible history and stops polling without redirecting',async()=>{
+ let reads=0,unavailable=false,history=transcript('preserved history');
+ const reader=createWorkerOutputReader({id:'original-task',initialHistory:history,
+ readHistory:async id=>{assert.equal(id,'original-task');reads++;throw Error('original_machine_unavailable')},
+ readObservation:async id=>{assert.equal(id,'original-task');reads++;throw Error('original_machine_unavailable')},
+ history:value=>{history=value},observation:()=>assert.fail('must not fabricate status'),
+ environmentUnavailable:value=>{unavailable=value},historyFailed:()=>{},observationFailed:()=>{}});
+ await reader.read();assert.equal(unavailable,true);const before=reads;await reader.read();
+ assert.equal(reads,before);assert.equal(history.messages[0].text,'preserved history');reader.close();
+});

@@ -125,7 +125,7 @@ func TestBotPeerOrdinaryUploadsRetainBytesForCreateAndContinue(t *testing.T) {
 	if err != nil || again.ID != first.ID {
 		t.Fatal("original create request was replaced", again, err)
 	}
-	owner := target.owner(service.state.ProfileID, "caelis")
+	owner := target.ownerFor(service, "caelis")
 	if owner == nil || service.state.Runtimes[first.ID] != "caelis" || service.state.Routes[first.ID] != machine {
 		t.Fatal("task did not bind B's original native owner/configuration")
 	}
@@ -164,10 +164,10 @@ func TestBotPeerOrdinaryUploadsRetainBytesForCreateAndContinue(t *testing.T) {
 	if starts != 1 || sends != 1 || len(batches) != 2 || batches[1].Kind != "send" || batches[1].RequestID != continuation.RequestID || !reflect.DeepEqual(batches[1].Files, want) {
 		t.Fatal("continuation reordered/replaced original bytes or replayed native work", starts, sends, len(batches))
 	}
-	if service.state.Runtimes[first.ID] != "caelis" || service.state.Routes[first.ID] != machine || target.owner(service.state.ProfileID, "caelis") != owner {
+	if service.state.Runtimes[first.ID] != "caelis" || service.state.Routes[first.ID] != machine || target.ownerFor(service, "caelis") != owner {
 		t.Fatal("B default change rebound original task/model ownership")
 	}
-	otherOwner := target.owner(service.state.ProfileID, "codex")
+	otherOwner := target.ownerFor(service, "codex")
 	if otherOwner != nil {
 		otherOwner.mu.Lock()
 		otherStarts, otherSends := otherOwner.starts, otherOwner.sends

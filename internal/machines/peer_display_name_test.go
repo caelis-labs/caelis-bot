@@ -85,12 +85,12 @@ func TestMachineIdentifiersAreUniqueAndPersistWithoutChangingPairIntent(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "one", Address: "http://127.0.0.1:19331"}, nil)
+	first, err := s.PrepareBotConnection(api.BotConnectionInput{Address: "http://127.0.0.1:19331"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	name := s.Machines()[0].Name
-	_, err = s.PrepareBotConnection(api.BotConnectionInput{ID: "two", Address: "http://127.0.0.1:19332", Name: strings.ToUpper(name)}, nil)
+	_, err = s.PrepareBotConnection(api.BotConnectionInput{Address: "http://127.0.0.1:19332", Name: strings.ToUpper(name)}, nil)
 	if err == nil || !strings.Contains(err.Error(), "duplicate_bot_name") || len(s.state.Profiles) != 1 {
 		t.Fatal("duplicate label admitted", err)
 	}
@@ -119,10 +119,10 @@ func TestSSHDefaultHostnameCollisionAndCustomOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "named", Name: "build", Address: "http://127.0.0.1:19331"}, nil); err != nil {
+	if _, err := s.PrepareBotConnection(api.BotConnectionInput{Name: "build", Address: "http://127.0.0.1:19331"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := s.PrepareBotConnection(api.BotConnectionInput{ID: "ssh", Address: "ssh://fedora:9317"}, nil)
+	ref, err := s.PrepareBotConnection(api.BotConnectionInput{Address: "ssh://fedora:9317"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

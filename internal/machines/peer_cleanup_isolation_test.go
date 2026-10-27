@@ -23,7 +23,7 @@ func TestHungPeerCleanupDoesNotDelayLocalOrOtherPeerStop(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	native := target.owner(s.state.ProfileID, "codex")
+	native := target.ownerFor(s, "codex")
 	native.mu.Lock()
 	key := native.states[other.ID].StopExecutionKey
 	native.mu.Unlock()

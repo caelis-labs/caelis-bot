@@ -19,11 +19,10 @@ func (s *Service) RegisterSSHIdentity(path string) (api.SSHIdentity, error) {
 func (s *Service) StartSSHConnection(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	address, err := sshtransport.Address(v)
+	_, err := sshtransport.Address(v)
 	if err != nil {
 		return api.SSHConnectionStatus{}, err
 	}
-	s.ssh.ReleaseUnused(s.unusedArchivedSSHLocked(address))
 	return s.ssh.Start(v)
 }
 func (s *Service) SSHConnectionStatus(v api.SSHTarget) api.SSHConnectionStatus {
@@ -37,6 +36,11 @@ func (s *Service) peerConnection(ctx context.Context, c workerpeer.Connection) (
 	return c, e
 }
 func (s *Service) peerCall(ctx context.Context, c workerpeer.Connection, in workerpeer.Request) (workerpeer.Response, error) {
+	release, err := s.holdPeerConnection(c)
+	if err != nil {
+		return workerpeer.Response{}, err
+	}
+	defer release()
 	resolved, e := s.peerConnection(ctx, c)
 	if e != nil {
 		return workerpeer.Response{}, e
@@ -47,6 +51,11 @@ func (s *Service) peerAddress(ctx context.Context, address string) (string, erro
 	return s.ssh.Resolve(ctx, address)
 }
 func (s *Service) peerWatch(ctx context.Context, c workerpeer.Connection, id string, receive func(api.WorkObservation)) error {
+	release, err := s.holdPeerConnection(c)
+	if err != nil {
+		return err
+	}
+	defer release()
 	resolved, e := s.peerConnection(ctx, c)
 	if e != nil {
 		return e
@@ -104,35 +113,6 @@ func (s *Service) checkedSSHAddress(ctx context.Context, address, peer string) (
 	return a, nil
 }
 
-// Called under the same lock used by task reservation, pairing and local edits.
-// Every historical task route protects its channel, not only visible/running tasks.
-func (s *Service) unusedArchivedSSHLocked(requested string) []string {
-	used := map[string]bool{requested: true}
-	routed := map[string]bool{}
-	for _, id := range s.state.Routes {
-		routed[id] = true
-	}
-	for id, p := range s.state.Profiles {
-		if !p.View.Archived || routed[id] || s.pairingActive[id] > 0 {
-			used[sshChannelAddress(p.Peer.Address, p.Legacy)] = true
-			used[sshChannelAddress(p.View.Address, p.Legacy)] = true
-			used[sshChannelAddress(p.SavedAddress, false)] = true
-		}
-	}
-	var unused []string
-	for _, p := range s.state.Profiles {
-		if p.View.Archived {
-			for _, address := range []string{p.Peer.Address, p.View.Address, p.SavedAddress} {
-				if canonical := sshChannelAddress(address, p.Legacy); canonical != "" && !used[canonical] {
-					unused = append(unused, canonical)
-					used[canonical] = true
-				}
-			}
-		}
-	}
-	return unused
-}
-
 func sshChannelAddress(address string, legacy bool) string {
 	target, ok := sshtransport.Target(address)
 	if !ok && legacy && address != "" && !strings.Contains(address, "://") {
@@ -147,4 +127,17 @@ func sshChannelAddress(address string, legacy bool) string {
 		return ""
 	}
 	return normalized
+}
+
+// Pin an admitted network call until it finishes. Deletion prevents new calls;
+// existing calls may finish without closing a shared SSH transport underneath.
+func (s *Service) holdPeerConnection(c workerpeer.Connection) (func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.state.Profiles {
+		if p.Peer == c && !p.Legacy {
+			return s.holdSSHLocked(c.Address), nil
+		}
+	}
+	return nil, errors.New("original_machine_unavailable")
 }

@@ -287,5 +287,6 @@
   "taskLatest": "回到最新",
   "taskDismiss": "收起",
   "taskBackToChat": "返回聊天",
-  "taskLastStatus": "上次状态："
+  "taskLastStatus": "上次状态：",
+  "taskEnvironmentDeleted": "原机器连接已删除，此任务的环境不可用。"
 }

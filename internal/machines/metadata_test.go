@@ -11,7 +11,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func TestLegacyListEditsPreserveOriginalBytesAndRoutes(t *testing.T) {
+func TestLegacyEditsPreserveBytesAndDeletionClearsOnlyOriginalConnection(t *testing.T) {
 	root := t.TempDir()
 	original := []byte(`{"version":1,"profileId":"original-profile","profiles":{"old":{"legacyCredential":"fixture-only-proof","view":{"id":"old","name":"fedora","address":"fedora","state":"ready"}}},"routes":{"original-task":"old"},"runtimes":{"original-task":"codex"}}`)
 	if err := os.WriteFile(filepath.Join(root, "machines.json"), original, 0600); err != nil {
@@ -26,27 +26,44 @@ func TestLegacyListEditsPreserveOriginalBytesAndRoutes(t *testing.T) {
 	if err != nil || v.Name != "fedora" || v.State != "legacy" || v.Issue == "pairing_request_not_dispatched" {
 		t.Fatal(v, err)
 	}
-	for _, in := range []api.MachineMutation{{ID: "rename", MachineID: "old", Action: "save", Name: "old-fedora"}, {ID: "hide", MachineID: "old", Action: "remove"}} {
-		if result := s.ManageMachine(in); result.Status != "succeeded" {
-			t.Fatal(result)
-		}
+	if result := s.ManageMachine(api.MachineMutation{ID: "rename", MachineID: "old", Action: "save", Name: "old-fedora"}); result.Status != "succeeded" {
+		t.Fatal(result)
 	}
 	after, err := os.ReadFile(filepath.Join(root, "machines.json"))
 	if err != nil || !bytes.Equal(original, after) {
-		t.Fatal("v1 source overwritten", err)
+		t.Fatal("edit changed v1 source", err)
+	}
+	if result := s.ManageMachine(api.MachineMutation{ID: "hide", MachineID: "old", Action: "remove"}); result.Status != "succeeded" {
+		t.Fatal(result)
+	}
+	after, err = os.ReadFile(filepath.Join(root, "machines.json"))
+	if err != nil || bytes.Contains(after, []byte("fixture-only-proof")) {
+		t.Fatal("deleted legacy credential retained", err)
 	}
 	reopened, err := Open(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	p := reopened.state.Profiles["old"]
-	if !p.Legacy || !p.View.Archived || p.Label != "old-fedora" || p.Peer.Token != "" || reopened.state.Routes["original-task"] != "old" || reopened.state.Runtimes["original-task"] != "codex" {
-		t.Fatal("legacy ownership changed", p)
+	if len(reopened.state.Profiles) != 0 || reopened.state.Routes["original-task"] != "old" || reopened.state.Runtimes["original-task"] != "codex" {
+		t.Fatal("deleted profile survived or history route changed")
 	}
 	if r := reopened.MachineMutation("hide"); r.Status != "succeeded" || r.Machine.ID != "old" {
 		t.Fatal(r)
 	}
+	// Even an absent companion cannot re-import a removed v1 profile.
+	if err = os.Remove(filepath.Join(root, "machines-v2.json")); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	if len(legacy.Machines()) != 0 || legacy.state.Routes["original-task"] != "old" {
+		t.Fatal("legacy source resurrected deletion")
+	}
+
 }
 func TestLocalEditsKeepPairingIntentAndReturnOriginalReceipt(t *testing.T) {
 	target := newDualPeerTarget(t)
@@ -67,11 +84,12 @@ func TestLocalEditsKeepPairingIntentAndReturnOriginalReceipt(t *testing.T) {
 	if got := s.ManageMachine(api.MachineMutation{ID: "hide-offline", MachineID: id, Action: "remove"}); got.Status != "succeeded" {
 		t.Fatal(got)
 	}
-	if s.state.Profiles[id].Peer != old.Peer {
-		t.Fatal("removal discarded proof")
+	if _, exists := s.state.Profiles[id]; exists {
+		t.Fatal("removal retained proof")
 	}
+	r.Machine = removedMachine(id) // Keep outcome/digest; redact deleted configuration from old receipts.
 	if got := s.MachineMutation(in.ID); got != r {
-		t.Fatal("later change rewrote original receipt")
+		t.Fatal("deletion changed original outcome/digest")
 	}
 	b, _ := os.ReadFile(s.registry)
 	var value disk

@@ -11,11 +11,11 @@ func TestSSHCanonicalAddressReusesOriginalProfileProof(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.Close()
-	a, e := s.PrepareBotConnection(api.BotConnectionInput{ID: "original", Address: "ssh://box:09317"}, nil)
+	a, e := s.PrepareBotConnection(api.BotConnectionInput{Address: "ssh://box:09317"}, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, e := s.PrepareBotConnection(api.BotConnectionInput{ID: "different-ui-draft", Address: "ssh://box:9317"}, nil)
+	b, e := s.PrepareBotConnection(api.BotConnectionInput{Address: "ssh://box:9317"}, nil)
 	if e != nil {
 		t.Fatal(e)
 	}

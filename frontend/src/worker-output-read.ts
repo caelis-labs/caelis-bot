@@ -42,6 +42,7 @@ export function createWorkerOutputReader(io:{
  readObservation:(id:string)=>Promise<WorkerTaskObservation>;
  observation:(value:WorkerTaskObservation)=>void;
  history:(value:TaskConversation)=>void;
+ environmentUnavailable?:(unavailable:boolean)=>void;
  observationFailed:(failed:boolean)=>void;
  historyFailed:(failed:boolean)=>void;
  initialObservation?:WorkerTaskObservation;
@@ -49,9 +50,10 @@ export function createWorkerOutputReader(io:{
  now?:()=>number;
 }) {
  let live=true,observing=false,readingHistory=false,historySettled=false,lastHistory=-Infinity,completedRevision='',status='';
- let previous=io.initialObservation,lastTranscript=io.initialHistory;
+ let previous=io.initialObservation,lastTranscript=io.initialHistory,unavailable=false;
+ const unavailableError=(error:unknown)=>{if(error instanceof Error&&error.message==='original_machine_unavailable'){unavailable=true;io.environmentUnavailable?.(true);}};
  const observe=async()=>{
-  if(!live||observing)return;
+  if(!live||observing||unavailable)return;
   observing=true;
   try{
    const value=await io.readObservation(io.id);
@@ -65,11 +67,11 @@ export function createWorkerOutputReader(io:{
    if(!workerTerminal.has(next.task.status)||status!==next.task.status)historySettled=false;
    status=next.task.status;previous=next;
    io.observation(next);io.observationFailed(false);
-  }catch{if(live)io.observationFailed(true)}finally{observing=false}
+  }catch(error){if(live){unavailableError(error);io.observationFailed(true)}}finally{observing=false}
  };
  const history=async()=>{
   const now=(io.now??Date.now)();
-  if(!live||readingHistory||historySettled||now-lastHistory<2500)return;
+  if(!live||unavailable||readingHistory||historySettled||now-lastHistory<2500)return;
   readingHistory=true;lastHistory=now;
   try{
    const value=await io.readHistory(io.id);
@@ -78,7 +80,7 @@ export function createWorkerOutputReader(io:{
    lastTranscript=value;
    io.history(value);io.historyFailed(false);
    historySettled=workerTerminal.has(value.status)&&workerTerminal.has(status);
-  }catch{if(live)io.historyFailed(true)}finally{readingHistory=false}
+  }catch(error){if(live){unavailableError(error);io.historyFailed(true)}}finally{readingHistory=false}
  };
  // History can traverse several native pages. It must not hold live updates
  // behind that read, and neither channel may overlap its own previous request.
