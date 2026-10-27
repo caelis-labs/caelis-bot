@@ -88,6 +88,11 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
 共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
+当前内置基线为正式 Core v0.73.3，来源 `c4c6df2d710357a3c77a6f24b743d5cf5114ddaa`。
+macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制摘要统一记录在
+`resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 内容相对 v0.73.2
+未变；wire 沿用既有的本地包名适配，协议来源与 Runtime 锁定到同一正式提交。
+
 程序版本和运行中的服务版本分别显示。内置 CLI 连接时通过公共 `caelis service start`
 提交候选版本，由 Core 负责选择、锁、就绪校验和回滚。正在执行的 Session 暂时保留旧 Host；
 空闲 Session、后台 Task 和观察连接不阻止换代。Core 的等待器在执行结束后换代，Bot
@@ -103,8 +108,8 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 
 ```sh
 source script/env.sh
-CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.72.1 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.72.2 \
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.73.2 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.73.3 \
 go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
 
@@ -310,6 +315,12 @@ Sessions/Workers retain native defaults. Skills remain progressively loaded and 
 
 These are release capability conditions, not proof of paid Guardian judgment quality. The App × Turn integration
 uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Run the external suite against the exact pinned Core binary before declaring a new integration qualified.
+
+The Guardian suite creates its owned native-effect directory under the test process's working
+directory. That directory must be outside the Host's writable workspace and scratch roots so
+native file writes actually require review. For a checkout under `/tmp`, use a `go test -exec`
+wrapper that changes the test process's working directory to an owned non-temporary task
+directory before executing the test binary. Keep the same Runtime permissions and assertions.
 
 Unknown upload responses are reconciled through their original common command receipt; no upload is replayed.
 Remaining boundaries: worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
