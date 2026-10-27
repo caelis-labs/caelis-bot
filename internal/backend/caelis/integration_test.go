@@ -506,13 +506,13 @@ func TestNativeHostIntegration(t *testing.T) {
 		first, _ := json.Marshal(requests[0])
 		second, _ := json.Marshal(requests[1])
 		third, _ := json.Marshal(requests[2])
-		if !strings.Contains(string(first), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(first), "# Restore your context") {
+		if !strings.Contains(string(first), "Work as Caelis Bot, a persistent personal assistant,") || strings.Contains(string(first), "# Be the user's continuing assistant") {
 			t.Fatal("skill metadata absent or body eagerly injected")
 		}
-		if !strings.Contains(string(second), "# Restore your context") || strings.Contains(string(second), "# Arrange and continue independent work") || !strings.Contains(string(third), "# Arrange and continue independent work") {
+		if !strings.Contains(string(second), "# Be the user's continuing assistant") || strings.Contains(string(second), "# Arrange and follow through on Worker work") || !strings.Contains(string(third), "# Arrange and follow through on Worker work") {
 			t.Fatal("progressive native reads did not expose skill and reference")
 		}
-		for i, marker := range []string{"# Handle native decisions and questions", "# Understand what the user is pointing at", "# Recover work without duplicating actions", "# Help the user connect Telegram"} {
+		for i, marker := range []string{"# Handle native decisions and questions", "# Understand what the user is pointing at", "# Continue helping through a local failure", "# Help the user connect Telegram"} {
 			before, _ := json.Marshal(requests[i+2])
 			after, _ := json.Marshal(requests[i+3])
 			if strings.Contains(string(before), marker) || !strings.Contains(string(after), marker) {

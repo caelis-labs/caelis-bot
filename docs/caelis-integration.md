@@ -316,6 +316,12 @@ Sessions/Workers retain native defaults. Skills remain progressively loaded and 
 These are release capability conditions, not proof of paid Guardian judgment quality. The App × Turn integration
 uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Run the external suite against the exact pinned Core binary before declaring a new integration qualified.
 
+The Guardian suite creates its owned native-effect directory under the test process's working
+directory. That directory must be outside the Host's writable workspace and scratch roots so
+native file writes actually require review. For a checkout under `/tmp`, use a `go test -exec`
+wrapper that changes the test process's working directory to an owned non-temporary task
+directory before executing the test binary. Keep the same Runtime permissions and assertions.
+
 Unknown upload responses are reconciled through their original common command receipt; no upload is replayed.
 Remaining boundaries: worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
 under a new ID; optional terminal observation/model image support require their own negotiated capabilities.
