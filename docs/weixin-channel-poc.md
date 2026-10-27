@@ -82,7 +82,8 @@ never execute work or replay accepted, rejected or unknown send intents. Recover
 continues retained original body parts and also restores retired, unattempted
 progress from the current shared IM's last 128 visible items within twelve hours
 and since this channel's observation start. It does not page older history or
-retain another transcript. Progress covered by a known result is excluded; results
+retain another transcript. Progress covered by an assistant result with the same
+known Turn is excluded; a tool failure or missing Turn cannot prove coverage. Results
 stay ahead of recovered progress. Native classification upgrades are independent
 of text/status changes and can revive only never-attempted retired candidates.
 The spool holds at most 128 candidates; under pressure it evicts lower-priority unfrozen work first, then held

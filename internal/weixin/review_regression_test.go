@@ -625,3 +625,35 @@ func TestReviewRecoveredProgressDoesNotReactivateFiles(t *testing.T) {
 		t.Fatal("old file resumed", out)
 	}
 }
+
+func TestReviewProgressCoverageRequiresKnownTurnResult(t *testing.T) {
+	for _, kind := range []string{"missing-turn", "tool-failure"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newDeliveryFixture(t)
+			f.add("first", "first", resultPriority)
+			f.poll()
+			f.add("progress", "still useful progress", progressPriority)
+			turn := "same-turn"
+			if kind == "missing-turn" {
+				turn = ""
+			}
+			f.snapshot.Items[1].TurnKey = turn
+			f.poll()
+			f.window("B")
+			f.poll()
+			f.add("failure", "failure detail", progressPriority)
+			failure := &f.snapshot.Items[2]
+			failure.Status = "failed"
+			failure.TurnKey = turn
+			if kind == "tool-failure" {
+				failure.Kind = "tool"
+			}
+			f.poll()
+			f.reopen()
+			recoverDelivery(f, "recover")
+			if !strings.Contains(strings.Join(f.sent(), ""), "still useful progress") {
+				t.Fatal("missing turn or a tool failure incorrectly covered progress", f.sent())
+			}
+		})
+	}
+}

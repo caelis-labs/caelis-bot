@@ -117,7 +117,7 @@ func (b *Bridge) recoverProgress() {
 	cutoff := max(b.state.Delivery.StartAt*1000, b.now().Add(-windowMaxAge).UnixMicro())
 	covered := map[string]bool{}
 	for _, item := range s.Items {
-		if kinds[item.ID] == "final" || item.Status == "failed" {
+		if item.TurnKey != "" && item.Kind == "assistant" && (kinds[item.ID] == "final" || item.Status == "failed") {
 			covered[item.TurnKey] = true
 		}
 	}
