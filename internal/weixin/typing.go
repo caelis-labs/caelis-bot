@@ -28,11 +28,10 @@ func (b *Bridge) typing(ctx context.Context, p *protocol) {
 		b.mu.Lock()
 		owner, contextToken := b.state.OwnerID, b.state.ContextToken
 		enabled := b.state.Enabled && b.issue != "auth_expired" && b.issue != "storage" && b.state.PauseUntil <= time.Now().UnixMilli()
-		input, _ := latestUser(snapshot.Items)
-		fromWeixin := input.RequestID != "" && input.RequestID == b.state.Window.InputID && b.state.Window.OwnerID == owner
+		activeWindow := b.remainingLocked(true) > 0
 		b.mu.Unlock()
 		recovery := b.host.Recovery()
-		working := enabled && owner != "" && fromWeixin && weixinTypingTurn(snapshot) &&
+		working := enabled && owner != "" && activeWindow && weixinTypingTurn(snapshot) &&
 			!recovery.Automatic && !recovery.InProgress && !recovery.Manual
 		if !working && active {
 			work, stop := context.WithTimeout(ctx, 3*time.Second)

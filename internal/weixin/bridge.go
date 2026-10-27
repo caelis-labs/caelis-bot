@@ -24,15 +24,16 @@ import (
 )
 
 type Host struct {
-	Diagnostics   *diagnosticlog.Logger
-	Snapshot      func() api.Snapshot
-	Recovery      func() api.RecoveryState
-	Interrupt     func(context.Context) error
-	Artifact      func(string) (string, error)
-	TaskForReport func(string) string
-	Submit        func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
-	TextControl   *textchannel.Store
-	RecordInput   func(textchannel.Inbound, bool)
+	Diagnostics *diagnosticlog.Logger
+	Snapshot    func() api.Snapshot
+	WorkStates  func() []api.WorkState // existing Worker authority; never infer activity from chat chips
+	Now         func() time.Time       // injectable scheduler clock
+	Recovery    func() api.RecoveryState
+	Interrupt   func(context.Context) error
+	Artifact    func(string) (string, error)
+	Submit      func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
+	TextControl *textchannel.Store
+	RecordInput func(textchannel.Inbound, bool)
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -56,8 +57,7 @@ type outbound struct {
 	ArtifactID   string `json:"artifactId,omitempty"` // owned Host handle; never a path
 	FileTurnKey  string `json:"fileTurnKey,omitempty"`
 	FileName     string `json:"fileName,omitempty"`
-	FileInputID  string `json:"fileInputId,omitempty"`  // preparation belongs to this send window
-	FileCritical bool   `json:"fileCritical,omitempty"` // terminal reply may use the final estimated slot
+	FileInputID  string `json:"fileInputId,omitempty"` // preparation belongs to this send window
 	ClientID     string `json:"clientId,omitempty"`
 	ContextToken string `json:"contextToken,omitempty"`
 	Reason       string `json:"reason,omitempty"`
@@ -81,6 +81,8 @@ type sendWindow struct {
 	Used         int    `json:"used,omitempty"`
 	ProgressUsed int    `json:"progressUsed,omitempty"`
 	Exhausted    bool   `json:"exhausted,omitempty"`
+	Replied      bool   `json:"replied,omitempty"`
+	Recover      bool   `json:"recover,omitempty"`
 }
 type pendingProgress struct {
 	InputID string `json:"inputId,omitempty"`
@@ -89,6 +91,7 @@ type pendingProgress struct {
 	Text    string `json:"text"`
 }
 type document struct {
+	Delivery         deliverySchedule    `json:"delivery,omitempty"`
 	Version          int                 `json:"version"`
 	Enabled          bool                `json:"enabled"`
 	BotID            string              `json:"botId"`
@@ -107,13 +110,8 @@ type document struct {
 	ObservedTurn     string              `json:"observedTurn,omitempty"`
 	Missed           int                 `json:"missed,omitempty"`
 	TurnPhases       map[string]string   `json:"turnPhases,omitempty"`
-	TurnOrigins      map[string]string   `json:"turnOrigins,omitempty"`
-	TurnOwners       map[string]string   `json:"turnOwners,omitempty"`
 	TurnOrder        []string            `json:"turnOrder,omitempty"`
-	TaskTurns        map[string]string   `json:"taskTurns,omitempty"`
-	TaskOrder        []string            `json:"taskOrder,omitempty"`
 	PauseUntil       int64               `json:"pauseUntil,omitempty"`
-	InputContexts    map[string]string   `json:"inputContexts,omitempty"`
 	Inbox            []inbound           `json:"inbox,omitempty"`
 	Inputs           map[string]string   `json:"inputs"`
 	Outputs          map[string]outbound `json:"outputs"`
@@ -122,6 +120,9 @@ type document struct {
 	LocalIMSeeded    bool                `json:"localImSeeded,omitempty"`
 }
 type Bridge struct {
+	savedDigest, savedPath        string
+	deliveryMu                    sync.Mutex
+	preparedFiles                 map[string]fileItem
 	configMu                      sync.Mutex
 	mu                            sync.Mutex
 	path, account                 string
@@ -143,11 +144,10 @@ type Bridge struct {
 	loadErr                       bool
 	secretInbox                   map[string]string
 	fileWork                      map[string]bool
-	routeWarnings                 map[string]bool
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, TurnPhases: map[string]string{}, TurnOrigins: map[string]string{}, TurnOwners: map[string]string{}, TaskTurns: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, TurnPhases: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -177,21 +177,11 @@ func Open(root string, host Host) (*Bridge, error) {
 			return b, err
 		}
 	}
-	if b.state.InputContexts == nil {
-		b.state.InputContexts = map[string]string{}
-	}
+
 	if b.state.TurnPhases == nil {
 		b.state.TurnPhases = map[string]string{}
 	}
-	if b.state.TurnOwners == nil {
-		b.state.TurnOwners = map[string]string{}
-	}
-	if b.state.TurnOrigins == nil {
-		b.state.TurnOrigins = map[string]string{}
-	}
-	if b.state.TaskTurns == nil {
-		b.state.TaskTurns = map[string]string{}
-	}
+
 	if b.state.PauseUntil > time.Now().UnixMilli() {
 		b.issue = "session_cooldown"
 	} else if b.state.FileIssue != "" {
@@ -203,10 +193,23 @@ func (b *Bridge) saveLocked() error {
 	if b.loadErr {
 		return errors.New("storage")
 	}
+	// Idle scheduler polls must not fsync the same document repeatedly. Only
+	// confirmed writes populate this cache; every changed intent/window still
+	// crosses the existing durable write boundary before HTTP.
+	encoded, err := json.Marshal(b.state)
+	if err != nil {
+		return err
+	}
+	digest := textDigest(string(encoded))
+	if digest == b.savedDigest && b.path == b.savedPath {
+		return nil
+	}
 	if err := localstate.WriteConfirmed(b.path, b.state); err != nil {
+		b.savedDigest, b.savedPath = "", ""
 		b.issue = "storage"
 		return errors.New("storage")
 	}
+	b.savedDigest, b.savedPath = digest, b.path
 	if b.issue == "storage" {
 		b.issue = ""
 	}
@@ -674,6 +677,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		b.mu.Lock()
 		oldCursor, oldInbox, oldPause := b.state.Cursor, b.state.Inbox, b.state.PauseUntil
 		oldWindow, oldContext := b.state.Window, b.state.ContextToken
+		oldPaused, oldStart := b.state.Delivery.PausedWindow, b.state.Delivery.StartAt
 		b.state.PauseUntil = 0
 		if len(b.state.Inbox) > 100 {
 			b.issue = "backlog"
@@ -717,8 +721,17 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID})
 			// Even an input without a usable context fences the prior window.
 			// It cannot authorize another send using the previous token.
+			if b.remainingLocked(true) == 0 {
+				b.state.Delivery.PausedWindow = b.state.Window.InputID
+			}
+			if b.state.Delivery.StartAt == 0 {
+				b.state.Delivery.StartAt = b.state.Window.InputAt
+				if b.state.Delivery.StartAt == 0 {
+					b.state.Delivery.StartAt = b.now().UnixMilli()
+				}
+			}
 			b.state.ContextToken = msg.ContextToken
-			b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: time.Now().UnixMilli()}
+			b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: b.now().UnixMilli()}
 		}
 		if result.Cursor != "" {
 			b.state.Cursor = result.Cursor
@@ -732,6 +745,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 				b.state.Inbox = oldInbox
 				b.state.PauseUntil = oldPause
 				b.state.Window, b.state.ContextToken = oldWindow, oldContext
+				b.state.Delivery.PausedWindow, b.state.Delivery.StartAt = oldPaused, oldStart
 				b.mu.Unlock()
 				sleep(ctx, 5*time.Second)
 				continue
@@ -814,13 +828,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		return
 	}
 	b.state.Inputs[in.ID] = "dispatching"
-	if !control && !b.state.HasInput {
-		for _, item := range b.host.Snapshot().Items {
-			if item.Kind == "assistant" && item.ID != "" {
-				b.state.Outputs[outputKey(item)] = outbound{State: "skip"}
-			}
-		}
-	}
+
 	if b.saveLocked() != nil {
 		b.state.Inputs[in.ID] = "queued"
 		b.mu.Unlock()
@@ -914,7 +922,6 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		if b.state.Window.InputID == in.ID {
 			b.state.ContextToken = in.ContextToken
 		}
-		b.state.InputContexts[in.ID] = in.ContextToken
 	}
 	b.state.Inbox = append(b.state.Inbox[:index], b.state.Inbox[index+1:]...)
 	if outcome == "unknown" {
@@ -932,7 +939,7 @@ func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body 
 		b.mirrorNotices(ctx, p)
 		return
 	}
-	b.sendTextOnce(b.commandContext(ctx, in.ID), p, "control:"+in.ID, in.ContextToken, body)
+	b.localFeedback(ctx, p, in, body)
 }
 func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) {
 	b.sendTextOncePolicy(ctx, p, key, contextToken, body, true)
@@ -970,286 +977,6 @@ func textDigest(s string) string {
 	hash := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(hash[:])
 }
-func (b *Bridge) output(ctx context.Context, p *protocol) {
-	b.mu.Lock()
-	blocked := b.issue == "auth_expired" || b.issue == "storage" || b.state.PauseUntil > time.Now().UnixMilli()
-	b.mu.Unlock()
-	if blocked {
-		return
-	}
-	snapshot := b.host.Snapshot()
-	b.ObserveTurn(snapshot)
-	b.observeTaskSources(snapshot)
-	for _, item := range snapshot.Items {
-		if item.Kind == "assistant" || item.Task != nil {
-			b.ownsTurn(snapshot, item.TurnKey)
-		}
-	}
-	if b.host.TextControl != nil {
-		snapshot.Items = append([]api.Item(nil), snapshot.Items...)
-		for index, item := range snapshot.Items {
-			if len(item.AsyncQuestions) == 0 {
-				continue
-			}
-			if card, err := b.host.TextControl.AsyncCard(item, snapshot.RuntimeOwner); err == nil {
-				snapshot.Items[index] = card
-			}
-		}
-	}
-	b.mu.Lock()
-	if !b.state.LocalIMSeeded {
-		for _, item := range snapshot.Items {
-			if (item.Kind == "user" || item.Kind == "assistant") && item.ID != "" && item.SeenAt == 0 {
-				key := outputKey(item)
-				if _, known := b.state.Outputs[key]; !known {
-					b.state.Outputs[key] = outbound{State: "skip"}
-				}
-				for _, artifact := range item.Artifacts {
-					key := artifactKey(item.TurnKey, artifact.ID)
-					if _, known := b.state.Outputs[key]; !known {
-						b.state.Outputs[key] = outbound{State: "skip"}
-					}
-				}
-			}
-		}
-		if b.host.TextControl != nil {
-			for _, notice := range b.host.TextControl.Notices() {
-				if notice.SeenAt == 0 {
-					key := "notice:" + notice.ID
-					if _, known := b.state.Outputs[key]; !known {
-						b.state.Outputs[key] = outbound{State: "skip"}
-					}
-				}
-			}
-		}
-		b.state.LocalIMSeeded = true
-		if b.saveLocked() != nil {
-			b.mu.Unlock()
-			return
-		}
-	}
-	if !b.state.MirrorV2 {
-		for _, item := range snapshot.Items {
-			if (item.Kind == "assistant" || item.Kind == "user") && item.ID != "" {
-				b.state.Outputs[outputKey(item)] = outbound{State: "skip"}
-			}
-		}
-		for _, approval := range snapshot.Approvals {
-			if approval.Status == "resolved" {
-				b.state.Outputs["approval-result:"+approval.ID] = outbound{State: "skip"}
-			}
-		}
-		if b.host.TextControl != nil {
-			for _, notice := range b.host.TextControl.Notices() {
-				b.state.Outputs["notice:"+notice.ID] = outbound{State: "skip"}
-			}
-		}
-		b.state.MirrorV2 = true
-		if b.saveLocked() != nil {
-			b.mu.Unlock()
-			return
-		}
-	}
-	b.mu.Unlock()
-	var scoped bool
-	ctx, snapshot, scoped = b.scopeReplies(ctx, snapshot)
-	if !scoped {
-		return
-	}
-	kinds := b.outputKinds(snapshot)
-	ready := snapshot.Connection == "ready" || snapshot.Connection == "connected"
-	if ready {
-		b.mirrorControls(ctx, p, snapshot)
-		// A question is actionable while its Turn waits; it cannot wait for the
-		// final assistant response. Worker questions are coordinated by the Bot.
-		for _, item := range snapshot.Items {
-			if kinds[item.ID] == "question" && b.ownsReplyTurn(snapshot, item.TurnKey) {
-				b.mirrorItem(ctx, p, item, "question")
-			}
-		}
-	}
-	b.mirrorNotices(ctx, p)
-	if !ready {
-		return
-	}
-	b.mirrorPhase(ctx, p, snapshot)
-	latestFinal := ""
-	visible := map[string]bool{}
-	for _, item := range snapshot.Items {
-		visible[item.ID] = true
-		if kinds[item.ID] == "final" && b.ownsReplyTurn(snapshot, item.TurnKey) {
-			latestFinal = item.ID
-		}
-	}
-	b.mu.Lock()
-	if old := b.state.PendingFinal; old != "" && (!visible[old] || latestFinal != "" && latestFinal != old) {
-		b.state.Outputs["item:"+old] = outbound{State: "skip"}
-		b.state.PendingFinal = ""
-		b.state.Missed++
-		_ = b.saveLocked()
-	}
-	b.mu.Unlock()
-	// A ready final supersedes earlier unattempted progress on every poll,
-	// including after the final's durable receipt has already been recorded.
-	beforeFinal := map[string]bool{}
-	if latestFinal != "" {
-		for _, item := range snapshot.Items {
-			if item.ID == latestFinal {
-				break
-			}
-			beforeFinal[item.ID] = true
-		}
-	}
-	finalAttempted := map[string]bool{}
-	ordered := snapshot.Items
-	if latestFinal != "" {
-		ordered = make([]api.Item, 0, len(snapshot.Items))
-		for _, item := range snapshot.Items {
-			if item.ID == latestFinal {
-				ordered = append(ordered, item)
-			}
-		}
-		for _, item := range snapshot.Items {
-			if item.ID != latestFinal {
-				ordered = append(ordered, item)
-			}
-		}
-	}
-	for _, item := range ordered {
-		if item.Kind != "assistant" || item.ID == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
-			continue
-		}
-		if !b.ownsReplyTurn(snapshot, item.TurnKey) {
-			continue
-		}
-		kind := kinds[item.ID]
-		if latestFinal != "" && kind == "final" && item.ID != latestFinal {
-			continue
-		}
-		if kind == "" {
-			continue
-		}
-		fileOnly := kind == "final" && item.Text == ""
-		switch kind {
-		case "question":
-			continue
-		case "final":
-			names := b.turnArtifactNames(snapshot, item.TurnKey)
-			self := map[string]bool{}
-			for _, artifact := range item.Artifacts {
-				self[artifact.ID] = true
-			}
-			var extras []api.Artifact
-			for _, artifact := range names {
-				if !self[artifact.ID] {
-					extras = append(extras, artifact)
-				}
-			}
-			if item.Text != "" {
-				item.Text = withArtifactNames(item.Text, names)
-			} else if len(names) > 0 {
-				b.mu.Lock()
-				room := b.remainingLocked(true)
-				b.mu.Unlock()
-				if room < len(names) {
-					item.Text = withArtifactNames("", names)
-				}
-			}
-			if item.Text != "" {
-				b.mirrorFinal(ctx, p, item, extras)
-			}
-		case "task":
-			if beforeFinal[item.ID] {
-				continue
-			}
-			if item.Text != "" {
-				b.mirrorItem(ctx, p, item, "task")
-			}
-		case "progress":
-			b.mu.Lock()
-			terminal := b.state.TurnPhases[item.TurnKey] == "completed"
-			b.mu.Unlock()
-			if !terminal {
-				item.Text = withArtifactNames(item.Text, item.Artifacts)
-			}
-			if item.Text != "" && !beforeFinal[item.ID] {
-				b.queueProgress(item)
-			}
-		}
-		fileCritical := fileOnly
-		if kind == "final" && item.Text != "" {
-			b.mu.Lock()
-			parent := outputKey(item)
-			attempted := b.state.Outputs[parent+":0"].State != "" || b.state.Outputs[parent+":compact"].State != "" || b.state.Outputs[parent].State != ""
-			fileCritical = attempted && b.state.PendingFinal != item.ID
-			b.mu.Unlock()
-			finalAttempted[item.TurnKey] = fileCritical
-		}
-		for _, artifact := range item.Artifacts {
-			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, fileCritical)
-		}
-	}
-	// Caelis projects generated resources as tool items with owned Artifact
-	// handles. Activity/file-change items are deliberately not exported here.
-	for _, item := range snapshot.Items {
-		if item.Kind != "tool" || len(item.Artifacts) == 0 || item.Status != "completed" && item.Status != "accepted" || !b.ownsReplyTurn(snapshot, item.TurnKey) {
-			continue
-		}
-		b.mu.Lock()
-		phase := b.state.TurnPhases[item.TurnKey]
-		b.mu.Unlock()
-		if phase != "completed" && !(item.TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")) {
-			continue
-		}
-		for _, artifact := range item.Artifacts {
-			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, finalAttempted[item.TurnKey])
-		}
-	}
-	b.flushPendingArtifacts(ctx, p, "")
-	b.mu.Lock()
-	activeProgress := len(b.state.Progress) > 0 && b.state.Progress[0].TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")
-	b.mu.Unlock()
-	if len(beforeFinal) > 0 {
-		eligible := map[string]bool{}
-		for _, item := range snapshot.Items {
-			if !beforeFinal[item.ID] {
-				eligible[item.ID] = true
-			}
-		}
-		b.mu.Lock()
-		b.expireRepliesLocked(eligible, true, true)
-		b.mu.Unlock()
-	}
-	if activeProgress {
-		b.flushProgress(ctx, p, false)
-	}
-}
-func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.Snapshot) {
-	if b.host.TextControl != nil {
-		for _, approval := range snapshot.Approvals {
-			if !b.ownsApproval(snapshot, approval) {
-				continue
-			}
-			b.mu.Lock()
-			contextToken := b.state.ContextToken
-			b.mu.Unlock()
-			if approval.Status == "pending" {
-				card, short, err := b.host.TextControl.Card(approval)
-				if err == nil && card != "" {
-					b.sendTextOncePolicy(ctx, p, "approval:"+approval.ID+":"+short, contextToken, markdownApprovalCard(card), len(approval.Questions) == 0)
-				}
-			}
-		}
-	}
-}
-func (b *Bridge) mirrorPhase(ctx context.Context, p *protocol, snapshot api.Snapshot) {
-	b.mu.Lock()
-	token, accepted, observed := b.state.ContextToken, b.state.AcceptedInputID, b.state.ObservedTurn
-	b.mu.Unlock()
-	if key, body := phaseNotice(snapshot, accepted, observed); key != "" {
-		b.sendTextOnce(ctx, p, key, token, body)
-	}
-}
 func markdownApprovalCard(card string) string {
 	lines := strings.Split(card, "\n")
 	if len(lines) > 0 {
@@ -1271,41 +998,7 @@ func markdownQuestionCard(card string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-func phaseNotice(s api.Snapshot, acceptedInputID, observedTurn string) (string, string) {
-	if s.LastReceipt.ID == "" || s.LastReceipt.ID != acceptedInputID {
-		return "", ""
-	}
-	body := map[string]string{"failed": "Bot 未能完成此请求，可在同一对话询问原因。", "interrupted": "工作已停止。", "unknown": "结果暂不确定，请先核对原请求，不要重复发送。"}[s.Phase]
-	if body == "" {
-		return "", ""
-	}
-	turn := terminalSnapshotTurn(s, acceptedInputID, observedTurn)
-	for _, item := range s.Items {
-		if turn != "" && item.Kind == "user" && item.RequestID == acceptedInputID && item.TurnKey == turn {
-			return "status:" + turn + ":" + s.Phase, body
-		}
-	}
-	return "", ""
-}
 func (b *Bridge) mirrorNotices(ctx context.Context, p *protocol) {
-	if b.host.TextControl == nil {
-		return
-	}
-	for _, notice := range b.host.TextControl.Notices() {
-		if notice.Origin.Channel != "weixin" {
-			continue
-		}
-		b.mu.Lock()
-		w := b.state.Window
-		token := b.state.ContextToken
-		b.mu.Unlock()
-		if w.InputID == "" || (notice.ID != textDigest("weixin\x00"+w.ContextToken+"\x00"+w.InputID) && notice.ID != textDigest("weixin\x00"+w.OwnerID+"\x00"+w.ContextToken+"\x00"+w.InputID)) {
-			continue
-		}
-		if notice.Origin.Channel == "weixin" {
-			token = notice.Origin.Conversation
-		}
-		out := textchannel.Outbound{Channel: "weixin", Conversation: token, ID: "notice:" + notice.ID, Text: notice.Text}
-		b.sendTextOncePolicy(b.commandContext(ctx, w.InputID), p, out.ID, out.Conversation, out.Text, false)
-	}
+	b.observeNotices()
+	b.output(ctx, p)
 }

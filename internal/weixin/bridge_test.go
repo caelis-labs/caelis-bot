@@ -20,10 +20,13 @@ import (
 )
 
 func freshWindow(b *Bridge, id string) {
+	if b.remainingLocked(true) == 0 {
+		b.state.Delivery.PausedWindow = b.state.Window.InputID
+	}
 	b.state.HasInput = true
 	b.state.AcceptedInputID = id
 	b.state.ContextToken = "ctx"
-	b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: id, ContextToken: "ctx", InputAt: time.Now().UnixMilli()}
+	b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: id, ContextToken: "ctx", InputAt: b.now().UnixMilli()}
 }
 
 func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
@@ -78,7 +81,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 2 || !strings.Contains(texts[0], "**[A1]") || !strings.Contains(texts[0], "[1] 允许") || !strings.Contains(texts[0], "**提示：发送 /approve A1 + 选项标号**") || texts[1] != "**Worker**" {
+	if len(texts) != 1 || !strings.Contains(texts[0], "**[A1]") || !strings.Contains(texts[0], "[1] 允许") || !strings.Contains(texts[0], "**提示：发送 /approve A1 + 选项标号**") {
 		t.Fatalf("missing text card: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
@@ -87,12 +90,12 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" {
 		t.Fatal("owner command was not journaled once", input)
 	}
-	if sent.Load() != 1 || len(texts) != 2 {
+	if sent.Load() != 1 || len(texts) != 1 {
 		t.Fatalf("decision/receipt: %d %#v", sent.Load(), texts)
 	}
 	snapshot.Approvals[0].Status = "resolved"
 	b.output(t.Context(), p)
-	if len(texts) != 2 {
+	if len(texts) != 1 {
 		t.Fatalf("terminal mirror: %#v", texts)
 	}
 }
@@ -134,22 +137,19 @@ func TestRecoveryBlockedOrdinaryInputDoesNotBlockLaterControl(t *testing.T) {
 }
 
 func TestLocalIMMigrationSeedsOnlyHistoricalOutputs(t *testing.T) {
-	var snapshot api.Snapshot
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }})
-	if err != nil {
-		t.Fatal(err)
+	f := newDeliveryFixture(t)
+	f.b.state.LocalIMSeeded = false
+	f.mu.Lock()
+	f.snapshot.Items = []api.Item{{ID: "old", Kind: "assistant", Text: "historical", Status: "completed"}}
+	f.mu.Unlock()
+	f.poll()
+	if !f.b.state.LocalIMSeeded || f.b.state.Outputs["item:old"].State != "skip" || len(f.sent()) != 0 {
+		t.Fatal("historical migration replay")
 	}
-	b.state.LocalIMSeeded = false // Existing state written before this migration.
-	snapshot = api.Snapshot{Connection: "offline", Items: []api.Item{
-		{ID: "old", Kind: "assistant", Text: "old result"},
-		{ID: "new", Kind: "assistant", Text: "new result", SeenAt: 1},
-	}}
-	b.output(t.Context(), nil)
-	if !b.state.LocalIMSeeded || b.state.Outputs["item:old"].State != "skip" {
-		t.Fatal("old local IM output could replay", b.state.Outputs)
-	}
-	if _, exists := b.state.Outputs["item:new"]; exists {
-		t.Fatal("new output suppressed by migration")
+	f.add("new", "new result", resultPriority)
+	f.poll()
+	if len(f.sent()) != 1 || f.sent()[0] != "new result" {
+		t.Fatal(f.sent())
 	}
 }
 
@@ -260,7 +260,7 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 2 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
+	if len(texts) != 1 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
 		t.Fatalf("missing two phone fields: %#v", texts)
 	}
 	freshWindow(b, "weixin:bot:1")
@@ -303,17 +303,19 @@ func TestWeixinAsyncQuestionCardUsesApprovalStyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := Open(root, Host{TextControl: control})
+	b, _ := Open(root, Host{TextControl: control, Snapshot: func() api.Snapshot {
+		return api.Snapshot{RuntimeOwner: "owner", Connection: "ready", Items: []api.Item{card}}
+	}})
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
 	freshWindow(b, "owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
-	b.mirrorItem(t.Context(), p, card, "question")
+	b.output(t.Context(), p)
 	if len(texts) != 1 || !strings.Contains(texts[0], "**[Q1] 测试题 1：请选择一个选项。**") || !strings.Contains(texts[0], "[1] 甲\n[2] 乙\n[3] 丙") || !strings.Contains(texts[0], "**提示：发送 /answer Q1 + 选项标号**") || !strings.Contains(texts[0], "**[Q2] 测试题 2（开放回答）：请写一句简短的测试内容。**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 完整回答**") || strings.Contains(texts[0], "回答请输入") {
 		t.Fatal(texts)
 	}
 }
 
-func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
+func TestUserMessagesAreNotMirroredAndDoNotGateSharedAssistantOutput(t *testing.T) {
 	var texts []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -350,7 +352,7 @@ func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
 	b.state.Inputs["remote-wx"] = "accepted"
 	b.ObserveTurn(api.Snapshot{CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "reply", Status: "completed"}}})
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(texts) != 0 {
+	if len(texts) != 1 || texts[0] != "reply" {
 		t.Fatalf("mirror: %#v", texts)
 	}
 }
@@ -716,6 +718,12 @@ func TestQRVerificationReachesLocalConfirmation(t *testing.T) {
 // Existing delivery-policy fixtures explicitly model a single native owner.
 // Adapter handoff/history provenance is exercised by the adapter integration tests.
 func nativeInputSnapshot(snapshot api.Snapshot) api.Snapshot {
+	snapshot.Items = append([]api.Item(nil), snapshot.Items...)
+	for i := range snapshot.Items {
+		if snapshot.Items[i].SeenAt == 0 {
+			snapshot.Items[i].SeenAt = time.Now().UnixMicro() + int64(i)
+		}
+	}
 	if snapshot.RuntimeOwner == "" {
 		snapshot.RuntimeOwner = "fixture-runtime"
 	}

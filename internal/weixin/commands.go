@@ -20,24 +20,47 @@ func localCommand(body string) bool {
 }
 
 func (b *Bridge) localFeedback(ctx context.Context, p *protocol, in inbound, body string) {
-	_, _ = b.sendOne(b.commandContext(ctx, in.ID), p, "local:"+in.ID, body, false)
+	b.mu.Lock()
+	if b.state.Window.InputID != in.ID {
+		b.mu.Unlock()
+		return
+	}
+	b.enqueueDeliveryLocked(queuedDelivery{Key: "local:" + in.ID, Body: body, Priority: resultPriority})
+	_ = b.saveLocked()
+	b.mu.Unlock()
+	b.output(ctx, p)
 }
 
 func (b *Bridge) handleLocalCommand(ctx context.Context, p *protocol, in inbound) {
 	command := strings.ToLower(strings.TrimSpace(in.Text))
 	switch command {
 	case "/refresh", "/r":
-		if b.host.Snapshot != nil {
-			b.output(ctx, p) // reconcile pending final and actionable native requests
+		b.mu.Lock()
+		if b.state.Window.InputID != in.ID {
+			b.mu.Unlock()
+			return
 		}
+		b.state.Window.Recover = true
+		b.rotateDeliveriesLocked()
+		for i := range b.state.Delivery.Queue {
+			if b.state.Delivery.Queue[i].Priority == resultPriority {
+				b.state.Delivery.Queue[i].Held = false
+			}
+		}
+		// /r selects only known unattempted results in the existing delivery spool.
+		// Accepted / unknown intents are reconciled by their original keys, never replayed.
+		_ = b.saveLocked()
+		b.mu.Unlock()
+		b.output(ctx, p)
 		b.mu.Lock()
 		used := b.state.Window.Used
 		b.mu.Unlock()
 		if used == 0 {
-			b.localFeedback(ctx, p, in, "已刷新微信接收窗口；旧消息不会补发。需要后续内容，请告诉 Bot。")
+			b.localFeedback(ctx, p, in, "当前没有可恢复的未发送结果；投递结果未知的消息不会重发，完整记录可在桌面同一 Bot 对话查看。")
 		}
+
 	case "/help":
-		b.localFeedback(ctx, p, in, "微信命令：/r（或 /refresh）刷新接收窗口，不补发旧消息；/status 查看状态；/stop 停止当前工作；/help 查看帮助。审批与问题请使用卡片中的 /approve 或 /answer 命令。")
+		b.localFeedback(ctx, p, in, "微信命令：/r（或 /refresh）刷新接收窗口并恢复漏发结果，不重新执行工作；/status 查看状态；/stop 停止当前工作；/help 查看帮助。审批与问题请使用卡片中的 /approve 或 /answer 命令。")
 	case "/status":
 		phase, connection := "未知", "未知"
 		if b.host.Snapshot != nil {
@@ -45,7 +68,7 @@ func (b *Bridge) handleLocalCommand(ctx context.Context, p *protocol, in inbound
 			phase, connection = s.Phase, s.Connection
 		}
 		b.mu.Lock()
-		used, pending, exhausted := b.state.Window.Used, len(b.state.Progress), b.state.Window.Exhausted
+		used, pending, exhausted := b.state.Window.Used, len(b.state.Delivery.Queue), b.state.Window.Exhausted
 		if b.state.PendingFinal != "" {
 			pending++
 		}

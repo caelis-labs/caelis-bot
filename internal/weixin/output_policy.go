@@ -28,9 +28,7 @@ func (b *Bridge) outputKinds(snapshot api.Snapshot) map[string]string {
 			kinds[item.ID] = "task"
 			continue
 		}
-		if item.TurnKey == "" {
-			continue // unscoped text cannot prove an active or terminal Turn
-		}
+		kinds[item.ID] = "progress"
 		if terminal[item.TurnKey] == "completed" {
 			kinds[item.ID] = "progress"
 			last[item.TurnKey] = item.ID

@@ -232,7 +232,7 @@ func (p *protocol) uploadFile(ctx context.Context, owner string, plain []byte) (
 	return fileItem{}, "upload_unknown"
 }
 
-func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string, artifact api.Artifact, critical bool) {
+func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string, artifact api.Artifact) {
 	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
 		return
 	}
@@ -262,21 +262,11 @@ func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string,
 	if seen && old.FileName != "" {
 		artifact.Name = old.FileName // keep the first projected delivery name
 	}
-	critical = critical || old.FileCritical
 	if !seen {
-		old = outbound{State: "pending", ArtifactID: artifact.ID, FileTurnKey: turn, FileName: artifact.Name, FileInputID: b.state.Window.InputID, FileCritical: critical, Digest: textDigest(artifact.ID)}
+		old = outbound{State: "pending", ArtifactID: artifact.ID, FileTurnKey: turn, FileName: artifact.Name, FileInputID: b.state.Window.InputID, Digest: textDigest(artifact.ID)}
 		b.state.Outputs[key] = old
 		if b.saveLocked() != nil {
 			delete(b.state.Outputs, key)
-			b.mu.Unlock()
-			return
-		}
-	} else if critical && !old.FileCritical {
-		old.FileCritical = true
-		b.state.Outputs[key] = old
-		if b.saveLocked() != nil {
-			old.FileCritical = false
-			b.state.Outputs[key] = old
 			b.mu.Unlock()
 			return
 		}
@@ -285,7 +275,7 @@ func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string,
 		b.mu.Unlock()
 		return
 	}
-	if b.remainingLocked(critical) == 0 {
+	if b.remainingProgressLocked() == 0 {
 		b.deferArtifactLocked(key, old)
 		b.mu.Unlock()
 		return
@@ -317,9 +307,11 @@ func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string,
 			b.mu.Lock()
 			delete(b.fileWork, key)
 			b.mu.Unlock()
-			b.flushPendingArtifacts(ctx, p, key)
+			if ctx.Err() == nil {
+				b.output(ctx, p)
+			}
 		}()
-		b.deliverArtifact(ctx, p, artifact, key, critical)
+		b.deliverArtifact(ctx, p, artifact, key)
 	}()
 }
 
@@ -328,32 +320,6 @@ func (b *Bridge) deferArtifactLocked(key string, record outbound) {
 	b.state.Outputs[key] = record
 	b.issue, b.state.FileIssue = "file_deferred", "file_deferred"
 	_ = b.saveLocked()
-}
-
-// Pending records contain only previously authorized Artifact handles and
-// filenames. Re-resolve each handle through Host; never persist a local path.
-func (b *Bridge) flushPendingArtifacts(ctx context.Context, p *protocol, skipKey string) {
-	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
-		return
-	}
-	type pending struct {
-		artifact api.Artifact
-		turn     string
-		critical bool
-	}
-	b.mu.Lock()
-	files := make([]pending, 0)
-	for key, record := range b.state.Outputs {
-		if key != skipKey && strings.HasPrefix(key, "artifact:") && (record.State == "pending" || record.State == "preparing") && record.FileName != "" && record.ArtifactID != "" {
-			files = append(files, pending{artifact: api.Artifact{ID: record.ArtifactID, Name: record.FileName}, turn: record.FileTurnKey, critical: record.FileCritical})
-		}
-	}
-	b.mu.Unlock()
-	for _, file := range files {
-		// The key already fences the originating Turn. Recovering a preparation
-		// does not authorize it to borrow a later user's send window.
-		b.scheduleArtifact(ctx, p, file.turn, file.artifact, file.critical)
-	}
 }
 
 func (b *Bridge) failArtifact(key, reason string) {
@@ -369,7 +335,7 @@ func (b *Bridge) failArtifact(key, reason string) {
 	b.mu.Unlock()
 }
 
-func (b *Bridge) deliverArtifact(ctx context.Context, p *protocol, artifact api.Artifact, key string, critical bool) {
+func (b *Bridge) deliverArtifact(ctx context.Context, p *protocol, artifact api.Artifact, key string) {
 	work, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	path, err := b.host.Artifact(artifact.ID) // Host resolver enforces the same owned-ID boundary as Telegram.
@@ -399,23 +365,26 @@ func (b *Bridge) deliverArtifact(ctx context.Context, p *protocol, artifact api.
 		return // An interrupted preparation may be safely resumed after restart.
 	}
 	file.Name = artifact.Name
-	b.sendFileOne(work, p, key, file, critical)
+	b.mu.Lock()
+	for _, q := range b.state.Delivery.Queue {
+		if q.Key == key && b.state.Outputs[key].State == "preparing" {
+			if b.preparedFiles == nil {
+				b.preparedFiles = map[string]fileItem{}
+			}
+			b.preparedFiles[key] = file
+			break
+		}
+	}
+	b.mu.Unlock()
 }
 
 // Only this transition spends a send slot. Persisting unknown before HTTP
 // means a crash, cancellation, or ambiguous response cannot replay the file.
-func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file fileItem, critical bool) {
+func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file fileItem) {
 	if ctx.Err() != nil {
 		return
 	}
 	if !b.scopeCurrent(ctx) {
-		b.mu.Lock()
-		if record := b.state.Outputs[key]; record.State == "preparing" {
-			record.State, record.Reason = "superseded", "reply_boundary_changed"
-			b.state.Outputs[key] = record
-			_ = b.saveLocked()
-		}
-		b.mu.Unlock()
 		return
 	}
 	var seed [16]byte
@@ -429,7 +398,7 @@ func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file 
 		b.mu.Unlock()
 		return
 	}
-	if b.remainingLocked(critical) == 0 {
+	if b.remainingProgressLocked() == 0 {
 		b.deferArtifactLocked(key, prior)
 		b.mu.Unlock()
 		return
@@ -440,13 +409,20 @@ func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file 
 		return
 	}
 	window := b.state.Window
+	oldLastSent := b.state.Delivery.LastSent
 	b.state.Window.Used++
+	b.state.Window.ProgressUsed++
+	if scheduled(ctx) {
+		b.state.Window.Replied = true
+		b.state.Delivery.LastSent = b.now().UnixMilli()
+	}
 	w := b.state.Window
 	size, _ := strconv.Atoi(file.Len)
-	intent := outbound{State: "unknown", ArtifactID: prior.ArtifactID, FileTurnKey: prior.FileTurnKey, FileName: prior.FileName, FileInputID: prior.FileInputID, ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]), ContextToken: w.ContextToken, Digest: prior.Digest, Attempts: 1, Bytes: size, InputAgeSec: int64(time.Since(time.UnixMilli(w.InputAt)).Seconds()), WindowUsed: w.Used}
+	intent := outbound{State: "unknown", ArtifactID: prior.ArtifactID, FileTurnKey: prior.FileTurnKey, FileName: prior.FileName, FileInputID: prior.FileInputID, ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]), ContextToken: w.ContextToken, Digest: prior.Digest, Attempts: 1, Bytes: size, InputAgeSec: int64(b.now().Sub(time.UnixMilli(w.InputAt)).Seconds()), WindowUsed: w.Used}
 	b.state.Outputs[key] = intent
 	if b.saveLocked() != nil {
 		b.state.Window = window
+		b.state.Delivery.LastSent = oldLastSent
 		b.state.Outputs[key] = prior
 		b.mu.Unlock()
 		return
