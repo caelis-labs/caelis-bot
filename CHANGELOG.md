@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/caelis-labs/caelis-bot/compare/v0.19.0...v0.19.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **remote:** make local connection management reliable and simplify SSH login ([#233](https://github.com/caelis-labs/caelis-bot/issues/233)) ([ce487fb](https://github.com/caelis-labs/caelis-bot/commit/ce487fbd9a4529ce87f56beec06a723ded49bd91))
+
 ## [0.19.0](https://github.com/caelis-labs/caelis-bot/compare/v0.18.3...v0.19.0) (2026-10-26)
 
 ### Remote machines and chat
