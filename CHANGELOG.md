@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.2](https://github.com/caelis-labs/caelis-bot/compare/v0.19.1...v0.19.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* permanently delete local machine connections ([#236](https://github.com/caelis-labs/caelis-bot/issues/236)) ([cdd723d](https://github.com/caelis-labs/caelis-bot/commit/cdd723deed2dbe87e64fbb42c33e464c36875911))
+* **runtime:** bundle Caelis Core v0.73.3 ([#238](https://github.com/caelis-labs/caelis-bot/issues/238)) ([0480df6](https://github.com/caelis-labs/caelis-bot/commit/0480df66c2a91a3cf6829511d21b9fee46a90c64))
+* **weixin:** batch shared replies and preserve recovery receipts ([#235](https://github.com/caelis-labs/caelis-bot/issues/235)) ([c7225f4](https://github.com/caelis-labs/caelis-bot/commit/c7225f4bdf52e814378d795f51ad44876d626685))
+
 ## [0.19.1](https://github.com/caelis-labs/caelis-bot/compare/v0.19.0...v0.19.1) (2026-10-27)
 
 ### Remote connections and SSH
