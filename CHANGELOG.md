@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.2](https://github.com/caelis-labs/caelis-bot/compare/v0.19.1...v0.19.2) (2026-10-27)
+
+### Bug fixes
+
+* Batch shared Weixin replies by urgency and refresh delivery windows on incoming messages. Keep previews distinct from full-text delivery, and let `/r` resume retained results under their original task and delivery receipts. ([#235](https://github.com/caelis-labs/caelis-bot/pull/235))
+* Permanently delete local connections while offline, including their legacy records, retained connection proofs and connection-only credentials. Migrate previously archived entries through the same cleanup while retaining task history with its environment unavailable; incoming authorization remains independent. ([#236](https://github.com/caelis-labs/caelis-bot/pull/236))
+
+### Bundled runtime
+
+* Update Caelis Core to [v0.73.3](https://github.com/caelis-labs/caelis/releases/tag/v0.73.3), including child-message outcome fixes and the refreshed native model catalog with GPT-6.1 Terra. Keep the public OpenAPI and consumed wire protocol unchanged. ([#238](https://github.com/caelis-labs/caelis-bot/pull/238))
+
 ## [0.19.1](https://github.com/caelis-labs/caelis-bot/compare/v0.19.0...v0.19.1) (2026-10-27)
 
 ### Remote connections and SSH
