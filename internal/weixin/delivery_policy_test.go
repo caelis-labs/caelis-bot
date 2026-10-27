@@ -149,7 +149,7 @@ func TestFastCodexTerminalUsesOnlyCurrentIngressReceipt(t *testing.T) {
 	}
 }
 
-func TestQueuedNewIngressDoesNotStealFastPreviousTurn(t *testing.T) {
+func TestQueuedNewIngressDoesNotFundPreviousTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	oldID, newID := "weixin:bot:old", "weixin:bot:queued"
@@ -167,8 +167,8 @@ func TestQueuedNewIngressDoesNotStealFastPreviousTurn(t *testing.T) {
 	b.state.Window.InputID = newID // received but not yet submitted
 	b.state.Inbox = []inbound{{ID: newID, Text: "second question", ContextToken: "ctx"}}
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(*texts) != 1 || (*texts)[0] != "first answer" || b.state.TurnPhases["old-turn"] != "completed" {
-		t.Fatalf("queued receive stole terminal turn: texts=%#v phases=%#v", *texts, b.state.TurnPhases)
+	if len(*texts) != 0 || b.state.Window.Used != 0 || b.state.TurnPhases["old-turn"] != "completed" {
+		t.Fatalf("queued receive funded old terminal turn: texts=%#v phases=%#v", *texts, b.state.TurnPhases)
 	}
 }
 
@@ -267,7 +267,7 @@ func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 	question := api.Item{ID: "question", TurnKey: "turn", Kind: "assistant", Status: "completed", AsyncCallID: "native-call", AsyncQuestions: []api.AsyncQuestion{{Title: "选哪个？", Options: []string{"甲", "乙"}}}}
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", RuntimeOwner: "runtime", Phase: "working", Approvals: []api.Approval{{ID: "approval", TurnKey: "turn", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "once", Label: "仅本次"}}}}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "turn", RequestID: "input"}, question}}
 	for i := 0; i < 12; i++ {
-		snapshot.Items = append(snapshot.Items, api.Item{ID: "user-" + string(rune('a'+i)), Kind: "user", Text: "cross-entry", Status: "completed"})
+		snapshot.Items = append([]api.Item{{ID: "user-" + string(rune('a'+i)), Kind: "user", Text: "cross-entry", Status: "completed"}}, snapshot.Items...)
 	}
 	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return nativeInputSnapshot(snapshot) }, TextControl: control})
 	if err != nil {
@@ -281,7 +281,7 @@ func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 	}
 }
 
-func TestLongFinalCompactsWhenOnlyOneSlotRemains(t *testing.T) {
+func TestLongFinalKeepsFullResultInChatWhenAllowanceCannotFitIt(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	full := strings.Repeat("中文😀一段内容。\n", 400)
@@ -294,7 +294,7 @@ func TestLongFinalCompactsWhenOnlyOneSlotRemains(t *testing.T) {
 	freshWindow(b, "input")
 	b.state.Window.Used = windowSendLimit - 1
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(*texts) != 1 || !fitsText((*texts)[0]) || !strings.Contains((*texts)[0], "中间省略") || !strings.Contains((*texts)[0], "继续发送") || !strings.Contains((*texts)[0], "中文😀") || b.state.Window.Used != windowSendLimit {
+	if len(*texts) != 1 || !fitsText((*texts)[0]) || !strings.Contains((*texts)[0], longReplyNotice) || strings.Contains((*texts)[0], "中间省略") || snapshot.Items[1].Text != full || b.state.Window.Used != windowSendLimit {
 		t.Fatalf("bounded final: count=%d used=%d", len(*texts), b.state.Window.Used)
 	}
 	if b.state.Outputs["item:final:compact"].State != "accepted" || b.state.Outputs["item:final:0"].State != "" {

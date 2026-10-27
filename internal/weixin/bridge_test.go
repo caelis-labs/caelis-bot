@@ -263,11 +263,13 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	if len(texts) != 2 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
 		t.Fatalf("missing two phone fields: %#v", texts)
 	}
+	freshWindow(b, "weixin:bot:1")
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/answer Q1 draft", ContextToken: "ctx"}}
 	b.dispatch(t.Context(), p)
 	if len(decisions) != 0 || submits != 0 || !strings.Contains(strings.Join(texts, "\n"), "仍需回答 Q2") {
 		t.Fatalf("first field submitted early: %#v, submit=%d, texts=%#v", decisions, submits, texts)
 	}
+	freshWindow(b, "weixin:bot:2")
 	b.state.Inbox = []inbound{{ID: "weixin:bot:2", Text: "/answer Q2 2", ContextToken: "ctx"}}
 	b.dispatch(t.Context(), p)
 	if len(decisions) != 1 || decisions[0].ID != "original-worker" || decisions[0].Answers["topic"][0] != "draft" || decisions[0].Answers["depth"][0] != "full" || submits != 0 {

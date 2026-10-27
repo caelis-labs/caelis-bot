@@ -74,7 +74,7 @@ func (b *Bridge) mirrorItem(ctx context.Context, p *protocol, item api.Item, kin
 	}
 	if !started && len(parts) > remaining {
 		if kind == "final" && remaining > 0 && len(parts) > 1 {
-			_, state := b.sendOne(ctx, p, parent+":compact", compactFinal(body), true)
+			_, state := b.sendOne(ctx, p, parent+":compact", longReplyNotice, true)
 			if state == "deferred" || state == "unavailable" {
 				b.deferFinal(item.ID)
 			} else {

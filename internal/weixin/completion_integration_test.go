@@ -73,12 +73,32 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 			if b.state.Inputs["wx-request"] != "accepted" {
 				t.Fatal("ingress was not accepted")
 			}
-			original := s.Snapshot()
+			original := awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool {
+				for _, item := range v.Items {
+					if item.Kind == "user" && item.RequestID == "wx-request" {
+						return true
+					}
+				}
+				return false
+			})
 			service.ObserveChat(original)
 			service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task-original", Kind: "assistant", TurnKey: original.CurrentTurn, Status: "completed", Text: "Worker started", Task: &api.TaskPresentation{ID: "task-original", Title: "Worker started", Status: "working"}}}})
 			server, texts := sentTexts(t, nil)
 			defer server.Close()
 			p := &protocol{client: server.Client(), base: server.URL, token: "fixture-token"}
+			// The durable IM resolves request-ID echoes asynchronously. Production
+			// waits for that boundary before delivering the task-start item.
+			ingressDeadline := time.Now().Add(2 * time.Second)
+			for {
+				input, _ := latestUser(service.Snapshot().Items)
+				if input.RequestID == "wx-request" {
+					break
+				}
+				if time.Now().After(ingressDeadline) {
+					t.Fatal("shared user boundary did not resolve")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
 			b.output(t.Context(), p)
 			f.complete(t, "wx-request", "Delegated")
 			service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
@@ -118,7 +138,7 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 					t.Fatal(err)
 				}
 				f.complete(t, "later-desktop", "Desktop result")
-				awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+				service.ObserveChat(awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" }))
 				if err := service.Shutdown(); err != nil {
 					t.Fatal(err)
 				}
@@ -159,7 +179,11 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 					t.Fatal("unrelated input leaked")
 				}
 			}
-			if countFinal != 1 || countProgress != 1 {
+			expected := 1
+			if restart {
+				expected = 0
+			}
+			if countFinal != expected || countProgress != expected {
 				t.Fatalf("completion delivery counts final=%d commentary=%d", countFinal, countProgress)
 			}
 			origin, ok := control.OriginOf("wx-request")
@@ -358,7 +382,14 @@ func TestCodexRenewalHistoryCannotAuthorizeCompletion(t *testing.T) {
 	b.state.Window = sendWindow{OwnerID: "fixture-peer", InputID: "old-wx-request", ContextToken: "fixture-context", InputAt: time.Now().UnixMilli()}
 	b.state.Inbox = []inbound{{ID: "old-wx-request", Text: "Fixture old work", ContextToken: "fixture-context"}}
 	b.dispatch(t.Context())
-	original := s.Snapshot()
+	original := awaitCompletionSnapshot(t, s, func(v api.Snapshot) bool {
+		for _, item := range v.Items {
+			if item.Kind == "user" && item.RequestID == "old-wx-request" {
+				return true
+			}
+		}
+		return false
+	})
 	service.ObserveChat(original)
 	service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "task-start:task-original", Kind: "assistant", Status: "completed", TurnKey: original.CurrentTurn, Text: "Fixture task", Task: &api.TaskPresentation{ID: "task-original", Title: "Fixture task"}}}})
 	f.complete(t, "old-wx-request", "Old result")

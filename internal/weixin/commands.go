@@ -20,14 +20,13 @@ func localCommand(body string) bool {
 }
 
 func (b *Bridge) localFeedback(ctx context.Context, p *protocol, in inbound, body string) {
-	_, _ = b.sendOne(ctx, p, "local:"+in.ID, body, false)
+	_, _ = b.sendOne(b.commandContext(ctx, in.ID), p, "local:"+in.ID, body, false)
 }
 
 func (b *Bridge) handleLocalCommand(ctx context.Context, p *protocol, in inbound) {
 	command := strings.ToLower(strings.TrimSpace(in.Text))
 	switch command {
 	case "/refresh", "/r":
-		b.flushProgress(ctx, p, true)
 		if b.host.Snapshot != nil {
 			b.output(ctx, p) // reconcile pending final and actionable native requests
 		}
@@ -35,10 +34,10 @@ func (b *Bridge) handleLocalCommand(ctx context.Context, p *protocol, in inbound
 		used := b.state.Window.Used
 		b.mu.Unlock()
 		if used == 0 {
-			b.localFeedback(ctx, p, in, "已刷新微信接收窗口；目前没有待发消息。")
+			b.localFeedback(ctx, p, in, "已刷新微信接收窗口；旧消息不会补发。需要后续内容，请告诉 Bot。")
 		}
 	case "/help":
-		b.localFeedback(ctx, p, in, "微信命令：/r（或 /refresh）继续接收待发消息；/status 查看状态；/stop 停止当前工作；/help 查看帮助。审批与问题请使用卡片中的 /approve 或 /answer 命令。")
+		b.localFeedback(ctx, p, in, "微信命令：/r（或 /refresh）刷新接收窗口，不补发旧消息；/status 查看状态；/stop 停止当前工作；/help 查看帮助。审批与问题请使用卡片中的 /approve 或 /answer 命令。")
 	case "/status":
 		phase, connection := "未知", "未知"
 		if b.host.Snapshot != nil {

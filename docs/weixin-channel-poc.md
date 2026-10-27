@@ -61,17 +61,29 @@ backed by its own cache, but this observed payload supplies neither. See its
 and [inbound resolver](https://github.com/Tencent/openclaw-weixin/blob/main/src/messaging/inbound.ts).
 
 Telegram buttons call that same controller. Desktop and both companion channels
-remain one Bot conversation. Weixin sends only output traced to an accepted
-Weixin input and its Turn; mixed or unbound Turns and inputs from other entries
-are not pushed to Weixin. Telegram keeps its own mirroring behavior. Pairing and
-legacy records baseline existing history.
-The inbox and cursor are saved together before dispatch. A dispatching request
+remain one Bot conversation. Weixin sends only the current reply interval:
+the latest real user item must
+match the latest authenticated owner ingress, and output must follow that item.
+A desktop/Telegram input closes the interval. Native host notices and scheduled
+activations do not count as user input; classification comes from the existing
+adapter projection, never message text. Native input/report/task provenance
+continues to validate the output scope. New Weixin steering within a mixed Turn
+can establish its own reply interval. Missing/restoring input history waits
+instead of authorizing catch-up. Telegram keeps its own mirroring behavior.
+Pairing and legacy records baseline existing history.
+The inbox, cursor and new owner window are saved together before dispatch.
+Ingress is recorded in the existing shared IM immediately, including while
+Runtime dispatch waits for recovery; duplicate native echoes retain its position.
+A received input without a usable context still closes the old window and
+authorizes no send with the previous token. A dispatching request
 that loses its result is not sent again automatically. A completed assistant
 item can still be commentary inside a working Turn. The first completed item
 is sent as progress; later items merge in order with a visible divider after
 three items or when the combined text approaches 70% of the safe chunk limit.
 No fixed timer drives sends. A terminal Turn identifies its last ordinary
-assistant item as the reply; unsent progress joins it when one message fits.
+assistant item as the reply. The newest ready final reply is sent before file
+preparation or unsent progress; already queued progress may join it only when
+one complete message fits. Historical ready finals never precede the latest one.
 Codex clears `CurrentTurn` on completion; the adapter binds that terminal
 snapshot to the exact latest accepted owner ingress receipt and its user-item
 TurnKey, or to a previously observed active Turn. An unrelated old receipt or
@@ -112,20 +124,26 @@ time; duplicate updates, typing, restart and an older send result never refill
 it. A local twelve-hour age cutoff is conservative. Neither it nor the
 ten-send observation is a Tencent service contract. An upgraded legacy record
 with unknown remaining allowance waits for a fresh user input. When a full
-final reply needs more estimated slots than remain, Weixin sends one
-deterministic head/tail excerpt with an omission count and invitation to
-request the rest; the shared desktop record retains the complete text.
-Pending progress remains in the private Weixin delivery state across restart.
-`/refresh` and `/r` renew the local estimate from their original owner ingress
-and merge unsent progress without submitting a model request. `/help` and
-`/status` are local reads; `/stop` submits the native interrupt, not a prompt.
+final reply needs more estimated slots than remain, Weixin sends one explicit
+notice that the complete result is available in the same desktop conversation
+and invites a request for specific content. It does not cut out the middle of a
+result or imply that an excerpt is complete. Ordinary Markdown splitting remains
+lossless when the full reply fits the remaining allowance.
+Pending progress is bound to its original input in the private delivery ledger.
+A new input expires older unattempted progress, finals and files, including
+legacy queues, without spending the new allowance. `/refresh` and `/r` renew
+the local estimate but never replay that backlog or submit a model request.
+`/help` and `/status` are local reads; `/stop` submits the native interrupt, not a prompt.
 Unknown sends are not replayed after a later ingress. A predicted tenth send
-adds a short `/r` hint when it fits; it is not a separate message. Approval
-options and commands are never abbreviated; a multi-part card waits for enough
+adds a short explicit follow-up hint when it fits; it is not a separate message.
+Approval options and commands are never abbreviated; a multi-part card waits for enough
 estimated space for every part. No estimate guarantees service acceptance after
 the server has exhausted its actual window.
-The adapter obtains a typing ticket
-from `getconfig` and renews `sendtyping` only while the paired user's main turn
+Every chunk rechecks the original input and current real-user boundary before
+reserving budget; file preparation rechecks before `sendmessage`. An already
+reserved/in-flight attempt keeps its actual accepted/rejected/unknown outcome,
+client ID and original-window accounting. It cannot exhaust a newer window.
+The adapter obtains a typing ticket from `getconfig` and renews `sendtyping` only while the paired user's main turn
 is active, cancelling it at turn end. Text uses finished sendmessage payloads;
 the upstream text builder uses `message_state=FINISH`, and the public protocol
 does not document safe in-place edits. Text cards and terminal status therefore
@@ -139,7 +157,7 @@ host, rejects redirects and foreign hosts, and never forwards the bot token.
 Upload retry may repeat encrypted bytes before any file message exists. The
 original Artifact ID and a persisted send intent fence the final send: an
 unknown result is not retried even after a new owner input. Unattempted files
-deferred by the estimate may resume after new input; file status is visible in
+deferred by the estimate do not resume after new input; file status is visible in
 Settings. HTTP acceptance alone does not prove phone receipt.
 Native approval buttons, groups, incoming attachments, edits,
 webhook delivery,
@@ -157,7 +175,16 @@ The send-window estimate is supported by independent observations in
 [Tencent issues #81](https://github.com/Tencent/openclaw-weixin/issues/81)
 and [#202](https://github.com/Tencent/openclaw-weixin/issues/202), and by
 [pushplus's ClawBot guide](https://www.pushplus.plus/doc/channel/clawbot.html).
-Those reports are not a formal server API contract. Separate reports show
+Those reports are not a formal server API contract. A 2026-10-27 read of the
+upstream protocol still documents context echoing and client request shapes,
+not an exact reset/quota/expiry or length guarantee. The upstream
+[`textChunkLimit: 4000`](https://github.com/Tencent/openclaw-weixin/blob/main/src/channel.ts)
+is a client setting. Our ten-attempt window, five-progress cap, final reserve,
+twelve-hour cutoff and 2,400 UTF-16/6,000-byte text caps remain conservative
+local policy. They do not establish billing, successful phone receipt, or the
+server counting rules for rejected requests and mixed media. Locally, each
+actual text chunk/card/file `sendmessage` reservation counts once; upload, typing,
+polling, duplicates and invalidated queued output do not count. Separate reports show
 [`rate limited`](https://github.com/Tencent/openclaw-weixin/issues/270),
 length-related [`prepare failed`](https://github.com/Tencent/openclaw-weixin/issues/284),
 and possible [stale context](https://github.com/Tencent/openclaw-weixin/issues/309)

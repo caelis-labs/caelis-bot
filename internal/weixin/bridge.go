@@ -83,6 +83,7 @@ type sendWindow struct {
 	Exhausted    bool   `json:"exhausted,omitempty"`
 }
 type pendingProgress struct {
+	InputID string `json:"inputId,omitempty"`
 	ID      string `json:"id"`
 	TurnKey string `json:"turnKey"`
 	Text    string `json:"text"`
@@ -101,7 +102,6 @@ type document struct {
 	PendingFinal     string              `json:"pendingFinal,omitempty"`
 	Progress         []pendingProgress   `json:"progress,omitempty"`
 	ProgressBatch    []string            `json:"progressBatch,omitempty"`
-	ProgressWindowID string              `json:"progressWindowId,omitempty"`
 	FinalProgressFor string              `json:"finalProgressFor,omitempty"`
 	FinalProgressIDs []string            `json:"finalProgressIds,omitempty"`
 	ObservedTurn     string              `json:"observedTurn,omitempty"`
@@ -715,10 +715,10 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 				stored = "" // never put the marked value in the persistent inbox
 			}
 			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID})
-			if msg.ContextToken != "" {
-				b.state.ContextToken = msg.ContextToken
-				b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: time.Now().UnixMilli()}
-			}
+			// Even an input without a usable context fences the prior window.
+			// It cannot authorize another send using the previous token.
+			b.state.ContextToken = msg.ContextToken
+			b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: time.Now().UnixMilli()}
 		}
 		if result.Cursor != "" {
 			b.state.Cursor = result.Cursor
@@ -740,7 +740,16 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		if b.issue == "network" || b.issue == "remote_error" || b.issue == "backlog" || b.issue == "session_cooldown" {
 			b.issue = ""
 		}
+		received := append([]inbound(nil), b.state.Inbox[len(oldInbox):]...)
+		owner := b.state.OwnerID
 		b.mu.Unlock()
+		// Publish authenticated ingress before recovery/dispatch can delay it.
+		// Request-ID deduplication keeps the later dispatch echo in its place.
+		if b.host.RecordInput != nil {
+			for _, in := range received {
+				b.host.RecordInput(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID, Text: in.Text}, in.Secret)
+			}
+		}
 	}
 }
 func (b *Bridge) process(ctx context.Context, p *protocol) {
@@ -923,7 +932,7 @@ func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body 
 		b.mirrorNotices(ctx, p)
 		return
 	}
-	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
+	b.sendTextOnce(b.commandContext(ctx, in.ID), p, "control:"+in.ID, in.ContextToken, body)
 }
 func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) {
 	b.sendTextOncePolicy(ctx, p, key, contextToken, body, true)
@@ -972,7 +981,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	b.ObserveTurn(snapshot)
 	b.observeTaskSources(snapshot)
 	for _, item := range snapshot.Items {
-		if item.Task != nil {
+		if item.Kind == "assistant" || item.Task != nil {
 			b.ownsTurn(snapshot, item.TurnKey)
 		}
 	}
@@ -1042,6 +1051,11 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		}
 	}
 	b.mu.Unlock()
+	var scoped bool
+	ctx, snapshot, scoped = b.scopeReplies(ctx, snapshot)
+	if !scoped {
+		return
+	}
 	kinds := b.outputKinds(snapshot)
 	ready := snapshot.Connection == "ready" || snapshot.Connection == "connected"
 	if ready {
@@ -1049,7 +1063,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		// A question is actionable while its Turn waits; it cannot wait for the
 		// final assistant response. Worker questions are coordinated by the Bot.
 		for _, item := range snapshot.Items {
-			if kinds[item.ID] == "question" && b.ownsTurn(snapshot, item.TurnKey) {
+			if kinds[item.ID] == "question" && b.ownsReplyTurn(snapshot, item.TurnKey) {
 				b.mirrorItem(ctx, p, item, "question")
 			}
 		}
@@ -1058,40 +1072,12 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	if !ready {
 		return
 	}
-	b.mu.Lock()
-	refreshBacklog := len(b.state.Progress) > 0 && b.state.Window.InputID != "" && b.state.ProgressWindowID != b.state.Window.InputID
-	if refreshBacklog {
-		old := b.state.ProgressWindowID
-		b.state.ProgressWindowID = b.state.Window.InputID
-		if b.saveLocked() != nil {
-			b.state.ProgressWindowID = old
-			refreshBacklog = false
-		}
-	}
-	b.mu.Unlock()
-	if refreshBacklog {
-		for range progressSendLimit {
-			b.mu.Lock()
-			before := len(b.state.Progress)
-			b.mu.Unlock()
-			if before == 0 {
-				break
-			}
-			b.flushProgress(ctx, p, true)
-			b.mu.Lock()
-			advanced := len(b.state.Progress) < before
-			b.mu.Unlock()
-			if !advanced {
-				break
-			}
-		}
-	}
 	b.mirrorPhase(ctx, p, snapshot)
 	latestFinal := ""
 	visible := map[string]bool{}
 	for _, item := range snapshot.Items {
 		visible[item.ID] = true
-		if kinds[item.ID] == "final" {
+		if kinds[item.ID] == "final" && b.ownsReplyTurn(snapshot, item.TurnKey) {
 			latestFinal = item.ID
 		}
 	}
@@ -1103,15 +1089,43 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		_ = b.saveLocked()
 	}
 	b.mu.Unlock()
+	// A ready final supersedes earlier unattempted progress on every poll,
+	// including after the final's durable receipt has already been recorded.
+	beforeFinal := map[string]bool{}
+	if latestFinal != "" {
+		for _, item := range snapshot.Items {
+			if item.ID == latestFinal {
+				break
+			}
+			beforeFinal[item.ID] = true
+		}
+	}
 	finalAttempted := map[string]bool{}
-	for _, item := range snapshot.Items {
+	ordered := snapshot.Items
+	if latestFinal != "" {
+		ordered = make([]api.Item, 0, len(snapshot.Items))
+		for _, item := range snapshot.Items {
+			if item.ID == latestFinal {
+				ordered = append(ordered, item)
+			}
+		}
+		for _, item := range snapshot.Items {
+			if item.ID != latestFinal {
+				ordered = append(ordered, item)
+			}
+		}
+	}
+	for _, item := range ordered {
 		if item.Kind != "assistant" || item.ID == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
 			continue
 		}
-		if !b.ownsTurn(snapshot, item.TurnKey) {
+		if !b.ownsReplyTurn(snapshot, item.TurnKey) {
 			continue
 		}
 		kind := kinds[item.ID]
+		if latestFinal != "" && kind == "final" && item.ID != latestFinal {
+			continue
+		}
 		if kind == "" {
 			continue
 		}
@@ -1145,6 +1159,9 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 				b.mirrorFinal(ctx, p, item, extras)
 			}
 		case "task":
+			if beforeFinal[item.ID] {
+				continue
+			}
 			if item.Text != "" {
 				b.mirrorItem(ctx, p, item, "task")
 			}
@@ -1155,7 +1172,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			if !terminal {
 				item.Text = withArtifactNames(item.Text, item.Artifacts)
 			}
-			if item.Text != "" {
+			if item.Text != "" && !beforeFinal[item.ID] {
 				b.queueProgress(item)
 			}
 		}
@@ -1175,7 +1192,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	// Caelis projects generated resources as tool items with owned Artifact
 	// handles. Activity/file-change items are deliberately not exported here.
 	for _, item := range snapshot.Items {
-		if item.Kind != "tool" || len(item.Artifacts) == 0 || item.Status != "completed" && item.Status != "accepted" || !b.ownsTurn(snapshot, item.TurnKey) {
+		if item.Kind != "tool" || len(item.Artifacts) == 0 || item.Status != "completed" && item.Status != "accepted" || !b.ownsReplyTurn(snapshot, item.TurnKey) {
 			continue
 		}
 		b.mu.Lock()
@@ -1192,6 +1209,17 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	b.mu.Lock()
 	activeProgress := len(b.state.Progress) > 0 && b.state.Progress[0].TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")
 	b.mu.Unlock()
+	if len(beforeFinal) > 0 {
+		eligible := map[string]bool{}
+		for _, item := range snapshot.Items {
+			if !beforeFinal[item.ID] {
+				eligible[item.ID] = true
+			}
+		}
+		b.mu.Lock()
+		b.expireRepliesLocked(eligible, true, true)
+		b.mu.Unlock()
+	}
 	if activeProgress {
 		b.flushProgress(ctx, p, false)
 	}
@@ -1268,12 +1296,16 @@ func (b *Bridge) mirrorNotices(ctx context.Context, p *protocol) {
 			continue
 		}
 		b.mu.Lock()
+		w := b.state.Window
 		token := b.state.ContextToken
 		b.mu.Unlock()
+		if w.InputID == "" || (notice.ID != textDigest("weixin\x00"+w.ContextToken+"\x00"+w.InputID) && notice.ID != textDigest("weixin\x00"+w.OwnerID+"\x00"+w.ContextToken+"\x00"+w.InputID)) {
+			continue
+		}
 		if notice.Origin.Channel == "weixin" {
 			token = notice.Origin.Conversation
 		}
 		out := textchannel.Outbound{Channel: "weixin", Conversation: token, ID: "notice:" + notice.ID, Text: notice.Text}
-		b.sendTextOncePolicy(ctx, p, out.ID, out.Conversation, out.Text, false)
+		b.sendTextOncePolicy(b.commandContext(ctx, w.InputID), p, out.ID, out.Conversation, out.Text, false)
 	}
 }

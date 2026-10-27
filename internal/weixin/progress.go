@@ -80,7 +80,7 @@ func (b *Bridge) taskTurnReferencedLocked(turn string) bool {
 
 func (b *Bridge) ownsApproval(snapshot api.Snapshot, approval api.Approval) bool {
 	if approval.Owner != "task" {
-		return b.ownsTurn(snapshot, approval.TurnKey)
+		return b.ownsReplyTurn(snapshot, approval.TurnKey)
 	}
 	if approval.TaskID == "" {
 		return false
@@ -259,14 +259,9 @@ func (b *Bridge) queueProgress(item api.Item) {
 		}
 		return
 	}
-	oldWindow := b.state.ProgressWindowID
-	if len(b.state.Progress) == 0 {
-		b.state.ProgressWindowID = b.state.Window.InputID
-	}
-	b.state.Progress = append(b.state.Progress, pendingProgress{ID: item.ID, TurnKey: item.TurnKey, Text: compactProgress(item.Text)})
+	b.state.Progress = append(b.state.Progress, pendingProgress{InputID: b.state.Window.InputID, ID: item.ID, TurnKey: item.TurnKey, Text: compactProgress(item.Text)})
 	if b.saveLocked() != nil {
 		b.state.Progress = b.state.Progress[:len(b.state.Progress)-1]
-		b.state.ProgressWindowID = oldWindow
 	}
 }
 
@@ -372,7 +367,7 @@ func (b *Bridge) mirrorFinal(ctx context.Context, p *protocol, item api.Item, ex
 		// published after that progress still need a visible filename reply.
 		if body := withArtifactNames("", extraNames); body != "" {
 			if !fitsText(body) {
-				body = compactFinal(body)
+				body = longReplyNotice
 			}
 			b.sendOne(ctx, p, "final-files:"+item.ID, body, true)
 		}

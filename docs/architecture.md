@@ -414,10 +414,12 @@ cannot promise otherwise.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
 its own durable delivery ledger. Telegram mirrors visible conversation items;
-Weixin sends only output attributable to its exact accepted input/Turn, including
-batched progress, actionable cards and the terminal reply. Unbound or mixed-origin
-Turns are not pushed to Weixin. Routine accepted answer/decision acknowledgements
-stay in the
+Weixin requires the latest real user item to match its latest authenticated
+owner ingress, then routes only subsequent output with native input/report/task
+provenance. New input invalidates older unattempted deliveries; a mixed native
+Turn may contain a newer Weixin reply interval. This adapter-local filter does
+not change the shared transcript or Telegram mirroring. Routine accepted
+answer/decision acknowledgements stay in the
 controller's durable deduplication ledger without consuming another IM or phone
 message; a later stale command still receives its actual state. The desktop
 chat shows async questions as native choice buttons or a free-text field backed
@@ -567,9 +569,10 @@ The first completed commentary is sent as progress; subsequent completed items
 are merged in order after three items or near the safe single-message length.
 Progress attempts are capped at five per observed ten-send window. Native
 approvals, async questions, Worker-start items and terminal replies have separate
-priority; questions may wait when only the final-reply reserve remains. A final
-reply may absorb unsent progress from its Turn. `/r` or `/refresh` flushes pending
-progress without a model submission; `/help`, `/status`, and `/stop` are local
+priority; questions may wait when only the final-reply reserve remains. The
+newest final reply takes priority and may absorb fitting progress from its interval. `/r` or
+`/refresh` resets the local receive estimate without a model submission or
+replaying an older queue; `/help`, `/status`, and `/stop` are local
 controls (`/stop` uses the original native interrupt). Each actual text part
 reserves one slot in a durable owner/last-ingress window before HTTP; an old or unknown window never starts
 full after restart. This is a conservative estimate of observed service behavior,
@@ -581,6 +584,8 @@ projected Turn identity; a native Worker approval carries its exact task ID.
 Weixin uses that persisted task-to-source binding instead of guessing from the
 most recent chat message. A later host report's original receipt ID resolves to
 that same task, so the Bot's resulting Turn retains its Weixin delivery source.
+This provenance is necessary but does not bypass the latest real-user boundary or lend an old
+queue the allowance from a newer Weixin message.
 This association travels as private structured snapshot metadata, independently
 of the hidden `hostNotice` item. The native adapter retains the exact report,
 runtime/conversation, turn and terminal phase across recovery; cached and recent

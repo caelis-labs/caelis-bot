@@ -42,8 +42,8 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	snapshot := api.Snapshot{RuntimeOwner: "fixture-runtime", Connection: "ready", CurrentTurn: "wx-turn", Phase: "working", Items: []api.Item{
-		{ID: "wx-user", Kind: "user", TurnKey: "wx-turn", RequestID: "wx-input"},
 		{ID: "desktop-user", Kind: "user", TurnKey: "desktop-turn", RequestID: "desktop-input"},
+		{ID: "wx-user", Kind: "user", TurnKey: "wx-turn", RequestID: "wx-input"},
 		{ID: "task-start:wx", Kind: "assistant", TurnKey: "wx-turn", Status: "completed", Text: "手机发起的 Worker", Task: &api.TaskPresentation{ID: "wx", Title: "手机发起的 Worker", Status: "working"}},
 		{ID: "task-start:desktop", Kind: "assistant", TurnKey: "desktop-turn", Status: "completed", Text: "桌面发起的 Worker", Task: &api.TaskPresentation{ID: "desktop", Title: "桌面发起的 Worker", Status: "working"}},
 	}}
@@ -61,6 +61,7 @@ func TestWorkerStartUsesExactWeixinTurn(t *testing.T) {
 		t.Fatal("worker approval lost exact task source")
 	}
 	report := api.Snapshot{RuntimeOwner: "fixture-runtime", ReportSources: []api.ReportSource{{RuntimeOwner: "fixture-runtime", TurnKey: "report-turn", ReportID: "report-wx", Phase: "completed"}}, Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: "report-wx", Outcome: "accepted"}, Items: []api.Item{
+		{ID: "wx-user", Kind: "user", TurnKey: "wx-turn", RequestID: "wx-input"},
 		{ID: "report-final", Kind: "assistant", TurnKey: "report-turn", Status: "completed", Text: "Worker 已完成"},
 	}}
 	reopened, err := Open(root, Host{Snapshot: func() api.Snapshot { return report }, TaskForReport: func(id string) string {
@@ -128,7 +129,7 @@ func TestQuestionDefersAtLastSlotAndFinalIncludesWindowHint(t *testing.T) {
 		t.Fatalf("question consumed the final reserve: %#v", *texts)
 	}
 	b.mirrorItem(t.Context(), p, api.Item{ID: "final", Kind: "assistant", Text: "最终回复", Status: "completed"}, "final")
-	if len(*texts) != 1 || !strings.HasPrefix((*texts)[0], "最终回复") || !strings.Contains((*texts)[0], "发送 /r") || b.state.Window.Used != windowSendLimit {
+	if len(*texts) != 1 || !strings.HasPrefix((*texts)[0], "最终回复") || !strings.Contains((*texts)[0], "请回复 Bot") || b.state.Window.Used != windowSendLimit {
 		t.Fatalf("final reserve or hint failed: %#v, window=%#v", *texts, b.state.Window)
 	}
 }
@@ -155,7 +156,7 @@ func TestNativeQuestionCardAlsoKeepsFinalReserve(t *testing.T) {
 	}
 }
 
-func TestRefreshReplaysOnlyUnattemptedMergedProgressAfterRestart(t *testing.T) {
+func TestRefreshExpiresUnattemptedProgressAfterRestart(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	root := t.TempDir()
@@ -182,8 +183,8 @@ func TestRefreshReplaysOnlyUnattemptedMergedProgressAfterRestart(t *testing.T) {
 	reopened.state.Inbox = []inbound{{ID: "weixin:bot:refresh", Text: "/r", ContextToken: "ctx"}}
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	reopened.dispatch(t.Context(), p)
-	if submits != 0 || len(*texts) != 1 || !strings.Contains((*texts)[0], "one\n\n——\n\ntwo\n\n——\n\nthree") || len(reopened.state.Progress) != 0 || reopened.state.Window.Used != 1 {
-		t.Fatalf("refresh did not merge saved backlog: submits=%d texts=%#v state=%#v", submits, *texts, reopened.state.Progress)
+	if submits != 0 || len(*texts) != 1 || !strings.Contains((*texts)[0], "旧消息不会补发") || len(reopened.state.Progress) != 0 || reopened.state.Window.Used != 1 {
+		t.Fatalf("refresh revived saved backlog: submits=%d texts=%#v state=%#v", submits, *texts, reopened.state.Progress)
 	}
 	reopened.dispatch(t.Context(), p)
 	if len(*texts) != 1 {
@@ -191,7 +192,7 @@ func TestRefreshReplaysOnlyUnattemptedMergedProgressAfterRestart(t *testing.T) {
 	}
 }
 
-func TestNewOrdinaryIngressFlushesPreviousPendingBatch(t *testing.T) {
+func TestNewOrdinaryIngressExpiresPreviousPendingBatch(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready", Phase: "working"}
@@ -205,8 +206,8 @@ func TestNewOrdinaryIngressFlushesPreviousPendingBatch(t *testing.T) {
 	b.queueProgress(api.Item{ID: "older", Kind: "assistant", TurnKey: "old-turn", Text: "未发的旧进展"})
 	freshWindow(b, "new-input")
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(*texts) != 1 || (*texts)[0] != "未发的旧进展" || len(b.state.Progress) != 0 || b.state.Window.Used != 1 {
-		t.Fatalf("fresh ingress did not restore pending work: %#v, state=%#v", *texts, b.state)
+	if len(*texts) != 0 || len(b.state.Progress) != 0 || b.state.Window.Used != 0 {
+		t.Fatalf("fresh ingress replayed pending work: %#v, state=%#v", *texts, b.state)
 	}
 }
 
@@ -221,7 +222,7 @@ func TestLastSlotApprovalHintKeepsCopyableCommandLast(t *testing.T) {
 	freshWindow(b, "input")
 	b.state.Window.Used = windowSendLimit - 1
 	b.sendTextOnce(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"}, "approval", "ctx", "**[A7] tool**\n[1] Allow\n\n**提示：发送 /approve A7 + 选项标号**")
-	if len(*texts) != 1 || !strings.Contains((*texts)[0], "发送 /r") || !strings.HasSuffix((*texts)[0], "**提示：发送 /approve A7 + 选项标号**") {
+	if len(*texts) != 1 || !strings.Contains((*texts)[0], "请回复 Bot") || !strings.HasSuffix((*texts)[0], "**提示：发送 /approve A7 + 选项标号**") {
 		t.Fatalf("last-slot hint obscured approval command: %#v", *texts)
 	}
 }
@@ -267,7 +268,7 @@ func TestFinalAlreadySentAsProgressDoesNotClaimOtherQueuedText(t *testing.T) {
 	b.output(t.Context(), p)
 	snapshot.Phase = "completed"
 	b.output(t.Context(), p)
-	if len(*texts) != 1 || (*texts)[0] != "done" || len(b.state.Progress) != 1 || b.state.Progress[0].ID != "older" || b.state.Outputs["item:older"].State != "" {
-		t.Fatalf("queued text was falsely marked sent: %#v pending=%#v", *texts, b.state.Progress)
+	if len(*texts) != 1 || (*texts)[0] != "done" || len(b.state.Progress) != 0 || b.state.Outputs["item:older"].State != "superseded" || b.state.Outputs["item:older"].Attempts != 0 {
+		t.Fatalf("queued text was not expired without a send: %#v pending=%#v", *texts, b.state.Progress)
 	}
 }

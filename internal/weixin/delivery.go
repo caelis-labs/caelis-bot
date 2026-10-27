@@ -42,7 +42,7 @@ func (b *Bridge) remainingProgressLocked() int {
 	return remaining
 }
 
-const exhaustedHint = "本轮微信推送预计已用尽（10/10）。发送 /r 继续接收，待发进展会合并补送。"
+const exhaustedHint = "本轮微信推送预计已用尽（10/10）。请回复 Bot 指定还需要的内容；完整记录保留在桌面。"
 
 func withExhaustedHint(body string) string {
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
@@ -88,7 +88,14 @@ func (b *Bridge) sendOnePolicy(ctx context.Context, p *protocol, key, body strin
 	if !fitsText(body) || body == "" {
 		return "", "unavailable"
 	}
+	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
+		return "", "superseded"
+	}
 	b.mu.Lock()
+	if !b.scopeWindowLocked(ctx) {
+		b.mu.Unlock()
+		return "", "superseded"
+	}
 	if old, exists := b.state.Outputs[key]; exists {
 		b.mu.Unlock()
 		if old.State == "accepted" && old.Digest == textDigest(body) {

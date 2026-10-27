@@ -466,6 +466,7 @@ func TestFirstProgressBecomesFinalAndLaterToolGetsOneNameSupplement(t *testing.T
 	if record := waitFile(t, b, "process-file"); record.State != "accepted" {
 		t.Fatalf("process file: %+v", record)
 	}
+	b.fileWait.Wait() // Finish the prior file callback before replacing this fixture Host.
 	snapshot.Phase = "completed"
 	snapshot.Items = append(snapshot.Items, api.Item{ID: "publish", Kind: "tool", TurnKey: "turn", Status: "completed", Artifacts: []api.Artifact{{ID: "resource:session:later", Name: "later.json"}}})
 	b.host.Snapshot = func() api.Snapshot { return nativeInputSnapshot(snapshot) }

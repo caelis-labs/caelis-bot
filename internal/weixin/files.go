@@ -233,7 +233,7 @@ func (p *protocol) uploadFile(ctx context.Context, owner string, plain []byte) (
 }
 
 func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string, artifact api.Artifact, critical bool) {
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
 		return
 	}
 	if artifact.ID == "" || !fileName(artifact.Name) {
@@ -242,7 +242,7 @@ func (b *Bridge) scheduleArtifact(ctx context.Context, p *protocol, turn string,
 	}
 	key := artifactKey(turn, artifact.ID)
 	b.mu.Lock()
-	if b.closed || b.updating || ctx.Err() != nil {
+	if b.closed || b.updating || ctx.Err() != nil || !b.scopeWindowLocked(ctx) {
 		b.mu.Unlock()
 		return
 	}
@@ -333,7 +333,7 @@ func (b *Bridge) deferArtifactLocked(key string, record outbound) {
 // Pending records contain only previously authorized Artifact handles and
 // filenames. Re-resolve each handle through Host; never persist a local path.
 func (b *Bridge) flushPendingArtifacts(ctx context.Context, p *protocol, skipKey string) {
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || !b.scopeCurrent(ctx) {
 		return
 	}
 	type pending struct {
@@ -408,6 +408,16 @@ func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file 
 	if ctx.Err() != nil {
 		return
 	}
+	if !b.scopeCurrent(ctx) {
+		b.mu.Lock()
+		if record := b.state.Outputs[key]; record.State == "preparing" {
+			record.State, record.Reason = "superseded", "reply_boundary_changed"
+			b.state.Outputs[key] = record
+			_ = b.saveLocked()
+		}
+		b.mu.Unlock()
+		return
+	}
 	var seed [16]byte
 	if _, err := rand.Read(seed[:]); err != nil {
 		b.failArtifact(key, "file_unavailable")
@@ -424,7 +434,7 @@ func (b *Bridge) sendFileOne(ctx context.Context, p *protocol, key string, file 
 		b.mu.Unlock()
 		return
 	}
-	if prior.FileInputID != b.state.Window.InputID {
+	if prior.FileInputID != b.state.Window.InputID || !b.scopeWindowLocked(ctx) {
 		b.deferArtifactLocked(key, prior)
 		b.mu.Unlock()
 		return
