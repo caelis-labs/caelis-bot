@@ -70,6 +70,9 @@ or Turn filtering. Current shared IM projection, paired account and recipient
 boundaries remain authoritative. Private Worker transcripts and host notices
 are not imported. Existing history is baselined using shared IM presentation
 order; unknown historical items with no cursor do not become new output.
+`SeenAt` is local first presentation, not native generation time. A previously
+unseen native report newly exposed by the shared IM is treated as new visible
+output; the adapter cannot infer its earlier creation time or semantic value.
 
 A durable delivery spool stores known candidate IDs and frozen batches/parts.
 Ordinary input discards old unattempted progress and nonurgent files. Unattempted

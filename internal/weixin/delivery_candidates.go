@@ -14,7 +14,7 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	d := &b.state.Delivery
-	b.migrateDeliveryLocked()
+	legacyResults := b.migrateDeliveryLocked(kinds)
 	if d.StartAt == 0 {
 		d.StartAt = b.state.Window.InputAt
 	}
@@ -52,36 +52,48 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 		// SeenAt is the shared IM's presentation cursor, used only for delivery
 		// freshness. Restored/paged history with no cursor cannot become new output.
 		historical := !observed && (item.SeenAt == 0 || item.SeenAt < d.StartAt*1000)
-		if historical && item.ID != b.state.PendingFinal {
+		if historical && !legacyResults[item.ID] {
 			if _, exists := b.state.Outputs[key]; !exists {
 				b.state.Outputs[key] = outbound{State: "skip"}
 			}
+			b.deferOldArtifactsLocked(item, "skip")
 			continue
 		}
 		if !observed && b.state.Window.InputID == "" {
 			b.state.Outputs[key] = outbound{State: "skip"}
+			b.deferOldArtifactsLocked(item, "skip")
 			continue
 		}
-		if priority == progressPriority && !observed && item.SeenAt < b.state.Window.InputAt*1000 && item.ID != b.state.PendingFinal {
+		if priority == progressPriority && !observed && item.SeenAt < b.state.Window.InputAt*1000 && !legacyResults[item.ID] {
 			b.state.Outputs[key] = outbound{State: "superseded", Reason: "new_input"}
+			b.deferOldArtifactsLocked(item, "deferred")
 			continue
 		}
 		if kinds[item.ID] == "question" || len(item.QuestionCards) > 0 || len(item.AsyncQuestions) > 0 {
 			continue
 		}
+		oldFiles := !observed && item.SeenAt < b.state.Window.InputAt*1000
+		held := legacyResults[item.ID] || oldFiles && d.PausedWindow != ""
 		if item.Kind == "assistant" && strings.TrimSpace(item.Text) != "" && item.Text != api.SilentReminder {
 			body := withArtifactNames(item.Text, item.Artifacts)
+			if oldFiles && len(item.Artifacts) > 0 {
+				body += "\n\n完整文件可在桌面同一 Bot 对话获取。"
+			}
 			if item.Task != nil && item.Task.Title != "" {
 				if item.Text == item.Task.Title {
-					body = "**" + item.Task.Title + "**"
+					body = "**" + item.Task.Title + "**" + strings.TrimPrefix(body, item.Text)
 				} else {
 					body = "**" + item.Task.Title + "**\n\n" + body
 				}
 			}
-			b.enqueueDeliveryLocked(queuedDelivery{Key: key, Body: body, Priority: priority, Held: item.ID == b.state.PendingFinal || !observed && item.SeenAt < b.state.Window.InputAt*1000 && d.PausedWindow != ""})
+			b.enqueueDeliveryLocked(queuedDelivery{Key: key, Body: body, Priority: priority, Held: held})
 		}
-		if strings.TrimSpace(item.Text) == "" && len(item.Artifacts) > b.remainingProgressLocked() {
-			b.enqueueDeliveryLocked(queuedDelivery{Key: key + ":files", Body: withArtifactNames("", item.Artifacts) + "\n\n完整文件可在桌面同一 Bot 对话获取。", Priority: resultPriority})
+		if strings.TrimSpace(item.Text) == "" && len(item.Artifacts) > 0 && (oldFiles || len(item.Artifacts) > b.remainingProgressLocked()) {
+			b.enqueueDeliveryLocked(queuedDelivery{Key: key + ":files", Body: withArtifactNames("", item.Artifacts) + "\n\n完整文件可在桌面同一 Bot 对话获取。", Priority: resultPriority, Held: held})
+		}
+		if oldFiles {
+			b.deferOldArtifactsLocked(item, "deferred")
+			continue // recovering text cannot reactivate old nonurgent files
 		}
 		for _, artifact := range item.Artifacts {
 			if artifact.ID == "" || !fileName(artifact.Name) {
@@ -100,7 +112,12 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 		}
 	}
 	b.state.Progress, b.state.ProgressBatch = nil, nil
-	b.state.FinalProgressFor, b.state.FinalProgressIDs, b.state.PendingFinal = "", nil, ""
+	b.state.FinalProgressFor, b.state.FinalProgressIDs = "", nil
+	// Keep an original known final ID until the shared IM presents it; startup
+	// may initially have no visible history. Never synthesize its missing body.
+	if d.Seen["item:"+b.state.PendingFinal].Ready {
+		b.state.PendingFinal = ""
+	}
 	d.Initialized, b.state.LocalIMSeeded, b.state.MirrorV2 = true, true, true
 	// Bound observation metadata to the currently visible IM plus queued items.
 	// Older paged items retain their original SeenAt and fail the freshness gate.
@@ -323,5 +340,19 @@ func (b *Bridge) observeNotices() {
 			continue
 		}
 		b.enqueueDeliveryLocked(queuedDelivery{Key: "notice:" + notice.ID, Body: notice.Text, Priority: resultPriority})
+	}
+}
+
+// Remember unattempted historical artifacts in the same receipt ledger so a
+// later text/metadata refresh cannot turn them into newly prepared uploads.
+func (b *Bridge) deferOldArtifactsLocked(item api.Item, state string) {
+	for _, artifact := range item.Artifacts {
+		if artifact.ID == "" || !fileName(artifact.Name) {
+			continue
+		}
+		key := artifactKey(item.TurnKey, artifact.ID)
+		if _, exists := b.state.Outputs[key]; !exists {
+			b.state.Outputs[key] = outbound{State: state, Reason: "historical_file", ArtifactID: artifact.ID, FileName: artifact.Name, FileTurnKey: item.TurnKey}
+		}
 	}
 }

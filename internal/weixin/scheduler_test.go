@@ -708,3 +708,71 @@ func TestDeliveryIdlePollSkipsRewriteButSendPersistsItsSlot(t *testing.T) {
 		t.Fatal("send skipped durable reservation")
 	}
 }
+
+func TestDeliveryLegacyUnattemptedFinalRecoversWithoutReactivatingOldFiles(t *testing.T) {
+	for _, mode := range []string{"text", "files-only"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newDeliveryFixture(t)
+			f.add("legacy-result", "原任务已经完成的结果", resultPriority)
+			if mode == "files-only" {
+				f.snapshot.Items[0].Text = ""
+			}
+			f.snapshot.Items[0].SeenAt = f.now.Add(-time.Minute).UnixMicro()
+			f.snapshot.Items[0].Artifacts = []api.Artifact{{ID: "old-file", Name: "full.txt"}}
+			f.b.state.Progress = []pendingProgress{{ID: "legacy-result", TurnKey: "turn-legacy-result", Text: "原任务已经完成的结果"}}
+			f.poll()
+			if len(f.sent()) != 0 || f.used() != 0 {
+				t.Fatal("ordinary window resumed legacy backlog", f.sent())
+			}
+			f.reopen()
+			f.window("recover")
+			f.b.handleLocalCommand(t.Context(), f.p, inbound{ID: "recover", Text: "/r"})
+			if len(f.sent()) != 1 || !strings.Contains(f.sent()[0], "full.txt") || !strings.Contains(f.sent()[0], "完整文件可在桌面") || f.used() != 1 {
+				t.Fatal("legacy final lost", f.sent())
+			}
+			if mode != "files-only" && !strings.Contains(f.sent()[0], "原任务已经完成的结果") {
+				t.Fatal("missing result", f.sent())
+			}
+			if out := f.b.state.Outputs[artifactKey("turn-legacy-result", "old-file")]; out.State != "deferred" || out.Attempts != 0 {
+				t.Fatal("text recovery reactivated old artifact", out)
+			}
+			f.reopen()
+			if mode != "files-only" {
+				f.snapshot.Items[0].Text += "，原生展示补充详情"
+			}
+			f.poll()
+			if len(f.sent()) != 1 {
+				t.Fatal("accepted legacy recovery replayed", f.sent())
+			}
+		})
+	}
+}
+
+func TestDeliveryLegacyPendingFinalWaitsForSharedIMBeforeRecovery(t *testing.T) {
+	f := newDeliveryFixture(t)
+	f.add("legacy-final", "已经完成的重要结果", resultPriority)
+	f.snapshot.Items[0].SeenAt = f.now.Add(-time.Minute).UnixMicro()
+	items := f.snapshot.Items
+	f.snapshot.Items = nil
+	f.b.state.PendingFinal = "legacy-final"
+	f.poll()
+	f.reopen()
+	if f.b.state.PendingFinal != "legacy-final" || len(f.sent()) != 0 {
+		t.Fatal("missing shared item discarded original final identity")
+	}
+	f.snapshot.Items = items
+	f.poll()
+	if len(f.sent()) != 0 {
+		t.Fatal("ordinary observation replayed old final")
+	}
+	f.window("recover")
+	f.b.handleLocalCommand(t.Context(), f.p, inbound{ID: "recover", Text: "/r"})
+	if len(f.sent()) != 1 || !strings.Contains(f.sent()[0], "已经完成的重要结果") {
+		t.Fatal("known final did not recover", f.sent())
+	}
+	f.reopen()
+	f.poll()
+	if len(f.sent()) != 1 || f.b.state.PendingFinal != "" {
+		t.Fatal("recovered final repeated")
+	}
+}

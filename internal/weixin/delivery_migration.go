@@ -9,9 +9,13 @@ import (
 // Preserve old batch membership before clearing the superseded progress spool.
 // A crash between HTTP and parent bookkeeping must never turn an accepted or
 // unknown original intent into apparently unsent individual messages.
-func (b *Bridge) migrateDeliveryLocked() {
+func (b *Bridge) migrateDeliveryLocked(kinds map[string]string) map[string]bool {
+	results := map[string]bool{}
+	if b.state.PendingFinal != "" {
+		results[b.state.PendingFinal] = true
+	}
 	if b.state.Delivery.Initialized {
-		return
+		return results
 	}
 	bind := func(ids []string, key string) {
 		out := b.state.Outputs[key]
@@ -32,10 +36,15 @@ func (b *Bridge) migrateDeliveryLocked() {
 		bind(ids, "item:"+b.state.FinalProgressFor+":0")
 	}
 	for _, old := range b.state.Progress {
-		if _, exists := b.state.Outputs["item:"+old.ID]; !exists && old.ID != b.state.PendingFinal {
-			b.state.Outputs["item:"+old.ID] = outbound{State: "superseded", Reason: "legacy_progress"}
+		if _, exists := b.state.Outputs["item:"+old.ID]; !exists {
+			if kinds[old.ID] == "final" || results[old.ID] {
+				results[old.ID] = true
+			} else {
+				b.state.Outputs["item:"+old.ID] = outbound{State: "superseded", Reason: "legacy_progress"}
+			}
 		}
 	}
+	return results
 }
 
 func (b *Bridge) deliveryPartKeyLocked(key string, index int) string {
