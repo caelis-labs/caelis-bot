@@ -33,6 +33,6 @@
     "@vitejs/plugin-react": "6.1.2",
     "gltf-validator": "2.0.0-dev.3.10",
     "typescript": "7.0.2",
-    "vite": "8.3.4"
+    "vite": "8.3.5"
   }
 }

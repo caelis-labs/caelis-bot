@@ -11,11 +11,11 @@ require (
 	github.com/deploymenttheory/go-bindings-winrt v0.6.1
 	github.com/mymmrac/telego v1.12.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/wailsapp/wails/v3 v3.0.0-beta.30
+	github.com/wailsapp/wails/v3 v3.0.0-beta.34
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -27,7 +27,7 @@ require (
 	github.com/bytedance/sonic v1.15.3 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/go-ego/gse v1.0.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
@@ -37,7 +37,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
@@ -51,7 +51,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	modernc.org/libc v1.77.1 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
