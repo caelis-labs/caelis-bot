@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,34 +34,6 @@ type tunnel struct {
 	attempts              int
 }
 
-func targetKey(v api.SSHTarget) (string, error) {
-	if v.Port == 0 {
-		v.Port = 9317
-	}
-	if !validHost(v.Host) || v.Port < 1 || v.Port > 65535 {
-		return "", errors.New("ssh_target_invalid")
-	}
-	return fmt.Sprintf("%s:%d", v.Host, v.Port), nil
-}
-func Target(address string) (api.SSHTarget, bool) {
-	if !strings.HasPrefix(address, "ssh://") {
-		return api.SSHTarget{}, false
-	}
-	host, port, e := net.SplitHostPort(strings.TrimPrefix(address, "ssh://"))
-	n, e2 := strconv.Atoi(port)
-	v := api.SSHTarget{Host: host, Port: n}
-	_, e3 := targetKey(v)
-	return v, e == nil && e2 == nil && e3 == nil
-}
-func Address(v api.SSHTarget) (string, error) {
-	if v.Port == 0 {
-		v.Port = 9317
-	}
-	if _, e := targetKey(v); e != nil {
-		return "", e
-	}
-	return "ssh://" + net.JoinHostPort(v.Host, strconv.Itoa(v.Port)), nil
-}
 func (t *Transport) Status(v api.SSHTarget) api.SSHConnectionStatus {
 	key, e := targetKey(v)
 	if e != nil {
@@ -204,7 +175,11 @@ func (t *Transport) Resolve(ctx context.Context, address string) (string, error)
 	}
 }
 func (t *Transport) Answer(in api.SSHAnswer) error {
-	key, e := targetKey(api.SSHTarget{Host: in.Host, Port: in.Port})
+	target := api.SSHTarget{Host: in.Host, Port: in.Port}
+	if in.Target != nil {
+		target = *in.Target
+	}
+	key, e := targetKey(target)
 	if e != nil {
 		return e
 	}
@@ -253,10 +228,44 @@ func (t *Transport) Stop(v api.SSHTarget) error {
 	}
 	return nil
 }
+
+// Release only channels the owning connection service has proved unreferenced.
+// Keep authentication/connecting episodes alive; never infer task ownership here.
+// Cancellation is nonblocking, and Close still joins retired processes.
+func (t *Transport) ReleaseUnused(addresses []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	pending := t.retired[:0]
+	for _, done := range t.retired {
+		select {
+		case <-done:
+		default:
+			pending = append(pending, done)
+		}
+	}
+	t.retired = pending
+	for _, address := range addresses {
+		target, ok := Target(address)
+		if !ok {
+			continue
+		}
+		key, err := targetKey(target)
+		if err != nil {
+			continue
+		}
+		c := t.tunnels[key]
+		if c == nil || (c.state != "ready" && c.state != "failed") {
+			continue
+		}
+		c.cancel()
+		t.retired = append(t.retired, c.done)
+		delete(t.tunnels, key)
+	}
+}
 func (t *Transport) Close() {
 	t.mu.Lock()
 	t.closed = true
-	var wait []chan struct{}
+	wait := append([]chan struct{}{}, t.retired...)
 	for _, c := range t.tunnels {
 		c.cancel()
 		wait = append(wait, c.done)
@@ -292,9 +301,12 @@ func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 		return
 	}
 	defer os.RemoveAll(dir)
-	t.configMu.Lock()
-	config, e := t.compose(dir, false, "")
-	t.configMu.Unlock()
+	config := "none"
+	if c.target.Authentication == "" {
+		t.configMu.Lock()
+		config, e = t.compose(dir, false, "")
+		t.configMu.Unlock()
+	}
 	if e != nil {
 		issue = "ssh_config_unreadable"
 		if e.Error() == "ssh_system_include_dynamic" {
@@ -310,6 +322,12 @@ func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 	}
 	control := filepath.Join(dir, "control")
 	args := []string{"-N", "-T", "-F", config, "-M", "-S", control, "-o", "ControlPersist=no", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2"}
+	manual, err := t.manualArguments(c.target)
+	if err != nil {
+		issue = err.Error()
+		return
+	}
+	args = append(args, manual...)
 	if !interactive {
 		args = append(args, "-o", "BatchMode=yes")
 	}

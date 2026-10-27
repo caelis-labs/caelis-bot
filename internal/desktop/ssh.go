@@ -2,34 +2,19 @@ package desktop
 
 import (
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func (s *Service) EditSSHConfiguration(kind string) error {
-	if s.prepareSSHConfiguration == nil || s.openConfigurationFile == nil {
-		return errors.New("ssh_editor_unavailable")
+func (s *Service) PickSSHIdentity() (api.SSHIdentity, error) {
+	if s.pickSSHIdentity == nil || s.registerSSHIdentity == nil {
+		return api.SSHIdentity{}, errors.New("ssh_key_picker_unavailable")
 	}
-	v, e := s.prepareSSHConfiguration(kind)
-	if e != nil {
-		return e
+	path, err := s.pickSSHIdentity()
+	if err != nil {
+		return api.SSHIdentity{}, errors.New("ssh_key_unavailable")
 	}
-	if s.openConfigurationFile(v.Path) != nil {
-		return errors.New("ssh_editor_unavailable")
+	if path == "" {
+		return api.SSHIdentity{}, nil
 	}
-	return nil
-}
-func (s *Service) RevealSSHConfiguration(kind string) error {
-	if s.readSSHConfiguration == nil || s.revealConfigurationFile == nil {
-		return errors.New("ssh_location_unavailable")
-	}
-	v, e := s.readSSHConfiguration(kind)
-	if e != nil {
-		return e
-	}
-	if !v.Exists {
-		return errors.New("ssh_config_missing")
-	}
-	if s.revealConfigurationFile(v.Path) != nil {
-		return errors.New("ssh_location_unavailable")
-	}
-	return nil
+	return s.registerSSHIdentity(path)
 }

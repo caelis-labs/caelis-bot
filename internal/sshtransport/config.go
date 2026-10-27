@@ -4,7 +4,6 @@ package sshtransport
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,11 +14,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 const maxConfig = 128 << 10
@@ -29,6 +26,7 @@ type Transport struct {
 	configMu                           sync.Mutex
 	root, home, system, binary, helper string
 	tunnels                            map[string]*tunnel
+	retired                            []chan struct{}
 	closed                             bool
 }
 
@@ -351,133 +349,4 @@ func (t *Transport) compose(dir string, preview bool, private string) (string, e
 	}
 	name := filepath.Join(dir, "invocation")
 	return name, os.WriteFile(name, []byte(strings.Join(layers, "\n")+"\n"), 0600)
-}
-func (t *Transport) Save(ctx context.Context, in api.SSHConfigurationSave) (api.SSHConfiguration, error) {
-	if len(in.Text) > maxConfig || strings.IndexByte(in.Text, 0) >= 0 {
-		return api.SSHConfiguration{}, errors.New("ssh_config_size")
-	}
-	t.configMu.Lock()
-	defer t.configMu.Unlock()
-	old, e := t.configuration()
-	if e != nil {
-		return old, e
-	}
-	if old.Revision != in.Revision {
-		return old, errors.New("ssh_config_changed")
-	}
-	if t.binary == "" {
-		return old, errors.New("ssh_not_installed")
-	}
-	if e = localstate.EnsurePrivateDirectory(t.root); e != nil {
-		return old, errors.New("ssh_config_save_failed")
-	}
-	dir, e := os.MkdirTemp(t.root, "validate-")
-	if e != nil {
-		return old, errors.New("ssh_config_save_failed")
-	}
-	defer os.RemoveAll(dir)
-	path, e := t.compose(dir, true, in.Text)
-	if e != nil {
-		return old, errors.New("ssh_config_syntax")
-	}
-	c, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	// Preview does not run Match exec, DNS canonicalization, ProxyCommand or local commands.
-	cmd := exec.CommandContext(c, t.binary, "-G", "-F", path, "-o", "CanonicalizeHostname=no", "-o", "PermitLocalCommand=no", "caelis-config-validation.invalid")
-	if e = cmd.Run(); e != nil {
-		return old, errors.New("ssh_config_syntax")
-	}
-	// External edits while validating must not be silently overwritten.
-	current, e := t.configuration()
-	if e != nil || current.Revision != in.Revision {
-		return current, errors.New("ssh_config_changed")
-	}
-	f, e := os.CreateTemp(t.root, ".config-")
-	if e != nil {
-		return old, errors.New("ssh_config_save_failed")
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if e = localstate.ProtectOpenFile(f); e == nil {
-		_, e = f.WriteString(in.Text)
-	}
-	if e == nil {
-		e = f.Sync()
-	}
-	closeErr := f.Close()
-	if e == nil {
-		e = closeErr
-	}
-	if e == nil {
-		e = os.Rename(name, t.path())
-	}
-	if e != nil {
-		return old, errors.New("ssh_config_save_failed")
-	}
-	if err := localstate.SyncParent(t.path()); err != nil {
-		return old, errors.New("ssh_config_save_unconfirmed")
-	}
-	return t.configuration()
-}
-
-func (t *Transport) documentPath(kind string) (string, error) {
-	switch kind {
-	case "bot":
-		return t.path(), nil
-	case "system":
-		return filepath.Join(t.home, ".ssh", "config"), nil
-	}
-	return "", errors.New("ssh_config_scope_invalid")
-}
-func (t *Transport) Document(kind string) (api.SSHConfigurationDocument, error) {
-	path, e := t.documentPath(kind)
-	if e != nil {
-		return api.SSHConfigurationDocument{}, e
-	}
-	v := api.SSHConfigurationDocument{Kind: kind, Path: path}
-	b, e := readConfig(path)
-	if os.IsNotExist(e) {
-		return v, nil
-	}
-	if e != nil {
-		return v, errors.New("ssh_config_unreadable")
-	}
-	v.Text = string(b)
-	v.Exists = true
-	return v, nil
-}
-func (t *Transport) PrepareEdit(kind string) (api.SSHConfigurationDocument, error) {
-	path, e := t.documentPath(kind)
-	if e != nil {
-		return api.SSHConfigurationDocument{}, e
-	}
-	// Explicit editor action creates only a missing chosen file. Existing files,
-	// permissions and Includes are left to the user's default editor.
-	if _, e = os.Stat(path); os.IsNotExist(e) {
-		if _, statErr := os.Stat(filepath.Dir(path)); os.IsNotExist(statErr) {
-			e = localstate.EnsurePrivateDirectory(filepath.Dir(path))
-		} else {
-			e = statErr
-		}
-		if e != nil {
-			return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
-		}
-		f, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if e == nil {
-			e = localstate.ProtectOpenFile(f)
-			if e == nil {
-				e = f.Sync()
-			}
-			closeErr := f.Close()
-			if e == nil {
-				e = closeErr
-			}
-			if e != nil {
-				return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
-			}
-		} else if !os.IsExist(e) {
-			return api.SSHConfigurationDocument{}, errors.New("ssh_config_save_failed")
-		}
-	}
-	return t.Document(kind)
 }

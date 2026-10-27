@@ -50,7 +50,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
   readonly detail?:string;
   constructor(readonly code:string,readonly status:number,detail?:unknown){
    const safe=code==='operation_rejected'?safeWebRejectionDetail(detail):undefined;
-   const navigation=['remote_native_url_not_reachable','remote_native_url_invalid','worker_url_page_unsupported','worker_url_page_unavailable','worker_not_ready','worker_listener_unavailable','worker_pairing_unavailable','ssh_config_changed','ssh_config_syntax','ssh_config_unreadable','ssh_config_size','ssh_config_save_failed','ssh_config_save_unconfirmed','ssh_platform_unsupported','ssh_not_installed','ssh_target_invalid','ssh_prompt_expired','ssh_answer_invalid',...Object.keys(pairingReadiness)].includes(code)?code:undefined;
+   const navigation=['remote_native_url_not_reachable','remote_native_url_invalid','worker_url_page_unsupported','worker_url_page_unavailable','worker_not_ready','worker_listener_unavailable','worker_pairing_unavailable','ssh_key_required','ssh_key_unavailable','ssh_config_syntax','ssh_config_unreadable','ssh_config_size','ssh_platform_unsupported','ssh_not_installed','ssh_target_invalid','ssh_prompt_expired','ssh_answer_invalid',...Object.keys(pairingReadiness)].includes(code)?code:undefined;
    super(safe??navigation??(code==='previous_operation_resolved'?'上次操作已核对。请确认当前内容后再次提交。':code==='operation_rejected'?'未保存这次设置，请检查填写内容后重试。':code==='operation_retired'?'上次操作已完成，请查看当前状态。':code==='composer_owned_elsewhere'?'另一页面正在编辑，请先接管输入。':code==='setup_blocked_runtime_recovery_required'?'原连接还有工作需要核对，尚未切换连接。你的输入已保留。':code==='setup_blocked_runtime_not_ready'?'所选连接尚未准备好，请检查连接后继续。':notice));
    this.detail=safe;
   }

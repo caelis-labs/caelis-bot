@@ -1,7 +1,5 @@
 package api
 
-import "context"
-
 // SSH is network transport only. Bot authorization is a separate original peer request.
 type SSHConfiguration struct {
 	Path       string   `json:"path"`
@@ -12,13 +10,23 @@ type SSHConfiguration struct {
 	Hosts      []string `json:"hosts"`
 	Issue      string   `json:"issue,omitempty"`
 }
-type SSHConfigurationSave struct {
-	Text     string `json:"text"`
-	Revision string `json:"revision"`
-}
 type SSHTarget struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
+	// Empty Authentication selects an existing OpenSSH Host. Manual connections
+	// carry only connection metadata; passwords and key passphrases use SSHAnswer.
+	SSHPort        int    `json:"sshPort,omitempty"`
+	User           string `json:"user,omitempty"`
+	Authentication string `json:"authentication,omitempty"`
+	Identity       string `json:"identity,omitempty"`
+}
+type SSHIdentity struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type SSHHosts struct {
+	Hosts []string `json:"hosts"`
+	Issue string   `json:"issue,omitempty"`
 }
 type SSHPrompt struct {
 	ID      string `json:"id"`
@@ -31,29 +39,18 @@ type SSHConnectionStatus struct {
 	Prompt *SSHPrompt `json:"prompt,omitempty"`
 }
 type SSHAnswer struct {
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	ID     string `json:"id"`
-	Value  string `json:"value"`
-	Cancel bool   `json:"cancel"`
+	Host   string     `json:"host"`
+	Port   int        `json:"port"`
+	ID     string     `json:"id"`
+	Value  string     `json:"value"`
+	Cancel bool       `json:"cancel"`
+	Target *SSHTarget `json:"target,omitempty"`
 }
 type SSHConnections interface {
-	SSHConfiguration() (SSHConfiguration, error)
-	SaveSSHConfiguration(context.Context, SSHConfigurationSave) (SSHConfiguration, error)
+	SSHHosts() (SSHHosts, error)
+	RegisterSSHIdentity(string) (SSHIdentity, error)
 	StartSSHConnection(SSHTarget) (SSHConnectionStatus, error)
 	SSHConnectionStatus(SSHTarget) SSHConnectionStatus
 	AnswerSSH(SSHAnswer) error
 	StopSSHConnection(SSHTarget) error
-}
-
-// Scope is a host-owned selector, never an arbitrary client file path.
-type SSHConfigurationDocument struct {
-	Kind   string `json:"kind"`
-	Text   string `json:"text"`
-	Path   string `json:"path"`
-	Exists bool   `json:"exists"`
-}
-type SSHConfigurationFiles interface {
-	ReadSSHConfiguration(string) (SSHConfigurationDocument, error)
-	PrepareSSHConfigurationEdit(string) (SSHConfigurationDocument, error)
 }

@@ -3,6 +3,7 @@ package api
 import "context"
 
 type Machine struct {
+	SavedAddress   string `json:"savedAddress,omitempty"`
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	RemoteName     string `json:"remoteName,omitempty"`
@@ -103,4 +104,21 @@ type BotConnectionLifecycle interface {
 	ConnectPreparedBot(context.Context, BotConnectionReference, BotConnectionInput) (Machine, BotConnectionReference, error)
 	AbortPreparedBotConnection(BotConnectionReference) error
 	BotConnectionQuiescent(BotConnectionReference) bool
+}
+
+// Local list metadata has its own original operation identity. It never pairs,
+// unpairs, reconnects or stops a running channel.
+type MachineMutation struct {
+	Address   string `json:"address,omitempty"`
+	ID        string `json:"id"`
+	MachineID string `json:"machineId"`
+	Action    string `json:"action"`
+	Name      string `json:"name,omitempty"`
+}
+type MachineMutationResult struct {
+	ID      string  `json:"id"`
+	Status  string  `json:"status"`
+	Code    string  `json:"code,omitempty"`
+	Machine Machine `json:"machine"`
+	Digest  string  `json:"digest,omitempty"`
 }

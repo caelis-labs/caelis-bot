@@ -204,20 +204,16 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	switch str(q, "type") {
-	case "ssh_config":
-		p, ok := provider.(interface {
-			SSHConfiguration() (api.SSHConfiguration, error)
-		})
+	case "ssh_hosts":
+		p, ok := provider.(interface{ SSHHosts() (api.SSHHosts, error) })
 		if !ok {
-			return compactError("unavailable", errors.New("SSH configuration unavailable"))
+			return compactError("unavailable", errors.New("SSH hosts unavailable"))
 		}
-		v, e := p.SSHConfiguration()
+		v, e := p.SSHHosts()
 		if e != nil {
 			return compactError("unavailable", e)
 		}
-		// Paths and alias suggestions only. Read/write this exact file with native
-		// file tools under their normal permission policy, not an auto-approved tool.
-		return boundedData(map[string]any{"ok": true, "data": map[string]any{"path": v.Path, "userPath": v.UserPath, "systemPath": v.SystemPath, "revision": v.Revision, "hosts": v.Hosts, "issue": v.Issue}}, q)
+		return boundedData(map[string]any{"ok": true, "data": v}, q)
 	case "environments":
 		return boundedData(map[string]any{"ok": true, "data": taskEnvironments(provider, r.engine.Snapshot().Connection)}, q)
 	case "list":

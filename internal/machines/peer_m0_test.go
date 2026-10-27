@@ -53,8 +53,8 @@ func TestPeerFailedPreparationDoesNotStrandPairingProof(t *testing.T) {
 	if err = s.RemoveMachine(t.Context(), machine); err != nil {
 		t.Fatal("undispatched preparation stranded source", err)
 	}
-	if len(target.peer.Status().Sources) != 0 {
-		t.Fatal("A discarded token before B released undispatched preparation")
+	if len(target.peer.Status().Sources) != 1 {
+		t.Fatal("local removal revoked the independent remote grant")
 	}
 	if _, err = s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "restored", Address: target.http.URL}); err != nil {
 		t.Fatal("normal re-pair cannot recover", err)
@@ -66,8 +66,8 @@ func TestPeerRemovalDoesNotDiscardUnconfirmedProof(t *testing.T) {
 	s, _, _, machine, _ := dualPeerConnect(t, target)
 	before := s.state.Profiles[machine].Peer
 	target.offline.Store(true)
-	if err := s.RemoveMachine(t.Context(), machine); err == nil {
-		t.Fatal("unconfirmed unpair discarded original proof")
+	if err := s.RemoveMachine(t.Context(), machine); err != nil {
+		t.Fatal("local removal depended on an offline peer", err)
 	}
 	if s.state.Profiles[machine].Peer != before {
 		t.Fatal("only original credential was changed")

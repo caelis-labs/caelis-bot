@@ -93,3 +93,28 @@
 .settings-window .remote-destructive{color:var(--caelis-danger,var(--ink))}
 @media(max-width:480px){.machine-row-detail{display:grid;gap:3px}.machine-row>.settings-chevron{display:none}.remote-dialog-footer{flex-wrap:wrap}}
 .remote-request-list{list-style:none;padding:0;margin:0}
+
+.remote-ssh-fields{display:grid;gap:16px;min-width:0}
+.remote-ssh-mode{display:flex;gap:20px;align-items:center}
+.remote-ssh-mode button{border:0;border-radius:0;padding:4px 0;min-height:30px;background:none;color:var(--muted);border-bottom:2px solid transparent}
+.remote-ssh-mode button.selected{color:var(--accent);border-bottom-color:currentColor}
+.remote-auth-choice{display:flex;gap:8px}
+.remote-auth-choice button{flex:1;background:transparent}
+.remote-auth-choice button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.remote-key-picker{display:flex;align-items:center;justify-content:flex-start;gap:10px;min-width:0}
+.remote-key-picker span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.remote-bot-port label{display:grid;grid-template-columns:1fr 100px;align-items:center;gap:16px;color:var(--muted)}
+.remote-bot-port input{width:100%;min-width:0}
+.remote-primary-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:34px;width:34px;height:34px;padding:0}
+.remote-primary-actions svg{display:block;flex:none}
+@media(max-width:480px){.remote-ssh-mode{gap:16px}.remote-bot-port label{grid-template-columns:1fr 80px}}
+
+.settings-window .remote-bot-dialog .remote-ssh-fields{margin-bottom:18px}
+.settings-window .remote-bot-dialog .remote-ssh-fields label{margin:0}
+.settings-window .remote-bot-dialog .remote-ssh-mode button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:4px 0;color:var(--muted);min-height:30px}
+.settings-window .remote-bot-dialog .remote-ssh-mode button.selected{color:var(--accent);border-bottom-color:currentColor}
+.settings-window .remote-bot-dialog .remote-bot-port label{display:grid;grid-template-columns:1fr 100px;align-items:center;gap:16px;color:var(--muted)}
+
+.settings-window .remote-list-toolbar .remote-primary-actions>button{width:34px;height:34px;min-width:34px;padding:0}
+
+.remote-field-error { color: var(--ink-muted); font-size: 12px; font-weight: 400; line-height: 1.4; }

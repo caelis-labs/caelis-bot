@@ -1,3 +1,4 @@
+import {sshTarget} from './SSHConnection';
 import type {Machine,WorkerPeerSource,WorkerPairingRequest} from '../../backend/contract';
 import {useI18n} from '../../i18n';
 import {DesktopTowerIcon,SettingsChevron} from '../../SettingsIcons';
@@ -16,7 +17,9 @@ export function MachineConnectionList({machines,sources,requests,unread,sourcesU
  // request/grant ID; never merge unrelated authorities by their display label.
  return <ul className="machine-list remote-machine-list">
   {requests.map(request=><ConnectionRow key={`request:${request.id}`} name={request.name||t('settings.botConnectedSource')} address={request.address} direction={t('settings.remoteIncomingDirection')} status={t('settings.remoteNeedsDecision')} attention onOpen={()=>onRequest(request)}/>)}
-  {machines.map(machine=><ConnectionRow key={`outgoing:${machine.id}`} name={machine.name} address={machine.address.startsWith('ssh://')?'SSH · '+machine.address.slice(6).replace(/:9317$/,''):machine.address.replace(/^https?:\/\//,'')} direction={t('settings.remoteOutgoingDirection')} status={t(unread[machine.id]?'settings.remoteCheckUnreadable':remoteMachineLabel(machine))} online={remoteMachineStatus(machine)==='online'&&!unread[machine.id]} onOpen={()=>onMachine(machine)} onMenu={anchor=>onMachineMenu(machine,anchor)}/>)}
+  {machines.map(machine=><ConnectionRow key={`outgoing:${machine.id}`} name={machine.name} address={connectionAddress(machine.address)} direction={t('settings.remoteOutgoingDirection')} status={t(unread[machine.id]?'settings.remoteCheckUnreadable':remoteMachineLabel(machine))} online={remoteMachineStatus(machine)==='online'&&!unread[machine.id]} onOpen={()=>onMachine(machine)} onMenu={anchor=>onMachineMenu(machine,anchor)}/>)}
   {sources.map(source=><ConnectionRow key={`incoming:${source.id}`} name={peerSourceLabel(source,sources,t('settings.botConnectedSource'))} direction={t('settings.remoteAllowedDirection')} status={t(sourcesUnread?'settings.remoteCheckUnreadable':'settings.remoteAllowed')} onOpen={()=>onSource(source)} onMenu={anchor=>onSourceMenu(source,anchor)}/>)}
  </ul>;
 }
+
+function connectionAddress(address:string){const target=sshTarget(address);return target?`SSH · ${target.user?target.user+'@':''}${target.host}${target.sshPort&&target.sshPort!==22?':'+target.sshPort:''}`:address.replace(/^https?:\/\//,'')}

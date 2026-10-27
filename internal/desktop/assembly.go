@@ -52,9 +52,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service, 
 		return nil, err
 	}
 	back := core.Backend
-	s.readSSHConfiguration = back.ReadSSHConfiguration
-	s.prepareSSHConfiguration = back.PrepareSSHConfigurationEdit
-	s.revealConfigurationFile = host.RevealFile
+	s.registerSSHIdentity = back.RegisterSSHIdentity
 	s.workerTaskView = func(ctx context.Context, id string) (bool, error) {
 		for _, task := range back.WorkerTasks() {
 			if task.ID != id {

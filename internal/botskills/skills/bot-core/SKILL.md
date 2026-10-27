@@ -68,7 +68,7 @@ Read the reference relevant to the current work:
   reminders, and useful responses when they come due.
 - [Native observations](references/native-events.md): conditions on clock,
   desktop usage or application changes.
-- [Remote connections](references/remote-connections.md): SSH Host configuration
+- [Remote connections](references/remote-connections.md): direct and SSH connections
   and Bot pairing for a user-requested remote environment.
 - [Screen input](references/screen-input.md): a screen selection or correction.
 - [Received media](references/received-media.md): images, stickers or sampled frames.

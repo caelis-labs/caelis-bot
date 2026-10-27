@@ -12,6 +12,7 @@ func TestBindingFailureNeverLeavesAnUnpersistedRoute(t *testing.T) {
 	s, _ := Open(t.TempDir(), inert{})
 	s.state.Profiles["machine-owned"] = profile{View: api.Machine{Runtime: "codex", State: "ready", PairingStatus: "approved", CheckedAt: time.Now().UnixMilli()}}
 	s.root = filepath.Join(s.root, "unwritable")
+	s.registry = filepath.Join(s.root, "machines.json")
 	if e := os.WriteFile(s.root, []byte("file"), 0600); e != nil {
 		t.Fatal(e)
 	}
