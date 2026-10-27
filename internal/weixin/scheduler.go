@@ -22,23 +22,25 @@ const progressDivider = "\n\n——\n\n"
 // IDs, native interaction handles and the existing Outputs receipts remain the
 // authorities. Frozen parts make restart, batching and partial sends idempotent.
 type queuedDelivery struct {
-	Key        string        `json:"key"`
-	Members    []string      `json:"members,omitempty"`
-	Body       string        `json:"body,omitempty"`
-	Parts      []string      `json:"parts,omitempty"`
-	Priority   int           `json:"priority"`
-	InputID    string        `json:"inputId"`
-	At         int64         `json:"at"`
-	Held       bool          `json:"held,omitempty"`
-	ApprovalID string        `json:"approvalId,omitempty"`
-	NoticeFor  string        `json:"noticeFor,omitempty"`
-	QuestionID string        `json:"questionId,omitempty"`
-	Artifact   *api.Artifact `json:"artifact,omitempty"`
-	TurnKey    string        `json:"turnKey,omitempty"`
+	Key         string        `json:"key"`
+	Members     []string      `json:"members,omitempty"`
+	Body        string        `json:"body,omitempty"`
+	BodyExcerpt bool          `json:"bodyExcerpt,omitempty"`
+	Parts       []string      `json:"parts,omitempty"`
+	Priority    int           `json:"priority"`
+	InputID     string        `json:"inputId"`
+	At          int64         `json:"at"`
+	Held        bool          `json:"held,omitempty"`
+	ApprovalID  string        `json:"approvalId,omitempty"`
+	NoticeFor   string        `json:"noticeFor,omitempty"`
+	QuestionID  string        `json:"questionId,omitempty"`
+	Artifact    *api.Artifact `json:"artifact,omitempty"`
+	TurnKey     string        `json:"turnKey,omitempty"`
 }
 type deliveryObservation struct {
-	Digest string `json:"digest"`
-	Ready  bool   `json:"ready,omitempty"`
+	Digest   string `json:"digest"`
+	Ready    bool   `json:"ready,omitempty"`
+	Priority int    `json:"priority,omitempty"`
 }
 type deliverySchedule struct {
 	CapacityDropped bool                           `json:"capacityDropped,omitempty"`
@@ -145,6 +147,21 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			}
 			return
 		}
+		// A preview has its own HTTP identity. It never advances original body
+		// parts or completes the members of a combined delivery.
+		if preview, handled := b.deliveryPreview(candidate); handled {
+			if preview != "" {
+				_, state := b.sendOnePolicy(sendCtx, p, candidate.Key+":preview", preview, critical, candidate.Priority == progressPriority)
+				if state == "superseded" {
+					continue
+				}
+				if state != "accepted" && state != "unknown" && state != "rejected" {
+					return
+				}
+			}
+			b.holdDelivery(candidate.Key)
+			continue
+		}
 		part, key, terminal := b.nextDeliveryPart(candidate)
 		if terminal != "" {
 			b.finishDelivery(candidate.Key, terminal)
@@ -197,6 +214,11 @@ func (b *Bridge) rotateDeliveriesLocked() {
 	keep := make([]queuedDelivery, 0, len(d.Queue))
 	for _, q := range d.Queue {
 		if q.Priority == progressPriority && q.InputID != b.state.Window.InputID {
+			if len(q.Parts) > 0 && b.deliveryAttemptedLocked(q.Key) {
+				q.Held, q.InputID = true, b.state.Window.InputID
+				keep = append(keep, q) // keep frozen original part identities for /r
+				continue
+			}
 			delete(b.preparedFiles, q.Key)
 			if q.Artifact != nil {
 				if old := b.state.Outputs[q.Key]; old.Attempts == 0 {
@@ -205,8 +227,8 @@ func (b *Bridge) rotateDeliveriesLocked() {
 					b.state.FileIssue = "file_deferred"
 					b.state.Outputs[q.Key] = old
 				}
-			} else if b.state.Outputs[q.Key].Attempts == 0 {
-				b.state.Outputs[q.Key] = outbound{State: "superseded", Reason: "new_input"}
+			} else {
+				b.retireTextLocked(q, "new_input")
 			}
 			continue
 		}
@@ -285,13 +307,13 @@ func (b *Bridge) freezeDeliveryLocked(index int) queuedDelivery {
 		return q
 	}
 	q.Members = []string{q.Key}
-	if q.Priority >= resultPriority && q.NoticeFor == "" {
+	if q.Priority >= resultPriority && q.NoticeFor == "" && !q.BodyExcerpt {
 		keep := b.state.Delivery.Queue[:index+1]
 		barrier := false
 		for _, other := range b.state.Delivery.Queue[index+1:] {
 			// Never merge action cards, files, partial replies, different priorities,
 			// or held recovery results. Preserve FIFO within each priority.
-			if !barrier && !other.Held && other.Priority == q.Priority && other.Artifact == nil && other.NoticeFor == "" && len(other.Parts) == 0 && fitsText(q.Body+progressDivider+other.Body) {
+			if !barrier && !other.Held && other.Priority == q.Priority && other.Artifact == nil && other.NoticeFor == "" && !other.BodyExcerpt && len(other.Parts) == 0 && fitsText(q.Body+progressDivider+other.Body) {
 				q.Body += progressDivider + other.Body
 				q.Members = append(q.Members, other.Key)
 			} else {
@@ -311,9 +333,7 @@ func (b *Bridge) freezeDeliveryLocked(index int) queuedDelivery {
 		b.state.Delivery.CapacityDropped = false
 	}
 	q.Parts = chunks(q.Body)
-	if q.Priority >= resultPriority && len(q.Parts) > b.remainingLocked(q.Priority == resultPriority) {
-		q.Parts = []string{capacityPreview(q.Body)}
-	}
+
 	b.state.Delivery.Queue[index] = q
 	return q
 }
@@ -374,10 +394,10 @@ func (b *Bridge) finishDelivery(key, state string) {
 		}
 		if q.Artifact == nil {
 			for _, member := range q.Members {
-				b.state.Outputs[member] = outbound{State: state, Reason: "delivery:" + q.Key}
+				b.deliveryDispositionLocked(member, state, "delivery:"+q.Key)
 			}
 			if len(q.Members) == 0 {
-				b.state.Outputs[q.Key] = outbound{State: state}
+				b.deliveryDispositionLocked(q.Key, state, "")
 			}
 		}
 		b.state.Delivery.Queue = append(b.state.Delivery.Queue[:i], b.state.Delivery.Queue[i+1:]...)

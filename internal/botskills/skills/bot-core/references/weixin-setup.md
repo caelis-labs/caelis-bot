@@ -18,9 +18,12 @@ and nonurgent files. Native options and original action bindings stay intact.
 Already handled or expired interactions are not sent as actionable cards. A
 Runtime Final is not proof that all Worker work has ended.
 
-`/r` or `/refresh` restores known missed important results without starting a
-model request or rerunning work. It does not replay accepted, rejected or unknown
-sends, or old ordinary progress. Normal new input drops old queued progress and
+`/r` or `/refresh` continues retained unattempted body parts without starting a
+model request or rerunning work. It can also recover retired progress from the
+current shared IM's last 128 visible items within twelve hours and since channel
+observation began. Results come first; progress covered by a result is skipped.
+It does not scan older history or replay accepted, rejected or unknown sends.
+Normal new input drops old queued progress and
 nonurgent files; still-current important results may continue, while results held
 by an exhausted/paused window need `/r`. `/status` reads local state, `/help` lists
 commands, and `/stop` requests native interruption. `/approve` and `/answer` use
@@ -34,8 +37,11 @@ cannot change the actual receipt of an old in-flight attempt.
 
 Markdown chunks are complete when the allowance can fit the reply. Otherwise the
 phone receives explicitly labelled complete-block excerpts and a route to the full
-shared desktop conversation. Do not treat excerpts as summaries or claim all key
-results fit. Keep useful conclusions clear in the actual reply. Native action
+shared desktop conversation. A preview is a separate delivery, never proof that
+the full body arrived. `/r` continues retained original body parts and does not
+replay the preview; uncertain original body parts still require reconciliation.
+If a body exceeds the bounded delivery cache, use the desktop entry for its full
+text. Do not treat excerpts as summaries or claim all key results fit. Keep useful conclusions clear in the actual reply. Native action
 options are never shortened. Files must be existing Bot-owned Artifacts, not paths
 in prose. Deferred file names remain readable; ask which file is needed and expose
 that same owned Artifact in the new reply. Unknown file delivery must not replay.

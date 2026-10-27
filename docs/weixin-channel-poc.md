@@ -79,12 +79,24 @@ Ordinary input discards old unattempted progress and nonurgent files. Unattempte
 important results that were still current can continue; important results held
 by a paused/exhausted window require explicit `/r` recovery. `/r` and `/refresh`
 never execute work or replay accepted, rejected or unknown send intents. Recovery
-is limited to known retained candidates, not a rescan of arbitrary chat history.
+continues retained original body parts and also restores retired, unattempted
+progress from the current shared IM's last 128 visible items within twelve hours
+and since this channel's observation start. It does not page older history or
+retain another transcript. Progress covered by a known result is excluded; results
+stay ahead of recovered progress. Native classification upgrades are independent
+of text/status changes and can revive only never-attempted retired candidates.
 The spool holds at most 128 candidates; under pressure it evicts lower-priority unfrozen work first, then held
 older results for a new result. Dropped capacity is disclosed with the next text
 and a full-desktop entry; frozen parts and current higher/equal-priority work
 keep their order. Long result bodies use explicit complete-block excerpts and a full
-shared-desktop entry. This is a bounded delivery cache, not a second IM archive.
+shared-desktop entry. A preview has its own HTTP intent; it does not complete the
+original parts or merged members. `/r` resumes those original body parts without
+replaying the preview, including when its receipt is unknown. An unknown/rejected
+original body part still stops that body's continuation. The existing 64 KiB
+per-body / approximately 512 KiB queued-body bounds remain; bodies retained only
+as excerpts require the desktop entry and are not marked fully accepted. Existing
+terminal receipts, including older-version records, are not reinterpreted from
+message appearance. This is a bounded delivery cache, not a second IM archive.
 
 The first meaningful candidate is sent immediately, with no synthetic ordinary
 acknowledgement. Later same-priority text coalesces at three items, 70% of the
@@ -106,6 +118,11 @@ real receipt. A complete card that cannot fit waits for a new window rather than
 stranding choices; a result may use the remaining capacity in the meantime. A card
 larger than a whole window gets a single non-actionable desktop entry, checked
 against the same live interaction state.
+
+Control feedback is admitted by its original notification key before the existing
+controller runs. New visible outcomes survive later controls/window changes and
+restart; prior notices are not replayed. Only feedback actually published by the
+controller is eligible, so its ordinary silent acknowledgements remain silent.
 
 The inbox, cursor and window are committed together. Authenticated ingress is
 recorded in the existing shared IM even while runtime recovery blocks submission.

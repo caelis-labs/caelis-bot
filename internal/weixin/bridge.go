@@ -780,6 +780,10 @@ func (b *Bridge) process(ctx context.Context, p *protocol) {
 	}
 }
 func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
+	var knownNotices []textchannel.Notice
+	if b.host.TextControl != nil {
+		knownNotices = b.host.TextControl.Notices()
+	}
 	b.mu.Lock()
 	if len(b.state.Inbox) == 0 {
 		b.mu.Unlock()
@@ -816,6 +820,14 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	}
 	if state := b.state.Inputs[in.ID]; state != "" && state != "queued" {
 		if in.Secret && b.host.TextControl != nil {
+			registered := b.expectNoticeLocked(controlIn, knownNotices)
+			if b.saveLocked() != nil {
+				if registered != "" {
+					delete(b.state.Outputs, registered)
+				}
+				b.mu.Unlock()
+				return
+			}
 			b.host.TextControl.RecoverSecretInput(textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID}, in.PromptID)
 		}
 		delete(b.secretInbox, in.ID)
@@ -827,10 +839,17 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		}
 		return
 	}
+	registered := ""
+	if control && !localCommand(in.Text) && b.host.TextControl != nil {
+		registered = b.expectNoticeLocked(controlIn, knownNotices)
+	}
 	b.state.Inputs[in.ID] = "dispatching"
 
 	if b.saveLocked() != nil {
 		b.state.Inputs[in.ID] = "queued"
+		if registered != "" {
+			delete(b.state.Outputs, registered)
+		}
 		b.mu.Unlock()
 		return
 	}
@@ -935,7 +954,16 @@ func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body 
 		b.mu.Lock()
 		owner := b.state.OwnerID
 		b.mu.Unlock()
-		b.host.TextControl.Publish(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID}, body)
+		origin := textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID}
+		known := b.host.TextControl.Notices()
+		b.mu.Lock()
+		b.expectNoticeLocked(origin, known)
+		err := b.saveLocked()
+		b.mu.Unlock()
+		if err != nil {
+			return
+		}
+		b.host.TextControl.Publish(origin, body)
 		b.mirrorNotices(ctx, p)
 		return
 	}

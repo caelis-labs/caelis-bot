@@ -565,8 +565,17 @@ terminal facts only classify results; they do not constrain output to a Weixin
 input. Existing history is baselined. Ordinary new input discards queued ordinary
 progress and unattempted nonurgent files. Still-current pending important results
 continue in FIFO order; results held when the prior window paused require `/r`
-or `/refresh`. Those commands restore only known unattempted results, without
-model submission, task replay, or replay of accepted/rejected/unknown intents.
+or `/refresh`. Those commands continue original unattempted body parts and restore
+retired progress from the current shared IM tail: at most 128 visible items from
+the last twelve hours, never before this channel's observation start. No history
+paging or second body archive is created. Results retain priority; progress covered
+by a known result and accepted/rejected/unknown intents are not replayed. A native
+P3-to-P2 classification change is observed separately from the text/status digest;
+only a retired candidate with no HTTP intent can regain result eligibility.
+Control feedback admission is saved under its original notice key before the
+existing text controller runs. A newly produced outcome may use any valid current
+window even after another input; pre-existing notices are history. The controller's
+routine acknowledgements remain silent. No new interaction authority is introduced.
 The original chunk/batch receipts survive migration and restart. There is no
 server readback API that proves an uncertain phone delivery; unknown stays unknown.
 
@@ -596,6 +605,11 @@ Markdown-aware 2,400 UTF-16 / 6,000-byte chunks. If complete output cannot fit,
 only complete initial Markdown blocks are shown as an explicit excerpt with a
 route to the full shared desktop conversation. This is not semantic summarization
 and does not pretend that important content can be inferred from arbitrary prose.
+Each preview has a separate intent, leaving original frozen parts and batch members
+unfinished for `/r`; a preview's accepted/unknown receipt cannot acknowledge the
+body. Existing 64 KiB per-body / approximately 512 KiB queued-body caps still apply:
+when only an excerpt was retained, the full desktop conversation remains the entry,
+and the body is not falsely marked accepted. No prior terminal receipt is rewritten.
 Native action options are never shortened. Ten attempts, length caps and expiry
 are local conservative policy, not a Tencent quota, charging or receipt guarantee.
 

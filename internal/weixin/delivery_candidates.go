@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
 func (b *Bridge) observeDelivery(s api.Snapshot) {
@@ -33,11 +34,17 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 		}{item.Text, item.Status, item.Artifacts})
 		ready := item.Status == "completed" || item.Status == "accepted" || item.Status == "failed"
 		seen, observed := d.Seen[key]
-		next := deliveryObservation{Digest: textDigest(string(encoded)), Ready: ready}
-		d.Seen[key] = next
 		priority := progressPriority
 		if kinds[item.ID] == "final" || kinds[item.ID] == "task" || item.Status == "failed" {
 			priority = resultPriority
+		}
+		next := deliveryObservation{Digest: textDigest(string(encoded)), Ready: ready, Priority: priority}
+		d.Seen[key] = next
+		promoted := false
+		if ready && priority == resultPriority && b.recoverableDispositionLocked(key) {
+			// A native classification change is independent of text/status changes.
+			// Only a retired, never-attempted candidate can regain eligibility.
+			promoted = true
 		}
 		// A completed commentary may subsequently become the native terminal item.
 		// Promote its unattempted delivery, never repeat an accepted commentary.
@@ -46,7 +53,11 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 				d.Queue[i].Priority = priority
 			}
 		}
-		if !ready || observed && seen == next {
+		sameContent := observed && seen.Digest == next.Digest && seen.Ready == next.Ready
+		classificationChanged := observed && seen.Priority == progressPriority && priority == resultPriority
+		// Legacy observations have no classification. They cannot prove a lost
+		// batch member was unattempted; only an explicit retirement marker can.
+		if !ready || sameContent && !classificationChanged && !promoted {
 			continue
 		}
 		// SeenAt is the shared IM's presentation cursor, used only for delivery
@@ -86,7 +97,12 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 					body = "**" + item.Task.Title + "**\n\n" + body
 				}
 			}
-			b.enqueueDeliveryLocked(queuedDelivery{Key: key, Body: body, Priority: priority, Held: held})
+			candidate := queuedDelivery{Key: key, Body: body, Priority: priority, Held: held}
+			if promoted {
+				b.restoreRetiredDeliveryLocked(candidate)
+			} else {
+				b.enqueueDeliveryLocked(candidate)
+			}
 		}
 		if strings.TrimSpace(item.Text) == "" && len(item.Artifacts) > 0 && (oldFiles || len(item.Artifacts) > b.remainingProgressLocked()) {
 			b.enqueueDeliveryLocked(queuedDelivery{Key: key + ":files", Body: withArtifactNames("", item.Artifacts) + "\n\n完整文件可在桌面同一 Bot 对话获取。", Priority: resultPriority, Held: held})
@@ -170,6 +186,7 @@ func (b *Bridge) enqueueDeliveryLocked(q queuedDelivery) {
 	// Markdown blocks and an explicit route to the authoritative shared transcript.
 	if q.Priority >= resultPriority && len(q.Body) > 64<<10 {
 		q.Body = capacityPreview(q.Body)
+		q.BodyExcerpt = true
 	}
 	bytes := len(q.Body)
 	for _, pending := range b.state.Delivery.Queue {
@@ -177,6 +194,7 @@ func (b *Bridge) enqueueDeliveryLocked(q queuedDelivery) {
 	}
 	if q.Priority >= resultPriority && bytes > 512<<10 {
 		q.Body = capacityPreview(q.Body)
+		q.BodyExcerpt = true
 	}
 	if len(b.state.Delivery.Queue) >= 128 {
 		victim := -1
@@ -190,10 +208,13 @@ func (b *Bridge) enqueueDeliveryLocked(q queuedDelivery) {
 		}
 		b.state.Delivery.CapacityDropped = true
 		if victim < 0 {
+			if q.Priority >= resultPriority {
+				b.retireTextLocked(q, "delivery_capacity")
+			}
 			return
 		}
 		old := b.state.Delivery.Queue[victim]
-		b.state.Outputs[old.Key] = outbound{State: "superseded", Reason: "delivery_capacity"}
+		b.retireTextLocked(old, "delivery_capacity")
 		delete(b.preparedFiles, old.Key)
 		b.state.Delivery.Queue = append(b.state.Delivery.Queue[:victim], b.state.Delivery.Queue[victim+1:]...)
 	}
@@ -331,12 +352,14 @@ func (b *Bridge) observeNotices() {
 	notices := b.host.TextControl.Notices()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	w := b.state.Window
 	for _, notice := range notices {
 		if notice.Origin.Channel != "weixin" {
 			continue
 		}
-		if notice.ID != textDigest("weixin\x00"+w.ContextToken+"\x00"+w.InputID) && notice.ID != textDigest("weixin\x00"+w.OwnerID+"\x00"+w.ContextToken+"\x00"+w.InputID) {
+		// Admission was recorded before the authenticated control could publish
+		// this outcome. Window renewal cannot erase that original identity.
+		intent := b.state.Outputs["notice:"+notice.ID]
+		if intent.State != "pending" || intent.Reason != "control_feedback" {
 			continue
 		}
 		b.enqueueDeliveryLocked(queuedDelivery{Key: "notice:" + notice.ID, Body: notice.Text, Priority: resultPriority})
@@ -355,4 +378,24 @@ func (b *Bridge) deferOldArtifactsLocked(item api.Item, state string) {
 			b.state.Outputs[key] = outbound{State: state, Reason: "historical_file", ArtifactID: artifact.ID, FileName: artifact.Name, FileTurnKey: item.TurnKey}
 		}
 	}
+}
+
+// Register the original feedback key before calling the control authority. This
+// is a delivery admission, not another interaction ledger. Existing notices at
+// registration are history; a later outcome may use any still-valid window.
+func (b *Bridge) expectNoticeLocked(in textchannel.Inbound, known []textchannel.Notice) string {
+	id := textDigest(in.Channel + "\x00" + in.Conversation + "\x00" + in.ID)
+	key := "notice:" + id
+	if _, exists := b.state.Outputs[key]; exists {
+		return ""
+	}
+	out := outbound{State: "pending", Reason: "control_feedback"}
+	for _, notice := range known {
+		if notice.ID == id {
+			out = outbound{State: "skip", Reason: "historical_notice"}
+			break
+		}
+	}
+	b.state.Outputs[key] = out
+	return key
 }
