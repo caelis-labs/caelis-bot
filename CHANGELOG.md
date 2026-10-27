@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.1](https://github.com/caelis-labs/caelis-bot/compare/v0.19.0...v0.19.1) (2026-10-27)
+
+### Remote connections and SSH
+
+* Simplify SSH login with an existing OpenSSH Host or manual host, port and username using a password or local key. Remove SSH file-management entry points and bot-core file-editing guidance while keeping legacy private files compatible internally. ([#233](https://github.com/caelis-labs/caelis-bot/pull/233))
+* Restore local editing and removal for legacy connections. Removal archives the list entry while retaining task routes and proofs; editing does not reconnect, and incoming authorization remains separate.
+* Recover provably undelivered operations under their original identity and preserve rejection receipts across restart, without replaying late requests.
+* Explicitly apply saved candidate addresses for pending or uncertain connections through the original pairing receipt. Consume an accepted candidate atomically while preserving newer saved addresses or names.
+* Reclaim idle archived SSH channels while protecting task, shared and active pairing references.
+* Reject invalid address and SSH ports before normalization or submission.
+
 ## [0.19.0](https://github.com/caelis-labs/caelis-bot/compare/v0.18.3...v0.19.0) (2026-10-26)
 
 ### Remote machines and chat
