@@ -54,7 +54,10 @@ func TestWorkerExplicitNewWorkRecoveryFromExitedPrivateOwner(t *testing.T) {
 			if err := w.Connect(testContext(t)); err != nil {
 				t.Fatal("original native readiness", err)
 			}
-			if w.engine.client.UsesSharedServer() {
+			w.engine.mu.Lock()
+			original := w.engine.client
+			w.engine.mu.Unlock()
+			if original.UsesSharedServer() {
 				t.Fatal("private owner became shared")
 			}
 			if err := cmd.Process.Kill(); err != nil {
@@ -63,6 +66,14 @@ func TestWorkerExplicitNewWorkRecoveryFromExitedPrivateOwner(t *testing.T) {
 			_ = cmd.Wait()
 			if privateOwnerLifecycle(id) != ownerGone {
 				t.Fatal("original controlled process did not exit")
+			}
+			// Process exit does not mean the asynchronous wire reader has consumed
+			// EOF. Connect can still observe the existing ready client until then;
+			// that is not a replacement owner. Synchronize the fixture's disconnect.
+			select {
+			case <-original.Done():
+			case <-testContext(t).Done():
+				t.Fatal("original client did not observe controlled owner exit")
 			}
 			// Neither a normal reconnect nor a fresh observer of the same source
 			// may silently replace the original native execution owner.
