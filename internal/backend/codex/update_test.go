@@ -97,24 +97,76 @@ func TestUpdateDetachReopensExactResidentOwnerAndInvalidatesOldApproval(t *testi
 }
 
 func TestUpdatePreflightSaveFailureKeepsResidentLive(t *testing.T) {
-	s, _ := sessionPair(t, "hold")
-	s.mu.Lock()
-	s.binding.OwnerEndpoint = "unix:///tmp/fixture-owner.sock"
-	s.mu.Unlock()
-	if r := sendSynthetic(t, s, "update-save-failure"); r.Outcome != "accepted" {
-		t.Fatal(r)
-	}
-	original := s.opts.StateFile
-	s.opts.StateFile = filepath.Dir(original) // Rename cannot replace a directory.
-	if err := s.PrepareDetachForUpdate(testContext(t)); err == nil {
-		t.Fatal("failed preflight was accepted")
-	}
-	if s.Snapshot().Connection != "ready" || s.closed || s.closing {
-		t.Fatal("failed preflight detached live owner")
-	}
-	s.opts.StateFile = original
-	if err := s.PrepareDetachForUpdate(testContext(t)); err != nil {
-		t.Fatal("retry after recovery failed", err)
+	for _, concurrentProgress := range []bool{false, true} {
+		name := "queued_turn_start"
+		if concurrentProgress {
+			name = "native_progress_during_preflight"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, f := sessionPair(t, "hold")
+			const endpoint = "unix:///tmp/fixture-owner.sock"
+			const request = "update-save-failure"
+			s.mu.Lock()
+			s.binding.OwnerEndpoint = endpoint
+			s.mu.Unlock()
+			if r := sendSynthetic(t, s, request); r.Outcome != "accepted" {
+				t.Fatal(r)
+			}
+			// Submit returning does not drain turn/started notifications. Fault
+			// injection must share the projection/save lock, including restoration.
+			s.mu.Lock()
+			original := s.opts.StateFile
+			s.opts.StateFile = filepath.Dir(original) // Rename cannot replace a directory.
+			s.mu.Unlock()
+			t.Cleanup(func() {
+				s.mu.Lock()
+				s.opts.StateFile = original
+				s.mu.Unlock()
+			})
+			if err := s.PrepareDetachForUpdate(testContext(t)); err == nil {
+				t.Fatal("failed preflight was accepted")
+			}
+			const progress = "owner still executing"
+			if concurrentProgress {
+				// Real wire projection/save continues while storage is unavailable.
+				// No synthetic callback replaces the listener or production save.
+				f.emit(wireMessage{Method: "turn/started", Params: raw(map[string]any{
+					"threadId": "thread-native", "turn": nativeTurn{ID: "run-native", Status: "inProgress", Items: []nativeItem{{ID: "update-progress", Type: "agentMessage", Text: progress}}},
+				})})
+				awaitState(t, s, func(v api.Snapshot) bool {
+					for _, item := range v.Items {
+						if item.Text == progress {
+							return true
+						}
+					}
+					return false
+				})
+			}
+			s.mu.Lock()
+			live := !s.closed && !s.closing
+			s.opts.StateFile = original
+			s.mu.Unlock()
+			if s.Snapshot().Connection != "ready" || !live {
+				t.Fatal("failed preflight detached live owner")
+			}
+			if err := s.PrepareDetachForUpdate(testContext(t)); err != nil {
+				t.Fatal("retry after recovery failed", err)
+			}
+			data, err := os.ReadFile(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved binding
+			if err := json.Unmarshal(data, &saved); err != nil || saved.OwnerEndpoint != endpoint || saved.ThreadID != "thread-native" || saved.LastReceipt == nil || saved.LastReceipt.ID != request || saved.LastReceipt.Outcome != "accepted" {
+				t.Fatal("recovery lost original owner or request receipt", err)
+			}
+			f.mu.Lock()
+			starts, connections := f.starts, f.connections
+			f.mu.Unlock()
+			if starts != 1 || connections != 1 || s.Snapshot().Phase != "working" {
+				t.Fatal("preflight replayed work or replaced/stopped the owner", starts, connections)
+			}
+		})
 	}
 }
 
