@@ -907,5 +907,8 @@
   "remoteInvalidChange": "请检查连接信息后重试。",
   "remoteLegacy": "旧连接",
   "remoteLegacyHelp": "请重新添加机器以完成授权，原有任务记录会保留。",
-  "remoteSavedAddress": "已保存 · 待连接"
+  "remoteSavedAddress": "已保存 · 待连接",
+  "remoteNotSaved": "此次更改未保存，请重试。",
+  "remoteApplyAddress": "应用新地址",
+  "portRange": "请输入 1–65535 的端口。"
 }

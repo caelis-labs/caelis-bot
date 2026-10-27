@@ -40,6 +40,7 @@ type disk struct {
 }
 type Service struct {
 	registry                string
+	legacyUnpublished       bool
 	mutationMu              sync.Mutex
 	mutations               map[string]api.MachineMutationResult
 	ssh                     *sshtransport.Transport
@@ -80,15 +81,8 @@ func Open(root string, local api.WorkRuntime) (*Service, error) {
 		// Keep the complete original v1 document, including legacy credentials and
 		// routes. The new registry never invents v2 authorization for these rows.
 		s.registry = filepath.Join(root, "machines-v2.json")
-		s.state.Version = 2
-		for id, p := range s.state.Profiles {
-			p.Legacy = true
-			p.Label = p.View.Name
-			p.View.State = "legacy"
-			p.View.Issue = "machine_legacy"
-			p.View.PairingStatus = ""
-			s.state.Profiles[id] = p
-		}
+		s.state = migratedLegacy(s.state)
+		s.legacyUnpublished = true
 	}
 	if s.state.Mutations == nil {
 		s.state.Mutations = map[string]api.MachineMutationResult{}
@@ -112,7 +106,11 @@ func (s *Service) save() error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
-	return localstate.Write(s.registry, s.state)
+	err := localstate.Write(s.registry, s.state)
+	if err == nil {
+		s.legacyUnpublished = false
+	}
+	return err
 }
 func (s *Service) Machines() []api.Machine {
 	s.mu.Lock()
@@ -177,4 +175,15 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 		return errors.New(result.Code)
 	}
 	return nil
+}
+
+func migratedLegacy(value disk) disk {
+	value.Version = 2
+	for id, p := range value.Profiles {
+		p.Legacy = true
+		p.Label = p.View.Name
+		p.View.State, p.View.Issue, p.View.PairingStatus = "legacy", "machine_legacy", ""
+		value.Profiles[id] = p
+	}
+	return value
 }

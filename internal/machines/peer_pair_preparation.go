@@ -210,6 +210,9 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 	if readErr == nil {
 		next.Peer.Address = target
 		next.View.Address = target
+		if next.SavedAddress == target {
+			next.SavedAddress = ""
+		}
 		next.View.PairingStatus = receipt.Status
 		next.Peer.Peer = receipt.Peer
 		next.View.PeerID = receipt.Peer
@@ -241,8 +244,14 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, exists := s.state.Profiles[p.View.ID]
-	if !exists || current != p {
+	comparison := current
+	comparison.Label, comparison.LabelPending, comparison.SavedAddress = p.Label, p.LabelPending, p.SavedAddress
+	if !exists || comparison != p {
 		return machineView(current), errors.New("bot_connection_changed")
+	}
+	next.Label, next.LabelPending = current.Label, current.LabelPending
+	if current.SavedAddress != p.SavedAddress {
+		next.SavedAddress = current.SavedAddress
 	}
 	next = s.resolveSSHLabelLocked(next)
 	s.state.Profiles[p.View.ID] = next
@@ -260,8 +269,13 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	p, ok := s.state.Profiles[ref.ID]
 	source := s.state.ProfileID
 	active := s.pairingActive[ref.ID] > 0
+	if s.pairingActive == nil {
+		s.pairingActive = map[string]int{}
+	}
+	s.pairingActive[ref.ID]++
 	valid := ok && p.PairingEpoch == ref.Pairing && s.botConnectionReference(p, ref.Address).Proof == ref.Proof
 	s.mu.Unlock()
+	defer func() { s.mu.Lock(); s.pairingActive[ref.ID]--; s.mu.Unlock() }()
 	if !valid {
 		return api.Machine{}, errors.New("original_peer_proof_unavailable")
 	}
@@ -285,7 +299,7 @@ func (s *Service) ReadBotConnectionReceipt(ctx context.Context, ref api.BotConne
 	if err == nil && receipt.Status == "unknown" {
 		return machineView(p), errors.New("pairing_request_unknown")
 	}
-	return s.applyPairingReceipt(c, p, receipt, err, p.Peer.Address)
+	return s.applyPairingReceipt(c, p, receipt, err, ref.Address)
 }
 func (s *Service) inspectBot(ctx context.Context, id string, recoverWork, renew bool) (api.Machine, error) {
 	p, ok := s.machineProfile(id)

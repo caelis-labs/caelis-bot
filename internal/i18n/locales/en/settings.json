@@ -908,5 +908,8 @@
   "remoteInvalidChange": "Check the connection details and try again.",
   "remoteLegacy": "Legacy connection",
   "remoteLegacyHelp": "Add a new connection to authorize this machine. Existing task records are retained.",
-  "remoteSavedAddress": "Saved · connect to apply"
+  "remoteSavedAddress": "Saved · connect to apply",
+  "remoteNotSaved": "The change was not saved. Try again.",
+  "remoteApplyAddress": "Apply address",
+  "portRange": "Enter a port from 1 to 65535."
 }

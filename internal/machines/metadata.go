@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -14,16 +15,19 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-func (s *Service) ManageMachine(in api.MachineMutation) api.MachineMutationResult {
+func (s *Service) ManageMachine(in api.MachineMutation) (result api.MachineMutationResult) {
 	raw, _ := json.Marshal(in)
 	digest := fmt.Sprintf("%x", sha256.Sum256(raw))
-	result := api.MachineMutationResult{ID: in.ID, Status: "failed", Code: "machine_change_invalid", Digest: digest}
+	result = api.MachineMutationResult{ID: in.ID, Status: "failed", Code: "machine_change_invalid", Digest: digest}
 	if in.ID == "" || len(in.ID) > 128 {
 		return result
 	}
 	s.mutationMu.Lock()
 	if old, ok := s.mutations[in.ID]; ok {
 		s.mutationMu.Unlock()
+		if old.Code == "machine_not_submitted" {
+			return old
+		}
 		if old.Digest != digest {
 			return result
 		}
@@ -40,7 +44,23 @@ func (s *Service) ManageMachine(in api.MachineMutation) api.MachineMutationResul
 	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		// Rejections are receipts too: a lost response must survive restart.
+		if result.Status == "failed" && s.loadErr == nil {
+			if _, exists := s.state.Mutations[in.ID]; !exists {
+				if err := s.persistMutationReceiptLocked(result); err != nil {
+					// No effect occurred; retain the failure in memory. A later
+					// readback fences an absent ID durably before permitting retry.
+					return
+				}
+			}
+		}
+	}()
 	if old, ok := s.state.Mutations[in.ID]; ok {
+		if old.Code == "machine_not_submitted" {
+			result = old
+			return result
+		}
 		if old.Digest == digest {
 			result = old
 		} else {
@@ -104,6 +124,7 @@ func (s *Service) ManageMachine(in api.MachineMutation) api.MachineMutationResul
 		diskState, readErr := s.readMutationRegistryLocked()
 		if readErr == nil && diskState.Mutations[in.ID].Digest == digest && diskState.Mutations[in.ID].Status == "succeeded" {
 			if localstate.SyncParent(s.registry) == nil {
+				s.legacyUnpublished = false
 				return result
 			}
 			readErr = errors.New("machine_save_unknown")
@@ -117,45 +138,98 @@ func (s *Service) ManageMachine(in api.MachineMutation) api.MachineMutationResul
 			s.loadErr = errors.New("machine_save_unknown")
 		}
 	}
+	if result.Status == "succeeded" {
+		s.legacyUnpublished = false
+	}
 	return result
 }
+
+// A missing ID can only become terminal while admission and publication are
+// excluded. The durable fence rejects a delayed original ManageMachine call.
+// This is local receipt reconciliation, never replay of a remote operation.
 func (s *Service) MachineMutation(id string) api.MachineMutationResult {
+	unknown := api.MachineMutationResult{ID: id, Status: "unknown", Code: "machine_save_unknown"}
+	if id == "" || len(id) > 128 {
+		return unknown
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	r, ok := s.mutations[id]
-	s.mutationMu.Unlock()
 	if ok && r.Status != "unknown" {
 		return r
 	}
-	// Persisted readback is authoritative even after reopening the app. Never
-	// adopt an unrelated/corrupt registry or publish success without directory sync.
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	value, err := s.readMutationRegistryLocked()
-	if err == nil {
-		if receipt, found := value.Mutations[id]; found && receipt.ID == id && receipt.Status == "succeeded" && (!ok || r.Digest == receipt.Digest) {
-			if localstate.SyncParent(s.registry) != nil {
-				return api.MachineMutationResult{ID: id, Status: "unknown", Code: "machine_save_unknown"}
-			}
-			s.resolveMutationLocked(id, receipt, value)
-			return receipt
-		}
-		if ok && r.Status == "unknown" && value.Mutations[id].ID == "" {
-			r.Status = "failed"
-			r.Code = "machine_save_failed"
-			s.resolveMutationLocked(id, r, value)
-			return r
-		}
+	if err != nil {
+		return unknown
 	}
-	return api.MachineMutationResult{ID: id, Status: "unknown", Code: "machine_save_unknown"}
+	if receipt, found := value.Mutations[id]; found {
+		if receipt.ID != id || (ok && r.Digest != receipt.Digest) || (receipt.Status != "succeeded" && receipt.Status != "failed") {
+			return unknown
+		}
+		if localstate.SyncParent(s.registry) != nil {
+			return unknown
+		}
+		s.mutations[id] = receipt
+		if s.loadErr != nil && s.loadErr.Error() == "machine_save_unknown" {
+			s.state = value
+			s.loadErr = nil
+		}
+		return receipt
+	}
+	if s.loadErr != nil && s.loadErr.Error() != "machine_save_unknown" {
+		return unknown
+	}
+	// No in-flight admission exists under mutationMu; sync the original registry
+	// and publish the fence before reporting that this operation did not commit.
+	r = api.MachineMutationResult{ID: id, Status: "failed", Code: "machine_not_submitted"}
+	if ok {
+		r.Digest = s.mutations[id].Digest
+	}
+	before := s.state
+	s.state = value
+	if err := s.persistMutationReceiptLocked(r); err != nil {
+		s.state = before
+		return unknown
+	}
+	s.mutations[id] = r
+	if s.loadErr != nil && s.loadErr.Error() == "machine_save_unknown" {
+		s.loadErr = nil
+	}
+	return r
+}
+func (s *Service) persistMutationReceiptLocked(r api.MachineMutationResult) error {
+	before := s.state.Mutations
+	s.state.Mutations = maps.Clone(before)
+	s.state.Mutations[r.ID] = r
+	if err := localstate.WriteConfirmed(s.registry, s.state); err != nil {
+		value, readErr := s.readMutationRegistryLocked()
+		if readErr == nil && value.Mutations[r.ID] == r && localstate.SyncParent(s.registry) == nil {
+			s.legacyUnpublished = false
+			return nil
+		}
+		s.state.Mutations = before
+		return err
+	}
+	s.legacyUnpublished = false
+	return nil
 }
 func (s *Service) readMutationRegistryLocked() (disk, error) {
 	b, err := os.ReadFile(s.registry)
+	legacy := os.IsNotExist(err) && s.legacyUnpublished
+	if legacy {
+		b, err = os.ReadFile(filepath.Join(s.root, "machines.json"))
+	}
 	var value disk
 	if err != nil {
 		return value, err
 	}
-	if json.Unmarshal(b, &value) != nil || value.Version != 2 || value.ProfileID != s.state.ProfileID || value.Profiles == nil || value.Routes == nil || value.Runtimes == nil {
+	if json.Unmarshal(b, &value) != nil || (!legacy && value.Version != 2) || (legacy && value.Version != 1) || value.ProfileID != s.state.ProfileID || value.Profiles == nil || value.Routes == nil || value.Runtimes == nil {
 		return value, errors.New("machine_store_invalid")
+	}
+	if legacy {
+		value = migratedLegacy(value)
 	}
 	if value.Mutations == nil {
 		value.Mutations = map[string]api.MachineMutationResult{}
@@ -163,14 +237,8 @@ func (s *Service) readMutationRegistryLocked() (disk, error) {
 	if value.Reservations == nil {
 		value.Reservations = map[string]bool{}
 	}
-	return value, nil
-}
-func (s *Service) resolveMutationLocked(id string, r api.MachineMutationResult, value disk) {
-	s.mutationMu.Lock()
-	s.mutations[id] = r
-	s.mutationMu.Unlock()
-	if s.loadErr != nil && s.loadErr.Error() == "machine_save_unknown" {
-		s.state = value
-		s.loadErr = nil
+	if value.ReservationKeys == nil {
+		value.ReservationKeys = map[string]string{}
 	}
+	return value, nil
 }

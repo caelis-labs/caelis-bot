@@ -116,3 +116,5 @@
 .settings-window .remote-bot-dialog .remote-bot-port label{display:grid;grid-template-columns:1fr 100px;align-items:center;gap:16px;color:var(--muted)}
 
 .settings-window .remote-list-toolbar .remote-primary-actions>button{width:34px;height:34px;min-width:34px;padding:0}
+
+.remote-field-error { color: var(--ink-muted); font-size: 12px; font-weight: 400; line-height: 1.4; }

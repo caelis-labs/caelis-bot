@@ -20,7 +20,9 @@ export function pairingProblem(value:string) {
 
 export function connectionProblem(value:string){
  const keys={
+  invalid_bot_port:'settings.portRange',
   machine_store_unavailable:'settings.remoteStoreUnavailable',
+  machine_not_submitted:'settings.remoteNotSaved',
   machine_save_failed:'settings.remoteSaveFailed',
   machine_save_unknown:'settings.remoteSaveUnknown',
   machine_unknown:'settings.remoteAlreadyRemoved',

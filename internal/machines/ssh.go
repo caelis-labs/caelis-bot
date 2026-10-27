@@ -6,6 +6,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
+	"strings"
 )
 
 func (s *Service) SSHHosts() (api.SSHHosts, error) {
@@ -16,6 +17,13 @@ func (s *Service) RegisterSSHIdentity(path string) (api.SSHIdentity, error) {
 	return s.ssh.RegisterIdentity(path)
 }
 func (s *Service) StartSSHConnection(v api.SSHTarget) (api.SSHConnectionStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	address, err := sshtransport.Address(v)
+	if err != nil {
+		return api.SSHConnectionStatus{}, err
+	}
+	s.ssh.ReleaseUnused(s.unusedArchivedSSHLocked(address))
 	return s.ssh.Start(v)
 }
 func (s *Service) SSHConnectionStatus(v api.SSHTarget) api.SSHConnectionStatus {
@@ -94,4 +102,49 @@ func (s *Service) checkedSSHAddress(ctx context.Context, address, peer string) (
 		}
 	}
 	return a, nil
+}
+
+// Called under the same lock used by task reservation, pairing and local edits.
+// Every historical task route protects its channel, not only visible/running tasks.
+func (s *Service) unusedArchivedSSHLocked(requested string) []string {
+	used := map[string]bool{requested: true}
+	routed := map[string]bool{}
+	for _, id := range s.state.Routes {
+		routed[id] = true
+	}
+	for id, p := range s.state.Profiles {
+		if !p.View.Archived || routed[id] || s.pairingActive[id] > 0 {
+			used[sshChannelAddress(p.Peer.Address, p.Legacy)] = true
+			used[sshChannelAddress(p.View.Address, p.Legacy)] = true
+			used[sshChannelAddress(p.SavedAddress, false)] = true
+		}
+	}
+	var unused []string
+	for _, p := range s.state.Profiles {
+		if p.View.Archived {
+			for _, address := range []string{p.Peer.Address, p.View.Address, p.SavedAddress} {
+				if canonical := sshChannelAddress(address, p.Legacy); canonical != "" && !used[canonical] {
+					unused = append(unused, canonical)
+					used[canonical] = true
+				}
+			}
+		}
+	}
+	return unused
+}
+
+func sshChannelAddress(address string, legacy bool) string {
+	target, ok := sshtransport.Target(address)
+	if !ok && legacy && address != "" && !strings.Contains(address, "://") {
+		target = api.SSHTarget{Host: address, Port: 9317}
+		ok = true
+	}
+	if !ok {
+		return ""
+	}
+	normalized, err := sshtransport.Address(target)
+	if err != nil {
+		return ""
+	}
+	return normalized
 }

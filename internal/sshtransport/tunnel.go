@@ -228,10 +228,44 @@ func (t *Transport) Stop(v api.SSHTarget) error {
 	}
 	return nil
 }
+
+// Release only channels the owning connection service has proved unreferenced.
+// Keep authentication/connecting episodes alive; never infer task ownership here.
+// Cancellation is nonblocking, and Close still joins retired processes.
+func (t *Transport) ReleaseUnused(addresses []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	pending := t.retired[:0]
+	for _, done := range t.retired {
+		select {
+		case <-done:
+		default:
+			pending = append(pending, done)
+		}
+	}
+	t.retired = pending
+	for _, address := range addresses {
+		target, ok := Target(address)
+		if !ok {
+			continue
+		}
+		key, err := targetKey(target)
+		if err != nil {
+			continue
+		}
+		c := t.tunnels[key]
+		if c == nil || (c.state != "ready" && c.state != "failed") {
+			continue
+		}
+		c.cancel()
+		t.retired = append(t.retired, c.done)
+		delete(t.tunnels, key)
+	}
+}
 func (t *Transport) Close() {
 	t.mu.Lock()
 	t.closed = true
-	var wait []chan struct{}
+	wait := append([]chan struct{}{}, t.retired...)
 	for _, c := range t.tunnels {
 		c.cancel()
 		wait = append(wait, c.done)

@@ -6,6 +6,7 @@ import {SSHAuthentication,useSSHConnect,sshAddress,sshTarget,sshProblem} from '.
 import {SetupButton} from '../../SetupLoading';
 import {SettingsDialog} from './SettingsDialog';
 import {SSHFields} from './SSHFields';
+import {PortInput} from './PortInput';
 import {botAddress,botAddressPort} from './bot-address';
 import {pairingProblem,connectionProblem,incomingProblem} from './pairing-errors';
 
@@ -19,10 +20,11 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  const selected=machines.find(v=>v.id===draft.id)||(!legacy?initial:undefined);
  const run=async(action:()=>Promise<unknown>)=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await action()}catch(cause){const recovery=(cause as {botRecovery?:{profileId:string}})?.botRecovery;if(recovery?.profileId)setDraft(old=>({...old,id:recovery.profileId}));setError(cause instanceof Error?cause.message:'unclassified');await onChanged()}finally{pending.current=false;setBusy(false)}};
  const endpoint=()=>method==='ssh'?sshAddress(sshDraft):botAddress(draft.address,port);
- const connect=()=>run(async()=>{
-  const address=endpoint(),known=machines.find(v=>v.state!=='legacy'&&v.address===address);
+ const connect=()=>{let address:string;try{address=endpoint()}catch(cause){setError(cause instanceof Error?cause.message:'invalid_bot_port');return Promise.resolve()}return run(async()=>{
+  const known=machines.find(v=>v.state!=='legacy'&&v.address===address);
   const fresh=await call<Machine>('ConnectBot',{...draft,id:known?.id||draft.id,address,reconnect:!!known?.archived||!!selected&&selected.pairingStatus!=='approved'});setDraft(old=>({...old,id:fresh.id,name:fresh.name,address:fresh.address}));onSaved(!creation.current&&selected?.pairingStatus==='approved'?undefined:fresh);
- });
+ })};
+ const applySaved=!!selected?.savedAddress&&selected.savedAddress!==selected.address;
  const check=()=>run(async()=>{const fresh=await call<Machine>('InspectMachine',draft.id,'');await onChanged(fresh)});
  const recover=()=>run(async()=>{const fresh=await call<Machine>('RecoverBotWork',draft.id);await onChanged(fresh)});
  const status=selected?.pairingStatus,unsent=selected?.issue==='pairing_request_not_dispatched',uncertain=status==='unknown'&&!unsent,waiting=status==='pending';
@@ -34,13 +36,13 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
  const connected=creation.current&&status==='approved'&&!approvedUnready;
 
  return <SettingsDialog title={creation.current?t('settings.remoteAdd'):t('settings.remoteConnect')} className="remote-bot-dialog" busy={busy} onClose={onClose}>
-  <form onSubmit={e=>{e.preventDefault();if(!uncertain&&!waiting)submit()}}>
+  <form onSubmit={e=>{e.preventDefault();if((!uncertain&&!waiting)||applySaved)submit()}}>
    {creation.current&&!status&&<div className="remote-methods" role="group" aria-label={t('settings.sshConnectionMethod')}><button type="button" aria-pressed={method==='address'} disabled={blocked} onClick={()=>setMethod('address')}>{t('settings.sshAddressMethod')}</button><button type="button" aria-pressed={method==='ssh'} disabled={blocked} onClick={()=>setMethod('ssh')}>SSH</button></div>}
    <div className="remote-add-body">
-   {!waiting&&!uncertain&&!ssh.status?.prompt&&!(creation.current&&status==='approved')&&<>
+   {((!waiting&&!uncertain)||applySaved)&&!ssh.status?.prompt&&!(creation.current&&status==='approved')&&<>
    {method==='ssh'?<SSHFields value={sshDraft} onChange={setSSHDraft} disabled={blocked} call={call}/>:<div className="remote-endpoint-row">
     <label>{t('settings.remoteAddress')}<input autoFocus required autoComplete="off" spellCheck={false} placeholder={t('settings.remoteAddressPlaceholder')} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} disabled={blocked}/></label>
-    <label>{t('settings.sshBotPort')}<input inputMode="numeric" pattern="[0-9]+" maxLength={5} placeholder={botAddressPort(draft.address)} value={port} onChange={e=>setPort(e.target.value)} disabled={blocked}/></label>
+    <label>{t('settings.sshBotPort')}<PortInput placeholder={botAddressPort(draft.address)} value={port} onChange={setPort} disabled={blocked}/></label>
    </div>}
    </>}
    <SSHAuthentication ssh={ssh}/>
@@ -55,7 +57,7 @@ export function BotConnectionDialog({machines,initial,call=backend,onClose,onSav
    {status==='approved'&&selected?.issue==='worker_not_ready'&&<div className="remote-inline-state">{!creation.current&&<span>{t('settings.remoteWorkUnavailable')}</span>}<button type="button" className="text-action" disabled={blocked} onClick={()=>void recover()}>{t('settings.remoteRecoverWork')}</button></div>}
    {error&&<p role="alert" className="remote-dialog-error">{t(problem.key)}</p>}
    </div>
-   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{!connected&&<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain||creation.current&&status==='approved'?'common.close':'common.cancel')}</button>}{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className="primary" disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start(sshTarget(selected?.address||'')||sshDraft)}else void check()}}>{t(waiting||uncertain?'settings.remoteCheckApproval':'settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?sshDraft.host.trim():draft.address.trim())||method==='ssh'&&sshDraft.authentication==='key'&&!sshDraft.identity}>{t('settings.remoteConnect')}</SetupButton>}</div>}
+   {!ssh.status?.prompt&&<div className="remote-dialog-footer">{!connected&&<button type="button" disabled={busy} onClick={onClose}>{t(waiting||uncertain||creation.current&&status==='approved'?'common.close':'common.cancel')}</button>}{applySaved&&(uncertain||waiting)&&<SetupButton type="submit" busy={blocked} className="primary" disabled={blocked}>{t('settings.remoteApplyAddress')}</SetupButton>}{uncertain||waiting||(creation.current&&approvedUnready)?<SetupButton key="check-original" type="button" busy={blocked} className={applySaved?undefined:"primary"} disabled={blocked} onClick={event=>{event.preventDefault();if(method==='ssh'){afterSSH.current='check';void ssh.start(sshTarget(selected?.address||'')||sshDraft)}else void check()}}>{t(waiting||uncertain?'settings.remoteCheckApproval':'settings.machineRecheck')}</SetupButton>:creation.current&&status==='approved'?<button type="button" className="primary" onClick={onClose}>{t('settings.remoteDone')}</button>:<SetupButton key="send-explicit" type="submit" busy={blocked} className="primary" disabled={blocked||!(method==='ssh'?sshDraft.host.trim():draft.address.trim())||method==='ssh'&&sshDraft.authentication==='key'&&!sshDraft.identity}>{t('settings.remoteConnect')}</SetupButton>}</div>}
   </form>
  </SettingsDialog>;
 }

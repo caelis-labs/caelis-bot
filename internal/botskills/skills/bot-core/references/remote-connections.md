@@ -37,9 +37,11 @@ original receipt after uncertain delivery; do not create a replacement ID.
 SSH success proves neither Bot authorization nor Worker readiness.
 
 Editing saves local settings only. A changed address takes effect when the user
-explicitly connects and the original peer identity is verified. Existing tasks
+chooses Apply address and the original peer identity is verified. Check approval
+continues to read the original address until that explicit change. Existing tasks
 keep their original route. Removing a connection hides its local list entry;
-it does not revoke authorization or stop a running SSH channel. Incoming grants
+it does not revoke authorization or interrupt task-owned SSH channels. Unused
+archived channels may be reclaimed when another connection starts. Incoming grants
 are revoked through their separate permission action, using the original source.
 
 Old connections without the current Bot authorization remain labeled as legacy.
@@ -50,3 +52,7 @@ If SSH fails, correct the selected host, login port, username or authentication.
 If SSH succeeds but Bot is unreachable, check that the destination Bot is running
 and its service port is correct. Keep the local Bot available. Never substitute
 a local Worker when the requested remote environment is unavailable.
+
+If a local edit or removal did not reach the app, receipt reconciliation closes
+that original operation before offering retry. A late delivery cannot apply it.
+Do not bypass an uncertain operation with a new ID.

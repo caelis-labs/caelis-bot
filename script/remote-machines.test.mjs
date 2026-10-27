@@ -106,3 +106,10 @@ test('legacy bare Host remains SSH while explicit saved addresses determine the 
  assert.equal(sshTarget('http://fedora.test:9317',true),undefined);
  assert.deepEqual(sshTarget('ssh://fedora:19329',true),{host:'fedora',port:19329});
 });
+
+test('invalid Bot ports never silently change the target',()=>{
+ for(const port of ['0','65536','99999','-1','1.5','nope'])for(const host of ['fedora','http://fedora','http://fedora:19329'])assert.throws(()=>botAddress(host,port),/invalid_bot_port/,`${host} ${port}`);
+ for(const value of ['http://fedora:65536','fedora:99999','https://fedora:0'])assert.throws(()=>botAddress(value),/invalid_bot_port/);
+ for(const port of ['1','65535'])assert.equal(new URL(botAddress('http://fedora:19329',port)).port,port);
+ assert.equal(new URL(botAddress('http://fedora:19329')).port,'19329');
+});

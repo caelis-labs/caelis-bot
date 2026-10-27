@@ -1,7 +1,10 @@
+export function validPort(value:string){return /^\d+$/.test(value)&&Number(value)>=1&&Number(value)<=65535}
 // The copied endpoint always carries its actual port. A manually typed bare
 // host uses the product default; explicit HTTP(S) URLs keep their own defaults.
 export function botAddress(value:string,port=''):string {
  const text=value.trim(),explicit=/^https?:\/\//i.test(text);
+ const embedded=text.replace(/^https?:\/\//i,'').split(/[/?#]/)[0].split('@').at(-1)?.match(/:([^:]*?)$/)?.[1];
+ if((port.trim()&&!validPort(port.trim()))||(embedded!==undefined&&!embedded.endsWith(']')&&!validPort(embedded)))throw Error('invalid_bot_port');
  try {
   const url=new URL(explicit?text:`http://${text}`);
   if(port.trim())url.port=port.trim();
