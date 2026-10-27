@@ -233,7 +233,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	app.modelSelections = newModelSelections(root, app.setup.applySelectedModel, host.Diagnostics)
-	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork)
+	app.machines, err = machines.OpenWithCredentialCleanup(filepath.Join(root, "Machines"), app.localWork, machines.DeleteLegacyCredential)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}

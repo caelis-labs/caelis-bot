@@ -7,7 +7,7 @@ import {useI18n} from './i18n';
 import {workerMessages,workerMessageStart} from './worker-messages';
 import {WorkerTaskStatus,type useWorkerOutput} from './WorkerOutput';
 
-type Output=ReturnType<typeof useWorkerOutput>;
+type Output=Omit<ReturnType<typeof useWorkerOutput>,'environmentUnavailable'>&{environmentUnavailable?:boolean};
 
 // Presentation only: the same message protocol, Markdown, files and reading
 // intent serve the independent native window and the Web split pane.
@@ -48,7 +48,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
  const failed=output.historyFailed||output.observationFailed;
  return <section className="worker-chat" data-updates={output.observationFailed?'unavailable':'available'} aria-label={t('chat.taskPanel')}>
   {!hideHeading&&<header className="worker-chat-heading"><div className="worker-chat-title"><div className="worker-chat-title-line">{heading??<h2>{task?.title||t('chat.taskTitle')}</h2>}<span className="worker-chat-status" role="status">{output.observationFailed&&<>{t('chat.taskLastStatus')} </>}<WorkerTaskStatus status={status}/></span></div><span className="worker-chat-machine">{task?(task.machineName||t('chat.taskLocalMachine')):''}</span></div>{onClose&&<button className="worker-chat-close" onClick={onClose} aria-label={t('chat.closeTaskPanel')}>{closeLabel??t('chat.taskReturn')}</button>}</header>}
-  {failed&&<div className="worker-chat-notice" role="status"><span>{t('chat.taskUpdateUnavailable')}</span><button className="text-action" onClick={output.retry}>{t('chat.taskRetryRead')}</button></div>}
+  {failed&&<div className="worker-chat-notice" role="status"><span>{t(output.environmentUnavailable?'chat.taskEnvironmentDeleted':'chat.taskUpdateUnavailable')}</span>{!output.environmentUnavailable&&<button className="text-action" onClick={output.retry}>{t('chat.taskRetryRead')}</button>}</div>}
   <div className="worker-chat-body"><div className="worker-chat-scroll" ref={viewport} onScroll={()=>{if(active&&scroll.current&&viewport.current){const follows=scroll.current.scrolled(),anchor=follows?undefined:messages[start]?.id;setFollowing(follows);setStartID(anchor);reading.current.set(id,{top:viewport.current.scrollTop,following:follows,limit,startID:anchor})}}}>
    <div ref={content} className="worker-chat-content">
     {start>0&&<button className="worker-chat-earlier text-action" onClick={earlier}>{t('chat.taskEarlier')}</button>}

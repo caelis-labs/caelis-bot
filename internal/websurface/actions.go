@@ -109,6 +109,9 @@ func (s *Server) register(a action) {
 			value, e := invoke(api.WithSetupAccess(r.Context(), "web:"+sessionID(r)), in.Args)
 			if e != nil {
 				code := "read_unavailable"
+				if e.Error() == "original_machine_unavailable" {
+					code = "original_machine_unavailable"
+				}
 				// A refused navigation is neither a vanished native request nor
 				// an execution effect. Publish only these fixed owner-certified
 				// reasons, never the URL or arbitrary adapter diagnostics.
@@ -326,7 +329,7 @@ func (s *Server) register(a action) {
 // Error text and remote response bodies are never a source of Web diagnostics.
 func safeRejectionDetail(code string) string {
 	switch code {
-	case "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "invalid_bot_name", "invalid_name", "machine_has_tasks", "pairing_request_not_dispatched", "bot_peer_unreachable", "pairing_request_conflict", "pairing_request_pending", "pairing_requests_full", "invalid_pairing_request", "invalid_peer_name", "bot_connection_changed", "bot_connection_target_unconfirmed":
+	case "machine_unknown", "original_machine_unavailable", "peer_authorization_revoked", "peer_authentication_required", "original_peer_proof_required", "worker_not_ready", "bot_worker_contract_incompatible", "bot_peer_identity_changed", "invalid_bot_address", "invalid_bot_name", "invalid_name", "machine_has_tasks", "pairing_request_not_dispatched", "bot_peer_unreachable", "pairing_request_conflict", "pairing_request_pending", "pairing_requests_full", "invalid_pairing_request", "invalid_peer_name", "bot_connection_changed", "bot_connection_target_unconfirmed":
 		return code
 	}
 	return ""

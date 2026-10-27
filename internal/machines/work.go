@@ -102,6 +102,10 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return api.Task{}, e
 	}
 	s.mu.Lock()
+	if _, exists := s.state.Profiles[in.Machine]; !exists {
+		s.mu.Unlock()
+		return api.Task{}, errors.New("original_machine_unavailable")
+	}
 	runtime, e := s.bindLocked(in.TaskStart, in.ID, "")
 	if e != nil {
 		s.mu.Unlock()

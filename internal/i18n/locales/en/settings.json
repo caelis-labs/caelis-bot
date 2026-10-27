@@ -876,9 +876,9 @@
   "remotePermissionHelp": "Revoking access stops this machine from creating new tasks here. Existing tasks and records remain.",
   "remoteLastOnline": "Last check available",
   "remoteCheckApproval": "Check approval",
-  "remoteRemoveConnection": "Remove connection",
-  "remoteRemoveHelp": "Remove this connection from the list. Existing tasks and records remain.",
-  "remoteRemovePendingHelp": "Remove this connection from the list. Existing tasks and records remain.",
+  "remoteRemoveConnection": "Delete connection",
+  "remoteRemoveHelp": "Delete local settings and connection credentials. Task history stays; its original environment becomes unavailable.",
+  "remoteRemovePendingHelp": "Delete local settings and connection credentials. Task history stays; its original environment becomes unavailable.",
   "remoteRemoveUnconfirmed": "Removal is not confirmed. Close this window and refresh the list to check.",
   "remoteRequestDenied": "Denied",
   "remotePairAllowedHelp": "{name} can now use this machine.",
@@ -911,5 +911,7 @@
   "remoteSavedAddress": "Saved · connect to apply",
   "remoteNotSaved": "The change was not saved. Try again.",
   "remoteApplyAddress": "Apply address",
-  "portRange": "Enter a port from 1 to 65535."
+  "portRange": "Enter a port from 1 to 65535.",
+  "remoteDeleteCleanup": "The connection is removed, but local credential cleanup is incomplete. Check the original operation.",
+  "remoteReceiptExpired": "The original receipt expired; its outcome is unavailable. Close and reopen to review the current settings."
 }

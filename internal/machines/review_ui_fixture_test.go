@@ -26,6 +26,7 @@ func TestRemoteReviewUIService(t *testing.T) {
 		s        *Service
 		a, b     *httptest.Server
 		original profile
+		id       string
 		counts   map[string]int
 	}
 	var mu sync.Mutex
@@ -74,15 +75,17 @@ func TestRemoteReviewUIService(t *testing.T) {
 		defer item.a.Close()
 		item.b = httptest.NewServer(handler("B"))
 		defer item.b.Close()
-		_, err = s.ConnectBot(t.Context(), api.BotConnectionInput{ID: name, Name: "review-" + name, Address: item.a.URL})
+		connected, connectErr := s.ConnectBot(t.Context(), api.BotConnectionInput{Name: "review-" + name, Address: item.a.URL})
+		err = connectErr
 		if name == "pending" && err != nil {
 			t.Fatal(err)
 		}
-		item.original = s.state.Profiles[name]
+		item.id = connected.ID
+		item.original = s.state.Profiles[item.id]
 		if item.original.View.PairingStatus != name {
 			t.Fatal("fixture did not reproduce wire state", name, item.original.View.PairingStatus, err)
 		}
-		if r := s.ManageMachine(api.MachineMutation{ID: "save-" + name, MachineID: name, Action: "save", Name: "review-" + name, Address: item.b.URL}); r.Status != "succeeded" {
+		if r := s.ManageMachine(api.MachineMutation{ID: "save-" + name, MachineID: item.id, Action: "save", Name: "review-" + name, Address: item.b.URL}); r.Status != "succeeded" {
 			t.Fatal(r)
 		}
 		scenarios[name] = item
@@ -113,7 +116,7 @@ func TestRemoteReviewUIService(t *testing.T) {
 		switch in.Method {
 		case "State":
 			item.s.mu.Lock()
-			p := item.s.state.Profiles[in.Scenario]
+			p := item.s.state.Profiles[item.id]
 			item.s.mu.Unlock()
 			mu.Lock()
 			defer mu.Unlock()

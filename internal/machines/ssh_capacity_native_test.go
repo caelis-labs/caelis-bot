@@ -20,7 +20,7 @@ import (
 )
 
 // Real system OpenSSH; all keys, hosts, peer records and tasks are isolated.
-func TestNativeArchivedSSHCapacityKeepsReferencedChannels(t *testing.T) {
+func TestNativeDeletedSSHCapacityKeepsInflightAndSharedChannels(t *testing.T) {
 	if os.Getenv("CAELIS_BOT_TEST_SSHD") != "1" {
 		t.Skip("opt-in isolated OpenSSH acceptance")
 	}
@@ -94,6 +94,7 @@ func TestNativeArchivedSSHCapacityKeepsReferencedChannels(t *testing.T) {
 			t.Fatal(i, r.StatusCode)
 		}
 	}
+	var releaseInflight func()
 	for i := 0; i < 18; i++ {
 		if _, err = s.StartSSHConnection(target(i)); err != nil {
 			t.Fatalf("channel %d after local removals: %v", i+1, err)
@@ -109,9 +110,15 @@ func TestNativeArchivedSSHCapacityKeepsReferencedChannels(t *testing.T) {
 		if i == 0 {
 			s.state.Routes["original-task"] = id
 			s.state.Runtimes["original-task"] = "codex"
+			releaseInflight, err = s.holdPeerConnection(s.state.Profiles[id].Peer)
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		if i == 1 {
-			s.state.Profiles["shared-active"] = s.state.Profiles[id]
+			shared := s.state.Profiles[id]
+			shared.View.ID = "shared-active"
+			s.state.Profiles["shared-active"] = shared
 		}
 		if r := s.ManageMachine(api.MachineMutation{ID: fmt.Sprintf("archive-%d", i), MachineID: id, Action: "remove"}); r.Status != "succeeded" {
 			t.Fatal(r)
@@ -119,14 +126,18 @@ func TestNativeArchivedSSHCapacityKeepsReferencedChannels(t *testing.T) {
 	}
 	check(0)
 	check(1)
+	releaseInflight()
+	if s.SSHConnectionStatus(target(0)).State == "ready" {
+		t.Fatal("idle deleted channel retained after final request")
+	}
 	for i := 0; i < 18; i++ {
-		p := s.state.Profiles[fmt.Sprintf("profile-%d", i)]
-		if !p.View.Archived || p.Peer.Token != "fixture-proof" {
-			t.Fatal("archive lost history/proof", i)
+		_, exists := s.state.Profiles[fmt.Sprintf("profile-%d", i)]
+		if exists {
+			t.Fatal("deleted profile retained", i)
 		}
 	}
 	if s.state.Routes["original-task"] != "profile-0" || s.state.Runtimes["original-task"] != "codex" {
 		t.Fatal("task route changed")
 	}
-	t.Log("18 real SSH Hosts connected/locally removed; task-owned and shared channels still usable; proofs retained")
+	t.Log("18 real SSH Hosts connected/locally removed; inflight and shared channels usable; last-use release verified; deleted profiles and proofs absent")
 }

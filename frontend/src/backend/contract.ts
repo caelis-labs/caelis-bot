@@ -157,6 +157,8 @@ export interface MachineMutation {
   name?: string;
 }
 export interface MachineMutationResult {
+  issuedAt?: number;
+  cleanupPending?: boolean;
   id: string;
   status: string;
   code?: string;

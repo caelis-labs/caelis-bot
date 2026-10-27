@@ -1,6 +1,7 @@
 import type {backend} from '../../desktop';
 import type {MachineMutation,MachineMutationResult} from '../../backend/contract';
 export class MachineMutationError extends Error {constructor(public code:string,public uncertain=false){super(code)}}
+export const newMachineOperationID=()=>`machine-${Date.now()}-${crypto.randomUUID()}`;
 const pending=new Map<string,string>();
 const operationKey=(machine:string,action:string)=>`machine-operation:${machine}:${action}`;
 export function pendingMachineMutation(machine:string,action:string){const key=operationKey(machine,action);try{return localStorage.getItem(key)||pending.get(key)}catch{return pending.get(key)}}
@@ -17,11 +18,15 @@ export async function mutateMachine(call:typeof backend,input:MachineMutation):P
   retain(key,id);
   for(let i=0;i<3;i++){
    try{result=await call<MachineMutationResult>('MachineMutation',id)}catch{}
-   if(result&&['succeeded','failed'].includes(result.status))break;
+   if(result&&['succeeded','failed','expired'].includes(result.status))break;
    if(i<2)await new Promise(resolve=>setTimeout(resolve,400*(i+1)));
   }
  }
+ if(result?.status==='expired'){
+  try{await call('Machines')}catch{throw new MachineMutationError('machine_save_unknown',true)}
+  retain(key);throw new MachineMutationError('machine_receipt_expired');
+ }
  if(result?.status==='succeeded'){retain(key);return result}
  if(result?.status==='failed'){retain(key);throw new MachineMutationError(result.code||'machine_save_failed')}
- throw new MachineMutationError('machine_save_unknown',true);
+ throw new MachineMutationError(result?.code||'machine_save_unknown',true);
 }

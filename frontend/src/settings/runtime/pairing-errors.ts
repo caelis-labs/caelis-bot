@@ -26,6 +26,8 @@ export function connectionProblem(value:string){
   machine_save_failed:'settings.remoteSaveFailed',
   machine_save_unknown:'settings.remoteSaveUnknown',
   machine_unknown:'settings.remoteAlreadyRemoved',
+  machine_delete_cleanup:'settings.remoteDeleteCleanup',
+  machine_receipt_expired:'settings.remoteReceiptExpired',
   machine_change_invalid:'settings.remoteInvalidChange',
   machine_legacy:'settings.remoteLegacyHelp',
   bot_name_in_use:'settings.machineIdentifierDuplicate',

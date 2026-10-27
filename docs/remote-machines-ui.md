@@ -55,16 +55,23 @@ a missing Runtime/login/model/effort. Its one-time cold cleanup belongs to that
 Dev upgrade, outside product code. Nonempty, malformed or incompatible state
 remains fail-closed, with its contents and original effects preserved.
 
-## SSH configuration
+## SSH connection
 
-The header opens two concise entries: Bot SSH configuration and the current
-user's system SSH configuration. Preview reads the selected configuration without
-starting SSH. Edit opens that scoped file in the native text editor; returning to
-the App refreshes the Host index. File location is available in each row's menu.
-The Web surface supports preview; editing happens on the machine hosting the Bot.
-No in-App text copy is saved over an external editor's changes. OpenSSH priority,
-Include/Match behavior and executable-configuration limits live in
-[SSH channels](ssh-connections.md) and the Bot's conditional reference.
+Select an existing local OpenSSH Host, or enter a host, SSH port and username.
+Manual authentication accepts a transient password or a selected local key and,
+when needed, a transient passphrase. The remote Bot service port is separate.
+There is no SSH file-management UI. Existing private/system configuration files
+are consumed internally for compatibility and are never deleted with a connection.
+
+## Local deletion
+
+Delete permanently removes the connection profile and pairing proof, and cleans
+its matching legacy credentials. Old task IDs remain in history with their
+original environment unavailable. No remote unpair/stop request is sent. Re-add
+uses a new identity and does not inherit the deleted connection's tasks or grant.
+The confirmation and result reflect this behavior. Pending cleanup checks the
+original local receipt; a lost reply never starts another deletion. Expired
+receipts require reviewing current state rather than claiming a historical result.
 
 ## Validation
 
@@ -95,3 +102,12 @@ untouched. The development-default profile selector is documented in SSH channel
 ![Native Add machine, synthetic data](images/remote-machine-add-native.png)
 ![Native pairing request, synthetic data](images/remote-machine-request-native.png)
 ![Native SSH configuration list, synthetic data](images/remote-machine-ssh-config-native.png)
+
+
+Deletion acceptance: run `CAELIS_DELETE_UI=<empty control directory> go test
+./internal/machines -run TestDeleteUIService -timeout 22m`, then use
+`script/delete-machines-ui.mjs` with `WORKER_PEER_PLAYWRIGHT_MODULE` pointing to
+an existing Playwright installation. The browser script uses the control file at
+`.cache/delete-ui/ready.json`; write `.cache/delete-ui/stop` after inspection.
+The Go service and peer handler use disposable roots; general settings metadata
+is synthetic. Native SSH/Keychain acceptance remains separate and opt-in.

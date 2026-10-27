@@ -19,6 +19,7 @@ import (
 )
 
 type profile struct {
+	Source       string                `json:"source,omitempty"`
 	SavedAddress string                `json:"savedAddress,omitempty"`
 	Legacy       bool                  `json:"legacy,omitempty"`
 	Label        string                `json:"label,omitempty"`
@@ -29,6 +30,7 @@ type profile struct {
 	View         api.Machine           `json:"view"`
 }
 type disk struct {
+	MutationFloor   int64                                `json:"mutationFloor,omitempty"`
 	Mutations       map[string]api.MachineMutationResult `json:"mutations,omitempty"`
 	Version         int                                  `json:"version"`
 	ProfileID       string                               `json:"profileId"`
@@ -39,6 +41,8 @@ type disk struct {
 	ReservationKeys map[string]string                    `json:"reservationKeys,omitempty"`
 }
 type Service struct {
+	deleteLegacyCredential  func(string) error
+	sshUses                 map[string]int
 	registry                string
 	legacyUnpublished       bool
 	mutationMu              sync.Mutex
@@ -59,11 +63,16 @@ type Service struct {
 	local                   api.WorkRuntime
 }
 
+// Open never accesses desktop credentials. The app supplies its platform cleanup
+// capability explicitly; isolated fixtures cannot delete real Keychain items.
 func Open(root string, local api.WorkRuntime) (*Service, error) {
+	return OpenWithCredentialCleanup(root, local, nil)
+}
+func OpenWithCredentialCleanup(root string, local api.WorkRuntime, cleanup func(string) error) (*Service, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("machine store requires absolute path")
 	}
-	s := &Service{root: root, local: local, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 2, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}, Runtimes: map[string]string{}, Reservations: map[string]bool{}, ReservationKeys: map[string]string{}}}
+	s := &Service{deleteLegacyCredential: cleanup, sshUses: map[string]int{}, root: root, local: local, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 2, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}, Runtimes: map[string]string{}, Reservations: map[string]bool{}, ReservationKeys: map[string]string{}}}
 	s.ssh = sshtransport.New(filepath.Join(root, "SSH"))
 	s.registry = filepath.Join(root, "machines.json")
 	if _, err := os.Stat(filepath.Join(root, "machines-v2.json")); err == nil {
@@ -96,6 +105,20 @@ func Open(root string, local api.WorkRuntime) (*Service, error) {
 	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		s.loadErr = err
+	}
+	if s.loadErr == nil {
+		// Older releases hid removed connections. Upgrade that explicit removal
+		// intent locally; neither task history nor remote grants are rewritten.
+		for id, p := range s.state.Profiles {
+			if p.View.Archived {
+				s.ManageMachine(api.MachineMutation{ID: newMachineMutationID(), MachineID: id, Action: "remove"})
+			}
+		}
+		for id, r := range s.state.Mutations {
+			if r.CleanupPending {
+				s.MachineMutation(id)
+			}
+		}
 	}
 	if s.loadErr == nil {
 		s.initializeLabelsLocked()
@@ -170,7 +193,7 @@ func (s *Service) InspectMachine(ctx context.Context, id, runtime string) (api.M
 	return s.inspectBot(ctx, id, false, true)
 }
 func (s *Service) RemoveMachine(ctx context.Context, id string) error {
-	result := s.ManageMachine(api.MachineMutation{ID: rand.Text(), MachineID: id, Action: "remove"})
+	result := s.ManageMachine(api.MachineMutation{ID: newMachineMutationID(), MachineID: id, Action: "remove"})
 	if result.Status != "succeeded" {
 		return errors.New(result.Code)
 	}

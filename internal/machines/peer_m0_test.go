@@ -20,7 +20,7 @@ func TestPeerTemporaryNativeFailureReservesOriginalCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := target.owner(s.state.ProfileID, "codex")
+	owner := target.ownerFor(s, "codex")
 	owner.connectFailure.Store(true)
 	for _, poll := range s.workPolls() {
 		s.pollWork(t.Context(), poll)
@@ -61,16 +61,15 @@ func TestPeerFailedPreparationDoesNotStrandPairingProof(t *testing.T) {
 	}
 }
 
-func TestPeerRemovalDoesNotDiscardUnconfirmedProof(t *testing.T) {
+func TestPeerRemovalDiscardsLocalProofWithoutContactingOfflinePeer(t *testing.T) {
 	target := newDualPeerTarget(t)
 	s, _, _, machine, _ := dualPeerConnect(t, target)
-	before := s.state.Profiles[machine].Peer
 	target.offline.Store(true)
 	if err := s.RemoveMachine(t.Context(), machine); err != nil {
 		t.Fatal("local removal depended on an offline peer", err)
 	}
-	if s.state.Profiles[machine].Peer != before {
-		t.Fatal("only original credential was changed")
+	if _, exists := s.state.Profiles[machine]; exists {
+		t.Fatal("deleted credential retained")
 	}
 }
 

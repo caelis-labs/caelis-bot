@@ -47,7 +47,7 @@ func TestBotPeerCaelisInputValidationRejectsBeforeExecution(t *testing.T) {
 			if err == nil || result.Outcome != "rejected" || !errors.As(err, &rejected) {
 				t.Fatal("known native input refusal became an unknown execution", result, err)
 			}
-			owner := target.owner(service.state.ProfileID, "caelis")
+			owner := target.ownerFor(service, "caelis")
 			if owner == nil || owner.fileChecks.Load() != 0 {
 				t.Fatal("metadata refusal read/dispatched file bytes or did not select B actual owner")
 			}
@@ -97,7 +97,7 @@ func TestBotPeerInputValidationDoesNotReplaceUnknownOriginalOperations(t *testin
 	if err == nil || task.ID == "" {
 		t.Fatal("lost response was not an uncertain original task", task, err)
 	}
-	owner := target.owner(service.state.ProfileID, "caelis")
+	owner := target.ownerFor(service, "caelis")
 	if owner == nil {
 		t.Fatal("original native owner missing")
 	}

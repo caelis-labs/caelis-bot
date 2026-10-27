@@ -352,7 +352,7 @@ func dualPeerConnect(t *testing.T, target *dualPeerTarget, names ...string) (*Se
 	if len(names) > 0 {
 		name = names[0]
 	}
-	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{ID: "bot-fixture-target", Name: name, Address: target.http.URL})
+	machine, err := service.ConnectBot(t.Context(), api.BotConnectionInput{Name: name, Address: target.http.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestBotPeerDualInstanceProductAuthorityAndFrozenOwner(t *testing.T) {
 	if service.state.Runtimes[first.ID] != "caelis" {
 		t.Fatal("stale A runtime was persisted", service.state.Runtimes[first.ID])
 	}
-	owner := target.owner(service.state.ProfileID, "caelis")
+	owner := target.ownerFor(service, "caelis")
 	if owner == nil {
 		t.Fatal("B isolated original owner missing")
 	}
@@ -547,7 +547,7 @@ func TestBotPeerDualInstanceUnknownStartReconcilesAndSourcesIsolate(t *testing.T
 	if err != nil || again.ID != first.ID {
 		t.Fatal("same request was replaced", again.ID, err)
 	}
-	owner := target.owner(service.state.ProfileID, "codex")
+	owner := target.ownerFor(service, "codex")
 	owner.mu.Lock()
 	starts := owner.starts
 	owner.mu.Unlock()
@@ -557,11 +557,21 @@ func TestBotPeerDualInstanceUnknownStartReconcilesAndSourcesIsolate(t *testing.T
 	// A second independently authenticated Bot intentionally uses the same task
 	// and native IDs. B must bind it to a separate source owner.
 	other, otherManager, _, otherMachine, _ := dualPeerConnect(t, target)
+	// Explicit fixture collision across independent stores; normal creation IDs
+	// are assigned by the server and are intentionally no longer equal.
+	collision := other.state.Profiles[otherMachine]
+	delete(other.state.Profiles, otherMachine)
+	collision.View.ID = machine
+	other.state.Profiles[machine] = collision
+	otherMachine = machine
+	if err := other.save(); err != nil {
+		t.Fatal(err)
+	}
 	second, err := otherManager.StartTask(t.Context(), api.TaskStart{Machine: otherMachine, RequestID: "same-request", Title: "Second source", Prompt: "other work"})
 	if err != nil || second.ID != first.ID {
 		t.Fatal("source-isolation fixture did not exercise equal task IDs", second.ID, first.ID, err)
 	}
-	otherOwner := target.owner(other.state.ProfileID, "codex")
+	otherOwner := target.ownerFor(other, "codex")
 	if otherOwner == nil || otherOwner == owner {
 		t.Fatal("authenticated sources share native owner")
 	}
@@ -657,4 +667,13 @@ func TestBotPeerPairResponseLossRecoversOriginalGrant(t *testing.T) {
 	if connected.ID != id || reopened.state.Profiles[id].Peer.Token != token || len(target.peer.Status().Sources) != 1 {
 		t.Fatal("pair recovery replaced identity, token or source")
 	}
+}
+
+func (target *dualPeerTarget) ownerFor(s *Service, runtime string) *dualPeerNative {
+	for _, p := range s.state.Profiles {
+		if p.Peer.Peer == target.peer.Status().Peer {
+			return target.owner(s.connectionSource(p), runtime)
+		}
+	}
+	panic("fixture has no connection to target")
 }
