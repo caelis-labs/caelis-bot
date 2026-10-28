@@ -50,9 +50,14 @@ type ContextUsage struct {
 	// The latest resident model response's billing counters, when supplied.
 	// These are observations for diagnostics, not an estimated session cost.
 	InputTokens, OutputTokens, CacheReadTokens, CacheWriteTokens int64
-	LastProviderCost                                             float64
-	LastProviderCostKnown                                        bool
-	LastProviderCostCurrency                                     string
+	CacheWrite5mTokens, CacheWrite1hTokens                       int64
+	// Cache TTL counters are parts of cache writes, never additional input.
+	// Presence distinguishes an explicit zero from an unreported counter.
+	CacheReadTokensReported, CacheWriteTokensReported      bool
+	CacheWrite5mTokensReported, CacheWrite1hTokensReported bool
+	LastProviderCost                                       float64
+	LastProviderCostKnown                                  bool
+	LastProviderCostCurrency                               string
 }
 
 // ConversationRuntime performs ordinary native session/turn operations. It has

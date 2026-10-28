@@ -136,7 +136,8 @@ ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认�
 ## 共享 Host 实验特性
 
 设置中的 Caelis Runtime → 实验特性与高级配置平级，使用 Core `experimental-features-v1`：
-`GET/POST /configuration/experimental` 读取或分别保存异步压缩、MCP 动态刷新、延迟工具卸载。
+`GET/POST /configuration/experimental` 按当前 Host 返回的目录读取和保存异步压缩、空闲压缩。
+候选 Core 不再返回 MCP 刷新/退役开关；两项机制由 Core 始终维护。旧 Host 只提供异步压缩时仍可保存；旧 MCP 写入回执只对当前目录中仍存在的字段核对，不重发退休字段。
 这是共享 Host 的 desired 配置，下次 Runtime 激活生效；不热改当前 Runtime，也不重启 Host。
 桌面和 Web 使用同一组件与配置入口，页面读取不会写入默认值。
 
@@ -353,3 +354,17 @@ Session 和回执，不重新派发旧请求。
 早期 Host 的过渡策略由 Core 管理：v0.72.2 之前的已知发行版在确认没有运行中的
 Session 后允许公共强制停机，覆盖缺少原子接口以及旧接口将后台 Task 计入 busy 的情况。
 新版本保持原子准入保护；Bot 不复制该兼容判断。过渡代码的退役边界在 Core 文档中定义。
+
+### Core #170 候选联调边界
+
+消费协议快照固定 `26865e53e8c771a296a5b0c581fd86548994b6f6`；打包运行时仍固定正式版 `v0.73.3`。候选协议不等于发布 pin，Core 正式发布后再更新运行时并验证。
+
+Core Host 空闲协调器等待 60 秒；180 秒是 Store opportunity 有效期，2 秒是 checkpoint grant，有不同用途。Bot 不另建 idle 计时器、Store 写入或调度权威。开关独立且默认关闭，保持原生配置 revision、operation receipt、权限和 Session 协议。后台模型请求可有 JobID 而没有 TurnID；不能用后台请求替换前台身份或更新其新鲜 usage。缓存 read/write presence 与 5m/1h 明细独立保留，TTL 明细不能再加入总计。
+
+隔离联调：构建固定候选后设置 `CAELIS_BOT_TEST_BINARY`；`CAELIS_BOT_TEST_EVIDENCE_DIR` 可保存纯合成请求与日志。`TestCoreCompactionSwitchMatrix` 和 `TestCoreIdleForegroundAndRestart` 使用真实 Host 及 HTTP 夹具，不缩短 60 秒计时。真实 provider 的 `TestCoreRealProviderCacheAndSummary` 另需显式 `CAELIS_BOT_TEST_MAGPIE_URL`，直连已授权端点，以三次前台回合、一次原生 idle、512 输出 token 和三分钟期限限制合成验证；保留 Core 原生重试，不在测试层重放，不读取历史或改用户默认模型。
+
+Guardian 写权限验证须在平台临时目录以外创建效果文件；临时 worktree 可设置 `CAELIS_BOT_TEST_EFFECT_DIRECTORY` 指向项目 `.cache`，否则 Core 正常允许临时目录写入会使拒绝用例失效。
+
+候选 `26865e53` 的两个 Core 阻塞项由 `candidate_regressions_integration_test.go` 单独复现：Session status 只读 lease 取消 idle，以及 `custom-messages` 漏算缓存读的上下文估算。显式设置 `CAELIS_BOT_TEST_CORE_REGRESSIONS=1` 才运行这些预期在当前候选失败的断言；普通 CI 不把已知上游缺陷伪装成 Bot 回归通过。修复后同一断言应通过。提交前抢占与 unknown-write 对账另由固定 Core 的 SDK race 用例验证，不能把它们称为进程故障注入证据。
+
+本次不更新 Bot skill：没有新增 Bot 工具、用户授权来源、Worker 协议或调度职责；开关和后台压缩仍由 Core 配置与原生协调器负责。

@@ -1,7 +1,7 @@
 // Playwright CLI run-code. Start on desktop-settings-preview.html served by
 // script/build_and_run.sh --settings-preview. Shared UI/transport, synthetic API.
 async(page)=>{
- const base=new URL(page.url()).origin,out='output/playwright/experiments-20261021';
+ const base=new URL(page.url()).origin,out='output/playwright/core170-experiments';
  const source=await(await page.request.get(base+'/wails/runtime.js')).text();
  const routes=await page.evaluate(async()=>(await import('/src/web-routes.ts')).webRoutes);
  const names=Object.fromEntries(Object.entries(routes).map(([name,route])=>[route.path,name.split('.').at(-1)]));
@@ -27,50 +27,51 @@ async(page)=>{
  const open=async()=>{await page.getByRole('button',{name:'默认 连接模型服务 配置就绪',exact:true}).click();await page.getByRole('heading',{name:'实验特性',exact:true}).waitFor();};
  const back=()=>page.getByRole('button',{name:'连接与模型',exact:true}).last().click();
  const count=()=>page.evaluate(()=>window.fixtureCalls.filter(m=>m==='ChangeRuntimeExperiments').length);
- const section=page.locator('.runtime-experiments'),compact=page.getByRole('switch',{name:'异步压缩',exact:true}),refresh=page.getByRole('switch',{name:'MCP 动态刷新',exact:true}),retirement=page.getByRole('switch',{name:'延迟工具卸载',exact:true});
+ const section=page.locator('.runtime-experiments'),compact=page.getByRole('switch',{name:'异步压缩',exact:true}),idle=page.getByRole('switch',{name:'空闲压缩',exact:true});
  await open();
  const peerSections=()=>page.evaluate(()=>{
   const sections=[...document.querySelectorAll('.codex-runtime-panel>.setting-section')];
   const advanced=sections.find(s=>s.querySelector('h2')?.textContent==='高级配置');
   const experiments=sections.find(s=>s.querySelector('h2')?.textContent==='实验特性');
   return !!advanced&&!!experiments&&advanced!==experiments&&
-   advanced.querySelectorAll('[role=switch]').length===0&&experiments.querySelectorAll('[role=switch]').length===3&&
+   advanced.querySelectorAll('[role=switch]').length===0&&experiments.querySelectorAll('[role=switch]').length===2&&
    !experiments.querySelector('h3')&&!experiments.textContent.includes('默认关闭');
  });
  check(await peerSections(),'experiments must be a separate peer section');
  check(await count()===0,'page entry wrote defaults');
- check(!await compact.isChecked()&&!await refresh.isChecked()&&!await retirement.isChecked(),'Core defaults not reflected');
+ check(await page.getByRole('switch',{name:'MCP 动态刷新',exact:true}).count()===0&&await page.getByRole('switch',{name:'延迟工具卸载',exact:true}).count()===0,'retired MCP controls visible');
+ check(!await compact.isChecked()&&!await idle.isChecked(),'Core defaults not reflected');
  await compact.click();await section.getByText('已保存，下次运行时激活时生效。',{exact:true}).waitFor();
- check(await compact.isChecked()&&!await refresh.isChecked()&&!await retirement.isChecked(),'switches coupled');
+ check(await compact.isChecked()&&!await idle.isChecked(),'switches coupled');
  await page.screenshot({path:out+'/web-wide-fixture.png'});
  await back();await open();
  check(await compact.isChecked()&&await count()===1,'reentry reset user preference');
  // A second client changes the Host after this page loaded. CAS must adopt
  // the current revision, not overwrite it with the stale tab's choice.
- await page.evaluate(()=>window.fixtureSetExperiments({mcp_catalog_refresh:true}));
- await retirement.click();await section.getByText('设置已被其他客户端修改，请核对后再试。',{exact:true}).waitFor();
- check(await refresh.isChecked()&&!await retirement.isChecked(),'stale tab overrode newer Host settings');
+ await page.evaluate(()=>window.fixtureSetExperiments({idle_compact:true}));
+ await compact.click();await section.getByText('设置已被其他客户端修改，请核对后再试。',{exact:true}).waitFor();
+ check(await idle.isChecked()&&await compact.isChecked(),'stale tab overrode newer Host settings');
  await page.evaluate(()=>window.fixtureExperimentalReject=true);
- await retirement.click();await section.getByText('未保存，请重新检查后重试。',{exact:true}).waitFor();
- check(!await retirement.isChecked(),'rejected save appeared successful');
+ await compact.click();await section.getByText('未保存，请重新检查后重试。',{exact:true}).waitFor();
+ check(await compact.isChecked(),'rejected save appeared successful');
  await page.evaluate(()=>{window.fixtureExperimentalReject=false;window.fixtureExperimentalPending=true});
- await retirement.click();await section.getByText('正在核对保存结果，暂时不能继续修改。',{exact:true}).waitFor();
+ await compact.click();await section.getByText('正在核对保存结果，暂时不能继续修改。',{exact:true}).waitFor();
  const pendingCount=await count();
  check(!await compact.isEnabled(),'unknown save allowed another write');
  await back();await open();
  await section.getByRole('button',{name:'重新检测',exact:true}).click();
  check(await count()===pendingCount,'remount/read replayed unknown save');
- await page.evaluate(()=>{window.fixtureExperimentalPending=false;window.fixtureSetExperiments({deferred_tool_retirement:true},'saved')});
+ await page.evaluate(()=>{window.fixtureExperimentalPending=false;window.fixtureSetExperiments({async_compact:false},'saved')});
  await section.getByRole('button',{name:'重新检测',exact:true}).click();
  await section.getByText('已保存，下次运行时激活时生效。',{exact:true}).waitFor();
- check(await retirement.isChecked()&&await count()===pendingCount,'original receipt did not settle read-only');
+ check(!await compact.isChecked()&&await count()===pendingCount,'original receipt did not settle read-only');
  // A late save may settle on the server while this panel is elsewhere.
  await page.evaluate(()=>window.fixtureExperimentalDelay=650);
- await compact.click();await back();
- await page.waitForFunction(async()=>(await window.fixtureCall.ByName('RuntimeExperiments')).features.find(f=>f.id==='async_compact').enabled===false);
+ await idle.click();await back();
+ await page.waitForFunction(async()=>(await window.fixtureCall.ByName('RuntimeExperiments')).features.find(f=>f.id==='idle_compact').enabled===false);
  await open();
- await page.waitForFunction(()=>document.querySelector('#experiment-async_compact')?.checked===false);
- check(await refresh.isChecked()===true&&await retirement.isChecked()===true,'late read reset independent flags');
+ await page.waitForFunction(()=>document.querySelector('#experiment-idle_compact')?.checked===false);
+ check(!await compact.isChecked()&&!await idle.isChecked(),'late read reset independent flags');
  await back();await page.evaluate(()=>window.fixtureExperimentalReadFailure=true);await open();
  await section.getByText('未能确认保存结果，请重新检查。',{exact:true}).waitFor();
  check(await page.locator('.surface-recovery').count()===0,'local read error replaced whole page');

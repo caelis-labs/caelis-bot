@@ -6,8 +6,12 @@ registration, separate credential or lease. Bot and TUI use the same Host identi
 No sibling Go import, module replacement or go.work is used. Source license:
 Apache-2.0 (`LICENSE`).
 
-`manifest.json` records the exact delivered Core commit and schema/wire hashes.
-After integration, update the pin and both hashes together. The protocol checker
+`manifest.json` records the exact consumed Core contract commit and schema/wire hashes.
+Update this source pin and both hashes together. The bundled CLI retains its
+independent published-release pin in `resources/caelis-runtime/release.json`.
+Optional fields and catalog entries are negotiated so an integration candidate
+can be tested without replacing that release. Align the final bundled pin and
+repeat process acceptance after Core publishes the approved release. The protocol checker
 validates the artifacts and the Session profile assembly fields.
 
 Runtime admission requires the protocol/envelope versions and consumed capability

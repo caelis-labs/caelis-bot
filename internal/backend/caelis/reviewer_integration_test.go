@@ -257,7 +257,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	effectDir, err := os.MkdirTemp(".", ".guardian-effect-")
+	// Core permits scratch writes under the platform temporary directory.
+	// A temporary worktree must place this denial fixture outside that boundary.
+	effectRoot := os.Getenv("CAELIS_BOT_TEST_EFFECT_DIRECTORY")
+	if effectRoot == "" {
+		effectRoot = "."
+	}
+	effectDir, err := os.MkdirTemp(effectRoot, ".guardian-effect-")
 	if err != nil {
 		t.Fatal(err)
 	}

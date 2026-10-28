@@ -6,8 +6,7 @@ import {useI18n} from '../../i18n';
 
 const labels={
  async_compact:'experimentalAsync',
- mcp_catalog_refresh:'experimentalRefresh',
- deferred_tool_retirement:'experimentalRetirement',
+ idle_compact:'experimentalIdle',
 } as const;
 
 export function RuntimeExperiments(){

@@ -25,10 +25,11 @@ type experimentFixture struct {
 	mode     string
 	receipts map[string]wire.CommandResult
 	block    func(http.ResponseWriter, *http.Request) bool
+	features []string
 }
 
 func newExperimentFixture(t *testing.T) *experimentFixture {
-	f := &experimentFixture{revision: 1, values: wire.ExperimentalValues{AsyncCompact: pointer(false), McpCatalogRefresh: pointer(false), DeferredToolRetirement: pointer(false)}, receipts: map[string]wire.CommandResult{}}
+	f := &experimentFixture{revision: 1, values: wire.ExperimentalValues{AsyncCompact: pointer(false), IdleCompact: pointer(false)}, receipts: map[string]wire.CommandResult{}, features: append([]string{}, experimentalIDs...)}
 	f.settings = setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		block := f.block
@@ -64,7 +65,7 @@ func newExperimentFixture(t *testing.T) *experimentFixture {
 			writeFixture(w, v)
 		case p == "/configuration/experimental" && r.Method == "GET":
 			features := []wire.ExperimentalDefinition{}
-			for _, id := range experimentalIDs {
+			for _, id := range f.features {
 				features = append(features, wire.ExperimentalDefinition{Id: id})
 			}
 			writeFixture(w, wire.ExperimentalSnapshot{Scope: "host", AppliesAt: "next_runtime_activation", Revision: wire.Uint64Decimal(strconv.Itoa(f.revision)), Desired: f.values, Features: features})
@@ -86,11 +87,8 @@ func newExperimentFixture(t *testing.T) *experimentFixture {
 				if req.Values.AsyncCompact != nil {
 					f.values.AsyncCompact = req.Values.AsyncCompact
 				}
-				if req.Values.McpCatalogRefresh != nil {
-					f.values.McpCatalogRefresh = req.Values.McpCatalogRefresh
-				}
-				if req.Values.DeferredToolRetirement != nil {
-					f.values.DeferredToolRetirement = req.Values.DeferredToolRetirement
+				if req.Values.IdleCompact != nil {
+					f.values.IdleCompact = req.Values.IdleCompact
 				}
 				f.revision++
 			}
@@ -165,16 +163,16 @@ func TestExperimentsConnectionAndReadsNeverWriteDefaults(t *testing.T) {
 	for _, profile := range []string{dir, filepath.Join(t.TempDir(), "profile-b")} {
 		connectFixtureExperiments(t, f, profile)
 		current := readFixtureExperiments(t, f, profile)
-		if current.Features[0].Enabled || !current.Features[1].Enabled || !current.Features[2].Enabled || f.count() != before {
+		if current.Features[0].Enabled || !current.Features[1].Enabled || f.count() != before {
 			t.Fatal("connection/read overwrote user's choices", current)
 		}
 	}
-	stale := changeFixtureExperiment(t, f, dir, "mcp_catalog_refresh", false, "1")
+	stale := changeFixtureExperiment(t, f, dir, "idle_compact", false, "1")
 	if stale.SaveState != "conflicted" || f.count() != before {
 		t.Fatal("stale tab wrote", stale)
 	}
-	v = changeFixtureExperiment(t, f, dir, "mcp_catalog_refresh", false, v.Revision)
-	if v.Features[1].Enabled || !v.Features[2].Enabled {
+	v = changeFixtureExperiment(t, f, dir, "idle_compact", false, v.Revision)
+	if v.Features[1].Enabled || v.Features[0].Enabled {
 		t.Fatal("switches coupled", v)
 	}
 }
@@ -196,7 +194,7 @@ func TestExperimentsUnknownReadsOriginalReceiptWithoutReplay(t *testing.T) {
 					t.Fatal("wrong or unknown receipt settled", v)
 				}
 			}
-			v = changeFixtureExperiment(t, f, dir, "mcp_catalog_refresh", true, v.Revision)
+			v = changeFixtureExperiment(t, f, dir, "idle_compact", true, v.Revision)
 			if f.count() != 1 || v.OperationID != op {
 				t.Fatal("unknown write replayed", v)
 			}
@@ -208,7 +206,7 @@ func TestExperimentsUnknownReadsOriginalReceiptWithoutReplay(t *testing.T) {
 			if v.SaveState != "saved" || !v.Features[0].Enabled || f.count() != 1 {
 				t.Fatal(v)
 			}
-			v = changeFixtureExperiment(t, f, dir, "mcp_catalog_refresh", true, v.Revision)
+			v = changeFixtureExperiment(t, f, dir, "idle_compact", true, v.Revision)
 			if v.SaveState != "saved" || v.OperationID == op || f.count() != 2 {
 				t.Fatal("new explicit action did not get new ID", v)
 			}
@@ -291,7 +289,7 @@ func TestExperimentsBlockedHostDoesNotBlockAnotherHostOrLocalJournal(t *testing.
 		t.Fatal("network request held journal lock", err)
 	}
 	unlock()
-	v, err := ChangeRuntimeExperiments(quick, fast.settings, filepath.Join(t.TempDir(), "fast"), api.RuntimeExperimentChange{ID: "mcp_catalog_refresh", Enabled: true, ExpectedRevision: "1"})
+	v, err := ChangeRuntimeExperiments(quick, fast.settings, filepath.Join(t.TempDir(), "fast"), api.RuntimeExperimentChange{ID: "idle_compact", Enabled: true, ExpectedRevision: "1"})
 	if err != nil || v.SaveState != "saved" {
 		t.Fatal("different Host blocked", err, v)
 	}
@@ -352,5 +350,65 @@ func TestExperimentsLateReceiptCannotReplaceNewIntent(t *testing.T) {
 	got, err := readExperimentState(t.Context(), path)
 	if err != nil || got.Request.OperationId != current.Request.OperationId || got.Outcome != "pending" {
 		t.Fatal("late reply replaced newer intent", got, err)
+	}
+}
+
+func TestExperimentsFollowCatalogAndRetireLegacyControls(t *testing.T) {
+	f := newExperimentFixture(t)
+	dir := t.TempDir()
+	f.mu.Lock()
+	f.features = []string{"async_compact", "mcp_catalog_refresh", "deferred_tool_retirement"}
+	f.values = wire.ExperimentalValues{AsyncCompact: pointer(false), McpCatalogRefresh: pointer(false), DeferredToolRetirement: pointer(true)}
+	f.mu.Unlock()
+	v := readFixtureExperiments(t, f, dir)
+	if len(v.Features) != 1 || v.Features[0].ID != "async_compact" || v.Features[0].Enabled {
+		t.Fatal(v)
+	}
+	for _, id := range []string{"idle_compact", "mcp_catalog_refresh", "deferred_tool_retirement"} {
+		if _, err := ChangeRuntimeExperiments(t.Context(), f.settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: true, ExpectedRevision: v.Revision}); err == nil {
+			t.Fatalf("wrote unavailable control %s", id)
+		}
+	}
+	if f.count() != 0 {
+		t.Fatal("unsupported control wrote")
+	}
+	f.mu.Lock()
+	f.features = append([]string{}, experimentalIDs...)
+	f.values.IdleCompact = pointer(false)
+	f.mu.Unlock()
+	v = readFixtureExperiments(t, f, dir)
+	if len(v.Features) != 2 || v.Features[1].ID != "idle_compact" || v.Features[1].Enabled {
+		t.Fatal(v)
+	}
+	f.mu.Lock()
+	f.values.IdleCompact = nil
+	f.mu.Unlock()
+	if _, err := ReadRuntimeExperiments(t.Context(), f.settings, dir); err == nil {
+		t.Fatal("missing desired value was treated as false")
+	}
+}
+
+func TestExperimentsLegacyUnknownReceiptSurvivesRetirement(t *testing.T) {
+	f := newExperimentFixture(t)
+	dir := filepath.Join(t.TempDir(), "profile")
+	path := experimentPath(dir, wire.ServerInfo{StoreId: pointer("store")})
+	j := experimentJournal{Request: &wire.ExperimentalRequest{OperationId: "legacy-save", ExpectedRevision: "1", Values: wire.ExperimentalValues{McpCatalogRefresh: pointer(false)}}, Outcome: "pending"}
+	if err := privateWrite(path, j); err != nil {
+		t.Fatal(err)
+	}
+	v := readFixtureExperiments(t, f, dir)
+	if v.SaveState != "pending" || v.OperationID != "legacy-save" || len(v.Features) != 2 {
+		t.Fatal(v)
+	}
+	f.mu.Lock()
+	f.receipts["legacy-save"] = wire.CommandResult{OperationId: "legacy-save", Outcome: "committed"}
+	f.mu.Unlock()
+	v = readFixtureExperiments(t, f, dir)
+	if v.SaveState != "saved" || v.OperationID != "legacy-save" || f.count() != 0 {
+		t.Fatal(v)
+	}
+	saved, err := readExperimentJournal(path)
+	if err != nil || saved.Request.Values.McpCatalogRefresh == nil || *saved.Request.Values.McpCatalogRefresh {
+		t.Fatal("lost legacy receipt payload", saved, err)
 	}
 }

@@ -34,6 +34,7 @@ func applyLiveUsage(v *view, e wire.Envelope, now time.Time) {
 			return
 		}
 		v.ModelTurn, v.Usage.ModelAt = turn, e.OccurredAt.Round(0)
+		applyProviderCounters(v, update.Meta)
 		v.UsageEvidence = "awaiting_context_gauge"
 		if v.UsageTurn == turn {
 			if v.Usage.Window > 0 {
@@ -68,4 +69,38 @@ func applyLiveUsage(v *view, e wire.Envelope, now time.Time) {
 			}
 		}
 	}
+}
+
+// Core's envelope metadata uses decimal strings, unlike the numeric status
+// snapshot. Keep each reported counter independent; never infer cost or totals.
+func applyProviderCounters(v *view, meta *wire.ACPMetadata) {
+	var usage map[string]any
+	if meta != nil {
+		if caelis, ok := (*meta)["caelis"].(map[string]any); ok {
+			usage, _ = caelis["usage"].(map[string]any)
+		}
+	}
+	counter := func(key string) (int64, bool) {
+		raw, ok := usage[key].(string)
+		if !ok {
+			return 0, false
+		}
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return n, true
+	}
+	cache := func(key string) (int64, bool) {
+		n, valid := counter(key)
+		// Older Hosts did not publish a presence flag. A nonzero reported
+		// value still carries evidence; zero requires explicit presence.
+		return n, valid && (n > 0 || usage[key+"_reported"] == true)
+	}
+	v.Usage.InputTokens, _ = counter("prompt_tokens")
+	v.Usage.OutputTokens, _ = counter("completion_tokens")
+	v.Usage.CacheReadTokens, v.Usage.CacheReadTokensReported = cache("cached_input_tokens")
+	v.Usage.CacheWriteTokens, v.Usage.CacheWriteTokensReported = cache("cache_write_tokens")
+	v.Usage.CacheWrite5mTokens, v.Usage.CacheWrite5mTokensReported = cache("cache_write_5m_tokens")
+	v.Usage.CacheWrite1hTokens, v.Usage.CacheWrite1hTokensReported = cache("cache_write_1h_tokens")
 }

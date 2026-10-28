@@ -64,3 +64,33 @@ func TestLiveUsageSeparatesContextGaugeFromBilling(t *testing.T) {
 		t.Fatal("warmth persisted across restart")
 	}
 }
+
+func TestLiveCacheCountersPreservePresenceAndTTL(t *testing.T) {
+	now := time.Now().Round(0)
+	v := &view{State: wire.SessionState{SessionId: "resident"}, Seen: map[string]bool{}}
+	update := json.RawMessage(`{"sessionUpdate":"usage_update","used":"123","size":"1000","_meta":{"caelis":{"usage":{"prompt_tokens":"100","completion_tokens":"23","cached_input_tokens":"0","cached_input_tokens_reported":true,"cache_write_tokens":"70","cache_write_tokens_reported":true,"cache_write_5m_tokens":"50","cache_write_5m_tokens_reported":true,"cache_write_1h_tokens":"20","cache_write_1h_tokens_reported":true}}}}`)
+	e := wire.Envelope{EventId: pointer("billing"), SessionId: pointer("resident"), TurnId: pointer("turn"), OccurredAt: &now, Update: &update, UsageSemantics: wire.UsageSemanticsProviderUsage}
+	applyLiveUsage(v, e, now)
+	u := v.Usage
+	if u.InputTokens != 100 || u.OutputTokens != 23 || u.CacheReadTokens != 0 || !u.CacheReadTokensReported || u.CacheWriteTokens != 70 || !u.CacheWriteTokensReported || u.CacheWrite5mTokens != 50 || !u.CacheWrite5mTokensReported || u.CacheWrite1hTokens != 20 || !u.CacheWrite1hTokensReported || u.Used != 0 {
+		t.Fatal(u)
+	}
+	// Background accounting never establishes a foreground turn or its warmth.
+	e.TurnId = nil
+	later := now.Add(time.Second)
+	e.OccurredAt = &later
+	applyLiveUsage(v, e, later)
+	if v.Usage != u || v.ModelTurn != "turn" {
+		t.Fatal("background usage replaced resident gauge")
+	}
+	// A later response with missing counters clears old presence; zero is not
+	// inferred from the struct's zero value or the usage update's total.
+	e.TurnId = pointer("turn")
+	e.EventId = pointer("missing")
+	empty := json.RawMessage(`{"sessionUpdate":"usage_update","used":"0","size":"0"}`)
+	e.Update = &empty
+	applyLiveUsage(v, e, later)
+	if v.Usage.CacheReadTokensReported || v.Usage.CacheWriteTokensReported || v.Usage.CacheWrite5mTokensReported || v.Usage.CacheWrite1hTokensReported || v.Usage.InputTokens != 0 {
+		t.Fatal(v.Usage)
+	}
+}
