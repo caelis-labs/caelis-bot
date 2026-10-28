@@ -341,6 +341,7 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		out.Rejected = errors.As(err, &message) || errors.As(err, &decision) || errors.As(err, &decisionValue)
 		if message != nil {
 			out.RejectionCode = message.Code
+			out.RejectionDetail = api.WorkRejectionDetail(message.Cause)
 		}
 		return out
 	}

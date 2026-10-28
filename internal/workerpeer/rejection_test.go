@@ -16,6 +16,7 @@ import (
 type refusingPeerOwner struct {
 	*fixtureOwner
 	code  string
+	cause error
 	start api.WorkStart
 	sent  api.TaskMessage
 }
@@ -25,7 +26,11 @@ func (f *refusingPeerOwner) refusal(id string) (api.Task, error) {
 	if f.code == "native_conflict" {
 		outcome = "conflicted"
 	}
-	return api.Task{ID: id, Status: "failed", Outcome: outcome}, fmt.Errorf("native boundary: %w", &api.WorkMessageRejection{Code: f.code, Cause: errors.New("native admission unavailable")})
+	cause := f.cause
+	if cause == nil {
+		cause = errors.New("native admission unavailable")
+	}
+	return api.Task{ID: id, Status: "failed", Outcome: outcome}, fmt.Errorf("native boundary: %w", &api.WorkMessageRejection{Code: f.code, Cause: cause})
 }
 func (f *refusingPeerOwner) StartWork(_ context.Context, in api.WorkStart) (api.Task, error) {
 	f.start = in
@@ -108,5 +113,33 @@ func TestPeerRejectionCompatibilityAndIdentity(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The native error deliberately keeps private detail out of Error().
+type privateNativeRefusal struct{}
+
+func (*privateNativeRefusal) Error() string { return "native error -32602" }
+func (*privateNativeRefusal) WorkRejectionDetail() string {
+	return "native admission unavailable; token=private-secret"
+}
+
+func TestPeerRefusalPreservesPrivateDiagnosticProjection(t *testing.T) {
+	owner := &refusingPeerOwner{fixtureOwner: newFixtureOwner(), code: "native_rejected", cause: &privateNativeRefusal{}}
+	s, err := Open(t.TempDir(), func(context.Context, string, string, string) (Owner, string, *api.WorkExecutionSettings, error) {
+		return owner, "codex", nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	h := httptest.NewServer(s)
+	defer h.Close()
+	c := pairFixture(t, s, h, "source-a")
+	out, err := Call(t.Context(), c, Request{Action: "start", Start: api.WorkStart{ID: "original-task", TaskStart: api.TaskStart{RequestID: "original-start", Prompt: "Original intent"}}})
+	var refusal *api.WorkMessageRejection
+	want := "native admission unavailable; [private details omitted]"
+	if !errors.As(err, &refusal) || refusal.Code != "native_rejected" || out.RejectionDetail != want || api.WorkRejectionDetail(refusal.Cause) != want || err.Error() != "native boundary: native error -32602" {
+		t.Fatalf("lost safe original detail: response=%#v err=%v", out, err)
 	}
 }

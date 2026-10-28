@@ -133,13 +133,27 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 	}
 	if err != nil && out.Rejected && out.Contract == api.WorkerContract && (c.Peer == "" || c.Peer == out.Peer) {
 		if in.Action == "start" || in.Action == "send" {
-			err = &api.WorkMessageRejection{Cause: err, Code: out.RejectionCode}
+			cause := err
+			if out.RejectionDetail != "" {
+				cause = &peerRejectionCause{error: err, detail: out.RejectionDetail}
+			}
+			err = &api.WorkMessageRejection{Cause: cause, Code: out.RejectionCode}
 		} else if in.Action == "decision" {
 			err = &api.DecisionValidationError{Message: err.Error()}
 		}
 	}
 	return out, err
 }
+
+// Keep the peer's ordinary error separate from its optional diagnostic summary.
+type peerRejectionCause struct {
+	error
+	detail string
+}
+
+func (e *peerRejectionCause) Unwrap() error               { return e.error }
+func (e *peerRejectionCause) WorkRejectionDetail() string { return e.detail }
+
 func check(c Connection, out Response, action string) error {
 	if out.Contract != api.WorkerContract {
 		return errors.New("bot_worker_contract_incompatible")

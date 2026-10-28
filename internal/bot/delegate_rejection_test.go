@@ -145,8 +145,24 @@ func TestDelegateRejectionSensitiveCauseAndUTF8(t *testing.T) {
 		}
 	}
 	cause := "native admission unavailable " + strings.Repeat("界", 300) + " body: private content"
-	detail := delegationRejectionDetail(errors.New(cause))
+	detail := api.WorkRejectionDetail(errors.New(cause))
 	if !utf8.ValidString(detail) || len(detail) > 512 || !strings.HasSuffix(detail, "…") || !strings.HasPrefix(detail, "native admission unavailable ") || strings.Contains(detail, "private content") {
 		t.Fatal("unsafe UTF-8 truncation", detail)
+	}
+}
+
+type privateDelegationCause struct{}
+
+func (*privateDelegationCause) Error() string { return "native error -32602" }
+func (*privateDelegationCause) WorkRejectionDetail() string {
+	return "native admission unavailable; token=private-secret"
+}
+
+func TestDelegateUsesNativeCauseDiagnosticProjection(t *testing.T) {
+	f := &rejectionCompactTasks{task: api.Task{ID: "original", Outcome: "rejected"}, err: &api.WorkMessageRejection{Code: "native_rejected", Cause: &privateDelegationCause{}}}
+	out, _ := invokeRejectionCompact(t, f, false)
+	e := out.StructuredContent["error"].(map[string]string)
+	if e["reason"] != "native_rejected" || e["detail"] != "native admission unavailable; [private details omitted]" {
+		t.Fatal(out.StructuredContent)
 	}
 }

@@ -192,3 +192,11 @@ func TestWorkerRecoveredRefusalProjectionPreservesOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeWorkerHTTPRefusalPreservesOriginalCause(t *testing.T) {
+	cause := &remoteError{Status: 403, Code: "permission_denied", detail: "native policy denied; token=private-secret"}
+	err := nativeWorkerRefusal(wire.CommandResult{Outcome: "rejected"}, cause)
+	if !errors.Is(err, cause) || api.WorkRejectionDetail(err) != "native policy denied; [private details omitted]" || strings.Contains(err.Error(), "private-secret") {
+		t.Fatal("HTTP refusal cause lost or exposed", err)
+	}
+}

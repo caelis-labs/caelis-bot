@@ -46,6 +46,10 @@ type NativeError struct {
 
 func (e *NativeError) Error() string { return fmt.Sprintf("app server error %d", e.Code) }
 
+// WorkRejectionDetail is consumed only by the bounded Bot refusal projection.
+// Error remains safe for ordinary logs and product error handling.
+func (e *NativeError) WorkRejectionDetail() string { return e.Message }
+
 func (e *NativeError) UnmarshalJSON(b []byte) error {
 	var native struct {
 		Code    *int            `json:"code"`

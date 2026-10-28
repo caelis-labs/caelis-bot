@@ -33,6 +33,10 @@ type remoteError struct {
 func (e *remoteError) Error() string {
 	return fmt.Sprintf("Caelis 请求未完成（HTTP %d，%s）", e.Status, e.Code)
 }
+
+// WorkRejectionDetail preserves native refusal context without broadening Error.
+func (e *remoteError) WorkRejectionDetail() string { return e.detail }
+
 func newClient(origin, token string) (*client, error) {
 	u, e := url.Parse(origin)
 	if e != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
