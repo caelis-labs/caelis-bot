@@ -30,6 +30,7 @@ type journal struct {
 	OriginOwner    string             `json:"originOwner,omitempty"`
 	ReceiptID      string             `json:"receiptID,omitempty"`
 	Dream          bool               `json:"dream,omitempty"`
+	HostNotice     bool               `json:"hostNotice,omitempty"`
 	PendingInput   *pendingInput      `json:"pendingInput,omitempty"`
 	TurnID         string             `json:"turnID,omitempty"`
 	Scheduled      bool               `json:"scheduled,omitempty"`
@@ -40,6 +41,13 @@ type journal struct {
 	Resource       string             `json:"resource,omitempty"`
 	Source         wire.SessionSource `json:"source"`
 }
+
+// Only old journals derive presentation from their original native source.
+// New notices use ordinary evidence input and an independent local marker.
+func (j journal) hostNotice() bool {
+	return j.HostNotice || j.Source.Kind == "application_summary"
+}
+
 type view struct {
 	// Last canonical main target survives idle bootstrap states that omit it.
 	// This is observation evidence only, never authority for a new cancellation.

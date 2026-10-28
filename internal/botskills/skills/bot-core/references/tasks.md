@@ -186,3 +186,9 @@ Finish applies only to the inspected execution. Continuing the same Worker from
 Bot or its original terminal can produce new questions; inspect and handle those
 new original requests normally. Earlier closed questions remain closed, and a
 completion report is never authority to close questions from a later execution.
+
+A completion report is evidence for the existing request. Continue the user's
+remaining authorized work, including another delegation or a new message to the
+same Worker when needed. A completed or finished execution does not permanently
+close that Worker. New user input during execution can clarify or change the
+request; preserve its original input identity and any existing tool receipts.

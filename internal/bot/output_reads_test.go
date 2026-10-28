@@ -175,3 +175,28 @@ func TestWorkerFailureVisibleBesideChunkedMessagesAndObservation(t *testing.T) {
 		}
 	}
 }
+
+type movingObservationTasks struct {
+	compactTasks
+	err error
+}
+
+func (f *movingObservationTasks) ObserveTask(context.Context, string) (api.WorkObservation, error) {
+	return api.WorkObservation{}, f.err
+}
+func TestObservationMovementDoesNotClaimOwnerUnavailableOrIssueFinishToken(t *testing.T) {
+	r, _, _ := fixture(t)
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{{api.ErrWorkObservationChanged, "observation_changed"}, {fmt.Errorf("owner disconnected"), "original_owner_unavailable"}} {
+		if err := r.ConfigureTasks(&movingObservationTasks{err: tc.err}, nil); err != nil {
+			t.Fatal(err)
+		}
+		out := r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"observe","task":"original"}}`))
+		raw := string(encoded(out.StructuredContent))
+		if !out.IsError || !strings.Contains(raw, `"code":"`+tc.code+`"`) || strings.Contains(raw, "finishToken") {
+			t.Fatal("incorrect read classification", out)
+		}
+	}
+}

@@ -334,6 +334,8 @@ type Submission struct {
 	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
 	Scheduled bool `json:"-"`
+	// HostNotice hides host-authored evidence; it is never a permission grant.
+	HostNotice bool `json:"-"`
 	// OriginRequests is host-captured registration provenance, not a grant.
 	OriginRequests []string `json:"-"`
 	// ModelInputOverride is a host-owned model input for an async question reply.

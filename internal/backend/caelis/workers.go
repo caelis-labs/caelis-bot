@@ -51,7 +51,10 @@ type worker struct {
 	Activity    string              `json:"-"`
 }
 
-func (s *Session) authority(ctx context.Context) (wire.SessionToolCall, error) {
+// The callback boundary validates the original source operation and native claim.
+// Its turn's initial provenance is not a permission switch: Guardian reviews
+// each tool action against the conversation, including later user steering.
+func (s *Session) currentInvocation(ctx context.Context) (wire.SessionToolCall, error) {
 	call, ok := ctx.Value(invocationKey{}).(wire.SessionToolCall)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -61,12 +64,12 @@ func (s *Session) authority(ctx context.Context) (wire.SessionToolCall, error) {
 	if !s.connected || s.closed {
 		return call, errors.New("需要当前助手请求的明确授权来源")
 	}
-	if call.Source.Kind != "user" && call.Source.Kind != "authorized_background" {
-		return call, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("应用摘要或外部材料不能授权新工作")}
-	}
 	return call, nil
 }
-func (s *Session) WorkAdmission(ctx context.Context) error { _, e := s.authority(ctx); return e }
+func (s *Session) WorkAdmission(ctx context.Context) error {
+	_, e := s.currentInvocation(ctx)
+	return e
+}
 func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -209,7 +212,7 @@ func (s *Session) workerWriteAllowed(w worker) error {
 	return nil
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
-	call, e := s.authority(ctx)
+	call, e := s.currentInvocation(ctx)
 	if e != nil {
 		return api.Task{}, e
 	}
@@ -426,101 +429,123 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return projected, errors.New("original worker start receipt still needs reconciliation")
 	}
-	w.Activity = "" // A failed or mismatched read cannot retain an old idle proof.
+	w.Activity = "" // Invalidate old idle proof before releasing the owner lock.
 	s.state.Workers[id] = w
-	c, sid, generation, instance, connected := s.client, w.Binding.SessionId, s.generation, s.state.InstanceID, s.connected
-	before := s.state.Views[sid]
-	var observed uint64
-	var previous []byte
-	if before != nil {
-		observed = before.Observed
-		var err error
-		previous, err = json.Marshal(before.State)
-		if err != nil {
+	original := w
+	c, generation, instance := s.client, s.generation, s.state.InstanceID
+	s.mu.Unlock()
+	readState := func() (api.Task, error) {
+		s.mu.Lock()
+		w, exists := s.state.Workers[id]
+		if !exists || s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(original, w) || w.Start != nil {
+			s.mu.Unlock()
+			return api.Task{}, errors.New("original worker binding changed before read")
+		}
+		projected := s.workerViewLocked(w)
+		sid := w.Binding.SessionId
+		before := s.state.Views[sid]
+		var observed uint64
+		var previous []byte
+		if before != nil {
+			observed = before.Observed
+			var err error
+			previous, err = json.Marshal(before.State)
+			if err != nil {
+				s.mu.Unlock()
+				return projected, err
+			}
+		}
+		s.mu.Unlock()
+		if c == nil || sid == "" {
+			return projected, errors.New("original worker binding unconfirmed")
+		}
+		var state wire.SessionState
+		if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
+			s.mu.Lock()
+			if current, ok := s.state.Workers[id]; ok && s.client == c && s.generation == generation && sameWorkerOwner(w, current) {
+				current.Activity = ""
+				s.state.Workers[id] = current
+			}
 			s.mu.Unlock()
 			return projected, err
 		}
-	}
-	s.mu.Unlock()
-	if c == nil || sid == "" || !connected {
-		return projected, errors.New("original worker binding unconfirmed")
-	}
-	var state wire.SessionState
-	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
+		if state.SessionId != sid {
+			return projected, errors.New("original worker state mismatch")
+		}
+		if state.Run.Active == nil && !workerNativeActive(state) {
+			// active is optional in the native contract. A fresh terminal state
+			// from this exact owner also confirms inactivity, but says nothing
+			// about whether its transcript can be read successfully.
+			switch value(state.Run.Status) {
+			case "completed", "failed", "cancelled", "stopped", "interrupted":
+			default:
+				return projected, errors.New("original worker activity unconfirmed")
+			}
+		}
 		s.mu.Lock()
-		if current, ok := s.state.Workers[id]; ok && s.client == c && s.generation == generation && sameWorkerOwner(w, current) {
-			current.Activity = ""
-			s.state.Workers[id] = current
+		defer s.mu.Unlock()
+		current, exists := s.state.Workers[id]
+		if !exists {
+			return api.Task{}, errors.New("original worker binding changed")
 		}
-		s.mu.Unlock()
-		return projected, err
-	}
-	if state.SessionId != sid {
-		return projected, errors.New("original worker state mismatch")
-	}
-	if state.Run.Active == nil && !workerNativeActive(state) {
-		// active is optional in the native contract. A fresh terminal state
-		// from this exact owner also confirms inactivity, but says nothing
-		// about whether its transcript can be read successfully.
-		switch value(state.Run.Status) {
-		case "completed", "failed", "cancelled", "stopped", "interrupted":
-		default:
-			return projected, errors.New("original worker activity unconfirmed")
+		p := s.state.Views[sid]
+		var currentState []byte
+		if p != nil {
+			var err error
+			currentState, err = json.Marshal(p.State)
+			if err != nil {
+				return s.workerViewLocked(current), err
+			}
 		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, exists := s.state.Workers[id]
-	if !exists {
-		return api.Task{}, errors.New("original worker binding changed")
-	}
-	p := s.state.Views[sid]
-	var currentState []byte
-	if p != nil {
-		var err error
-		currentState, err = json.Marshal(p.State)
-		if err != nil {
-			return s.workerViewLocked(current), err
+		if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil {
+			return s.workerViewLocked(current), errors.New("original worker binding changed during read")
 		}
-	}
-	if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil || s.workerViewLocked(current).Status != projected.Status || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
-		return s.workerViewLocked(current), errors.New("original worker or projection changed; read again")
-	}
-	created := p == nil
-	if p == nil {
-		p = &view{Items: []api.Item{}, Seen: map[string]bool{}}
-		s.state.Views[sid] = p
-	}
-	prior := p.State
-	priorHead := p.HeadTarget
-	priorRetired := maps.Clone(p.RetiredTurns)
-	if retiredRunHead(p, value(state.Run.TurnId)) {
-		return projected, errors.New("original worker read referenced an older turn")
-	}
-	retireRunHead(p, value(state.Run.TurnId))
-	observeStateHead(p, state.Run)
-	p.State = state
-	p.Observed++
-	current.Activity = "idle"
-	if workerNativeActive(state) {
-		current.Activity = "active"
-	}
-	s.state.Workers[id] = current
-	if err := s.saveLocked(); err != nil {
-		if created {
-			delete(s.state.Views, sid)
-		} else {
-			p.State = prior
-			p.HeadTarget = priorHead
-			p.RetiredTurns = priorRetired
-			p.Observed--
+		if s.workerViewLocked(current).Status != projected.Status || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
+			return s.workerViewLocked(current), api.ErrWorkObservationChanged
 		}
-		s.state.Workers[id] = w
-		return projected, err
+		created := p == nil
+		if p == nil {
+			p = &view{Items: []api.Item{}, Seen: map[string]bool{}}
+			s.state.Views[sid] = p
+		}
+		prior := p.State
+		priorHead := p.HeadTarget
+		priorRetired := maps.Clone(p.RetiredTurns)
+		if retiredRunHead(p, value(state.Run.TurnId)) {
+			return projected, errors.New("original worker read referenced an older turn")
+		}
+		retireRunHead(p, value(state.Run.TurnId))
+		observeStateHead(p, state.Run)
+		p.State = state
+		p.Observed++
+		current.Activity = "idle"
+		if workerNativeActive(state) {
+			current.Activity = "active"
+		}
+		s.state.Workers[id] = current
+		if err := s.saveLocked(); err != nil {
+			if created {
+				delete(s.state.Views, sid)
+			} else {
+				p.State = prior
+				p.HeadTarget = priorHead
+				p.RetiredTurns = priorRetired
+				p.Observed--
+			}
+			s.state.Workers[id] = w
+			return projected, err
+		}
+		s.bumpLocked()
+		s.requestRefreshLocked("worker:" + id)
+		return s.workerViewLocked(current), nil
 	}
-	s.bumpLocked()
-	s.requestRefreshLocked("worker:" + id)
-	return s.workerViewLocked(current), nil
+	// Only projection movement can retry this read, once within the original
+	// deadline and against the same owner and receipt. Never replay an effect.
+	result, err := readState()
+	if errors.Is(err, api.ErrWorkObservationChanged) {
+		return readState()
+	}
+	return result, err
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -607,7 +632,7 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 }
 
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
-	call, e := s.authority(ctx)
+	call, e := s.currentInvocation(ctx)
 	if e != nil {
 		return api.Task{}, e
 	}

@@ -143,3 +143,31 @@ func TestPeerRefusalPreservesPrivateDiagnosticProjection(t *testing.T) {
 		t.Fatalf("lost safe original detail: response=%#v err=%v", out, err)
 	}
 }
+
+func TestPeerObservationMovementKeepsIdentityBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name, peer, action string
+		contract           int
+		typed              bool
+	}{
+		{"verified", "owner", "observe", api.WorkerContract, true},
+		{"changed-peer", "other", "observe", api.WorkerContract, false},
+		{"changed-contract", "owner", "observe", api.WorkerContract + 1, false},
+		{"write-is-not-read", "owner", "send", api.WorkerContract, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(Response{Contract: tc.contract, Peer: tc.peer, Error: api.ErrWorkObservationChanged.Error()})
+			}))
+			defer server.Close()
+			_, err := Call(t.Context(), Connection{Address: server.URL, Peer: "owner", Token: "fixture-proof"}, Request{Action: tc.action})
+			if errors.Is(err, api.ErrWorkObservationChanged) != tc.typed {
+				t.Fatal("owner or action lost", err)
+			}
+			var rejection *api.WorkMessageRejection
+			if errors.As(err, &rejection) {
+				t.Fatal("read settled a write receipt")
+			}
+		})
+	}
+}

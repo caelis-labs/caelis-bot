@@ -62,7 +62,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 		if op.Scheduled {
 			scheduled[id] = true
 		}
-		if op.Source.Kind == "application_summary" {
+		if op.hostNotice() {
 			hostNotices[id] = true
 			if op.TurnID != "" {
 				hostTurns[op.TurnID] = true

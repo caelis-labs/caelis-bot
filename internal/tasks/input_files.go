@@ -32,7 +32,7 @@ func (m *Manager) rejectStartInput(request string, cause error) (api.Task, error
 	// Serialize with admission before consulting the existing product records.
 	m.op.Lock()
 	defer m.op.Unlock()
-	return m.rejectStartBeforeDispatch(request, "", cause)
+	return m.rejectStartBeforeDispatch(request, "input_preparation_failed", cause)
 }
 
 // Called with op held. An admission failure cannot erase any original dispatch.

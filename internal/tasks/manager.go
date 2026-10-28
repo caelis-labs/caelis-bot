@@ -602,7 +602,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		}
 	}
 	if e := workerAction(m, in.Machine, func() error { return m.validateWorkerInputs(ctx, id, in.Files) }); e != nil {
-		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
+		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Code: "input_validation_failed", Cause: e}
 	}
 	if m.paused {
 		return m.rejectStartBeforeDispatch(in.RequestID, "updater_paused", errors.New(m.text("host.installingUpdateRetryLater")))
@@ -646,7 +646,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		}
 		v := r.View
 		m.mu.Unlock()
-		return v, &api.WorkMessageRejection{Cause: errors.Join(e, saveErr)}
+		return v, &api.WorkMessageRejection{Code: "workspace_preparation_failed", Cause: errors.Join(e, saveErr)}
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)

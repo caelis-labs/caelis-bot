@@ -162,6 +162,9 @@ func check(c Connection, out Response, action string) error {
 		return errors.New("bot_peer_identity_changed")
 	}
 	if out.Error != "" {
+		if action == "observe" && out.Error == api.ErrWorkObservationChanged.Error() {
+			return api.ErrWorkObservationChanged
+		}
 		if action == "info" || action == "recover" {
 			return peerError(out.Error)
 		}

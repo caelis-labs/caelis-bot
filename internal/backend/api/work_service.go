@@ -15,6 +15,10 @@ import (
 // execution owner or fall back to the local machine.
 const WorkerContract = 1
 
+// ErrWorkObservationChanged means the original owner is still verified, but
+// its projection advanced across both bounded read attempts. No idle proof exists.
+var ErrWorkObservationChanged = errors.New("worker_observation_changed")
+
 var ErrWorkOperationUnsupported = errors.New("worker_reconcile_unsupported")
 
 // WorkCapabilities describes the actual native owner, including retained owners.
