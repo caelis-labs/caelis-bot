@@ -94,11 +94,20 @@ func TestDisabledStdioGenerationStopsExistingProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected := m.Selection().Servers[0]
+	launch := func(in io.Reader) error {
+		// RunStdio opens its own manager in the relay process. Share the
+		// committed store, not the resident manager's mutable state.
+		relay, err := openCatalog(root, []Entry{entry}, map[string]fs.FS{"fixture": os.DirFS(source)})
+		if err != nil {
+			return err
+		}
+		return runStdio(t.Context(), relay, "fixture", "local-validator", in, io.Discard, io.Discard, filepath.Base(selected.Root))
+	}
 	in, writer := io.Pipe()
 	defer writer.Close()
 	done := make(chan error, 1)
 	go func() {
-		done <- runStdio(t.Context(), m, "fixture", "local-validator", in, io.Discard, io.Discard, filepath.Base(selected.Root))
+		done <- launch(in)
 	}()
 	pidPath := filepath.Join(root, "data", "fixture", "pid")
 	var pid int
@@ -121,7 +130,7 @@ func TestDisabledStdioGenerationStopsExistingProcess(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("disabled stdio generation remained running")
 	}
-	if err := runStdio(t.Context(), m, "fixture", "local-validator", strings.NewReader(""), io.Discard, io.Discard, filepath.Base(selected.Root)); err == nil || !strings.Contains(err.Error(), "no longer active") {
+	if err := launch(strings.NewReader("")); err == nil || !strings.Contains(err.Error(), "no longer active") {
 		t.Fatal("old selected schema could restart disabled plugin", err)
 	}
 }
