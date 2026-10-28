@@ -234,6 +234,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	app.modelSelections = newModelSelections(root, app.setup.applySelectedModel, host.Diagnostics)
 	app.machines, err = machines.OpenWithCredentialCleanup(filepath.Join(root, "Machines"), app.localWork, machines.DeleteLegacyCredential)
+	app.machines.SetDiagnostics(host.Diagnostics.Write)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}

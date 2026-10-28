@@ -30,10 +30,14 @@ func (d *diagnostic) code() string {
 		return "ssh_host_key_changed"
 	case strings.Contains(s, "permission denied"):
 		return "ssh_authentication_failed"
+	case strings.Contains(s, "host key verification failed"):
+		return "ssh_authentication_required"
 	case strings.Contains(s, "could not resolve hostname"):
 		return "ssh_host_not_found"
-	case strings.Contains(s, "connection refused") || strings.Contains(s, "connection timed out") || strings.Contains(s, "no route to host"):
+	case strings.Contains(s, "connection refused") || strings.Contains(s, "timed out") || strings.Contains(s, "no route to host") || strings.Contains(s, "network is unreachable") || strings.Contains(s, "network is down") || strings.Contains(s, "host is down") || strings.Contains(s, "not responding"):
 		return "ssh_host_unreachable"
+	case strings.Contains(s, "connection closed") || strings.Contains(s, "connection reset") || strings.Contains(s, "broken pipe") || strings.Contains(s, "connection abort"):
+		return "ssh_disconnected"
 	case strings.Contains(s, "bad configuration") || strings.Contains(s, "bad configuration option"):
 		return "ssh_config_syntax"
 	}

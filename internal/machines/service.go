@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/workerpeer"
@@ -41,6 +42,7 @@ type disk struct {
 	ReservationKeys map[string]string                    `json:"reservationKeys,omitempty"`
 }
 type Service struct {
+	diagnostics             func(diagnosticlog.Record)
 	deleteLegacyCredential  func(string) error
 	sshUses                 map[string]int
 	registry                string
