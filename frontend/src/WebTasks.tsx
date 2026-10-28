@@ -34,8 +34,10 @@ export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRet
  const recentSelection=useRef('');
  const [showHistory,setShowHistory]=useState(false);
  useEffect(()=>{if(!active)setShowHistory(false)},[active]);
- useEffect(()=>{if(selected)recentSelection.current=selected;},[selected]);
  const id=selected||tasks.find(t=>t.id===recentSelection.current)?.id||primaryWebTask(tasks)?.id||'',task=tasks.find(t=>t.id===id);
+ // A recovered list can choose work before navigation has an explicit task.
+ // Keep that visible selection when it completes, just like a menu selection.
+ useEffect(()=>{if(active&&id)recentSelection.current=id;},[active,id]);
  const output=useWorkerOutput(id,active,client.taskConversation,client.taskObservation,task?.status);
  const shownTask=output.observation?.task??task;
  const historyCount=tasks.filter(task=>workerTerminal.has(task.status)).length;

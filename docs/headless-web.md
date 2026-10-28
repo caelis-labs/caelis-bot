@@ -253,7 +253,8 @@ and split pane use the common chat palette in both color modes.
 `script/web-worker-reading-browser.mjs`, run through Playwright CLI on
 `script/input-menu-preview.mjs`, covers the production Web transport and components
 with synthetic protocol data: current/history choices, retained selection on
-completion, incremental rendering, reading position, bottom following and narrow
-layouts. Live model/Worker output and visual evidence remain a separate check.
+completion (including recovery from a failed list read), task-switch reading
+restoration, incremental corrections, terminal flushing, bottom following and
+narrow layouts. Live model/Worker output and visual evidence remain a separate check.
 No Bot skill update is needed: tools, task authority, receipts and workflows are
 unchanged.
