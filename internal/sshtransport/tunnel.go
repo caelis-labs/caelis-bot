@@ -30,8 +30,12 @@ type tunnel struct {
 	prompt                *api.SSHPrompt
 	answer                chan string
 	token                 string
-	lastAttempt           time.Time
-	attempts              int
+	retryAt               time.Time
+	failures              int
+	stopped               bool
+	released              bool
+	generation            uint64
+	pid                   int
 }
 
 func (t *Transport) Status(v api.SSHTarget) api.SSHConnectionStatus {
@@ -47,6 +51,15 @@ func (t *Transport) status(c *tunnel) api.SSHConnectionStatus {
 	if c == nil {
 		return api.SSHConnectionStatus{State: "idle"}
 	}
+	if c.stopped {
+		issue := "ssh_stopping"
+		select {
+		case <-c.done:
+			issue = "ssh_stopped"
+		default:
+		}
+		return api.SSHConnectionStatus{State: "failed", Issue: issue}
+	}
 	v := api.SSHConnectionStatus{State: c.state, Issue: c.issue}
 	if c.prompt != nil {
 		p := *c.prompt
@@ -56,7 +69,8 @@ func (t *Transport) status(c *tunnel) api.SSHConnectionStatus {
 }
 
 // Start is explicit, returns immediately and never waits for a person. Existing
-// live channels are reused. Automatic reads have a separate finite retry budget.
+// live channels are reused. Stopping channels retain the target until cleanup
+// completes; only a subsequent explicit Start clears a user-action boundary.
 func (t *Transport) Start(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 	key, e := targetKey(v)
 	if e != nil {
@@ -77,30 +91,30 @@ func (t *Transport) Start(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 		return api.SSHConnectionStatus{}, errors.New("ssh_not_installed")
 	}
 	if len(t.tunnels) >= 16 && t.tunnels[key] == nil {
-		for key, c := range t.tunnels {
-			if c.state == "failed" {
-				select {
-				case <-c.done:
-					delete(t.tunnels, key)
-				default:
-				}
-			}
-		}
-		if len(t.tunnels) >= 16 {
-			return api.SSHConnectionStatus{}, errors.New("ssh_channel_limit")
-		}
+		// ReleaseUnused owns reclamation. Forgetting a stopped/blocked entry here
+		// would let a later health read silently recreate it.
+		return api.SSHConnectionStatus{}, errors.New("ssh_channel_limit")
 	}
 	old := t.tunnels[key]
-	if old != nil && (old.state == "connecting" || old.state == "authentication" || old.state == "ready") {
-		return t.status(old), nil
+	if old != nil {
+		select {
+		case <-old.done:
+		default:
+			if old.stopped {
+				return t.status(old), errors.New("ssh_stopping")
+			}
+			return t.status(old), nil
+		}
 	}
 	c := t.startLocked(key, v, 0, true)
 	return t.status(c), nil
 }
-func (t *Transport) startLocked(key string, v api.SSHTarget, attempts int, interactive bool) *tunnel {
+func (t *Transport) startLocked(key string, v api.SSHTarget, failures int, interactive bool) *tunnel {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &tunnel{target: v, state: "connecting", cancel: cancel, done: make(chan struct{}), lastAttempt: time.Now(), attempts: attempts}
+	t.generation++
+	c := &tunnel{target: v, state: "connecting", cancel: cancel, done: make(chan struct{}), failures: failures, generation: t.generation}
 	t.tunnels[key] = c
+	t.diagnoseLocked(c, "starting", "", 0, nil)
 	go t.run(ctx, c, interactive)
 	return c
 }
@@ -132,9 +146,13 @@ func (t *Transport) Resolve(ctx context.Context, address string) (string, error)
 			t.mu.Unlock()
 			return "", errors.New("ssh_channel_limit")
 		}
-		c = t.startLocked(key, v, 1, false)
-	} else if c.state == "failed" && c.attempts < 3 && time.Since(c.lastAttempt) >= time.Duration(1<<c.attempts)*5*time.Second {
-		c = t.startLocked(key, v, c.attempts+1, false)
+		c = t.startLocked(key, v, 0, false)
+	} else if c.state == "failed" && !c.stopped && retryable(c.issue) && !t.now().Before(c.retryAt) {
+		c = t.startLocked(key, v, c.failures, false)
+	}
+	if c.stopped {
+		t.mu.Unlock()
+		return "", errors.New("ssh_stopped")
 	}
 	if c.state == "ready" {
 		a := c.address
@@ -163,8 +181,11 @@ func (t *Transport) Resolve(ctx context.Context, address string) (string, error)
 			return "", errors.New("ssh_reconnect_required")
 		case <-tick.C:
 			t.mu.Lock()
-			state, addr := c.state, c.address
+			state, addr, stopped := c.state, c.address, c.stopped
 			t.mu.Unlock()
+			if stopped {
+				return "", errors.New("ssh_stopped")
+			}
 			if state == "ready" {
 				return addr, nil
 			}
@@ -190,6 +211,7 @@ func (t *Transport) Answer(in api.SSHAnswer) error {
 		return errors.New("ssh_prompt_expired")
 	}
 	if in.Cancel {
+		c.stopped = true
 		c.cancel()
 		return nil
 	}
@@ -201,6 +223,9 @@ func (t *Transport) Answer(in api.SSHAnswer) error {
 	}
 	select {
 	case c.answer <- in.Value:
+		if c.prompt.Confirm && in.Value == "no" {
+			c.stopped = true
+		}
 		c.prompt = nil
 		return nil
 	default:
@@ -215,7 +240,7 @@ func (t *Transport) Stop(v api.SSHTarget) error {
 	t.mu.Lock()
 	c := t.tunnels[key]
 	if c != nil {
-		c.attempts = 3
+		c.stopped = true
 		c.cancel()
 	}
 	t.mu.Unlock()
@@ -231,19 +256,11 @@ func (t *Transport) Stop(v api.SSHTarget) error {
 
 // Release only channels the owning connection service has proved unreferenced.
 // Keep authentication/connecting episodes alive; never infer task ownership here.
-// Cancellation is nonblocking, and Close still joins retired processes.
+// Cancellation is nonblocking. Keep the target indexed until cleanup completes,
+// so Start cannot overlap its process and Close still joins it.
 func (t *Transport) ReleaseUnused(addresses []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	pending := t.retired[:0]
-	for _, done := range t.retired {
-		select {
-		case <-done:
-		default:
-			pending = append(pending, done)
-		}
-	}
-	t.retired = pending
 	for _, address := range addresses {
 		target, ok := Target(address)
 		if !ok {
@@ -257,16 +274,37 @@ func (t *Transport) ReleaseUnused(addresses []string) {
 		if c == nil || (c.state != "ready" && c.state != "failed") {
 			continue
 		}
+		c.stopped = true
+		c.released = true
 		c.cancel()
-		t.retired = append(t.retired, c.done)
-		delete(t.tunnels, key)
+		select {
+		case <-c.done:
+			delete(t.tunnels, key)
+		default:
+			// run removes this same generation after all owned resources exit.
+		}
 	}
+}
+
+// FailedChannelAddresses lets the connection owner prove which completed attempts no
+// longer have live/profile references before admitting another explicit target.
+func (t *Transport) FailedChannelAddresses() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	addresses := make([]string, 0, len(t.tunnels))
+	for key, c := range t.tunnels {
+		if c.state == "failed" {
+			addresses = append(addresses, key)
+		}
+	}
+	return addresses
 }
 func (t *Transport) Close() {
 	t.mu.Lock()
 	t.closed = true
-	wait := append([]chan struct{}{}, t.retired...)
+	wait := make([]chan struct{}, 0, len(t.tunnels))
 	for _, c := range t.tunnels {
+		c.stopped = true
 		c.cancel()
 		wait = append(wait, c.done)
 	}
@@ -283,14 +321,34 @@ func (t *Transport) Close() {
 }
 func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 	issue := "ssh_connection_failed"
+	var exitCode *int
 	defer func() {
 		t.mu.Lock()
+		defer t.mu.Unlock()
+		phase := "blocked"
+		var delay time.Duration
+		if c.stopped || issue == "ssh_stopped" {
+			c.stopped, issue, phase = true, "ssh_stopped", "stopped"
+		} else if retryable(issue) {
+			// Saturation only protects the counter; it never ends recovery.
+			c.failures = min(c.failures+1, 32)
+			delay = retryDelay(c.failures)
+			c.retryAt, phase = t.now().Add(delay), "retry_wait"
+		}
 		c.state = "failed"
 		c.issue = issue
 		c.prompt = nil
 		c.token = ""
-		t.mu.Unlock()
+		t.diagnoseLocked(c, phase, issue, delay, exitCode)
+		// Publish terminal state only after the child, broker and private socket
+		// have all exited. A concurrent Resolve cannot overlap generations.
 		close(c.done)
+		if c.released {
+			key, _ := targetKey(c.target)
+			if t.tunnels[key] == c {
+				delete(t.tunnels, key)
+			}
+		}
 	}()
 	if e := localstate.EnsurePrivateDirectory(t.root); e != nil {
 		issue = "ssh_config_unreadable"
@@ -403,9 +461,19 @@ func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 		issue = "ssh_not_installed"
 		return
 	}
+	t.mu.Lock()
+	c.pid = cmd.Process.Pid
+	t.diagnoseLocked(c, "started", "", 0, nil)
+	t.mu.Unlock()
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
-	defer func() { c.cancel(); bound(); <-exited }()
+	defer func() {
+		c.cancel()
+		bound()
+		<-exited
+		code := cmd.ProcessState.ExitCode()
+		exitCode = &code
+	}()
 	// Start with all inherited forwards disabled. Only a second command, with
 	// -F none and our private control socket, adds our single loopback forward.
 	// Unlike ClearAllForwardings=yes plus -L on one command, this does not erase
@@ -460,13 +528,21 @@ func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 			c.state = "ready"
 			c.issue = ""
 			c.address = fmt.Sprintf("http://127.0.0.1:%d", port)
+			t.diagnoseLocked(c, "ready", "", 0, nil)
+			c.failures = 0
+			c.retryAt = time.Time{}
+			_ = diag.code() // Discard startup warnings before classifying a later exit.
 			t.mu.Unlock()
 			select {
 			case <-ctx.Done():
 				issue = "ssh_stopped"
 				return
 			case <-exited:
-				issue = "ssh_disconnected"
+				issue = diag.code()
+				if issue == "ssh_authentication_or_connection_failed" {
+					// This generation already authenticated and owned a forward.
+					issue = "ssh_disconnected"
+				}
 				return
 			}
 		}

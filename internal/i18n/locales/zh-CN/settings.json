@@ -836,6 +836,7 @@
   "sshConnectFailed": "SSH 未连接成功，请用系统 SSH 检查此 Host 后重试。",
   "sshReconnect": "请重新连接 SSH，核对原 Bot。",
   "sshForwardFailed": "SSH 已连接，但无法建立 Bot 通道，请检查转发权限。",
+  "sshStopping": "连接正在关闭，请稍后再连接。",
   "sshStopped": "SSH 通道已关闭。",
   "sshConnecting": "正在连接 SSH…",
   "sshAuthentication": "SSH 认证",

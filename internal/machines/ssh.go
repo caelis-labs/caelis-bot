@@ -19,9 +19,16 @@ func (s *Service) RegisterSSHIdentity(path string) (api.SSHIdentity, error) {
 func (s *Service) StartSSHConnection(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := sshtransport.Address(v)
+	targetAddress, err := sshtransport.Address(v)
 	if err != nil {
 		return api.SSHConnectionStatus{}, err
+	}
+	// Reclaim abandoned, unreferenced attempts without forgetting stopped or
+	// authentication-blocked channels still owned by another connection.
+	for _, address := range s.ssh.FailedChannelAddresses() {
+		if address != targetAddress {
+			s.releaseSSHIfUnusedLocked(address)
+		}
 	}
 	return s.ssh.Start(v)
 }
