@@ -43,7 +43,7 @@ func (f *delegateAdmissionRuntime) SubmitReport(context.Context, api.Submission)
 }
 
 func TestDelegateAdmissionSourcesAndDiagnostic(t *testing.T) {
-	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "workspace_invalid", "native_conflict", "native_rejected"} {
+	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "native_conflict", "native_rejected"} {
 		t.Run(reason, func(t *testing.T) {
 			r, _, _ := fixture(t)
 			root := t.TempDir()
@@ -73,6 +73,9 @@ func TestDelegateAdmissionSourcesAndDiagnostic(t *testing.T) {
 			case "work_admission_failed":
 				f.admit = errors.New("native admission unavailable")
 				wantCause = f.admit.Error()
+			case "source_not_authorized":
+				f.admit = &api.WorkAdmissionError{Code: reason, Cause: errors.New("application summary cannot authorize work")}
+				wantCause = f.admit.Error()
 			case "workspace_invalid":
 				workspace = filepath.Join(root, "absent")
 				_, cause := api.ResolveTaskWorkspace(workspace)
@@ -94,9 +97,9 @@ func TestDelegateAdmissionSourcesAndDiagnostic(t *testing.T) {
 			if failure["reason"] != reason || !strings.Contains(failure["detail"], wantCause) || data["requestId"] != toolSubmissionID(invocation) {
 				t.Fatalf("lost classification, cause or original identity: %#v", out.StructuredContent)
 			}
-			temporary := reason == "updater_paused" || reason == "capacity_full" || reason == "work_admission_failed"
+			temporary := reason == "updater_paused" || reason == "capacity_full"
 			message := strings.ToLower(failure["message"])
-			if temporary != strings.Contains(message, "retry") || strings.Contains(message, "definitively rejected") {
+			if temporary != strings.Contains(message, "30 seconds") || strings.Contains(message, "definitively rejected") {
 				t.Fatal("wrong retry guidance", failure)
 			}
 			if reason != "workspace_invalid" && strings.Contains(message, "check the selected workspace") {

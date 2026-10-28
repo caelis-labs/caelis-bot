@@ -8,6 +8,27 @@ import (
 	"unicode/utf8"
 )
 
+// WorkAdmissionError classifies an admission condition without settling any
+// input receipt. A failed admission check can also occur while reconciling an
+// earlier dispatch, so it must not itself be a WorkMessageRejection.
+type WorkAdmissionError struct {
+	Code  string
+	Cause error
+}
+
+func (e *WorkAdmissionError) Error() string { return e.Cause.Error() }
+func (e *WorkAdmissionError) Unwrap() error { return e.Cause }
+
+// WorkAdmissionReason preserves only adapter-proven classifications. Unknown
+// admission failures carry no assertion that waiting will make them succeed.
+func WorkAdmissionReason(err error) string {
+	var admission *WorkAdmissionError
+	if errors.As(err, &admission) && admission.Code != "" {
+		return admission.Code
+	}
+	return "work_admission_failed"
+}
+
 var delegationPrivateTail = regexp.MustCompile(`(?i)(?:\b(?:body|prompt|payload|request[ _-]?body|response[ _-]?body|authorization|proxy-authorization|cookie|set-cookie|headers?|credentials?|password|passwd|secret|access[ _-]?token|refresh[ _-]?token|token|api[ _-]?key)\b["']?\s*(?:[:=]|\s)|\b(?:request|response)["']?\s*[:=]|\b(?:bearer|basic)\s+|[\{\[])`)
 var delegationURL = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s<>"']+`)
 var delegationSecret = regexp.MustCompile(`(?i)\b(?:sk-[a-z0-9_-]+|gh[pousr]_[a-z0-9_]+|github_pat_[a-z0-9_]+|AKIA[A-Z0-9]{16}|eyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+)\b`)

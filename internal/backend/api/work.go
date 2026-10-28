@@ -35,8 +35,8 @@ type WorkMessageRejection struct {
 	Cause error
 	// Code is a stable, optional local classification, never native error text.
 	// Creation refusals use updater_paused, capacity_full, work_admission_failed,
-	// workspace_invalid, native_conflict or native_rejected. Empty legacy codes
-	// carry no retry guidance; Cause still preserves the original error chain.
+	// workspace_invalid, source_not_authorized, native_conflict or native_rejected.
+	// Empty legacy codes carry no retry guidance; Cause preserves the original error chain.
 	Code string
 }
 

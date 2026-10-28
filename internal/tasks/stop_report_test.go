@@ -158,7 +158,7 @@ func TestFailureReportFreezesOriginalTextBeforeDispatch(t *testing.T) {
 }
 
 func TestCreationAdmissionRefusalKeepsOriginalUnknown(t *testing.T) {
-	for _, kind := range []string{"capacity", "paused", "native_admission"} {
+	for _, kind := range []string{"capacity", "paused", "native_admission", "source"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newRuntime()
 			m := openFixture(t, t.TempDir(), "codex", f)
@@ -177,13 +177,15 @@ func TestCreationAdmissionRefusalKeepsOriginalUnknown(t *testing.T) {
 				}
 			case "paused":
 				m.paused = true
+			case "source":
+				f.admit = &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("summary cannot authorize work")}
 			case "native_admission":
 				f.admit = errors.New("native admission unavailable")
 			}
 			before := f.starts
 			denied, err := m.StartTask(t.Context(), input("new-admission"))
 			var refusal *api.WorkMessageRejection
-			wantReason := map[string]string{"capacity": "capacity_full", "paused": "updater_paused", "native_admission": "work_admission_failed"}[kind]
+			wantReason := map[string]string{"capacity": "capacity_full", "paused": "updater_paused", "native_admission": "work_admission_failed", "source": "source_not_authorized"}[kind]
 			if !errors.As(err, &refusal) || refusal.Code != wantReason || refusal.Cause == nil || denied.Outcome != "rejected" || f.starts != before {
 				t.Fatal("pre-dispatch refusal became uncertain", denied, err)
 			}

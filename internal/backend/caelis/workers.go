@@ -55,11 +55,14 @@ func (s *Session) authority(ctx context.Context) (wire.SessionToolCall, error) {
 	call, ok := ctx.Value(invocationKey{}).(wire.SessionToolCall)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !ok || !s.connected || s.closed || call.SessionId != s.state.Session.SessionId || call.PrincipalId != s.state.PrincipalID {
+	if !ok || call.SessionId != s.state.Session.SessionId || call.PrincipalId != s.state.PrincipalID {
+		return call, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("需要当前助手请求的明确授权来源")}
+	}
+	if !s.connected || s.closed {
 		return call, errors.New("需要当前助手请求的明确授权来源")
 	}
 	if call.Source.Kind != "user" && call.Source.Kind != "authorized_background" {
-		return call, errors.New("应用摘要或外部材料不能授权新工作")
+		return call, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("应用摘要或外部材料不能授权新工作")}
 	}
 	return call, nil
 }

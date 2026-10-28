@@ -48,6 +48,9 @@ func (m *Manager) rejectStartBeforeDispatch(request, code string, cause error) (
 			}
 		}
 	}
+	if code == "work_admission_failed" {
+		code = api.WorkAdmissionReason(cause)
+	}
 	return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Code: code, Cause: cause}
 }
 func (m *Manager) inputFiles(ctx context.Context, refs []api.TaskFileReference, files []api.InputFile) ([]api.InputFile, error) {
