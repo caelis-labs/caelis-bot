@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/chatlog"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
@@ -32,14 +33,17 @@ func TestControlConversationUsesLocalIMAndMasksMarkedSecret(t *testing.T) {
 	if got := a.textControl.Handle(t.Context(), in, api.Snapshot{Approvals: []api.Approval{approval}}); !strings.Contains(got, "仍需回答") {
 		t.Fatal(got)
 	}
-	items := a.Backend.ChatSnapshot(0, "").Snapshot.Items
-	var visible string
-	for _, item := range items {
-		visible += item.Text + "\n"
+	assertDisplay := func(items []api.Item) {
+		t.Helper()
+		var visible string
+		for _, item := range items {
+			visible += item.Text + "\n"
+		}
+		if len(items) != 4 || !strings.Contains(visible, "/unknown") || !strings.Contains(visible, "已填写敏感字段") || strings.Contains(visible, secret) {
+			t.Fatalf("local IM control projection: %q", visible)
+		}
 	}
-	if len(items) != 4 || !strings.Contains(visible, "/unknown") || !strings.Contains(visible, "已填写敏感字段") || strings.Contains(visible, secret) {
-		t.Fatalf("local IM control projection: %q", visible)
-	}
+	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "").Snapshot.Items }, first.ID, in.ID))
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +51,34 @@ func TestControlConversationUsesLocalIMAndMasksMarkedSecret(t *testing.T) {
 	if err != nil || strings.Contains(string(disk), secret) {
 		t.Fatal("marked secret entered local IM storage", err)
 	}
+	reopened := chatlog.Open(filepath.Join(root, "chat.sqlite"))
+	defer reopened.Close()
+	assertDisplay(waitChatInputs(t, func() []api.Item { items, _ := reopened.Snapshot(); return items }, first.ID, in.ID))
+}
+
+// New user items become visible only after the chat writer checks persisted
+// request identity. Wait for those IDs, then assert their bodies separately.
+func waitChatInputs(t *testing.T, read func() []api.Item, requestIDs ...string) []api.Item {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		items := read()
+		found := 0
+		for _, id := range requestIDs {
+			for _, item := range items {
+				if item.Kind == "user" && item.RequestID == id {
+					found++
+					break
+				}
+			}
+		}
+		if found == len(requestIDs) {
+			return items
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("accepted chat inputs did not become visible: %v", requestIDs)
+	return nil
 }
 
 type testEngine struct {

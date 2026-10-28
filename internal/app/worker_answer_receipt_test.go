@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/chatlog"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
@@ -93,15 +94,19 @@ func TestAsyncInputAndUnknownFieldHaveAccurateDurableDisplay(t *testing.T) {
 	missing := textchannel.Inbound{Channel: "telegram", Conversation: "fixture", ID: "missing-field", Text: "/answer Q999 SYNTHETIC_PRIVATE_VALUE"}
 	_ = a.textControl.Handle(t.Context(), ordinary, api.Snapshot{})
 	_ = a.textControl.Handle(t.Context(), missing, api.Snapshot{})
-	found := map[string]string{}
-	for _, row := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
-		if row.Kind == "user" {
-			found[row.RequestID] = row.Text
+	assertDisplay := func(items []api.Item) {
+		t.Helper()
+		found := map[string]string{}
+		for _, row := range items {
+			if row.Kind == "user" {
+				found[row.RequestID] = row.Text
+			}
+		}
+		if found[ordinary.ID] != ordinary.Text || found[missing.ID] != "回答内容已隐藏" {
+			t.Fatal("ordinary/unknown answer display classification failed")
 		}
 	}
-	if found[ordinary.ID] != ordinary.Text || found[missing.ID] != "回答内容已隐藏" {
-		t.Fatal("ordinary/unknown answer display classification failed")
-	}
+	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "").Snapshot.Items }, ordinary.ID, missing.ID))
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +114,9 @@ func TestAsyncInputAndUnknownFieldHaveAccurateDurableDisplay(t *testing.T) {
 	if err != nil || strings.Contains(string(disk), "SYNTHETIC_PRIVATE_VALUE") {
 		t.Fatal("unknown field value entered durable IM")
 	}
+	reopened := chatlog.Open(filepath.Join(root, "chat.sqlite"))
+	defer reopened.Close()
+	assertDisplay(waitChatInputs(t, func() []api.Item { items, _ := reopened.Snapshot(); return items }, ordinary.ID, missing.ID))
 }
 
 type resolvingAnswerOwner struct {
