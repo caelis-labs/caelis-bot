@@ -56,9 +56,13 @@ func (s *Service) registerShortcutSlot(v Shortcut, slot int) error {
 func (s *Service) shortcutResult(slot int, enabled bool, err error) {
 	state := s.shortcutStates()[slot]
 	previous := state.Status
+	configurationWarning := state.Message
 	state.Registered = enabled && err == nil
 	state.Status = "disabled"
 	state.Message = ""
+	if previous == "" && err == nil {
+		state.Message = configurationWarning
+	}
 	if enabled {
 		switch {
 		case err == nil:

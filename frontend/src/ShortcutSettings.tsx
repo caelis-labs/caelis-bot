@@ -3,6 +3,7 @@ import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple';
 import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import { useEffectEvent, useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
+import { presentationWarning } from './presentation-warning';
 import { SettingRow } from './SettingsUI';
 import { useI18n } from './i18n';
 
@@ -21,9 +22,9 @@ function NativeShortcutSettings({tasks=false,capture=false,paste=false}:{tasks?:
  const edit=useRef<HTMLButtonElement>(null),recorder=useRef<HTMLInputElement>(null);
  const [value,setValue]=useState<Shortcut>(defaults),[recording,setRecording]=useState(false),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[message,setMessage]=useState('');
  const [availability,setAvailability]=useState<State['status']>();
- const readGeneration=useRef(0),interacting=useRef(false);
+ const readGeneration=useRef(0),interacting=useRef(false),reportedWarning=useRef('');
  interacting.current=busy||recording;
- const receive=(s:State)=>{setValue(s.shortcut);setReady(true);setAvailability(s.status??(s.registered?'available':s.shortcut.enabled?'unavailable':'disabled'));};
+ const receive=(s:State)=>{if(s.registered&&s.message&&reportedWarning.current!==s.message){reportedWarning.current=s.message;presentationWarning('background_read_failed');}setValue(s.shortcut);setReady(true);setAvailability(s.status??(s.registered?'available':s.shortcut.enabled?'unavailable':'disabled'));};
  const loaded=useEffectEvent(receive);
  const readFailed=useEffectEvent(()=>{setAvailability('unavailable');});
  useEffect(()=>{

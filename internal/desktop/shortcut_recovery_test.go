@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -226,4 +227,27 @@ func TestShortcutRecoveryRunsWithoutReadingOrSavingSettings(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("no automatic registration after owner release")
+}
+
+func TestShortcutRecoveryRetainsConfigurationReadWarning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shortcut.json")
+	if err := os.WriteFile(path, []byte("invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := newService(&memoryStore{value: defaults()})
+	s.configureShortcut(path)
+	warning := s.ShortcutSettings().Message
+	if warning == "" {
+		t.Fatal("missing configuration warning")
+	}
+	d := &recoveryFake{}
+	d.displays = []Rect{{0, 0, 1440, 900}}
+	s.start(d)
+	defer s.shutdown()
+	if state := s.ShortcutSettings(); !state.Registered || state.Message != warning {
+		t.Fatal("fallback registration erased config read failure", state)
+	}
+	if state, err := s.SaveShortcut(defaultShortcut()); err != nil || state.Message != "" {
+		t.Fatal("explicit repair did not clear config warning", state, err)
+	}
 }
