@@ -19,14 +19,15 @@ if(new URLSearchParams(location.search).get('view')==='streaming')window.request
 if(new URLSearchParams(location.search).get('view')==='streaming')window.cancelAnimationFrame=id=>{const frame=frames.get(id);if(frame?.native!==undefined)nativeCancel(frame.native);frames.delete(id);};
 const hold=(value:boolean)=>{held=value;for(const [id,frame] of frames){if(frame.native!==undefined){nativeCancel(frame.native);delete frame.native;}if(!held)schedule(id);}};
 const step=(now=performance.now())=>{for(const [id,frame] of [...frames]){if(frame.native!==undefined)nativeCancel(frame.native);frames.delete(id);frame.callback(now);}};
-const workerClient={taskConversation:async()=>{w.workerReads++;return structuredClone(w.workerValue)}} as unknown as WebClient;
+const workerClient={taskConversation:async()=>{w.workerReads++;return structuredClone(w.workerValue)},
+ taskObservation:async()=>({task:{id:'worker',status:w.workerValue.status},items:[],revision:'fixture'})} as unknown as WebClient;
 export function StreamingFixture(){
  const [surface,setSurface]=useState('chat'),[generation,setGeneration]=useState(0),[probe,setProbe]=useState({text:'',animate:false});
  w.streamMount=(value:string)=>{const generation=++mountSerial;setSurface(value);setGeneration(generation);return generation;};
  w.streamProbe=(value:typeof probe)=>{setProbe(value);};
  return <><div key={generation} data-stream-surface={surface} data-stream-generation={generation}>{surface==='chat'?<ContextWindow/>:surface==='bubble'?<Bubble/>:surface==='worker'?<WebTasks client={workerClient} tasks={[{id:'worker',title:'Synthetic worker',status:w.workerValue.status}]} listError={false} onRetryList={()=>{}} onClose={()=>{}} onSelect={()=>{}}/>:<MessageContent text={probe.text} animate={probe.animate} report={()=>{}}/>}</div><button style={{position:'fixed',top:3,left:3,zIndex:200,fontSize:10}} onClick={()=>void w.runStreamingRegression()}>Run streaming regression</button></>;
 }
-const selector=(surface:string,id:string)=>surface==='bubble'?'.bubble-copy .markdown-body':surface==='worker'?'.web-task-message.assistant .markdown-body':surface==='probe'? '[data-stream-surface=probe] .markdown-body':`[data-message-id="${id}"] .markdown-body`;
+const selector=(surface:string,id:string)=>surface==='bubble'?'.bubble-copy .markdown-body':surface==='worker'?'.worker-message.assistant .markdown-body':surface==='probe'? '[data-stream-surface=probe] .markdown-body':`[data-message-id="${id}"] .markdown-body`;
 const visible=(surface:string,id:string)=>document.querySelector(selector(surface,id))?.textContent??'';
 const publish=async(surface:string,id:string,value:string,status:string)=>{
  const revision=w.fixtureStreamSnapshot({id,text:value,status});
