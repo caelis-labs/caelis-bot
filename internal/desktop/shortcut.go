@@ -23,6 +23,7 @@ type ShortcutState struct {
 	Shortcut   Shortcut `json:"shortcut"`
 	Registered bool     `json:"registered"`
 	Message    string   `json:"message"`
+	Status     string   `json:"status"`
 }
 type shortcutDriver interface {
 	registerShortcut(Shortcut) error
@@ -68,29 +69,7 @@ func (s *Service) SaveShortcut(v Shortcut) (ShortcutState, error) {
 	if err := validateShortcut(v, s.LanguagePreferences().Locale); err != nil {
 		return s.shortcut, err
 	}
-	d, ok := s.native.(shortcutDriver)
-	if !ok || s.stopped {
-		return s.shortcut, errors.New(s.text("native.shortcutUnavailable", nil))
-	}
-	old := s.shortcut.Shortcut
-	if s.captureShortcutConflict(v, 0) {
-		return s.shortcut, errors.New(s.text("native.shortcutConflict", nil))
-	}
-	if err := d.registerShortcut(v); err != nil {
-		return s.shortcut, err
-	}
-	if err := saveShortcut(s.shortcutFile, v); err != nil {
-		if rollback := d.registerShortcut(old); rollback != nil {
-			disabled := v
-			disabled.Enabled = false
-			_ = d.registerShortcut(disabled)
-			s.shortcut.Registered = false
-			s.shortcut.Message = s.text("native.shortcutRollbackFailed", nil)
-		}
-		return s.shortcut, errors.New(s.text("native.shortcutSaveFailed", nil))
-	}
-	s.shortcut = ShortcutState{Shortcut: v, Registered: v.Enabled}
-	return s.shortcut, nil
+	return s.saveShortcutSlot(v, 0, s.shortcutFile)
 }
 func saveShortcut(path string, v Shortcut) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

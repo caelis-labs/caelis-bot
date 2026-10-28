@@ -362,6 +362,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .shortcut-inline { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
 .shortcut-keycap { font:inherit; background:var(--caelis-hover); border-radius:7px; padding:4px 9px; white-space:nowrap; }
 .shortcut-unset { color:var(--muted); }
+.shortcut-status[data-state="conflict"] { color:var(--error); }
 .settings-window .shortcut-inline button.shortcut-icon { display:grid; place-items:center; border:0; background:transparent; color:var(--muted); width:32px; min-height:32px; padding:4px; }
 .settings-window .shortcut-inline button.shortcut-icon:hover { color:var(--ink); background:var(--caelis-hover); }
 .settings-window .shortcut-inline button.shortcut-cancel { border:0; background:transparent; color:var(--muted); }

@@ -126,7 +126,7 @@ func (s *Service) SetCaptureEnabled(enabled bool) (CapturePreferences, error) {
 	if !ok || !s.started || s.stopped {
 		return old, errors.New(s.text("native.shortcutUnavailable", nil))
 	}
-	registered := [2]bool{s.capture.shortcuts[0].Registered, s.capture.shortcuts[1].Registered}
+	registered := s.capture.shortcuts
 	for i := range s.capture.shortcuts {
 		v := s.capture.shortcuts[i].Shortcut
 		v.Enabled = enabled && v.Enabled
@@ -134,11 +134,13 @@ func (s *Service) SetCaptureEnabled(enabled bool) (CapturePreferences, error) {
 			s.rollbackCaptureRegistration(d, registered)
 			return old, errors.New(s.text("native.shortcutConflict", nil))
 		}
-		if err := d.registerCaptureShortcut(v, i); err != nil {
+		err := d.registerCaptureShortcut(v, i)
+		if err != nil && !errors.Is(err, errShortcutConflict) {
 			s.rollbackCaptureRegistration(d, registered)
 			return old, err
 		}
-		s.capture.shortcuts[i].Registered = v.Enabled
+		s.shortcutRetries[i+2] = shortcutRetry{}
+		s.shortcutResult(i+2, v.Enabled, err)
 	}
 	next := old
 	next.Enabled = enabled
@@ -161,16 +163,16 @@ func (s *Service) SetCaptureEnabled(enabled bool) (CapturePreferences, error) {
 	}
 	return next, nil
 }
-func (s *Service) rollbackCaptureRegistration(d captureDriver, registered [2]bool) {
+func (s *Service) rollbackCaptureRegistration(d captureDriver, registered [2]ShortcutState) {
 	for i := range s.capture.shortcuts {
 		v := s.capture.shortcuts[i].Shortcut
-		v.Enabled = registered[i]
+		v.Enabled = registered[i].Registered
 		if err := d.registerCaptureShortcut(v, i); err != nil {
 			v.Enabled = false
 			_ = d.registerCaptureShortcut(v, i)
-			s.capture.shortcuts[i].Registered = false
+			s.shortcutResult(i+2, s.capture.preferences.Enabled && s.capture.shortcuts[i].Shortcut.Enabled, err)
 		} else {
-			s.capture.shortcuts[i].Registered = registered[i]
+			s.capture.shortcuts[i] = registered[i]
 		}
 	}
 }
@@ -238,31 +240,7 @@ func (s *Service) saveCaptureShortcut(v Shortcut, kind int) (ShortcutState, erro
 	if err := validateCaptureShortcut(v); err != nil {
 		return old, err
 	}
-	d, ok := s.native.(captureDriver)
-	if !ok || s.stopped {
-		return old, errors.New(s.text("native.shortcutUnavailable", nil))
-	}
-	if s.captureShortcutConflict(v, kind+2) {
-		return old, errors.New(s.text("native.shortcutConflict", nil))
-	}
-	active := v
-	active.Enabled = v.Enabled && s.capture.preferences.Enabled
-	if err := d.registerCaptureShortcut(active, kind); err != nil {
-		return old, err
-	}
-	if err := saveShortcut(s.capture.files[kind], v); err != nil {
-		previous := old.Shortcut
-		previous.Enabled = old.Registered
-		if rollback := d.registerCaptureShortcut(previous, kind); rollback != nil {
-			disabled := v
-			disabled.Enabled = false
-			_ = d.registerCaptureShortcut(disabled, kind)
-			s.capture.shortcuts[kind].Registered = false
-		}
-		return s.capture.shortcuts[kind], err
-	}
-	s.capture.shortcuts[kind] = ShortcutState{Shortcut: v, Registered: active.Enabled}
-	return s.capture.shortcuts[kind], nil
+	return s.saveShortcutSlot(v, kind+2, s.capture.files[kind])
 }
 func (s *Service) CaptureScreen()   { s.captureCommand(0) }
 func (s *Service) PasteImage()      { s.captureCommand(1) }

@@ -1,5 +1,7 @@
 //go:build darwin && cgo
 
+#import "hotkey_darwin.h"
+
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -34,15 +36,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 
 @class BotHost;
-@interface BotHotkeySlot : NSObject
-@property EventHotKeyRef registration;
-@property NSString *key;
-@property int flags;
-@property UInt32 revision;
-@property BOOL down;
-@end
-@implementation BotHotkeySlot
-@end
 @interface BotInputPanel : NSPanel
 @property BOOL interactive;
 @end
@@ -53,7 +46,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @interface BotHost : NSObject <NSMenuDelegate, UNUserNotificationCenterDelegate>
 @property BotCapture *capture;
 @property BOOL captureEnabled;
-@property NSArray<BotHotkeySlot *> *hotkeys;
+@property BotHotkeys *hotkeys;
 @property BotInputPanel *pet;
 @property NSWindow *history;
 @property BotInputPanel *bubble;
@@ -81,7 +74,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property(readonly) BOOL pressing;
 @property BotPetInputView *inputView;
 @property NSTimer *dragCompletion;
-@property EventHandlerRef shortcutHandler;
 
 @property BOOL visible;
 @property NSStatusItem *statusItem;
@@ -630,6 +622,13 @@ void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t h
         if (app && app.processIdentifier != NSProcessInfo.processInfo.processIdentifier) [weak dismissMenu:@"menu-dismiss-other-app"];
     }];
     [host.observers addObject:activated];
+    for (NSString *name in @[NSWorkspaceDidTerminateApplicationNotification, NSWorkspaceDidWakeNotification, NSWorkspaceDidActivateApplicationNotification]) {
+        id observer=[NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            [weak.hotkeys reconcileReleases];
+            if(weak.handle) desktopEvent(weak.handle,24,0,0,0);
+        }];
+        [host.observers addObject:observer];
+    }
     for (NSString *name in @[NSWindowDidBecomeKeyNotification,NSWindowDidResignKeyNotification,NSWindowDidMiniaturizeNotification,NSWindowDidDeminiaturizeNotification]) {
         id observer=[NSNotificationCenter.defaultCenter addObserverForName:name object:host.history queue:nil usingBlock:^(NSNotification *note) { [weak updateBubble]; }];
         [host.observers addObject:observer];
@@ -715,8 +714,7 @@ void bot_destroy(void *pointer) {
     [host.inputView cancelInteraction];
     [host.taskDock stop];
     host.handle = 0;
-    for(BotHotkeySlot *slot in host.hotkeys)if(slot.registration)UnregisterEventHotKey(slot.registration);
-    if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
+    [host.hotkeys invalidate];
     if (host.globalMonitor) [NSEvent removeMonitor:host.globalMonitor];
     if (host.localMonitor) [NSEvent removeMonitor:host.localMonitor];
     for (id observer in host.observers) {
@@ -850,53 +848,22 @@ void bot_task_opening(void *pointer,char *identifier,char *message) {
     [((__bridge BotHost *)pointer).taskDock setOpening:[NSString stringWithUTF8String:identifier] message:[NSString stringWithUTF8String:message]];
 }
 
-// Carbon hotkeys are system registrations; no keyboard surveillance permission.
-static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *context) {
-    BotHost *host=(__bridge BotHost *)context;
-    EventHotKeyID key;
-    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr || key.signature!='Cael')return eventNotHandledErr;
-    NSUInteger kind=key.id>>28;if(kind>=host.hotkeys.count)return eventNotHandledErr;
-    BotHotkeySlot *slot=host.hotkeys[kind];
-    if(!slot.registration||(key.id&0x0fffffff)!=slot.revision)return eventNotHandledErr;
-    BOOL down=GetEventKind(event)!=kEventHotKeyReleased;
-    if(slot.down==down)return noErr;slot.down=down;
-    if(kind==1){[host.taskDock setShortcutHeld:down];return noErr;}
-    if(!down)return noErr;
-    if(kind==2){if(host.captureEnabled)[host.capture capture];return noErr;}
-    if(kind==3){if(host.captureEnabled)[host.capture paste];return noErr;}
-    if(host.handle){[host trace:@"shortcut"];desktopEvent(host.handle,11,0,0,0);}
-    return noErr;
-}
+// Carbon registration and release reconciliation stay on the App main thread.
 void bot_toggle_tasks(void *pointer){[((__bridge BotHost *)pointer).taskDock toggle];}
 int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled,int kind) {
     BotHost *host=(__bridge BotHost *)pointer;
-    if(kind<0||kind>3)return paramErr;
-    if(!host.hotkeys)host.hotkeys=@[[BotHotkeySlot new],[BotHotkeySlot new],[BotHotkeySlot new],[BotHotkeySlot new]];
-    BotHotkeySlot *slot=host.hotkeys[kind];NSString *key=[NSString stringWithUTF8String:rawKey];
-    if(!enabled){if(slot.registration)UnregisterEventHotKey(slot.registration);slot.registration=NULL;slot.down=NO;if(kind==1)[host.taskDock setShortcutHeld:NO];return noErr;}
-    if(slot.registration&&[slot.key isEqual:key]&&slot.flags==flags)return noErr;
-    for(BotHotkeySlot *other in host.hotkeys)if(other!=slot&&other.registration&&[other.key isEqual:key]&&other.flags==flags)return eventHotKeyExistsErr;
-    NSDictionary *codes=@{@"Space":@49,@"KeyA":@0,@"KeyS":@1,@"KeyD":@2,@"KeyF":@3,@"KeyH":@4,@"KeyG":@5,@"KeyZ":@6,@"KeyX":@7,@"KeyC":@8,@"KeyV":@9,@"KeyB":@11,@"KeyQ":@12,@"KeyW":@13,@"KeyE":@14,@"KeyR":@15,@"KeyY":@16,@"KeyT":@17,@"KeyO":@31,@"KeyU":@32,@"KeyI":@34,@"KeyP":@35,@"KeyL":@37,@"KeyJ":@38,@"KeyK":@40,@"KeyN":@45,@"KeyM":@46,@"Digit1":@18,@"Digit2":@19,@"Digit3":@20,@"Digit4":@21,@"Digit6":@22,@"Digit5":@23,@"Digit9":@25,@"Digit7":@26,@"Digit8":@28,@"Digit0":@29,@"F1":@122,@"F2":@120,@"F3":@99,@"F4":@118,@"F5":@96,@"F6":@97,@"F7":@98,@"F8":@100,@"F9":@101,@"F10":@109,@"F11":@103,@"F12":@111};
-    NSNumber *code=codes[key];if(!code)return paramErr;
-    if(!host.shortcutHandler){
-        EventTypeSpec specs[]={{kEventClassKeyboard,kEventHotKeyPressed},{kEventClassKeyboard,kEventHotKeyReleased}};
-        EventHandlerRef handler=NULL;OSStatus result=InstallEventHandler(GetApplicationEventTarget(),bot_hotkey,2,specs,pointer,&handler);
-        if(result!=noErr)return result;host.shortcutHandler=handler;
+    if (!host.hotkeys) {
+        host.hotkeys=[BotHotkeys new];
+        __weak BotHost *weak=host;
+        host.hotkeys.action=^(NSUInteger slot,BOOL down) {
+            if (slot==1) { [weak.taskDock setShortcutHeld:down]; return; }
+            if (!down) return;
+            if (slot==2) { if(weak.captureEnabled)[weak.capture capture]; return; }
+            if (slot==3) { if(weak.captureEnabled)[weak.capture paste]; return; }
+            if(weak.handle) { [weak trace:@"shortcut"]; desktopEvent(weak.handle,11,0,0,0); }
+        };
     }
-    UInt32 mods=0;if(flags&1)mods|=controlKey;if(flags&2)mods|=optionKey;if(flags&4)mods|=shiftKey;if(flags&8)mods|=cmdKey;
-    CFArrayRef symbolic=NULL;
-    if(CopySymbolicHotKeys(&symbolic)==noErr&&symbolic){
-        BOOL reserved=NO;for(NSDictionary *entry in (__bridge NSArray *)symbolic){
-            if([entry[(__bridge NSString *)kHISymbolicHotKeyEnabled] boolValue]&&[entry[(__bridge NSString *)kHISymbolicHotKeyCode] unsignedIntValue]==code.unsignedIntValue&&([entry[(__bridge NSString *)kHISymbolicHotKeyModifiers] unsignedIntValue]&(controlKey|optionKey|shiftKey|cmdKey))==mods){reserved=YES;break;}}
-        CFRelease(symbolic);if(reserved)return eventHotKeyExistsErr;
-    }
-    UInt32 revision=(slot.revision+1)&0x0fffffff;
-    EventHotKeyRef registration=NULL;EventHotKeyID identifier={'Cael',((UInt32)kind<<28)|revision};
-    OSStatus result=RegisterEventHotKey(code.unsignedIntValue,mods,identifier,GetApplicationEventTarget(),0,&registration);
-    if(result!=noErr)return result;
-    if(slot.registration)UnregisterEventHotKey(slot.registration);
-    if(kind==1)[host.taskDock setShortcutHeld:NO];
-    slot.registration=registration;slot.revision=revision;slot.key=key;slot.flags=flags;slot.down=NO;return noErr;
+    return [host.hotkeys configureKey:[NSString stringWithUTF8String:rawKey] flags:flags enabled:enabled!=0 slot:kind];
 }
 void bot_bind_capture(void *pointer,void *capture) {
     BotHost *host=(__bridge BotHost *)pointer;host.capture=(__bridge BotCapture *)capture;

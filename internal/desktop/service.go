@@ -89,6 +89,9 @@ type Service struct {
 	contentImportMu         sync.Mutex
 	taskShortcutFile        string
 	taskShortcut            ShortcutState
+	shortcutRecoveryStop    chan struct{}
+	shortcutRecoveryWake    chan struct{}
+	shortcutRetries         [4]shortcutRetry
 	shortcutFile            string
 	shortcut                ShortcutState
 	surfaceReady            func(string, uint64)
@@ -173,16 +176,16 @@ func (s *Service) start(d driver) {
 	s.started = true
 	if d, ok := d.(shortcutDriver); ok {
 		if err := d.registerShortcut(s.shortcut.Shortcut); err != nil {
-			s.shortcut.Message = err.Error()
+			s.shortcutResult(0, s.shortcut.Shortcut.Enabled, err)
 		} else {
-			s.shortcut.Registered = s.shortcut.Shortcut.Enabled
+			s.shortcutResult(0, s.shortcut.Shortcut.Enabled, nil)
 		}
 	}
 	if d, ok := d.(taskShortcutDriver); ok {
 		if err := d.registerTaskShortcut(s.taskShortcut.Shortcut); err != nil {
-			s.taskShortcut.Message = err.Error()
+			s.shortcutResult(1, s.taskShortcut.Shortcut.Enabled, err)
 		} else {
-			s.taskShortcut.Registered = s.taskShortcut.Shortcut.Enabled
+			s.shortcutResult(1, s.taskShortcut.Shortcut.Enabled, nil)
 		}
 	}
 	s.placement = normalize(s.placement, d.screens())
@@ -192,11 +195,11 @@ func (s *Service) start(d driver) {
 			active := state.Shortcut
 			active.Enabled = active.Enabled && s.capture.preferences.Enabled
 			if s.captureShortcutConflict(active, i+2) {
-				state.Message = s.text("native.shortcutConflict", nil)
+				s.shortcutResult(i+2, active.Enabled, errShortcutConflict)
 			} else if err := capture.registerCaptureShortcut(active, i); err != nil {
-				state.Message = err.Error()
+				s.shortcutResult(i+2, active.Enabled, err)
 			} else {
-				state.Registered = active.Enabled
+				s.shortcutResult(i+2, active.Enabled, nil)
 			}
 		}
 		if s.capture.preferences.Enabled {
@@ -205,6 +208,7 @@ func (s *Service) start(d driver) {
 	}
 	d.apply(s.placement)
 	close(s.ready)
+	s.startShortcutRecovery()
 	slog.Info("Desktop native host ready")
 }
 func (s *Service) persist() error {
@@ -378,6 +382,9 @@ func (s *Service) shutdown() {
 		return
 	}
 	s.stopped = true
+	if s.shortcutRecoveryStop != nil {
+		close(s.shortcutRecoveryStop)
+	}
 	if s.taskWindows != nil {
 		s.taskWindows.CancelAll()
 	}

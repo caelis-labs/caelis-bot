@@ -39,29 +39,7 @@ func (s *Service) SaveTaskShortcut(v Shortcut) (ShortcutState, error) {
 	if err := validateShortcut(v, s.LanguagePreferences().Locale); err != nil {
 		return s.taskShortcut, err
 	}
-	d, ok := s.native.(taskShortcutDriver)
-	if !ok || s.stopped {
-		return s.taskShortcut, errors.New(s.text("native.shortcutUnavailable", nil))
-	}
-	old := s.taskShortcut.Shortcut
-	if s.captureShortcutConflict(v, 1) {
-		return s.taskShortcut, errors.New(s.text("native.shortcutConflict", nil))
-	}
-	if err := d.registerTaskShortcut(v); err != nil {
-		return s.taskShortcut, err
-	}
-	if err := saveShortcut(s.taskShortcutFile, v); err != nil {
-		if rollback := d.registerTaskShortcut(old); rollback != nil {
-			disabled := v
-			disabled.Enabled = false
-			_ = d.registerTaskShortcut(disabled)
-			s.taskShortcut.Registered = false
-			s.taskShortcut.Message = s.text("native.shortcutRollbackFailed", nil)
-		}
-		return s.taskShortcut, errors.New(s.text("native.shortcutSaveFailed", nil))
-	}
-	s.taskShortcut = ShortcutState{Shortcut: v, Registered: v.Enabled}
-	return s.taskShortcut, nil
+	return s.saveShortcutSlot(v, 1, s.taskShortcutFile)
 }
 
 func (s *Service) ToggleTaskDock() {
