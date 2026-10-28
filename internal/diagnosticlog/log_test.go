@@ -97,7 +97,9 @@ func TestNativeErrorDetailsAreClassifiedNotCopied(t *testing.T) {
 	const secret = "AUTH_AND_CONVERSATION_SENTINEL"
 	l := New(filepath.Join(t.TempDir(), "Logs"))
 	message := "No such file or directory; Authorization: Bearer " + secret
-	l.Write(Record{Code: "component_failed", Server: "bad\n" + secret, Reason: Reason(message), Fingerprint: Fingerprint([]byte(message))})
+	l.Write(Record{Code: "component_failed", Server: "bad\n" + secret,
+		TaskID: "bad\n" + secret, RequestID: "bad\n" + secret, Workspace: "https://user:" + secret + "@example.invalid",
+		Reason: Reason(message), Fingerprint: Fingerprint([]byte(message))})
 	b, err := os.ReadFile(l.path(0))
 	if err != nil || strings.Contains(string(b), secret) || !strings.Contains(string(b), "executable or file not found") || !strings.Contains(string(b), Fingerprint([]byte(message))) {
 		t.Fatal("private error leaked or correlation missing")

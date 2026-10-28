@@ -462,7 +462,7 @@ func TestPrivateNotebookCreationRejectedBeforeNativeDispatch(t *testing.T) {
 	s.opts.BotTools = &api.ToolConnection{NotebookDirectory: workspace}
 	v, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "private-workspace", Title: "Private workspace", Prompt: "Read", Workspace: workspace})
 	var rejected *api.WorkMessageRejection
-	if !errors.As(err, &rejected) || v.Outcome != "rejected" {
+	if !errors.As(err, &rejected) || v.Outcome != "rejected" || rejected.Code != "workspace_invalid" {
 		t.Fatalf("missing definite rejection: %#v %v", v, err)
 	}
 	f.mu.Lock()

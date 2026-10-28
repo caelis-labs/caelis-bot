@@ -414,7 +414,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		v := t.View
 		s.mu.Unlock()
 		if definiteTaskRejection(err) {
-			err = &api.WorkMessageRejection{Cause: err}
+			err = &api.WorkMessageRejection{Code: nativeWorkRejectionCode(err), Cause: err}
 		}
 		return v, err
 	}
@@ -505,7 +505,16 @@ func (s *Session) taskRejected(t *taskRecord, err error) (api.Task, error) {
 		t.Requests[t.StartRequest] = r
 	}
 	_ = s.save()
-	return t.View, &api.WorkMessageRejection{Cause: err}
+	return t.View, &api.WorkMessageRejection{Code: "workspace_invalid", Cause: err}
+}
+
+// Only structured native errors justify a native refusal classification.
+func nativeWorkRejectionCode(err error) string {
+	var native *NativeError
+	if errors.As(err, &native) {
+		return "native_rejected"
+	}
+	return ""
 }
 func definiteTaskRejection(err error) bool {
 	var native *NativeError
@@ -761,7 +770,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	}
 	s.update()
 	if r.Outcome == "rejected" && err != nil {
-		err = &api.WorkMessageRejection{Cause: err}
+		err = &api.WorkMessageRejection{Code: nativeWorkRejectionCode(err), Cause: err}
 	}
 	return t.View, err
 }

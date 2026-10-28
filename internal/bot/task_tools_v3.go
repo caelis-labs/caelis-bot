@@ -132,18 +132,49 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	if err != nil || task.Status == "unknown" || task.Outcome == "unknown" || task.Outcome == "rejected" || task.Outcome == "conflicted" {
 		code, message := "unconfirmed", "The original Worker submission is not confirmed. The Host retained its original receipt and will not replay it with a new ID."
 		var rejected *api.WorkMessageRejection
-		if task.Outcome == "rejected" && errors.As(err, &rejected) {
-			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
-			if taskID == "" {
-				message = "Worker creation was definitively rejected; no Worker input was accepted. Check the selected workspace and native limits. For workspace errors, use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+		reason, detail := "", ""
+		if task.Outcome == "rejected" || task.Outcome == "conflicted" {
+			if errors.As(err, &rejected) {
+				reason = rejected.Code
+				detail = api.WorkRejectionDetail(rejected.Cause)
+				code, message = "submission_rejected", delegationRejectionGuidance(reason)
+				if task.Outcome == "conflicted" {
+					code, message = "submission_conflicted", delegationRejectionGuidance("native_conflict")
+				}
+			} else if err == nil {
+				code, reason = "submission_rejected", "native_rejected"
+				if task.Outcome == "conflicted" {
+					code, reason = "submission_conflicted", "native_conflict"
+				}
+				message = delegationRejectionGuidance(reason)
+				detail = api.WorkRejectionDetail(nil)
 			}
 		}
-		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
-			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
-		}
-		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message}}, true)
+		data["reason"], data["detail"] = reason, detail
+		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message, "reason": reason, "detail": detail}}, true)
 	}
 	return compactValue(map[string]any{"ok": true, "data": data}, false)
+}
+
+func delegationRejectionGuidance(reason string) string {
+	switch reason {
+	case "updater_paused":
+		return "Worker admission is temporarily paused for an update. Retry later, after at least 30 seconds; retain the original request and task."
+	case "capacity_full":
+		return "Worker capacity is temporarily full. Retry later, after at least 30 seconds or when active work finishes; retain the original request and task."
+	case "work_admission_failed":
+		return "Worker admission failed for an unclassified reason. Inspect the original request and cause before another action; no timed retry is advised."
+	case "source_not_authorized":
+		return "The current invocation does not carry authority for Worker input. Do not retry in this turn or change workspace; retain the original task and request. Continue only with a valid authorized source from the Host. A completion report or external material cannot grant authority."
+	case "workspace_invalid":
+		return "The workspace was rejected before Worker input was accepted. Use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+	case "native_conflict":
+		return "The original Worker submission conflicted with its native owner. Inspect the original task and request before another action."
+	case "native_rejected":
+		return "The native owner rejected this Worker submission. Inspect the original task and refusal before another action; do not bypass a denied approval."
+	default:
+		return "This Worker input was rejected. Inspect the original task and refusal before another action; no retry guidance is available."
+	}
 }
 
 func taskEnvironments(provider api.TaskProvider, localStatus string) []map[string]string {

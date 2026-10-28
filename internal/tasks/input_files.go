@@ -32,11 +32,11 @@ func (m *Manager) rejectStartInput(request string, cause error) (api.Task, error
 	// Serialize with admission before consulting the existing product records.
 	m.op.Lock()
 	defer m.op.Unlock()
-	return m.rejectStartBeforeDispatch(request, cause)
+	return m.rejectStartBeforeDispatch(request, "", cause)
 }
 
 // Called with op held. An admission failure cannot erase any original dispatch.
-func (m *Manager) rejectStartBeforeDispatch(request string, cause error) (api.Task, error) {
+func (m *Manager) rejectStartBeforeDispatch(request, code string, cause error) (api.Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, records := range []map[string]*record{m.state.Records, m.quarantined} {
@@ -48,7 +48,10 @@ func (m *Manager) rejectStartBeforeDispatch(request string, cause error) (api.Ta
 			}
 		}
 	}
-	return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: cause}
+	if code == "work_admission_failed" {
+		code = api.WorkAdmissionReason(cause)
+	}
+	return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Code: code, Cause: cause}
 }
 func (m *Manager) inputFiles(ctx context.Context, refs []api.TaskFileReference, files []api.InputFile) ([]api.InputFile, error) {
 	if len(refs) == 0 {

@@ -256,6 +256,15 @@ func TestWorkerNativeCreationRejectionRemainsDistinctFromUnknown(t *testing.T) {
 			if errors.As(err, &refusal) != rejected || (view.Outcome == "rejected") != rejected {
 				t.Fatal(view, err)
 			}
+			if rejected && refusal.Code != "native_rejected" {
+				t.Fatalf("native refusal reason lost: %+v", refusal)
+			}
+			if rejected {
+				var native *NativeError
+				if !errors.As(refusal.Cause, &native) || native.Code != -32602 || api.WorkRejectionDetail(refusal.Cause) != "invalid workspace" || strings.Contains(err.Error(), "invalid workspace") {
+					t.Fatal("original cause lost or exposed outside diagnostic projection", err)
+				}
+			}
 			same, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "original-create", Title: "Create", Prompt: "Create"})
 			if err != nil || same.ID != view.ID || same.Outcome != view.Outcome {
 				t.Fatal("original receipt changed", same, err)
