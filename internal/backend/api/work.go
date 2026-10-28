@@ -82,7 +82,9 @@ type WorkState struct {
 	// TaskEnded is an explicit task-level termination fact. A completed native
 	// turn or final_answer is not sufficient: asynchronous input may still be due.
 	// The product Manager overlays its explicit, generation-fenced finish receipt;
-	// native adapters alone leave it false and preserve bounded questions.
+	// native adapters alone leave it false and preserve bounded questions. Closure
+	// applies only to AsyncQuestions in this observation, never a later question
+	// admitted before a delayed finish observer reaches the controller.
 	TaskEnded bool
 	// TurnKey identifies the current native turn; completion of a turn that asked
 	// a question is a yield, not proof that the user task no longer needs input.
@@ -98,6 +100,10 @@ type WorkState struct {
 	Activity       string
 	OriginalPrompt string
 	ExecutionKey   string
+	// LegacyExecutionKey is an adapter-proven alias of this exact generation
+	// used by older persisted task catalogs. It is only for migrating receipts;
+	// a previous report ID must never identify a later active execution.
+	LegacyExecutionKey string `json:",omitempty"`
 	// StopExecutionKey fences the complete native cancellation target, which
 	// may include a handle/run in addition to the completion generation.
 	StopExecutionKey string

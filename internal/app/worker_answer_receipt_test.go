@@ -52,6 +52,17 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 				t.Fatal(err)
 			}
 			state := base.states[work.ID]
+			state.Runtime = "codex"
+			state.Activity = "idle"
+			state.Task.Status = "completed"
+			base.states[work.ID] = state
+			a.configureInteractionLifecycle(manager)
+			if _, err = manager.FinishTask(t.Context(), work.ID, api.TaskFinishToken(state)); err != nil {
+				t.Fatal(err)
+			}
+			state.ExecutionKey = "new-question-execution"
+			state.Activity = "active"
+			state.Task.Status = "working"
 			item := api.Item{ID: "original-question", TurnKey: "original-turn", Kind: "assistant", AsyncCallID: "original-call", AsyncQuestions: []api.AsyncQuestion{{Title: "Synthetic?", Options: []string{"One", "Two"}}}}
 			state.AsyncQuestions = []api.Item{item}
 			base.states[work.ID] = state
@@ -68,6 +79,12 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 			}
 			_ = a.textControl.Handle(t.Context(), in, api.Snapshot{})
 			if !rejected {
+				// A restart keeps the exact unknown answer receipt, not the old finish.
+				a.textControl, err = textchannel.Open(root, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a.textControl.SetAsyncWorkAnswerer(a.answerWorkerQuestion)
 				in.ID = "competing-callback"
 				_ = a.textControl.Handle(t.Context(), in, api.Snapshot{})
 			}

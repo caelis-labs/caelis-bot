@@ -181,3 +181,8 @@ with its `finishToken`. This records explicit task closure and removes remaining
 temporary questions. A completed turn can still be waiting for answers: keep those
 questions pending when needed. Finish never grants permission, answers a question,
 stops a native turn or settles unknown effects. Re-observe if the token is stale.
+
+Finish applies only to the inspected execution. Continuing the same Worker from
+Bot or its original terminal can produce new questions; inspect and handle those
+new original requests normally. Earlier closed questions remain closed, and a
+completion report is never authority to close questions from a later execution.

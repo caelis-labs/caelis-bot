@@ -224,7 +224,17 @@ func (s *Session) workStatesLocked() []api.WorkState {
 				resolution = t.StopPendingStatus
 			}
 		}
-		state := api.WorkState{TurnKey: opaque(t.Thread, t.Run), Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopAcknowledged: s.workerStopAcknowledged(t), StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, StopExecutionKey: s.workExecutionKeyLocked(t), StopRequested: t.SuppressReport || originalStopCurrent, StopAcknowledged: s.workerStopAcknowledged(t), StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, StartFingerprint: t.Fingerprint}
+		if t.Run != "" {
+			state.TurnKey = opaque(t.Thread, t.Run)
+			state.ExecutionKey = state.TurnKey
+			// Old catalogs used the completion report as their execution key.
+			// Prove the alias against the current native run, never the last report.
+			if t.ReportID == "task-report-"+state.ExecutionKey {
+				state.LegacyExecutionKey = t.ReportID
+				state.PreviousReportID, state.PreviousReportState = t.ReportID, t.ReportState
+			}
+		}
 		for key, question := range t.AsyncQuestions {
 			if len(question.Questions) == 0 || question.ObservedAt > 0 && time.Since(time.Unix(question.ObservedAt, 0)) >= 24*time.Hour {
 				continue
@@ -842,6 +852,12 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 	if t.Run != turn.ID {
 		if s.childTerminals[opaque(t.Thread, turn.ID)] {
 			return
+		}
+		// A terminal-client continuation has no Bot send receipt to retire the
+		// preceding run. Persist the same fence so a late completion after restart
+		// cannot rewind execution or close the new run's questions.
+		if len(history) == 0 && turn.Status == "inProgress" && t.Run != "" && !slices.Contains(t.SupersededRuns, t.Run) {
+			t.SupersededRuns = append(t.SupersededRuns, t.Run)
 		}
 		t.Run = turn.ID
 		t.SuppressReport = false

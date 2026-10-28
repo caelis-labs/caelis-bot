@@ -249,7 +249,8 @@ func TestCompletedQuestionTurnWithCommentaryStillAwaitsInput(t *testing.T) {
 	}
 	state.TurnKey = "later-completed-turn"
 	state.Task.Result = "Delivered"
-	state.TaskEnded = true // Only an explicit task-level fact closes the question.
+	state.TaskEnded = true // Finish closes the questions present in its observation.
+	state.AsyncQuestions = []api.Item{lifecycleQuestion()}
 	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{state}); err != nil {
 		t.Fatal(err)
 	}
@@ -291,5 +292,29 @@ func TestDelayedWorkerObservationSharesOriginalDeadline(t *testing.T) {
 	closed, err := s.AsyncWorkCard(old, "original-owner", "original-task")
 	if err != nil || len(closed.QuestionCards) > 0 && closed.QuestionCards[0].State != "expired" {
 		t.Fatal("late source revived an expired question", err)
+	}
+}
+
+func TestLateFinishObservationCannotCloseLaterQuestion(t *testing.T) {
+	root := t.TempDir()
+	s, _ := Open(root, nil)
+	old := lifecycleQuestion()
+	_, _ = s.AsyncWorkCard(old, "codex", "work")
+	finished := api.WorkState{Runtime: "codex", Task: api.Task{ID: "work"}, TaskEnded: true, AsyncQuestions: []api.Item{old}}
+	next := lifecycleQuestion()
+	next.ID, next.TurnKey, next.AsyncCallID = "next-item", "next-turn", "next-call"
+	_, _ = s.AsyncWorkCard(next, "codex", "work")
+	for range 2 {
+		if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{finished}); err != nil {
+			t.Fatal(err)
+		}
+		if s.state.AsyncQuestions["Q1"].Reason != "task_completed" || s.state.AsyncQuestions["Q2"].State != "" {
+			t.Fatal("late finish closed later question", s.WorkerAsyncQuestions())
+		}
+		var err error
+		s, err = Open(root, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

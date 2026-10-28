@@ -22,11 +22,18 @@ func (m *Manager) InteractionStates(states []api.WorkState) []api.WorkState {
 	defer m.mu.Unlock()
 	for i := range states {
 		r := m.state.Records[states[i].Task.ID]
-		if r != nil && m.owns(r) && r.Runtime == states[i].Runtime && r.View.Machine == states[i].Task.Machine && r.FinishedExecution != "" && r.FinishedExecution == states[i].ExecutionKey {
+		if r != nil && m.owns(r) && r.Runtime == states[i].Runtime && r.View.Machine == states[i].Task.Machine && finishedGeneration(r, states[i]) {
 			states[i].TaskEnded = true
 		}
 	}
 	return states
+}
+
+// The adapter may prove an old persisted alias before refresh migrates it.
+// Retired observations cannot finish the current task's questions.
+func finishedGeneration(r *record, v api.WorkState) bool {
+	return v.ExecutionKey != "" && r.FinishedExecution != "" && !retiredExecution(r, v) &&
+		(r.FinishedExecution == v.ExecutionKey || r.FinishedExecution == v.LegacyExecutionKey)
 }
 
 func (m *Manager) FinishTask(ctx context.Context, id, token string) (api.Task, error) {

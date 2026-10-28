@@ -79,7 +79,7 @@ func (s *Session) WorkStates() []api.WorkState {
 		if !s.connected {
 			activity = ""
 		}
-		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopExecutionKey: stopKey, StopRequested: w.Stopped, StopAcknowledged: s.workerStopAcknowledged(w, stopKey), StartFingerprint: w.Fingerprint})
+		out = append(out, api.WorkState{Task: v, TurnKey: key, Activity: activity, ExecutionKey: key, StopExecutionKey: stopKey, StopRequested: w.Stopped, StopAcknowledged: s.workerStopAcknowledged(w, stopKey), StartFingerprint: w.Fingerprint})
 	}
 	return out
 }

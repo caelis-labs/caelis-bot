@@ -5,6 +5,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
-	e := newTestEngine()
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
@@ -43,6 +44,8 @@ func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
 	if len(a.WorkerQuestions()) != 1 || a.WorkerQuestions()[0].State != "" {
 		t.Fatal("completed turn lost valid pending question")
 	}
+	finishedSnapshot := state
+	finishedSnapshot.TaskEnded = true
 	token := api.TaskFinishToken(state)
 	if _, err := m.FinishTask(t.Context(), work.ID, "stale-token"); err == nil {
 		t.Fatal("stale inspection finished task")
@@ -63,11 +66,19 @@ func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
 	state.TurnKey = "new-turn"
 	state.Task.Status = "working"
 	state.Activity = "active"
+	oldQuestion := state.AsyncQuestions[0]
+	state.AsyncQuestions = append([]api.Item(nil), state.AsyncQuestions...)
 	state.AsyncQuestions[0].ID = "new-question"
 	state.AsyncQuestions[0].TurnKey = "new-turn"
 	state.AsyncQuestions[0].AsyncCallID = "new-call"
+	state.AsyncQuestions = append(state.AsyncQuestions, oldQuestion)
 	owner.states[work.ID] = state
 	a.observeWorkerQuestions(t.Context())
+	a.observeWorkerQuestions(t.Context())
+	// The original finish callback may arrive after terminal continuation admitted Q2.
+	if err := a.reconcileFinishedQuestions(finishedSnapshot); err != nil {
+		t.Fatal(err)
+	}
 	pending := 0
 	for _, q := range a.WorkerQuestions() {
 		if q.State == "" {
@@ -79,6 +90,60 @@ func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
 	}
 	if _, err := m.FinishTask(t.Context(), work.ID, token); err == nil {
 		t.Fatal("old token finished later generation")
+	}
+	if len(e.reports) != 2 || !strings.Contains(e.reports[1].Text, "Q2") {
+		t.Fatal("new question not notified exactly once", e.reports)
+	}
+	// Reopen both persisted controller and Manager. The original closed question
+	// stays closed; the accepted private wakeup must not be resent.
+	a.textControl, err = textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.textControl.SetAsyncWorkAnswerer(a.answerWorkerQuestion)
+	a.Backend.SetQuestionLifecycle(a.textControl.ProjectQuestions, a.textControl.Revision, a.textControl.DismissQuestion)
+	wireTestWorkers(t, a, pool)
+	m = open()
+	a.observeWorkerQuestions(t.Context())
+	if len(e.reports) != 2 {
+		t.Fatal("restart repeated question notice")
+	}
+	var current api.WorkerQuestion
+	for _, q := range a.WorkerQuestions() {
+		if q.State == "" {
+			current = q
+		} else if q.ID == "Q1" && q.State != "expired" {
+			t.Fatal("closed original question revived")
+		}
+	}
+	if current.ID != "Q2" {
+		t.Fatal("current question missing after restart", current)
+	}
+	if receipt, err := a.PresentWorkerQuestion(t.Context(), current.ID, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	found := false
+	for _, item := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
+		for _, card := range item.QuestionCards {
+			if card.ShortID == current.ID && card.State == "" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("new question did not reach Bot chat card")
+	}
+	if _, err := a.AnswerWorkerQuestion(t.Context(), current.ID+"@"+current.Binding, "1", "original-answer-operation"); err != nil {
+		t.Fatal(err)
+	}
+	if owner.sends != 1 || !strings.Contains(owner.lastPrompt, `[\"request_user_input_async\",\"new-call\",0]`) {
+		t.Fatal("answer lost original call binding", owner.lastPrompt)
+	}
+	if _, err := a.AnswerWorkerQuestion(t.Context(), current.ID+"@"+current.Binding, "1", "original-answer-operation"); err != nil {
+		t.Fatal(err)
+	}
+	if owner.sends != 1 {
+		t.Fatal("same answer operation replayed")
 	}
 }
 

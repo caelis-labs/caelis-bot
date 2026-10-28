@@ -402,3 +402,14 @@ func TestReadWorkOperationRejectsPartiallyLoadedBinding(t *testing.T) {
 		t.Fatal("valid offline receipt unavailable", got, err)
 	}
 }
+
+func TestWorkerExecutionIdentityAdvancesBeforeTerminalResult(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Errorf("unexpected native request %s", r.URL.Path) })
+	addServiceWorker(s, "task", "work", nativeWorkHead("one"))
+	first := s.WorkStates()[0]
+	s.state.Views["work"].State = nativeWorkHead("two")
+	next := s.WorkStates()[0]
+	if first.ExecutionKey == "" || next.ExecutionKey == first.ExecutionKey || next.TurnKey != next.ExecutionKey || next.LegacyExecutionKey != "" {
+		t.Fatal("Caelis native generation drift", first, next)
+	}
+}

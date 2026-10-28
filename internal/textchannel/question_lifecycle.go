@@ -97,7 +97,9 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 				state, reason = "expired", "task_cancelled"
 			case w.Task.Status == "failed":
 				state, reason = "expired", "task_ended"
-			case w.TaskEnded:
+			case w.TaskEnded && slices.ContainsFunc(w.AsyncQuestions, func(item api.Item) bool {
+				return asyncFingerprint(item, w.Runtime, w.Task.ID) == q.Fingerprint
+			}):
 				state, reason = "expired", "task_completed"
 			}
 		}
