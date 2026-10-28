@@ -109,3 +109,20 @@ func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 		t.Fatal("restore established cache warmth")
 	}
 }
+
+func TestUsageCacheCounterPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		reported     bool
+	}{{"missing", "", false}, {"zero", `,"cachedInputTokens":0,"cacheWriteInputTokens":0`, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewSession(SessionOptions{})
+			s.binding.ThreadID = "resident"
+			s.applyEvent(Notification{Method: "turn/started", Params: json.RawMessage(`{"threadId":"resident","turn":{"id":"turn","status":"inProgress"}}`)})
+			s.applyEvent(Notification{Method: "thread/tokenUsage/updated", ReceivedAt: time.Now(), Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":100,"inputTokens":90,"outputTokens":10` + tc.fields + `},"total":{"totalTokens":100},"modelContextWindow":1000}}`)})
+			if s.usage.CacheReadTokensReported != tc.reported || s.usage.CacheWriteTokensReported != tc.reported {
+				t.Fatal("cache presence lost", s.usage)
+			}
+		})
+	}
+}

@@ -18,7 +18,7 @@ import (
 
 const experimentalCapability = "experimental-features-v1"
 
-var experimentalIDs = []string{"async_compact", "mcp_catalog_refresh", "deferred_tool_retirement"}
+var experimentalIDs = []string{"async_compact", "idle_compact"}
 
 // Only local journal transitions are serialized, separately for each Store's
 // journal. No lock spans a Host request. Core CAS remains the shared config owner.
@@ -89,32 +89,45 @@ func experimentalSnapshot(ctx context.Context, c *client) (wire.ExperimentalSnap
 	if err != nil {
 		return v, err
 	}
-	if _, err = strconv.ParseUint(string(v.Revision), 10, 64); err != nil || v.Scope != "host" || v.AppliesAt != "next_runtime_activation" || v.Desired.AsyncCompact == nil || v.Desired.McpCatalogRefresh == nil || v.Desired.DeferredToolRetirement == nil {
+	if _, err = strconv.ParseUint(string(v.Revision), 10, 64); err != nil || v.Scope != "host" || v.AppliesAt != "next_runtime_activation" {
 		return v, errors.New("experimental configuration unavailable")
 	}
-	for _, id := range experimentalIDs {
-		if !slices.ContainsFunc(v.Features, func(f wire.ExperimentalDefinition) bool { return f.Id == id }) {
+	seen := map[string]bool{}
+	for _, feature := range v.Features {
+		if !slices.Contains(experimentalIDs, feature.Id) {
+			continue
+		}
+		if seen[feature.Id] || experimentValues(v.Desired)[feature.Id] == nil {
 			return v, errors.New("experimental catalog unavailable")
 		}
+		seen[feature.Id] = true
 	}
 	return v, nil
 }
 func experimentValues(v wire.ExperimentalValues) map[string]*bool {
-	return map[string]*bool{"async_compact": v.AsyncCompact, "mcp_catalog_refresh": v.McpCatalogRefresh, "deferred_tool_retirement": v.DeferredToolRetirement}
+	return map[string]*bool{"async_compact": v.AsyncCompact, "idle_compact": v.IdleCompact}
+}
+func offeredExperiment(v wire.ExperimentalSnapshot, id string) bool {
+	return slices.Contains(experimentalIDs, id) && slices.ContainsFunc(v.Features, func(f wire.ExperimentalDefinition) bool { return f.Id == id })
 }
 func projectExperiments(v wire.ExperimentalSnapshot, j experimentJournal) api.RuntimeExperiments {
 	out := api.RuntimeExperiments{Supported: true, Revision: string(v.Revision), Features: []api.RuntimeExperiment{}, SaveState: j.Outcome}
 	values := experimentValues(v.Desired)
 	for _, id := range experimentalIDs {
-		out.Features = append(out.Features, api.RuntimeExperiment{ID: id, Enabled: *values[id]})
+		if offeredExperiment(v, id) {
+			out.Features = append(out.Features, api.RuntimeExperiment{ID: id, Enabled: *values[id]})
+		}
 	}
+	out.Supported = len(out.Features) > 0
 	if j.Request != nil {
 		out.OperationID = j.Request.OperationId
 	}
 	if j.Outcome == "committed" {
 		out.SaveState = "saved"
 		for id, want := range experimentValues(j.Request.Values) {
-			if want != nil && *values[id] != *want {
+			// Retired choices retain their original receipt, but no longer
+			// describe an editable feature or a superseding user choice.
+			if want != nil && offeredExperiment(v, id) && *values[id] != *want {
 				out.SaveState = "superseded"
 			}
 		}
@@ -229,6 +242,9 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 	if err != nil {
 		return reject()
 	}
+	if !offeredExperiment(v, change.ID) {
+		return reject()
+	}
 	unlock, err := lockExperimentJournal(ctx, path)
 	if err != nil {
 		return reject()
@@ -254,10 +270,8 @@ func ChangeRuntimeExperiments(ctx context.Context, settings api.RuntimeSettings,
 	switch change.ID {
 	case "async_compact":
 		values.AsyncCompact = &change.Enabled
-	case "mcp_catalog_refresh":
-		values.McpCatalogRefresh = &change.Enabled
-	case "deferred_tool_retirement":
-		values.DeferredToolRetirement = &change.Enabled
+	case "idle_compact":
+		values.IdleCompact = &change.Enabled
 	}
 	j = experimentJournal{Request: &wire.ExperimentalRequest{OperationId: "bot-experiment-" + rand.Text(), ExpectedRevision: v.Revision, Values: values}, Outcome: "pending"}
 	err = privateWrite(path, j)

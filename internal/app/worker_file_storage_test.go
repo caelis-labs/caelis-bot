@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -108,6 +109,28 @@ func TestExistingAttachmentCleanupCollectsOnlyUnreferencedWorkerCaches(t *testin
 		t.Fatal(err)
 	}
 	a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "accepted-input", RequestID: "accepted-user-input", Kind: "user", Text: "synthetic retained user input"}}})
+	// ObserveChat queues a writer. The cleanup fixture needs committed history;
+	// a concurrent SQLite exclusive lock correctly makes inventory incomplete.
+	db, err := sql.Open("sqlite", filepath.Join(root, "chat.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	ready, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for {
+		var count int
+		err = db.QueryRowContext(ready, `SELECT count(*) FROM messages WHERE json_extract(body,'$.requestId') = ?`, "accepted-user-input").Scan(&count)
+		if err == nil && count == 1 {
+			break
+		}
+		select {
+		case <-ready.Done():
+			t.Fatal("fixture input did not persist", err)
+		case <-time.After(time.Millisecond):
+		}
+	}
 	_ = filepath.WalkDir(filepath.Join(root, "WorkerInputs"), func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			ageStorageFile(t, path)
@@ -136,6 +159,18 @@ func TestExistingAttachmentCleanupCollectsOnlyUnreferencedWorkerCaches(t *testin
 	}
 	_ = os.WriteFile(stage, []byte("unused stage"), 0600)
 	ageStorageFile(t, stage)
+	// Reproduce the transient protection seen in CI deterministically, then
+	// release it before asserting the steady-state cleanup inventory.
+	if _, err = db.ExecContext(t.Context(), "BEGIN EXCLUSIVE"); err != nil {
+		t.Fatal(err)
+	}
+	blocked, blockedErr := a.AttachmentStorage()
+	if _, err = db.ExecContext(t.Context(), "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	if blockedErr != nil || blocked.CanClean || blocked.EligibleFiles != 0 {
+		t.Fatal("incomplete reference inventory did not protect worker files", blocked, blockedErr)
+	}
 	info, err := a.AttachmentStorage()
 	if err != nil || !info.CanClean || info.EligibleFiles != 3 {
 		t.Fatal("existing usage entry omitted worker garbage/protection", info, err)

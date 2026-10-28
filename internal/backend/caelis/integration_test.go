@@ -815,8 +815,13 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err != nil || resident.Profile.Model != miniSelector {
 			t.Fatal("work model changed Bot", err)
 		}
-		if _, e = s.StopWork(ctx, "task-a"); e != nil {
-			t.Fatal(e)
+		observation, err := s.ObserveWork(ctx, "task-a")
+		if err != nil || observation.State.StopExecutionKey == "" {
+			t.Fatal("missing original Worker stop target", err)
+		}
+		stop := api.WorkStop{ID: "task-a", RequestID: "fixture-stop-a", ExecutionKey: observation.State.StopExecutionKey}
+		if result, err := s.StopWorkRequest(ctx, stop); err != nil || result.Outcome != "accepted" {
+			t.Fatal("native Worker stop", result, err)
 		}
 		close(workerA)
 		// Detach and reconnect the same application while B stays in flight.
@@ -827,6 +832,12 @@ func TestNativeHostIntegration(t *testing.T) {
 		open()
 		if s.state.Session.SessionId != sid {
 			t.Fatal("reconnect replaced resident session")
+		}
+		if result, err := s.StopWorkRequest(ctx, stop); err != nil || result.Outcome != "accepted" {
+			t.Fatal("original stop receipt lost after reconnect", result, err)
+		}
+		if other, err := s.ReadWork(ctx, "task-b"); err != nil || other.Status != "working" {
+			t.Fatal("stop crossed Worker boundary", other, err)
 		}
 		close(workerB)
 		waitAcceptance(t, ctx, func() bool {

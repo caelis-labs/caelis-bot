@@ -3,12 +3,14 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,8 +23,15 @@ import (
 // MCP service. The model endpoint below is an in-process deterministic fixture.
 func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	bin, mcpURL := os.Getenv("CAELIS_BOT_TEST_BINARY"), os.Getenv("CAELIS_BOT_TEST_MCP_URL")
-	if bin == "" || mcpURL == "" {
-		t.Skip("set CAELIS_BOT_TEST_BINARY and CAELIS_BOT_TEST_MCP_URL for isolated native MCP acceptance")
+	if bin == "" {
+		t.Skip("set CAELIS_BOT_TEST_BINARY for isolated native MCP acceptance")
+	}
+	var localListCount *atomic.Int64
+	if mcpURL == "" {
+		fixture, count := nativeMCPDirectoryFixture(t)
+		localListCount = count
+		defer fixture.Close()
+		mcpURL = fixture.URL
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
@@ -96,6 +105,12 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 		t.Fatalf("incomplete native Runtime metadata: count=%d first=%+v last=%+v", len(detail.Tools), detail.Tools[0], detail.Tools[1199])
 	}
 	listCount := -1
+	if localListCount != nil {
+		listCount = int(localListCount.Load())
+		if listCount == 0 {
+			t.Fatal("Core did not list local MCP tools")
+		}
+	}
 	if audit := os.Getenv("CAELIS_BOT_TEST_MCP_AUDIT"); audit != "" {
 		b, err := os.ReadFile(audit)
 		if err != nil {
@@ -153,6 +168,9 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 			t.Fatalf("status/index refresh made another MCP tools/list call: before=%d after=%d err=%v", listCount, strings.Count(string(b), "tools/list\n"), err)
 		}
 	}
+	if localListCount != nil && int(localListCount.Load()) != listCount {
+		t.Fatal("read-only metadata refresh relisted MCP tools")
+	}
 	if err := session.UpdateBotPlugins(ctx, plugins.Selection{Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -203,4 +221,48 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	}
 	t.Logf("synthetic receipts: model=%s/%s, turns=case_mcp_ready,case_mcp_disconnected,case_mcp_reconnected,case_mcp_fresh, sessions=%s/%s", op, result.Outcome, session.ConversationState().Session, fresh.ConversationState().Session)
 	t.Logf("synthetic model requests=%d, ready tools=%d, index bytes=%d, initial tools/list=%d, states=%s/%s/%s/%s/%s, new generation=true", len(model.seen("CASE_MCP_READY"))+len(model.seen("CASE_MCP_DISCONNECTED"))+len(model.seen("CASE_MCP_RECONNECTED"))+len(model.seen("CASE_MCP_FRESH")), len(detail.Tools), len(content), listCount, before.State, retired.State, disconnected.State, recovered.State, freshBefore.State)
+}
+
+// A protocol-level local service makes directory/retirement acceptance
+// reproducible without a separately running MCP fixture.
+func nativeMCPDirectoryFixture(t *testing.T) (*httptest.Server, *atomic.Int64) {
+	t.Helper()
+	count := &atomic.Int64{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var request struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+		}
+		if json.NewDecoder(r.Body).Decode(&request) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		if request.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		var result any = map[string]any{}
+		switch request.Method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "synthetic-directory", "version": "1"}}
+		case "tools/list":
+			count.Add(1)
+			tools := []any{}
+			for i := range 1200 {
+				if i == 1 {
+					continue
+				}
+				tools = append(tools, map[string]any{"name": fmt.Sprintf("lookup_%04d", i), "description": strings.Repeat("Synthetic capability metadata. ", 8), "inputSchema": map[string]any{"type": "object"}})
+			}
+			tools = append(tools, map[string]any{"name": strings.Repeat("查", 100), "description": strings.Repeat("中", 700), "inputSchema": map[string]any{"type": "object"}})
+			result = map[string]any{"tools": tools}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
+	}))
+	return server, count
 }

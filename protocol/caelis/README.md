@@ -6,9 +6,13 @@ registration, separate credential or lease. Bot and TUI use the same Host identi
 No sibling Go import, module replacement or go.work is used. Source license:
 Apache-2.0 (`LICENSE`).
 
-`manifest.json` records the exact delivered Core commit and schema/wire hashes.
-After integration, update the pin and both hashes together. The protocol checker
-validates the artifacts and the Session profile assembly fields.
+`manifest.json` records the consumed Core v0.74.0 contract version, commit and
+schema/wire hashes. Bot consumes this generated wire SDK rather than importing
+the Core Go module. Update these pins together with the published CLI in
+`resources/caelis-runtime/release.json`; the protocol checker enforces the same
+release version/source and validates artifacts and Session profile fields.
+Optional fields and catalog entries remain negotiated with the actual Host;
+matching distribution versions is not a connection requirement.
 
 Runtime admission requires the protocol/envelope versions and consumed capability
 names in `internal/backend/caelis/session.go`. Optional model-image and terminal

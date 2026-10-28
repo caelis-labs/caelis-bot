@@ -1,26 +1,27 @@
 {
-  "version": "v0.73.3",
-  "commit": "c4c6df2d710357a3c77a6f24b743d5cf5114ddaa",
+  "version": "v0.74.0",
+  "commit": "f69c186659efcf4c1b58ba73d390b69a4c3a06d1",
   "team": "64KZ67PM5J",
   "targets": {
     "darwin-arm64": {
-      "artifact": "caelis_0.73.3_darwin_arm64.tar.gz",
-      "sha256": "7f050a26ec1d54abd096bf0e6ce4885837f07718563e642e967e88322c503c57"
+      "artifact": "caelis_0.74.0_darwin_arm64.tar.gz",
+      "sha256": "d0a7b2282ffa08fa77523fd9de62074b3a29197a77600d41aaed3efb49b13294",
+      "binary_sha256": "e0788de32c7e4528c8a261cf1bce40dc3ee9fa5fa13c4ab0b3323d5af5a67f90"
     },
     "windows-amd64": {
-      "artifact": "caelis_0.73.3_windows_amd64.tar.gz",
-      "sha256": "f41a555b5ec6a39b0920b3d51a03075c56a8eaf6c5da268725164e86370cdb3c",
-      "binary_sha256": "1746422d303c6180acefd3410e0cbe09426434165f7a26d8e5fe6662b6dcf5ea"
+      "artifact": "caelis_0.74.0_windows_amd64.tar.gz",
+      "sha256": "3adff30497fde0861397185898bac4f3800b94e544dd6dcd3a5ce15333fd6b90",
+      "binary_sha256": "151b1d2a527958200a090aa101326b18c87014cfe8b2159dcd5ec8754c51691d"
     },
     "linux-amd64": {
-      "artifact": "caelis_0.73.3_linux_amd64.tar.gz",
-      "sha256": "12474bf63eb6c568fc1082edec05d1849ba6bdf306ba7a79de8a89183685f0ae",
-      "binary_sha256": "6e97abb88b419aeec5643abbbe2199f8b519556be2ea3d3370a459e76495b580"
+      "artifact": "caelis_0.74.0_linux_amd64.tar.gz",
+      "sha256": "2a4821f6196dd688359f5d2d660d8a643dded9c2bffa0bfd97026c3b0a2e2e09",
+      "binary_sha256": "136a95075f417136141bb32eccf8d3248cd0cc6b57281822950af93aeb7a3396"
     },
     "linux-arm64": {
-      "artifact": "caelis_0.73.3_linux_arm64.tar.gz",
-      "sha256": "1f4f09256636d08b2fa705eb3e8b80bb0ec38d68256d41a5740415120b57125b",
-      "binary_sha256": "75b00a3943b2074687beb1add27ac346ef55e882754d23d0e54cd58ce27da7fb"
+      "artifact": "caelis_0.74.0_linux_arm64.tar.gz",
+      "sha256": "e7dd612e648d034061e7312be0c6770927b7dedb1a0dee4b97668571d01eb76f",
+      "binary_sha256": "a9f3fec08385f76a371bc9453aa4c6aba5b8b12acaea820c192ad6690e949083"
     }
   }
 }
