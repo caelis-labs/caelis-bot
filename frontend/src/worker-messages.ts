@@ -75,3 +75,17 @@ export function workerMessageStart(messages:Pick<WorkerMessage,'id'>[],limit:num
  const anchored=startID?messages.findIndex(message=>message.id===startID):-1;
  return anchored>=0?anchored:Math.max(0,messages.length-limit);
 }
+
+// The first observation is already history. Pace only newly received prefixes
+// after that baseline; terminal output and corrections always render directly.
+export function workerLiveReplies(previous:readonly WorkerMessage[]|undefined,next:readonly WorkerMessage[],live:ReadonlySet<string>):Set<string> {
+ const result=new Set<string>();
+ if(!previous)return result;
+ const before=new Map(previous.map(message=>[message.id,message]));
+ for(const message of next){
+  if(message.role!=='assistant'||message.status!=='inProgress')continue;
+  const old=before.get(message.id);
+  if(live.has(message.id)||!old||message.text.length>old.text.length&&message.text.startsWith(old.text))result.add(message.id);
+ }
+ return result;
+}

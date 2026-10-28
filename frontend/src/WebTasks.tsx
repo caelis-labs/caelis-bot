@@ -1,5 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {useWorkerOutput} from './WorkerOutput';
+import {workerTerminal} from './worker-output-read';
+import {primaryWebTask} from './web-task-choices';
 import {WorkerChat} from './WorkerChat';
 import {SettingsSelect} from './SettingsSelect';
 import {useI18n} from './i18n';
@@ -30,12 +32,16 @@ export function useWebTasks(client:WebClient,active:boolean){
 export function WebTasks({client,tasks,selected,onSelect,onClose,listError,onRetryList,active=true}:{client:WebClient;tasks:WebTask[];selected?:string;onSelect:(id:string)=>void;onClose:()=>void;listError:boolean;onRetryList:()=>void;active?:boolean}){
  const {t}=useI18n();
  const recentSelection=useRef('');
+ const [showHistory,setShowHistory]=useState(false);
+ useEffect(()=>{if(!active)setShowHistory(false)},[active]);
  useEffect(()=>{if(selected)recentSelection.current=selected;},[selected]);
- const id=selected||tasks.find(t=>t.id===recentSelection.current)?.id||tasks[0]?.id||'',task=tasks.find(t=>t.id===id);
+ const id=selected||tasks.find(t=>t.id===recentSelection.current)?.id||primaryWebTask(tasks)?.id||'',task=tasks.find(t=>t.id===id);
  const output=useWorkerOutput(id,active,client.taskConversation,client.taskObservation,task?.status);
  const shownTask=output.observation?.task??task;
- const heading=tasks.length>1?<SettingsSelect compact centered={false} aria-label={t('chat.taskChoose')} value={id} onChange={e=>onSelect(e.target.value)}>
-  {tasks.map(t=><option key={t.id} value={t.id} title={t.title}>{t.title}</option>)}
+ const historyCount=tasks.filter(task=>workerTerminal.has(task.status)).length;
+ const heading=active&&(tasks.length>1||historyCount>0)?<SettingsSelect compact centered={false} searchable searchLabel={t('chat.taskSearch')}
+  menuAction={historyCount>0?{label:t(showHistory?'chat.taskHideHistory':'chat.taskShowHistory',{count:historyCount}),onClick:()=>setShowHistory(value=>!value)}:undefined} aria-label={t('chat.taskChoose')} value={id} onChange={e=>onSelect(e.target.value)}>
+  {tasks.map(t=><option key={t.id} value={t.id} title={t.title} hidden={!showHistory&&workerTerminal.has(t.status)&&t.id!==id}>{t.title}</option>)}
  </SettingsSelect>:undefined;
  return <aside className="web-task-pane" aria-label={t('chat.taskPanel')}>
   {id?<WorkerChat active={active} id={id} task={shownTask} output={output} heading={heading} closeLabel={t('chat.taskBackToChat')} onClose={onClose}/>:<><div className="worker-chat-heading"><div className="worker-chat-title"><h2>{t('chat.taskPanel')}</h2></div><button className="worker-chat-close" onClick={onClose}>{t('chat.taskBackToChat')}</button></div><p className="worker-chat-empty">{t(listError?'chat.taskListUnavailable':'chat.taskListEmpty')}{listError&&<button className="text-action" onClick={onRetryList}>{t('chat.taskRetryRead')}</button>}</p></>}

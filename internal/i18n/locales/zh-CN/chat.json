@@ -288,5 +288,8 @@
   "taskDismiss": "收起",
   "taskBackToChat": "返回聊天",
   "taskLastStatus": "上次状态：",
-  "taskEnvironmentDeleted": "原机器连接已删除，此任务的环境不可用。"
+  "taskEnvironmentDeleted": "原机器连接已删除，此任务的环境不可用。",
+  "taskSearch": "搜索任务",
+  "taskShowHistory": "查看历史任务（{count}）",
+  "taskHideHistory": "收起历史任务"
 }

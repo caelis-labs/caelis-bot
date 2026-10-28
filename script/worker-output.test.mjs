@@ -188,3 +188,29 @@ test('deleted original environment preserves visible history and stops polling w
  await reader.read();assert.equal(unavailable,true);const before=reads;await reader.read();
  assert.equal(reads,before);assert.equal(history.messages[0].text,'preserved history');reader.close();
 });
+
+test('Worker reveal starts only after its baseline and completes without replaying history',async()=>{
+ const {workerLiveReplies}=await import('../frontend/src/worker-messages.ts');
+ const row=(text,status='inProgress',id='reply')=>({id,role:'assistant',text,status,artifacts:[]});
+ const baseline=[row('already observed')];
+ assert.equal(workerLiveReplies(undefined,baseline,new Set()).size,0);
+ const next=[row('already observed and growing')];
+ const live=workerLiveReplies(baseline,next,new Set());
+ assert.deepEqual([...live],['reply']);
+ assert.deepEqual([...workerLiveReplies(next,next,live)],['reply'],'unchanged poll retains the reveal budget');
+ assert.equal(workerLiveReplies(next,[row(next[0].text,'completed')],live).size,0);
+ assert.equal(workerLiveReplies(next,[row('replacement')],new Set()).size,0,'corrections are immediate');
+ assert.equal(workerLiveReplies(undefined,next,live).size,0,'reopening never replays the old prefix');
+ assert.deepEqual([...workerLiveReplies(next,[...next,row('new text','inProgress','new')],new Set())],['new']);
+});
+
+test('initial Web task choice prefers current work and retains unknown and waiting work',async()=>{
+ const {primaryWebTask}=await import('../frontend/src/web-task-choices.ts');
+ const past=[{id:'new-finished',status:'completed'},{id:'failed',status:'failed'},{id:'stopped',status:'stopped'}];
+ for(const status of ['working','running','pending','idle','approval','unknown','']){
+  const current={id:'older-current',status};
+  assert.equal(primaryWebTask([...past,current]),current);
+ }
+ assert.equal(primaryWebTask(past),past[0],'all historical tasks remain accessible');
+ assert.equal(primaryWebTask([]),undefined);
+});

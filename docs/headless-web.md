@@ -235,3 +235,25 @@ Web 的 Bot 配对回包丢失由原连接 proof、目标身份和显式配对�
 沿用原连接/source/proof；旧 pending 和 unknown 不清除。新授权确认后才允许后续连接操作，
 其回包再次丢失仍核对该次原 ID，不以改码重放。明确错码/过期拒绝可直接纠正。
 旧 Draft 未保存原码指纹的 unknown 不能安全判定新码，仍保留，不作隐式迁移。详见[最终审计](worker-peer-final-audit.md)。
+
+### Worker reading presentation
+
+The browser task picker opens with current work and the selected task. Terminal
+records stay available under **Show past tasks**, with search; finishing the
+selected task does not navigate away or replace its messages. Unknown and waiting
+states remain current. This is presentation only and never deletes or acknowledges
+Worker records.
+
+Worker messages use the shared Markdown/text reveal and scroll controller. The
+first native observation, completed messages, inactive views and reduced-motion
+preference render directly; subsequent live prefixes are paced. Reading above the
+tail keeps its position; returning to the bottom resumes following. The Web canvas
+and split pane use the common chat palette in both color modes.
+
+`script/web-worker-reading-browser.mjs`, run through Playwright CLI on
+`script/input-menu-preview.mjs`, covers the production Web transport and components
+with synthetic protocol data: current/history choices, retained selection on
+completion, incremental rendering, reading position, bottom following and narrow
+layouts. Live model/Worker output and visual evidence remain a separate check.
+No Bot skill update is needed: tools, task authority, receipts and workflows are
+unchanged.
