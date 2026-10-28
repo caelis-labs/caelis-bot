@@ -14,9 +14,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 const maxConfig = 128 << 10
@@ -28,6 +30,9 @@ type Transport struct {
 	tunnels                            map[string]*tunnel
 	retired                            []chan struct{}
 	closed                             bool
+	now                                func() time.Time
+	generation                         uint64
+	diagnostics                        func(diagnosticlog.Record)
 }
 
 func New(root string) *Transport {
@@ -38,7 +43,7 @@ func New(root string) *Transport {
 	if os.PathSeparator == '\\' {
 		system = filepath.Join(os.Getenv("PROGRAMDATA"), "ssh", "ssh_config")
 	}
-	return &Transport{root: root, home: home, system: system, binary: binary, helper: helper, tunnels: map[string]*tunnel{}}
+	return &Transport{root: root, home: home, system: system, binary: binary, helper: helper, tunnels: map[string]*tunnel{}, now: time.Now}
 }
 func (t *Transport) path() string { return filepath.Join(t.root, "config") }
 func revision(b []byte) string    { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }

@@ -670,6 +670,16 @@ old code authorization graph. A new network-only [SSH channel](ssh-connections.m
 reuses standard system/private OpenSSH configuration and the same Bot peer protocol;
 Tailscale stays external. No helper execution or second task authority returns.
 
+Established grants use the existing health observer for noninteractive SSH
+recovery: capped exponential backoff with jitter, no finite attempt budget, and
+consecutive failures reset on a ready forward. Explicit stop/cancel and classified
+authentication, host-key or configuration errors fence automatic starts. The
+connection service alone proves unused channels reclaimable; capacity eviction
+cannot forget a referenced stop. Each recovered forward revalidates original peer
+identity, pairing receipt and Runtime readiness without pairing/task write replay.
+Bounded lifecycle diagnostics correlate channel fingerprints, generations, exits
+and health transitions without retaining native stderr or authentication input.
+
 For established connections, native task routes/runtime/owner/request IDs persist
 before execution. Unknown results reconcile original receipts; they never choose
 another environment or local fallback. New work may replace only a verified exited

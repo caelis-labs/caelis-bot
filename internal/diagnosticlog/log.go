@@ -48,6 +48,10 @@ type Record struct {
 	Reason              string    `json:"reason,omitempty"` // Only classified/locally generated descriptions.
 	Fingerprint         string    `json:"fingerprint,omitempty"`
 	Bytes               int       `json:"bytes,omitempty"`
+	ProcessID           int       `json:"processId,omitempty"`
+	ExitCode            *int      `json:"exitCode,omitempty"`
+	ConsecutiveFailures int       `json:"consecutiveFailures,omitempty"`
+	RetryAfterMS        int64     `json:"retryAfterMs,omitempty"`
 }
 
 type Logger struct {

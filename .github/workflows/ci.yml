@@ -66,6 +66,10 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
+      - name: Exercise isolated native SSH recovery and ownership
+        run: |
+          make test-ssh-auth
+          CAELIS_BOT_TEST_SSHD=1 go test -race -count=1 ./internal/machines -run 'TestNativeSSHReconnect|TestNativeDeletedSSHCapacity'
   linux-headless:
     needs: scope
     if: contains(fromJSON('["full","shared"]'), needs.scope.outputs.kind)
@@ -91,7 +95,7 @@ jobs:
             go.sum
             script/env.sh
       - name: Check native remote ownership and recovery races
-        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore
+        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/sshtransport ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore
       - name: Build both managed architectures and run native Linux upgrade recovery at umask 077
         run: bash script/ci-linux-headless.sh
   windows-product:

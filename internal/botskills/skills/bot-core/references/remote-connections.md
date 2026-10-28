@@ -52,7 +52,13 @@ Old explicitly archived connections are upgraded to deletion locally. The v1
 compatibility entry is also removed, so reopening cannot re-import it. Unrelated
 legacy data and historical task routes are retained. This never grants authority.
 
-If SSH fails, correct the selected host, login port, username or authentication.
+After a transient SSH disconnect, approved connections retry automatically with
+capped backoff, without an attempt limit. Wait for current environment health;
+do not resend a task or pairing request, replace its ID, or repeatedly reconnect.
+Successful transport recovery still checks the original grant and Runtime.
+Explicitly stopped channels and authentication/host-key/configuration failures
+need user action. Correct the selected host, login port, username or authentication
+and explicitly Connect; never bypass host verification or renew revoked authority.
 If SSH succeeds but Bot is unreachable, check that the destination Bot is running
 and its service port is correct. Keep the local Bot available. Never substitute
 a local Worker when the requested remote environment is unavailable.

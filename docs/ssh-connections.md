@@ -24,11 +24,38 @@ surface can use existing Hosts or password login; selecting a new local key requ
 the desktop app. No browser upload of private key bytes is provided.
 
 Fingerprint confirmation, changed-host-key rejection and authentication failure
-remain explicit. Only Connect starts SSH; viewing Hosts, editing a saved connection,
+remain explicit. Only Connect starts interactive authentication; viewing Hosts, editing a saved connection,
 refreshing the machine list and removing a local entry do not start authentication.
 SSH failure does not replace local Bot or Worker state. The owned channel lifecycle
 is supported on macOS/Linux. Windows keeps direct Bot connections; native SSH
 convenience remains disabled.
+
+## Automatic recovery
+
+Existing approved connections use the same 30-second health observer to resolve
+their canonical SSH target. A disconnected channel retries noninteractively with
+exponential backoff (roughly 5 seconds initially, capped at two minutes, with
+20% jitter). The next eligible health read starts one owned channel; concurrent
+readers share it. There is no lifetime or outage attempt limit. A successful
+forward resets consecutive failures, including across repeated disconnects.
+
+Explicit Stop/cancel, authentication failure, untrusted/changed host keys and
+configuration errors require an explicit Connect after user correction. A stop
+cannot be forgotten by capacity eviction while its connection still references
+the channel. Removing the final connection reference reclaims idle channels;
+shared connections and admitted network calls retain theirs. Closing the app
+joins owned processes; reopening an approved connection resolves its canonical
+target again, never a persisted temporary forwarding port.
+
+Transport readiness is not environment readiness. Recovery verifies the original
+peer identity, reads its existing pairing receipt, and checks Runtime readiness.
+Revoked grants are not renewed. Original tasks and pairing writes are never
+replayed, and an unavailable remote never selects a local replacement.
+
+The existing bounded diagnostic log records only state transitions, an opaque
+channel fingerprint, process/generation, exit code, consecutive failure count and
+retry delay. The machine health transition identifies peer/Runtime availability
+separately. Raw SSH errors, hostnames, config, prompts and credentials are omitted.
 
 ## Existing configuration compatibility
 
@@ -49,12 +76,13 @@ The private file is not used for manual login.
 Edit saves the local name and, when changed, a candidate endpoint. It does not
 reconnect or change the active proof/channel. A changed endpoint appears as saved,
 awaiting Connect; explicit connection then checks the original peer identity.
-Remove archives the local list entry, preserving historical routes, original proof
-and running channels. Revoking an incoming peer's permission is a separate action.
+Remove deletes local connection settings and its proof, preserving historical task
+routes without retargeting them. Shared or admitted in-flight channels are retained
+until their final reference ends. Revoking an incoming grant is a separate action.
 
 Legacy version-1 registry entries are displayed as legacy, not as unsent requests.
-The original registry bytes remain untouched; local edits and archived state are
-stored in a version-2 companion registry with the original profile/task bindings.
+Local management uses a version-2 companion registry with original task bindings;
+deletion also removes the exact old compatibility entry so it cannot be re-imported.
 This does not restore the retired helper protocol or fabricate new peer grants.
 
 Local save/remove assigns one operation ID, commits its receipt atomically with the

@@ -266,6 +266,7 @@ func (s *Service) applyPairingReceipt(ctx context.Context, p profile, receipt wo
 		s.state.Profiles[p.View.ID] = current
 		return current.View, err
 	}
+	s.diagnoseHealthLocked(current, next)
 	if next.View.State == "ready" {
 		s.renewBotObservationsLocked(p.View.ID)
 	}
