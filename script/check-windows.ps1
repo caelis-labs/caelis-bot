@@ -29,25 +29,31 @@ try {
   $taskFullSuiteError = $null
   try {
     # A package timeout includes every test, not one Worker deadline. The Codex
-    # package has 287+ native contract cases; the 255-decision durability boundary
-    # alone took 56s of the original 180s Windows run. Keep all traffic/assertions
-    # and that same deadline; isolate only this named stress case from the rest.
-    $taskCodexPackage = 'github.com/caelis-labs/caelis-bot/internal/backend/codex'
-    $taskReceiptCase = 'TestWorkerReceiptHistoryDoesNotConsumePromptOrStopAdmission'
+    # receipt stress case took 56s; Bot's 1000-tick no-Dream case took 65s before
+    # its package exhausted 180s. Keep all traffic/assertions and that same
+    # deadline; isolate each named stress case from its remaining package.
+    $taskPartitions = @(
+      @{ Package = 'github.com/caelis-labs/caelis-bot/internal/backend/codex'; Case = 'TestWorkerReceiptHistoryDoesNotConsumePromptOrStopAdmission' },
+      @{ Package = 'github.com/caelis-labs/caelis-bot/internal/bot'; Case = 'TestNoAutomaticDreamEvenAfterUpgradeAndHighUsage' }
+    )
     $taskPackages = @(go list ./...)
     if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate original Go suite' }
-    $taskCodexCases = @(go test -list '^Test' $taskCodexPackage | Where-Object { $_ -match '^Test[0-9A-Za-z_]+$' })
-    if ($LASTEXITCODE -ne 0 -or @($taskCodexCases | Where-Object { $_ -eq $taskReceiptCase }).Count -ne 1) { throw 'Codex stress partition must match exactly one existing test' }
-    $taskOtherCases = @($taskCodexCases | Where-Object { $_ -ne $taskReceiptCase })
-    if ($taskOtherCases.Count -lt 1 -or ($taskOtherCases.Count + 1) -ne $taskCodexCases.Count) { throw 'Codex partitions do not cover the original suite' }
-    Write-Host "Codex original cases=$($taskCodexCases.Count); receipt partition=1; remaining=$($taskOtherCases.Count); each keeps 180s"
-    $taskOtherPackages = @($taskPackages | Where-Object { $_ -ne $taskCodexPackage })
+    foreach ($taskPartition in $taskPartitions) {
+      $taskCases = @(go test -list '^Test' $taskPartition.Package | Where-Object { $_ -match '^Test[0-9A-Za-z_]+$' })
+      if ($LASTEXITCODE -ne 0 -or @($taskCases | Where-Object { $_ -eq $taskPartition.Case }).Count -ne 1) { throw "Stress partition must match exactly one existing test in $($taskPartition.Package)" }
+      $taskOtherCases = @($taskCases | Where-Object { $_ -ne $taskPartition.Case })
+      if ($taskOtherCases.Count -lt 1 -or ($taskOtherCases.Count + 1) -ne $taskCases.Count) { throw "Partitions do not cover the original suite in $($taskPartition.Package)" }
+      Write-Host "$($taskPartition.Package) original cases=$($taskCases.Count); stress partition=1; remaining=$($taskOtherCases.Count); each keeps 180s"
+    }
+    $taskOtherPackages = @($taskPackages | Where-Object { $_ -notin $taskPartitions.Package })
     try { Invoke-BotCommand go test -json -p 2 -timeout 180s @taskOtherPackages }
     catch { $taskFullSuiteError = $_ }
-    try { Invoke-BotCommand go test -json -p 2 -timeout 180s -count=1 -run "^${taskReceiptCase}$" $taskCodexPackage }
-    catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
-    try { Invoke-BotCommand go test -json -p 2 -timeout 180s -skip "^${taskReceiptCase}$" $taskCodexPackage }
-    catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+    foreach ($taskPartition in $taskPartitions) {
+      try { Invoke-BotCommand go test -json -p 2 -timeout 180s -count=1 -run "^$($taskPartition.Case)$" $taskPartition.Package }
+      catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+      try { Invoke-BotCommand go test -json -p 2 -timeout 180s -skip "^$($taskPartition.Case)$" $taskPartition.Package }
+      catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
+    }
   } catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
   finally { $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskPreviousIOTrace }
   # Decode the original invocation's trace; no second test attempt. A diagnostic

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,7 +40,9 @@ func TestGitHubDeviceOAuthConnectCancelReplaceAndDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	var serverURL string
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/device":
@@ -69,7 +72,30 @@ func TestGitHubDeviceOAuthConnectCancelReplaceAndDisconnect(t *testing.T) {
 		_, err := m.ConfigureOAuthGrant(ctx, id, state, grant, nil)
 		return err
 	}
-	snapshot, err := m.BeginOAuth(t.Context(), "github", func(u string) error { opened = u; return nil }, complete)
+	begin := m.BeginOAuth
+	if !oauthNativeSupported {
+		t.Run("unsupported_public_entry", func(t *testing.T) {
+			before := mustJSON(t, m.Snapshot())
+			var callbacks atomic.Int32
+			_, err := m.BeginOAuth(t.Context(), "github", func(string) error { callbacks.Add(1); return nil },
+				func(context.Context, string, string, OAuthGrant) error { callbacks.Add(1); return nil })
+			if err == nil || !strings.Contains(err.Error(), "unsupported") {
+				t.Fatalf("unsupported OAuth entry was not rejected: %v", err)
+			}
+			if requests.Load() != 0 || callbacks.Load() != 0 || before != mustJSON(t, m.Snapshot()) {
+				t.Fatal("unsupported OAuth entry started authorization or changed state")
+			}
+			secretMu.Lock()
+			defer secretMu.Unlock()
+			if len(secrets) != 0 {
+				t.Fatal("unsupported OAuth entry stored credentials")
+			}
+		})
+		// Exercise the platform-independent device protocol with the memory
+		// credential fixture, without claiming native Linux OAuth support.
+		begin = m.beginDeviceOAuth
+	}
+	snapshot, err := begin(t.Context(), "github", func(u string) error { opened = u; return nil }, complete)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +115,7 @@ func TestGitHubDeviceOAuthConnectCancelReplaceAndDisconnect(t *testing.T) {
 	if state := connectionState(m.Snapshot(), "github"); state != "not_configured" {
 		t.Fatalf("cancel state = %s", state)
 	}
-	if _, err := m.BeginOAuth(t.Context(), "github", func(string) error { return nil }, complete); err != nil {
+	if _, err := begin(t.Context(), "github", func(string) error { return nil }, complete); err != nil {
 		t.Fatal("retry after cancel:", err)
 	}
 	deadline := time.After(8 * time.Second)
