@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -167,5 +168,84 @@ func TestFinishedTaskContinuationKeepsNewNativeQuestion(t *testing.T) {
 				t.Fatal("original answer replayed", before, after)
 			}
 		})
+	}
+}
+
+func TestRecoveredTerminalContinuationRetiresOriginalRunAcrossRestart(t *testing.T) {
+	for _, status := range []string{"inProgress", "completed", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			s, f, _, m := taskPair(t)
+			sendSynthetic(t, s, "recovered-parent")
+			task := newTask(t, m, "recovered-start")
+			finishTask(s, f, task.ID, "completed")
+			awaitState(t, s, func(api.Snapshot) bool { return s.WorkStates()[0].Task.Status == "completed" })
+			if _, err := m.FinishTask(t.Context(), task.ID, api.TaskFinishToken(s.WorkStates()[0])); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Lock()
+			thread, oldRun := s.binding.Tasks[task.ID].Thread, s.binding.Tasks[task.ID].Run
+			admission := s.binding.Tasks[task.ID].AsyncAdmission
+			s.mu.Unlock()
+			// The terminal continues while the observer misses turn/started. Its
+			// newest native read is the first observation; it may already be done.
+			f.mu.Lock()
+			native := f.workers[thread]
+			native.Turns = append(native.Turns, nativeTurn{ID: "recovered-terminal-run", Status: status})
+			native.Status.Type = "idle"
+			if status == "inProgress" {
+				native.Status.Type = "active"
+			}
+			f.workers[thread] = native
+			f.mu.Unlock()
+			if _, err := s.ReadWork(t.Context(), task.ID); err != nil {
+				t.Fatal(err)
+			}
+			loaded := NewSession(s.opts)
+			defer loaded.cancelLife()
+			loaded.resetProjection()
+			retained := loaded.binding.Tasks[task.ID]
+			loaded.observeTaskTurn(retained, nativeTurn{ID: oldRun, Status: "failed"})
+			want := status
+			if status == "inProgress" {
+				want = "working"
+			}
+			if retained.Run != "recovered-terminal-run" || retained.View.Status != want || m.InteractionStates(loaded.WorkStates())[0].TaskEnded {
+				t.Fatal("late old event rewound read-recovered execution/finish", retained.Run, retained.View.Status)
+			}
+			if retained.AsyncAdmission != admission {
+				t.Fatal("read created or renewed a question lifetime")
+			}
+		})
+	}
+}
+
+func TestResumeFallbackDoesNotRetireCurrentTurnFromOlderHistory(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "resume-parent")
+	task := newTask(t, m, "resume-start")
+	s.mu.Lock()
+	thread, current := s.binding.Tasks[task.ID].Thread, s.binding.Tasks[task.ID].Run
+	client, epoch := s.client, s.epoch
+	s.mu.Unlock()
+	f.mu.Lock()
+	native := f.workers[thread]
+	native.Turns = append([]nativeTurn{{ID: "older-history", Status: "completed"}}, native.Turns...)
+	f.workers[thread] = native
+	previous := f.handle
+	f.handle = func(msg wireMessage) (any, bool) {
+		if msg.Method == "thread/read" && strings.Contains(string(msg.Params), thread) {
+			return map[string]any{"thread": nativeThread{ID: "wrong-thread"}}, true
+		}
+		return previous(msg)
+	}
+	f.mu.Unlock()
+	if !s.watchChild(client, epoch, thread) {
+		t.Fatal("resume fallback did not subscribe")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := s.binding.Tasks[task.ID]
+	if record.Run != current || slices.Contains(record.SupersededRuns, current) || record.View.Status != "working" {
+		t.Fatal("older resume history retired the current execution", record.Run, record.SupersededRuns)
 	}
 }

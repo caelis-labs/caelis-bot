@@ -108,6 +108,11 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 		if recent, readErr := readThreadState(ctx, c, id); readErr == nil {
 			response.Thread = recent
 		}
+		// Compatibility peers may ignore excludeTurns. If the lightweight read
+		// fails, use only the latest resume turn, never replay older generations.
+		if len(response.Thread.Turns) > 1 {
+			response.Thread.Turns = response.Thread.Turns[len(response.Thread.Turns)-1:]
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,7 +150,7 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 	run := ""
 	for _, turn := range response.Thread.Turns {
 		if task := s.taskByThread(id); task != nil {
-			s.observeTaskTurn(task, turn, true)
+			s.observeLatestTaskTurn(task, turn)
 		}
 		if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] && !s.supersededTaskRun(id, turn.ID) {
 			active = true

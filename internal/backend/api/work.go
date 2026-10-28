@@ -97,6 +97,8 @@ type WorkState struct {
 	Task    Task
 	// AsyncQuestions are host-only completed Codex question items owned by this
 	// Worker. They do not turn a Worker transcript into Bot conversation history.
+	// Failure, cancellation and explicit finish close only these exact identities;
+	// a late snapshot cannot close a question admitted by a later observation.
 	AsyncQuestions []Item `json:"-"`
 	// Activity is active, idle, owner_unavailable, or empty when the native
 	// owner has not been checked in this connection generation. It is

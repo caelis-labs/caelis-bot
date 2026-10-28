@@ -2,6 +2,7 @@ package textchannel
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,7 +115,7 @@ func TestWorkerLifecycleYieldFinalCancelAndReplacement(t *testing.T) {
 		t.Run(test.status+test.result, func(t *testing.T) {
 			s, _ := Open(t.TempDir(), nil)
 			_, _ = s.AsyncWorkCard(lifecycleQuestion(), "codex", "work")
-			_ = s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work", Title: "Source", Status: test.status, Result: test.result}, StopRequested: test.stop}})
+			_ = s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work", Title: "Source", Status: test.status, Result: test.result}, StopRequested: test.stop, AsyncQuestions: []api.Item{lifecycleQuestion()}}})
 			q := s.state.AsyncQuestions["Q1"]
 			if q.State != test.want || q.State == "" && q.TaskTitle != "Source" {
 				t.Fatal(q)
@@ -315,6 +316,44 @@ func TestLateFinishObservationCannotCloseLaterQuestion(t *testing.T) {
 		s, err = Open(root, nil)
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestDelayedTerminalObservationCannotCloseLaterQuestion(t *testing.T) {
+	for _, status := range []string{"failed", "cancelled", "canceled", "stopped"} {
+		for _, finished := range []bool{false, true} {
+			for _, answerState := range []string{"", "unknown"} {
+				t.Run(fmt.Sprintf("%s/finish=%t/answer=%s", status, finished, answerState), func(t *testing.T) {
+					root := t.TempDir()
+					s, _ := Open(root, nil)
+					old := lifecycleQuestion()
+					_, _ = s.AsyncWorkCard(old, "codex", "work")
+					stale := api.WorkState{Runtime: "codex", Task: api.Task{ID: "work", Status: status}, TaskEnded: finished, StopRequested: status == "stopped", AsyncQuestions: []api.Item{old}}
+					next := lifecycleQuestion()
+					next.ID, next.TurnKey, next.AsyncCallID = "next-item", "next-turn", "next-call"
+					_, _ = s.AsyncWorkCard(next, "codex", "work")
+					current := s.state.AsyncQuestions["Q2"]
+					current.State = answerState
+					if answerState != "" {
+						current.ReplyID = "original-unknown-answer"
+					}
+					s.state.AsyncQuestions["Q2"] = current
+					for range 2 {
+						if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{stale}); err != nil {
+							t.Fatal(err)
+						}
+						if s.state.AsyncQuestions["Q1"].State != "expired" || s.state.AsyncQuestions["Q2"].State != answerState || s.state.AsyncQuestions["Q2"].ClosedAt != 0 || s.state.AsyncQuestions["Q2"].ReplyID != current.ReplyID {
+							t.Fatal("old terminal observation closed later question", s.WorkerAsyncQuestions())
+						}
+						var err error
+						s, err = Open(root, nil)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+				})
+			}
 		}
 	}
 }

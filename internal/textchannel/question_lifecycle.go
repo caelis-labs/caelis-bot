@@ -54,6 +54,26 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 	previous := s.state
 	s.state = cloneMaintenanceState(s.state)
 	changed := s.compactClosedQuestionCopies()
+	// Every terminal observation is scoped to its original question identities.
+	// A delayed failure/cancel is no more current than a delayed explicit finish.
+	// Hash each observed item once, not once per pending question.
+	workerClosures := map[string]string{}
+	for _, w := range work {
+		reason := ""
+		switch {
+		case w.StopRequested || w.Task.Status == "cancelled" || w.Task.Status == "canceled":
+			reason = "task_cancelled"
+		case w.Task.Status == "failed":
+			reason = "task_ended"
+		case w.TaskEnded:
+			reason = "task_completed"
+		}
+		if reason != "" {
+			for _, item := range w.AsyncQuestions {
+				workerClosures[asyncFingerprint(item, w.Runtime, w.Task.ID)] = reason
+			}
+		}
+	}
 	for id, q := range s.state.AsyncQuestions {
 		if q.State == "unknown" && q.WorkID == "" && snapshot.RuntimeOwner == q.Owner && snapshot.LastReceipt.ID == q.ReplyID {
 			if snapshot.LastReceipt.Outcome == "accepted" || snapshot.LastReceipt.Outcome == "rejected" {
@@ -92,16 +112,9 @@ func (s *Store) ReconcileAsync(snapshot api.Snapshot, work []api.WorkState) erro
 				s.state.AsyncQuestions[id] = q
 				changed = true
 			}
-			switch {
-			case w.StopRequested || w.Task.Status == "cancelled" || w.Task.Status == "canceled":
-				state, reason = "expired", "task_cancelled"
-			case w.Task.Status == "failed":
-				state, reason = "expired", "task_ended"
-			case w.TaskEnded && slices.ContainsFunc(w.AsyncQuestions, func(item api.Item) bool {
-				return asyncFingerprint(item, w.Runtime, w.Task.ID) == q.Fingerprint
-			}):
-				state, reason = "expired", "task_completed"
-			}
+		}
+		if closure := workerClosures[q.Fingerprint]; q.WorkID != "" && closure != "" {
+			state, reason = "expired", closure
 		}
 		if state != "" {
 			if q.State == "unknown" || q.State == "dispatching" {

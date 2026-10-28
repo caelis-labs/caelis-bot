@@ -1309,6 +1309,10 @@ the same superseded-turn fence as Bot continuations. Closed questions retain the
 original tombstones; new executions can register new questions and private wakeups.
 Original unknown answer operations remain reconciled by their existing receipts.
 
-The question controller applies finish only to the original question fingerprints
-in that inspected observation. A delayed finish callback cannot close a question
+Authoritative latest-turn reads retain the same superseded-turn fence when the
+observer missed the start notification, including a continuation already terminal
+at first observation. Historical reads never create or renew question lifetimes.
+
+The question controller applies finish, failure and cancellation only to the
+original question fingerprints in that inspected observation. A delayed finish callback cannot close a question
 admitted by a later execution, even before the catalog sees that newer snapshot.

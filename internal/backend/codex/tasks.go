@@ -899,6 +899,19 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 	return
 }
 
+// observeLatestTaskTurn is only for the newest turn from a revision-fenced native
+// state read, never an older history page or a particular operation's receipt.
+// Reconnection may miss turn/started entirely; persist the old-run fence even
+// when the first observation of the terminal client's continuation is terminal.
+// A read still cannot create or renew a question admission epoch.
+func (s *Session) observeLatestTaskTurn(t *taskRecord, turn nativeTurn) {
+	previous := t.Run
+	s.observeTaskTurn(t, turn, true)
+	if previous != "" && t.Run != previous && !slices.Contains(t.SupersededRuns, previous) {
+		t.SupersededRuns = append(t.SupersededRuns, previous)
+	}
+}
+
 // A prepared receipt was durably recorded before any native send was admitted.
 // Crashes here can settle as unsent. Legacy/dispatching receipts remain unknown.
 func settlePreparedTask(t *taskRecord) {
@@ -980,7 +993,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return s.taskView(t), ErrProtocol
 	}
 	for _, turn := range thread.Turns {
-		s.observeTaskTurn(t, turn, true)
+		s.observeLatestTaskTurn(t, turn)
 	}
 	// Activity releases capacity independently of unknown submission receipts.
 	// Reading never resumes a thread, even if it is active or user-cancelled.
