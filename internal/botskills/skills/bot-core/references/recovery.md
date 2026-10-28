@@ -53,8 +53,17 @@ resources that may still be in use, then follow [Working resources](resources.md
 once the original work is reconciled. Carry retained paths and cleanup obligations
 in the ongoing notes or handoff.
 
-A `submission_rejected` creation response proves no Worker input was accepted;
-correct the rejected workspace/input before a new intent. An `unconfirmed`
-response retains the original task/request and must be reconciled without replay.
+For `submission_rejected`, use `error.reason` and the privacy-safe `error.detail`
+to decide the next step. `updater_paused`, `capacity_full` and
+`work_admission_failed` permit retrying later within the original authorization;
+wait at least the suggested interval, avoid a tight retry loop, and keep the same
+workspace and intent. Only `workspace_invalid` calls for correcting the selected
+path. For `native_rejected`, inspect the refusal before taking another action;
+do not bypass a denied approval. For `submission_conflicted` / `native_conflict`,
+inspect the original task and request rather than resending conflicting input.
+A settled refusal does not change an earlier accepted or uncertain receipt.
+An `unconfirmed` response retains the original task/request and must be reconciled
+without replay, regardless of any error detail. Keep diagnostic detail out of
+user-facing chat.
 A failed native turn can still have an accepted submission receipt. Inspect its
 safe `failure` metadata using the original task; unknown fields stay unknown.

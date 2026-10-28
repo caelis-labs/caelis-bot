@@ -88,20 +88,22 @@ type Request struct {
 	Ref           string                 `json:"ref,omitempty"`
 }
 type Response struct {
-	Name         string                        `json:"name,omitempty"`
-	Contract     int                           `json:"contract"`
-	Peer         string                        `json:"peer"`
-	Rejected     bool                          `json:"rejected,omitempty"`
-	Error        string                        `json:"error,omitempty"`
-	Task         api.Task                      `json:"task"`
-	States       []State                       `json:"states,omitempty"`
-	Observation  Observation                   `json:"observation"`
-	Capabilities api.WorkCapabilities          `json:"capabilities"`
-	Messages     []api.TaskConversationMessage `json:"messages,omitempty"`
-	Operation    api.WorkOperation             `json:"operation"`
-	File         api.WorkFileContent           `json:"file"`
-	URL          string                        `json:"url,omitempty"`
-	URLPage      api.WorkURLPage               `json:"urlPage"`
+	Name            string                        `json:"name,omitempty"`
+	Contract        int                           `json:"contract"`
+	Peer            string                        `json:"peer"`
+	Rejected        bool                          `json:"rejected,omitempty"`
+	RejectionDetail string                        `json:"rejectionDetail,omitempty"`
+	RejectionCode   string                        `json:"rejectionCode,omitempty"`
+	Error           string                        `json:"error,omitempty"`
+	Task            api.Task                      `json:"task"`
+	States          []State                       `json:"states,omitempty"`
+	Observation     Observation                   `json:"observation"`
+	Capabilities    api.WorkCapabilities          `json:"capabilities"`
+	Messages        []api.TaskConversationMessage `json:"messages,omitempty"`
+	Operation       api.WorkOperation             `json:"operation"`
+	File            api.WorkFileContent           `json:"file"`
+	URL             string                        `json:"url,omitempty"`
+	URLPage         api.WorkURLPage               `json:"urlPage"`
 }
 type Connection struct {
 	Address string `json:"address"`

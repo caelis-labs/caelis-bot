@@ -33,6 +33,9 @@ type Record struct {
 	Thread              string    `json:"thread,omitempty"`
 	Turn                string    `json:"turn,omitempty"`
 	Item                string    `json:"item,omitempty"`
+	TaskID              string    `json:"taskId,omitempty"`
+	RequestID           string    `json:"requestId,omitempty"`
+	Workspace           string    `json:"workspace,omitempty"`
 	Sequence            uint64    `json:"sequence,omitempty"`
 	Generation          uint64    `json:"generation,omitempty"`
 	SessionEpoch        uint64    `json:"sessionEpoch,omitempty"`
@@ -177,8 +180,11 @@ func (l *Logger) write(r Record) {
 	if r.Level != "error" && r.Level != "info" {
 		r.Level = "warning"
 	}
-	for _, p := range []*string{&r.Component, &r.Code, &r.Method, &r.Thread, &r.Turn, &r.Item, &r.Server} {
+	for _, p := range []*string{&r.Component, &r.Code, &r.Method, &r.Thread, &r.Turn, &r.Item, &r.Server, &r.TaskID, &r.RequestID} {
 		*p = token(*p)
+	}
+	if r.Workspace != "" && (!filepath.IsAbs(r.Workspace) || len(r.Workspace) > 1024 || strings.ContainsAny(r.Workspace, "\x00\r\n")) {
+		r.Workspace = "sha256:" + Fingerprint([]byte(r.Workspace))
 	}
 	b, err := json.Marshal(r)
 	if err == nil {
