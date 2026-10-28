@@ -58,13 +58,14 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	if len(scheduled) > 0 {
 		j := s.state.Operations[op]
 		j.Dream = scheduled[0].Dream
+		j.HostNotice = scheduled[0].HostNotice
 		if j.Scheduled && !j.Dream {
 			j.OriginRequests = slices.Clone(scheduled[0].OriginRequests)
 			j.OriginOwner = (inputScope{InstanceID: s.state.InstanceID, SessionID: s.state.Session.SessionId}).owner()
 		}
 		s.state.Operations[op] = j
 	}
-	if path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || source.Kind == "application_summary") && !s.state.Operations[op].Scheduled {
+	if path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || s.state.Operations[op].hostNotice()) && !s.state.Operations[op].Scheduled {
 		pending := &pendingInput{VisibleIDs: []string{}}
 		if v := s.state.Views[s.state.Session.SessionId]; v != nil {
 			for _, item := range v.Items {
@@ -211,7 +212,12 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		return api.Receipt{}, api.ErrRecoveryPending
 	}
 	v := s.snapshotLocked()
-	_, retry := s.state.Operations[in.ID]
+	original, retry := s.state.Operations[in.ID]
+	if retry && in.HostNotice && original.hostNotice() {
+		// Reconcile the original intent, including legacy summary sources.
+		// command still checks its exact path/body digest and never re-POSTs it.
+		source = original.Source.Kind
+	}
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if !retry && !v.CanSend && !(source == "user" && v.CanSteer) {

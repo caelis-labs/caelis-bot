@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -22,7 +21,7 @@ func (f *sourceAdmissionFixture) WorkAdmission(ctx context.Context) error {
 
 // Exercise the native source predicate through Manager and bot_delegate. Native
 // work creation is a counted fixture; no real model or remote Worker is invoked.
-func TestDelegateAfterUserWorkCannotAcquireAuthorityFromReport(t *testing.T) {
+func TestDelegateContinuesAuthorizedWorkFromReportContext(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected native request") })
 	f := &sourceAdmissionFixture{&workerAdmissionFixture{Session: s}}
 	root := t.TempDir()
@@ -49,19 +48,18 @@ func TestDelegateAfterUserWorkCannotAcquireAuthorityFromReport(t *testing.T) {
 		}
 	}
 	for _, kind := range []string{"application_summary", "external_material"} {
-		out := invoke(kind, "blocked")
-		failure := out.StructuredContent["error"].(map[string]string)
-		if !out.IsError || failure["reason"] != "source_not_authorized" || failure["detail"] != "应用摘要或外部材料不能授权新工作" || !strings.Contains(failure["message"], "Do not retry in this turn") || strings.Contains(failure["message"], "30 seconds") || f.starts != 2 {
-			t.Fatal(out, f.starts)
+		if out := invoke(kind, "continue-plan"); out.IsError {
+			t.Fatal("report provenance disabled normal delegation", out)
 		}
 	}
+
 	// A new real user or validated scheduled source can still start independent work.
 	for _, kind := range []string{"user", "authorized_background"} {
 		if out := invoke(kind, "later"); out.IsError {
 			t.Fatal(out)
 		}
 	}
-	if f.starts != 4 {
+	if f.starts != 6 {
 		t.Fatal("incorrect dispatch count", f.starts)
 	}
 }

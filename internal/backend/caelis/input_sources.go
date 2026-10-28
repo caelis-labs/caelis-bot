@@ -31,7 +31,7 @@ func (s *Session) appendInputSources(out *api.Snapshot, v *view, sid string) {
 	for _, item := range out.Items {
 		scope, ok := v.InputScopes[item.ID]
 		j := s.state.Operations[item.RequestID]
-		if !ok || item.Kind != "user" || item.RequestID == "" || item.TurnKey == "" || scope.SessionID != sid || scope.TurnID != item.TurnKey || j.Scheduled || j.Source.Kind == "application_summary" {
+		if !ok || item.Kind != "user" || item.RequestID == "" || item.TurnKey == "" || scope.SessionID != sid || scope.TurnID != item.TurnKey || j.Scheduled || j.hostNotice() {
 			continue
 		}
 		if owner := scope.owner(); owner != "" {

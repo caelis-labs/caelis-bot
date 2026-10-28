@@ -283,7 +283,8 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 }
 
 func (s *Session) SubmitReport(ctx context.Context, in api.Submission) (api.Receipt, error) {
-	return s.submit(ctx, in, nil, "application_summary")
+	in.HostNotice = true
+	return s.submit(ctx, in, nil, "external_material")
 }
 
 var _ api.WorkRuntime = (*Session)(nil)

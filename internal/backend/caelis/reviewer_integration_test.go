@@ -590,6 +590,12 @@ func TestGuardianHostIntegration(t *testing.T) {
 		return
 	}
 
+	if !t.Run("G10_worker_completion_continues_normal_loop", func(t *testing.T) {
+		workerReportLoopAcceptance(t, ctx, s, main, notebook, configureReview)
+	}) {
+		return
+	}
+
 	if !t.Run("G07_timeout_never_dispatches", func(t *testing.T) {
 		// Restore the simple reviewed callback and wait through the actual Core budget.
 		before := effects.Load()

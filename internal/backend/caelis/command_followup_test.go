@@ -88,7 +88,7 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 				posts.Add(1)
 				var req wire.PromptRequest
 				_ = json.NewDecoder(r.Body).Decode(&req)
-				if value(req.SourceKind) != "application_summary" || value(req.Input) != "Command command-1 is completed." {
+				if value(req.SourceKind) != "external_material" || value(req.Input) != "Command command-1 is completed." {
 					t.Error("notice lost authority/identity")
 				}
 				if lost {

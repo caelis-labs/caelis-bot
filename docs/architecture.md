@@ -517,8 +517,12 @@ message request ID, receipt and no-replay rule.
 Host task and command completion reports enter through `SubmitReport` as internal
 inputs. Codex persists their exact client IDs in the native binding and imports
 delivered or uncertain IDs from the existing native product task ledger before
-history projection; Caelis persists `application_summary` in its command
-journal and correlates the canonical turn. Both project the input as `hostNotice`
+history projection; Caelis submits ordinary `external_material` evidence and
+persists a local `hostNotice` marker in its command journal, correlated with the
+canonical turn. Old `application_summary` journals remain readable with their
+original source and request digest. Source provenance never disables Worker
+tools for the entire turn: the native Guardian and callback identity checks
+still govern each action, including continuation after user steering. Both project the input as `hostNotice`
 through live updates, reconnect and older history. Presentation and Telegram
 skip that kind before reading text or attachments; the subsequent assistant
 result remains visible. No prose pattern or renderer-supplied flag establishes

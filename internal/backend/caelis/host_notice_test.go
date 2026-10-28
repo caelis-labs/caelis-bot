@@ -15,7 +15,7 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	const notice = "Task task-42 is completed."
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		var req wire.PromptRequest
-		if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SourceKind) != "application_summary" || value(req.Input) != notice {
+		if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SourceKind) != "external_material" || value(req.Input) != notice {
 			t.Errorf("wrong host report submission: %s %+v", r.URL.Path, req)
 		}
 		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("host-turn")}})
@@ -113,5 +113,65 @@ func TestHostReportIsHiddenInOlderCaelisPage(t *testing.T) {
 	got := s.Snapshot()
 	if len(got.Items) != 2 || got.Items[0].Kind != "assistant" || got.Items[0].Text != "Reported result" || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
 		t.Fatal("older page leaked host report or hid ordinary content", got.Items)
+	}
+}
+
+func TestLegacyReportRetryPreservesOriginalJournal(t *testing.T) {
+	for _, outcome := range []string{"accepted", "rejected", "unknown"} {
+		t.Run(outcome, func(t *testing.T) {
+			reads := 0
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || r.URL.Path != "/api/control/v1/operations/legacy-report" {
+					t.Errorf("legacy effect replayed: %s %s", r.Method, r.URL.Path)
+					return
+				}
+				reads++
+				writeFixture(w, wire.CommandResult{OperationId: "legacy-report", Outcome: "accepted"})
+			})
+			in := api.Submission{ID: "legacy-report", Text: "Original completion evidence"}
+			source, sid := "application_summary", "main"
+			body, _ := json.Marshal(wire.PromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &in.Text, SourceKind: &source})
+			original := journal{Path: "/sessions/main/prompt", Body: body, Digest: digest(body), Outcome: outcome, Source: wire.SessionSource{Kind: source, OperationId: in.ID}}
+			s.state.Operations[in.ID] = original
+			if err := s.saveLocked(); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.state = restored
+			receipt, err := s.SubmitReport(t.Context(), in)
+			if err != nil || receipt.Outcome != outcome {
+				t.Fatal("old report reclassified", receipt, err)
+			}
+			current := s.state.Operations[in.ID]
+			if string(current.Body) != string(body) || current.Digest != original.Digest || current.Source.Kind != source || current.HostNotice {
+				t.Fatal("old intent rewritten", current)
+			}
+			changed := in
+			changed.Text = "Changed intent"
+			if r, _ := s.SubmitReport(t.Context(), changed); r.Outcome != "rejected" || r.Message == "" || s.state.Operations[in.ID].Outcome != outcome {
+				t.Fatal("old ID reused", r)
+			}
+			if err := s.recoverOperation(t.Context(), in.ID); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if outcome == "unknown" {
+				want = 1
+			}
+			if reads != want || s.state.Operations[in.ID].Source.Kind != source {
+				t.Fatal("legacy receipt was replayed or relabelled", reads)
+			}
+		})
+	}
+}
+
+func TestOrdinaryEvidenceDoesNotInventCompletionReceipt(t *testing.T) {
+	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
+	s.state.Operations["material"] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", TurnID: "material-turn", Source: wire.SessionSource{Kind: "external_material", OperationId: "material"}}
+	if out := s.Snapshot(); len(out.ReportSources) != 0 {
+		t.Fatal("evidence kind became completion metadata", out.ReportSources)
 	}
 }

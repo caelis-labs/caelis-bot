@@ -152,7 +152,7 @@ Bot 连接和设置读取不修改实验配置，初始状态遵循 Core 默认�
 | --- | --- |
 | 持续身份、Notebook、Memory | Bot 持有 Markdown、索引、skill 和 recall/remember；常驻应用会话的 CWD 显式绑定 Notebook |
 | 原生文件与命令 | Caelis `workspace-write` 的 Read/Write/Patch/Glob/Grep/RunCommand；不增加 Bot 专用文件工具 |
-| 聊天与观察 | `/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `application_summary` |
+| 聊天与观察 | `/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `external_material` 证据输入及本地 `hostNotice` 展示标记；旧 summary 回执保持原身份 |
 | 专业任务 | `internal/tasks` 分配目录、账本和有限汇报；adapter 将 WorkRuntime 映射为共享原生 Worker，不继承秘书 skill/Notebook 指令 |
 | 应用工具 | Bot 注入目录及 handler；Caelis 返回可信 callback；按 opaque call ID、native item、配置 revision、tools_version 路由 |
 | 后台提醒 | Bot 保存计划并计时；用户创建/修改时获取 background grant，激活使用 `authorized_background`；一条计划对应一次激活 |

@@ -165,20 +165,27 @@ func TestResourceDigestMismatchNeverReturnsBytes(t *testing.T) {
 		t.Fatal("unverified bytes exposed")
 	}
 }
-func TestSourceEvidenceCannotAuthorizeWorkOrBackground(t *testing.T) {
-	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("untrusted source reached Host") })
-	s.state.PrincipalID = "owner"
-	for _, kind := range []string{"application_summary", "external_material", ""} {
+func TestEvidenceInvocationStillNeedsIdentityAndSeparateBackgroundGrant(t *testing.T) {
+	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected native request") })
+	for _, kind := range []string{"application_summary", "external_material"} {
 		ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: kind}})
-		err := s.WorkAdmission(ctx)
-		var admission *api.WorkAdmissionError
-		var rejection *api.WorkMessageRejection
-		if !errors.As(err, &admission) || admission.Code != "source_not_authorized" || errors.As(err, &rejection) || admission.Cause == nil {
-			t.Fatal("source refusal lost type/cause or falsely settled an input receipt", kind, err)
+		if err := s.WorkAdmission(ctx); err != nil {
+			t.Fatal("native evidence invocation cannot continue authorized work", err)
 		}
 		if s.AuthorizeBackground(ctx, "reminder", "fingerprint") == nil {
-			t.Fatal("source gained background authority", kind)
+			t.Fatal("evidence became a new background grant", kind)
 		}
+	}
+	for _, call := range []wire.SessionToolCall{{}, {SessionId: "other", PrincipalId: "owner"}, {SessionId: "main", PrincipalId: "other"}} {
+		err := s.WorkAdmission(context.WithValue(t.Context(), invocationKey{}, call))
+		var admission *api.WorkAdmissionError
+		var rejection *api.WorkMessageRejection
+		if !errors.As(err, &admission) || admission.Code != "source_not_authorized" || errors.As(err, &rejection) {
+			t.Fatal("unbound invocation acquired authority or settled a receipt", err)
+		}
+	}
+	if s.WorkAdmission(t.Context()) == nil {
+		t.Fatal("missing invocation admitted")
 	}
 }
 

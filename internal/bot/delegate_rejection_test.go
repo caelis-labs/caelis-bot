@@ -29,7 +29,7 @@ func (f *rejectionCompactTasks) SendTask(_ context.Context, in api.TaskMessage) 
 }
 
 func TestDelegateRejectionReasons(t *testing.T) {
-	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "native_conflict", "native_rejected", ""} {
+	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "input_preparation_failed", "input_validation_failed", "workspace_preparation_failed", "native_conflict", "native_rejected", ""} {
 		for _, continuation := range []bool{false, true} {
 			t.Run(reason+map[bool]string{false: "/create", true: "/continue"}[continuation], func(t *testing.T) {
 				outcome := "rejected"

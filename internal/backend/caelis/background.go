@@ -24,7 +24,7 @@ func (s *Session) createGrant(ctx context.Context, sid, source, authorization st
 	return g, e
 }
 func (s *Session) AuthorizeBackground(ctx context.Context, id, fingerprint string) error {
-	call, e := s.authority(ctx)
+	call, e := s.currentInvocation(ctx)
 	if e != nil {
 		return e
 	}

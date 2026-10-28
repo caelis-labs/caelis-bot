@@ -70,7 +70,7 @@ func (s *Session) ConversationState() api.ConversationState {
 }
 func (s *Session) SubmitDream(ctx context.Context, in api.Submission) (api.Receipt, error) {
 	in.Dream, in.Scheduled = true, true
-	return s.submit(ctx, in, nil, "application_summary")
+	return s.SubmitReport(ctx, in)
 }
 func (s *Session) DreamResult(id string) (api.Receipt, api.ConversationState) {
 	s.mu.Lock()

@@ -24,10 +24,10 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope, scope inputSc
 	id := value(e.InputOperationId)
 	j := s.state.Operations[id]
 	scheduled := turn != "" && j.Scheduled
-	hostNotice := j.Source.Kind == "application_summary"
+	hostNotice := j.hostNotice()
 	if !hostNotice && id == "" && turn != "" {
 		for _, candidate := range s.state.Operations {
-			if candidate.TurnID == turn && candidate.Source.Kind == "application_summary" {
+			if candidate.TurnID == turn && candidate.hostNotice() {
 				hostNotice = true
 				break
 			}
@@ -52,7 +52,7 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 	turns := map[string]string{}
 	dreams := map[string]string{}
 	for id, j := range s.state.Operations {
-		if j.Source.Kind == "application_summary" {
+		if j.hostNotice() {
 			path := "/sessions/" + idPath(s.state.Session.SessionId)
 			if out.RuntimeOwner != "" && j.TurnID != "" && succeeded(wire.Outcome(j.Outcome)) && (j.Path == path+"/prompt" || j.Path == path+"/steer") {
 				phase := v.Turns[j.TurnID]

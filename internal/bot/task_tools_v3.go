@@ -165,7 +165,7 @@ func delegationRejectionGuidance(reason string) string {
 	case "work_admission_failed":
 		return "Worker admission failed for an unclassified reason. Inspect the original request and cause before another action; no timed retry is advised."
 	case "source_not_authorized":
-		return "The current invocation does not carry authority for Worker input. Do not retry in this turn or change workspace; retain the original task and request. Continue only with a valid authorized source from the Host. A completion report or external material cannot grant authority."
+		return "The original Worker invocation could not be verified. Retain the task and request and inspect the original binding; waiting or changing workspace cannot repair an identity mismatch."
 	case "workspace_invalid":
 		return "The workspace was rejected before Worker input was accepted. Use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
 	case "native_conflict":
@@ -327,6 +327,9 @@ func (r *Runtime) callTasksV3(ctx context.Context, q map[string]any) api.ToolRes
 			return compactError("unavailable", errors.New("Worker observation unavailable"))
 		}
 		v, err := p.ObserveTask(bounded, str(q, "task"))
+		if errors.Is(err, api.ErrWorkObservationChanged) {
+			return compactError("observation_changed", errors.New("Worker state advanced during observation. Read the same task again; no finish token was issued"))
+		}
 		if err != nil {
 			return compactError("original_owner_unavailable", err)
 		}

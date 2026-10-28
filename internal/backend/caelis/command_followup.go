@@ -153,7 +153,7 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 			return nil
 		}
 		text := fmt.Sprintf("Command %s is %s.", task.Handle, status)
-		receipt, err := s.submitGrantLocked(ctx, api.Submission{ID: op, Text: text}, nil, "application_summary", "")
+		receipt, err := s.submitGrantLocked(ctx, api.Submission{ID: op, Text: text, HostNotice: true}, nil, "external_material", "")
 		if err != nil {
 			return err
 		}
