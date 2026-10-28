@@ -15,6 +15,11 @@ import (
 const fixtureBuild = "worker-peer-native-fixture/0.1.0"
 
 type nativeItem struct {
+	Delivery  string `json:"delivery,omitempty"`
+	Questions []struct {
+		Title   string   `json:"title"`
+		Options []string `json:"options"`
+	} `json:"questions,omitempty"`
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`

@@ -1298,3 +1298,21 @@ Terminal mutation receipts compact to 1024 recent entries (pending cleanup is
 retained), with a persisted time floor rejecting retired IDs. An expired receipt
 states unknown historical outcome, never not-submitted or failed. The UI reads
 current state and requires a new dialog before a new, explicit operation.
+
+
+Worker finish receipts bind the observed native execution, not its last completion
+report. Codex publishes its thread/turn key as soon as the execution changes;
+Caelis uses its native observed turn. Codex exposes an old report-shaped alias only
+when it proves the same current thread/turn, so existing finish and report receipts
+can migrate without reissuing notifications. Terminal-client continuations persist
+the same superseded-turn fence as Bot continuations. Closed questions retain their
+original tombstones; new executions can register new questions and private wakeups.
+Original unknown answer operations remain reconciled by their existing receipts.
+
+Authoritative latest-turn reads retain the same superseded-turn fence when the
+observer missed the start notification, including a continuation already terminal
+at first observation. Historical reads never create or renew question lifetimes.
+
+The question controller applies finish, failure and cancellation only to the
+original question fingerprints in that inspected observation. A delayed finish callback cannot close a question
+admitted by a later execution, even before the catalog sees that newer snapshot.

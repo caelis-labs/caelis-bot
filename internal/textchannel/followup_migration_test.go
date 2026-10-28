@@ -340,7 +340,7 @@ func TestFinishedUncertainQuestionCannotReopenAfterLaterRejectedReceipt(t *testi
 	})
 	s.HandleDesktopQuestion(t.Context(), "original-answer", "Q1", card.QuestionCards[0].Binding, "1", api.Snapshot{})
 	operation := s.state.AsyncQuestions["Q1"].OperationID
-	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work"}, TaskEnded: true}}); err != nil {
+	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work"}, TaskEnded: true, AsyncQuestions: []api.Item{lifecycleQuestion()}}}); err != nil {
 		t.Fatal(err)
 	}
 	q := s.state.AsyncQuestions["Q1"]
@@ -372,7 +372,7 @@ func TestInFlightRejectionCannotUndoTaskClosure(t *testing.T) {
 		s.HandleDesktopQuestion(t.Context(), "original-input", "Q1", card.QuestionCards[0].Binding, "2", api.Snapshot{})
 	}()
 	<-entered
-	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work"}, TaskEnded: true}}); err != nil {
+	if err := s.ReconcileAsync(api.Snapshot{}, []api.WorkState{{Runtime: "codex", Task: api.Task{ID: "work"}, TaskEnded: true, AsyncQuestions: []api.Item{lifecycleQuestion()}}}); err != nil {
 		t.Fatal(err)
 	}
 	close(release)

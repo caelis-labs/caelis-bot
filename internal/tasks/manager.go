@@ -267,8 +267,16 @@ func (m *Manager) refresh() error {
 		if !m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime {
 			continue
 		}
-		if v.ExecutionKey != "" && slices.Contains(r.RetiredExecutions, v.ExecutionKey) {
+		if retiredExecution(r, v) {
 			continue // A late old native snapshot cannot republish its report.
+		}
+		if v.ExecutionKey != "" && v.LegacyExecutionKey != "" && r.Execution == v.LegacyExecutionKey {
+			// Rename only an adapter-proven alias. Keep the existing report ID,
+			// text and delivery receipt, including unknown delivery, unchanged.
+			r.Execution = v.ExecutionKey
+			if r.FinishedExecution == v.LegacyExecutionKey {
+				r.FinishedExecution = v.ExecutionKey
+			}
 		}
 		if r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey {
 			r.RetiredExecutions = append(r.RetiredExecutions, r.Execution)
@@ -326,6 +334,10 @@ func (m *Manager) refresh() error {
 		return err
 	}
 	return conflict
+}
+
+func retiredExecution(r *record, v api.WorkState) bool {
+	return v.ExecutionKey != "" && (slices.Contains(r.RetiredExecutions, v.ExecutionKey) || v.LegacyExecutionKey != "" && slices.Contains(r.RetiredExecutions, v.LegacyExecutionKey))
 }
 
 type observationConflict struct{ message string }

@@ -105,6 +105,15 @@ func (s *nativeServer) runTurn(thread, turn string, input []nativeInput, residen
 }
 
 func (s *nativeServer) workerTurn(thread, turn string, request fixtureRequest) error {
+	if request.Scenario == "async-question" {
+		item := nativeItem{ID: "original-async-" + turn, Type: "agentMessage", Delivery: "async", Status: "completed"}
+		item.Questions = append(item.Questions, struct {
+			Title   string   `json:"title"`
+			Options []string `json:"options"`
+		}{Title: "隔离验收：续跑后的新问题", Options: []string{"保留原任务继续", "暂停等待"}})
+		s.item(thread, turn, item, true)
+		return nil // Native turn stays active while the product observes the question.
+	}
 	if request.Scenario == "hold" {
 		s.item(thread, turn, nativeItem{ID: "partial-" + turn, Type: "agentMessage", Text: "Synthetic Worker is running and awaiting interruption.", Status: "inProgress"}, false)
 		return nil
@@ -180,6 +189,38 @@ func (s *nativeServer) residentTurn(parent context.Context, thread, turn string,
 		}
 		data, _ := structured["data"].(map[string]any)
 		s.completeTurn(thread, turn, "completed", fmt.Sprintf("Original operation reconciled: %v (%s)", data["outcome"], request.Operation))
+		return nil
+	}
+
+	if request.Action == "finish" {
+		observed, err := s.callBot(ctx, c, thread, turn, "finish-observe", "bot_tasks", map[string]any{"request": map[string]any{"type": "observe", "task": request.Task}})
+		if err != nil {
+			return err
+		}
+		data, _ := observed["data"].(map[string]any)
+		_, err = s.callBot(ctx, c, thread, turn, "finish-original", "bot_tasks", map[string]any{"request": map[string]any{"type": "finish", "task": request.Task, "token": data["finishToken"]}})
+		if err == nil {
+			s.completeTurn(thread, turn, "completed", "Synthetic resident finished the inspected execution.")
+		}
+		return err
+	}
+	if request.Action == "present-question" {
+		listed, err := s.callBot(ctx, c, thread, turn, "questions", "bot_interactions", map[string]any{"request": map[string]any{"type": "list"}})
+		if err != nil {
+			return err
+		}
+		data, _ := listed["data"].(map[string]any)
+		rows, _ := data["questions"].([]any)
+		for _, row := range rows {
+			q, _ := row.(map[string]any)
+			if q["id"] != "" {
+				_, err = s.callBot(ctx, c, thread, turn, "present-original", "bot_interactions", map[string]any{"request": map[string]any{"type": "present", "question": q["id"]}})
+				if err != nil {
+					return err
+				}
+			}
+		}
+		s.completeTurn(thread, turn, "completed", "Synthetic resident presented the original pending question.")
 		return nil
 	}
 
