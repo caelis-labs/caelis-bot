@@ -88,10 +88,12 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
 共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
-当前内置基线为正式 Core v0.73.3，来源 `c4c6df2d710357a3c77a6f24b743d5cf5114ddaa`。
+当前内置基线为正式 Core v0.74.0，来源 `f69c186659efcf4c1b58ba73d390b69a4c3a06d1`。
 macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制摘要统一记录在
-`resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 内容相对 v0.73.2
-未变；wire 沿用既有的本地包名适配，协议来源与 Runtime 锁定到同一正式提交。
+`resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 包含独立 async/idle、
+cache presence/TTL 和 JobID 契约，与已验证 #170 候选字节相同；wire 仅适配本地包名。
+协议版本/来源与 Runtime 锁定到同一正式发布，下载使用 GitHub 版本资产，不依赖 latest 通道。
+Bot 没有直接 Core Go module 依赖，也不引入私有 SDK。
 
 程序版本和运行中的服务版本分别显示。内置 CLI 连接时通过公共 `caelis service start`
 提交候选版本，由 Core 负责选择、锁、就绪校验和回滚。正在执行的 Session 暂时保留旧 Host；
@@ -108,8 +110,8 @@ macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制�
 
 ```sh
 source script/env.sh
-CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.73.2 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.73.3 \
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.73.3 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.74.0 \
 go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
 
@@ -355,16 +357,16 @@ Session 和回执，不重新派发旧请求。
 Session 后允许公共强制停机，覆盖缺少原子接口以及旧接口将后台 Task 计入 busy 的情况。
 新版本保持原子准入保护；Bot 不复制该兼容判断。过渡代码的退役边界在 Core 文档中定义。
 
-### Core #170 候选联调边界
+### Core v0.74.0 发行验证边界
 
-消费协议快照固定 `26865e53e8c771a296a5b0c581fd86548994b6f6`；打包运行时仍固定正式版 `v0.73.3`。候选协议不等于发布 pin，Core 正式发布后再更新运行时并验证。
+协议与内置 CLI 均固定正式 `v0.74.0` / `f69c186659efcf4c1b58ba73d390b69a4c3a06d1`，包含 #170、#173 和 #174。原候选联调证据仍与发行字节验证分开保存。
 
 Core Host 空闲协调器等待 60 秒；180 秒是 Store opportunity 有效期，2 秒是 checkpoint grant，有不同用途。Bot 不另建 idle 计时器、Store 写入或调度权威。开关独立且默认关闭，保持原生配置 revision、operation receipt、权限和 Session 协议。后台模型请求可有 JobID 而没有 TurnID；不能用后台请求替换前台身份或更新其新鲜 usage。缓存 read/write presence 与 5m/1h 明细独立保留，TTL 明细不能再加入总计。
 
-隔离联调：构建固定候选后设置 `CAELIS_BOT_TEST_BINARY`；`CAELIS_BOT_TEST_EVIDENCE_DIR` 可保存纯合成请求与日志。`TestCoreCompactionSwitchMatrix` 和 `TestCoreIdleForegroundAndRestart` 使用真实 Host 及 HTTP 夹具，不缩短 60 秒计时。真实 provider 的 `TestCoreRealProviderCacheAndSummary` 另需显式 `CAELIS_BOT_TEST_MAGPIE_URL`，直连已授权端点，以三次前台回合、一次原生 idle、512 输出 token 和三分钟期限限制合成验证；保留 Core 原生重试，不在测试层重放，不读取历史或改用户默认模型。
+隔离联调：验证正式发行归档/二进制哈希和版本身份后设置 `CAELIS_BOT_TEST_BINARY`；`CAELIS_BOT_TEST_EVIDENCE_DIR` 可保存纯合成请求与日志。`TestCoreCompactionSwitchMatrix` 和 `TestCoreIdleForegroundAndRestart` 使用真实 Host 及 HTTP 夹具，不缩短 60 秒计时。真实 provider 的 `TestCoreRealProviderCacheAndSummary` 另需显式 `CAELIS_BOT_TEST_MAGPIE_URL`，直连已授权端点，以三次前台回合、一次原生 idle、512 输出 token 和三分钟期限限制合成验证；保留 Core 原生重试，不在测试层重放，不读取历史或改用户默认模型。
 
 Guardian 写权限验证须在平台临时目录以外创建效果文件；临时 worktree 可设置 `CAELIS_BOT_TEST_EFFECT_DIRECTORY` 指向项目 `.cache`，否则 Core 正常允许临时目录写入会使拒绝用例失效。
 
-候选 `26865e53` 的两个 Core 阻塞项由 `candidate_regressions_integration_test.go` 单独复现：Session status 只读 lease 取消 idle，以及 `custom-messages` 漏算缓存读的上下文估算。显式设置 `CAELIS_BOT_TEST_CORE_REGRESSIONS=1` 才运行这些预期在当前候选失败的断言；普通 CI 不把已知上游缺陷伪装成 Bot 回归通过。修复后同一断言应通过。提交前抢占与 unknown-write 对账另由固定 Core 的 SDK race 用例验证，不能把它们称为进程故障注入证据。
+原候选的两个 Core 缺陷已由 #173 修复。`release_regressions_integration_test.go` 随 `CAELIS_BOT_TEST_BINARY` 自动启用，不再使用失败探针开关：普通/diagnostics Session status 读取后仍提交 canonical idle checkpoint；`custom-messages` 暖缓存 context 精确为34016、累计总账68100。#174 仅修复 Core 私有 Surface adapter 对自身 admission 取消的返回值，不吞掉包裹的 unknown receipt；Bot 直接使用公开 cancel 和原始执行身份，无需引入该 Surface。真实 Worker 回归验证 StopWorkRequest、重连后同一回执和另一个 Worker 继续运行。提交前抢占与 unknown-write 对账另由固定 Core 的 SDK race 用例验证，不能把它们称为进程故障注入证据。
 
 本次不更新 Bot skill：没有新增 Bot 工具、用户授权来源、Worker 协议或调度职责；开关和后台压缩仍由 Core 配置与原生协调器负责。

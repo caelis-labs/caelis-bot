@@ -5,9 +5,9 @@ const manifest=JSON.parse(readFileSync('protocol/caelis/manifest.json','utf8'));
 const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
 assert.match(manifest.commit,/^[0-9a-f]{40}$/);
 const runtime=JSON.parse(readFileSync('resources/caelis-runtime/release.json','utf8'));
-// Optional protocol additions may be consumed before the next bundled release.
-// Distribution artifacts retain their independently verified release pin.
 assert.match(runtime.commit,/^[0-9a-f]{40}$/);
+assert.equal(manifest.commit,runtime.commit,'Caelis protocol and runtime release source differ');
+assert.equal(manifest.version,runtime.version,'Caelis protocol and runtime release versions differ');
 assert.equal(manifest.contractOverlayCommit,undefined,'Unified Core protocol must not carry a second overlay');
 assert.equal(hash('protocol/caelis/openapi.json'),manifest.schemaSha256,'Caelis public schema drift');
 assert.equal(hash('internal/backend/caelis/wire/control_v1.gen.go'),manifest.wireSha256,'Caelis generated wire drift');

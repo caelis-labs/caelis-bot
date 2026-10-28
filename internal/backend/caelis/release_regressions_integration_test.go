@@ -4,22 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 )
 
-// These upstream regressions deliberately assert the desired contract. They
-// fail on candidate 26865e53 and are separately opted in until Core fixes them.
-// Bot must not add its own idle timer or rewrite provider accounting to mask them.
-func requireCoreRegressionProbe(t *testing.T) {
-	t.Helper()
-	if os.Getenv("CAELIS_BOT_TEST_CORE_REGRESSIONS") != "1" {
-		t.Skip("explicit upstream regression probe")
-	}
-}
+// Core v0.74.0 fixes both candidate regressions. These process assertions run
+// whenever CAELIS_BOT_TEST_BINARY is supplied, without an extra opt-in gate.
+// Bot must not own another idle timer or rewrite provider accounting.
 func TestCoreStatusReadPreservesIdle(t *testing.T) {
-	requireCoreRegressionProbe(t)
 	for _, diagnostics := range []bool{false, true} {
 		name := "plain"
 		if diagnostics {
@@ -52,11 +44,12 @@ func TestCoreStatusReadPreservesIdle(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
+			waitAcceptance(t, ctx, func() bool { return fixtureCheckpointCount(h.settings.CaelisStore) == 1 })
+			t.Logf("status read preserved idle through canonical checkpoint; requests=%d", len(model.observed()))
 		})
 	}
 }
 func TestCoreCompatibleCachedInputContext(t *testing.T) {
-	requireCoreRegressionProbe(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	model := &compactionHTTPModel{}
@@ -71,10 +64,11 @@ func TestCoreCompatibleCachedInputContext(t *testing.T) {
 	submitCompactionText(t, ctx, s, "warm", "Synthetic warm usage counter probe.")
 	warm := compactionStatus(t, ctx, s)
 	writeCompactionEvidence(t, map[string]any{"cold": cold.Usage, "warm": warm.Usage, "requests": model.observed()})
-	if value(warm.Usage.TotalTokens) < 34000 {
-		t.Errorf("warm context omitted cached reads: total=%d, expected >=34000", value(warm.Usage.TotalTokens))
+	if value(warm.Usage.TotalTokens) != 34016 {
+		t.Errorf("warm context accounting: total=%d, expected 34016", value(warm.Usage.TotalTokens))
 	}
 	if value(warm.Usage.SessionUsageTotal.TotalTokens) != 68100 {
 		t.Error("session accounting changed independently of context estimate")
 	}
+	t.Logf("warm context=%d session total=%d", value(warm.Usage.TotalTokens), value(warm.Usage.SessionUsageTotal.TotalTokens))
 }
