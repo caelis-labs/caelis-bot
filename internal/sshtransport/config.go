@@ -28,7 +28,6 @@ type Transport struct {
 	configMu                           sync.Mutex
 	root, home, system, binary, helper string
 	tunnels                            map[string]*tunnel
-	retired                            []chan struct{}
 	closed                             bool
 	now                                func() time.Time
 	generation                         uint64

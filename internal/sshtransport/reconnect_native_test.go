@@ -80,3 +80,31 @@ func TestNativeOpenSSHReconnectBeyondBudgetAndSixCycles(t *testing.T) {
 	botPort, _ := strconv.Atoi(port)
 	t.Log(fmt.Sprintf("isolated OpenSSH %d -> Bot %d; 5 failed reconnects, 6 cycles, 24 concurrent readers per recovery, explicit stop fenced", server.Port, botPort))
 }
+
+func TestNativeOpenSSHReleaseThenImmediateStartNeverOverlaps(t *testing.T) {
+	server := sshd.New(t)
+	v := fixtureTransport(t)
+	put(t, v.path(), server.Config("exit-barrier-fixture")+server.Config("independent-barrier-fixture"))
+	bot := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "fixture Bot") }))
+	defer bot.Close()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(bot.URL, "http://"))
+	address := "ssh://exit-barrier-fixture:" + port
+	if _, err := v.Resolve(t.Context(), address); err != nil {
+		t.Fatal(err)
+	}
+	exerciseExitBarrier(t, v, address, "release")
+	a, err := v.Resolve(t.Context(), address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := http.Get(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	b, err := io.ReadAll(r.Body)
+	if err != nil || r.StatusCode != 200 || string(b) != "fixture Bot" {
+		t.Fatal("successor did not reach the same isolated Bot")
+	}
+	t.Log("real OpenSSH cleanup barrier and successor forward: HTTP 200")
+}

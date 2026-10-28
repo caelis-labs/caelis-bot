@@ -47,6 +47,12 @@ shared connections and admitted network calls retain theirs. Closing the app
 joins owned processes; reopening an approved connection resolves its canonical
 target again, never a persisted temporary forwarding port.
 
+Cancellation retains the same-target exit barrier until the owned process,
+authentication broker and private socket have finished cleanup. An immediate
+explicit Connect reports that the connection is still closing; Connect after
+cleanup starts a new generation. Releasing an unused channel follows the same
+barrier, while other targets remain independent.
+
 Transport readiness is not environment readiness. Recovery verifies the original
 peer identity, reads its existing pairing receipt, and checks Runtime readiness.
 Revoked grants are not renewed. Original tasks and pairing writes are never

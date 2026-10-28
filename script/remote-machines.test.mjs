@@ -10,9 +10,13 @@ const {pairingProblem,connectionProblem,incomingProblem}=await server.ssrLoadMod
 const {peerSourceLabel}=await server.ssrLoadModule('/src/settings/runtime/peer-source-label.ts');
 const {MachineConnectionList}=await server.ssrLoadModule('/src/settings/runtime/MachineConnectionList.tsx');
 const {mutateMachine,pendingMachineMutation}=await server.ssrLoadModule('/src/settings/runtime/machine-mutation.ts');
-const {sshAddress,sshTarget}=await server.ssrLoadModule('/src/settings/runtime/SSHConnection.tsx');
+const {sshAddress,sshTarget,sshProblem}=await server.ssrLoadModule('/src/settings/runtime/SSHConnection.tsx');
 const storage=new Map();globalThis.localStorage={getItem:key=>storage.get(key)||null,setItem:(key,v)=>storage.set(key,v),removeItem:key=>storage.delete(key)};
 const ready={state:'ready',checkedAt:100000,issue:'',connectionType:'bot',pairingStatus:'approved'};
+test('stopping an SSH generation offers a distinct recovery action',()=>{
+ assert.equal(sshProblem('ssh_stopping'),'settings.sshStopping');
+ assert.notEqual(sshProblem('ssh_stopping'),sshProblem('ssh_connection_failed'));
+});
 test('only fresh authorization and native admission show online',()=>{
  assert.equal(remoteMachineStatus(ready,100001),'online');
  for(const checkedAt of [0,undefined,1,200000])assert.equal(remoteMachineStatus({...ready,checkedAt},100001),'unchecked');

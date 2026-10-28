@@ -837,6 +837,7 @@
   "sshConnectFailed": "SSH did not connect. Check this Host with system SSH, then try again.",
   "sshReconnect": "Reconnect SSH to check the original Bot.",
   "sshForwardFailed": "SSH connected, but could not open the Bot channel. Check forwarding permissions.",
+  "sshStopping": "The connection is still closing. Try connecting again in a moment.",
   "sshStopped": "SSH channel closed.",
   "sshConnecting": "Connecting SSH…",
   "sshAuthentication": "SSH authentication",

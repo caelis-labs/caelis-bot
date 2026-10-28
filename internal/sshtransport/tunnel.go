@@ -33,6 +33,7 @@ type tunnel struct {
 	retryAt               time.Time
 	failures              int
 	stopped               bool
+	released              bool
 	generation            uint64
 	pid                   int
 }
@@ -50,6 +51,15 @@ func (t *Transport) status(c *tunnel) api.SSHConnectionStatus {
 	if c == nil {
 		return api.SSHConnectionStatus{State: "idle"}
 	}
+	if c.stopped {
+		issue := "ssh_stopping"
+		select {
+		case <-c.done:
+			issue = "ssh_stopped"
+		default:
+		}
+		return api.SSHConnectionStatus{State: "failed", Issue: issue}
+	}
 	v := api.SSHConnectionStatus{State: c.state, Issue: c.issue}
 	if c.prompt != nil {
 		p := *c.prompt
@@ -59,7 +69,8 @@ func (t *Transport) status(c *tunnel) api.SSHConnectionStatus {
 }
 
 // Start is explicit, returns immediately and never waits for a person. Existing
-// live channels are reused. Only an explicit Start clears a user-action boundary.
+// live channels are reused. Stopping channels retain the target until cleanup
+// completes; only a subsequent explicit Start clears a user-action boundary.
 func (t *Transport) Start(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 	key, e := targetKey(v)
 	if e != nil {
@@ -85,8 +96,15 @@ func (t *Transport) Start(v api.SSHTarget) (api.SSHConnectionStatus, error) {
 		return api.SSHConnectionStatus{}, errors.New("ssh_channel_limit")
 	}
 	old := t.tunnels[key]
-	if old != nil && (old.state == "connecting" || old.state == "authentication" || old.state == "ready") {
-		return t.status(old), nil
+	if old != nil {
+		select {
+		case <-old.done:
+		default:
+			if old.stopped {
+				return t.status(old), errors.New("ssh_stopping")
+			}
+			return t.status(old), nil
+		}
 	}
 	c := t.startLocked(key, v, 0, true)
 	return t.status(c), nil
@@ -238,19 +256,11 @@ func (t *Transport) Stop(v api.SSHTarget) error {
 
 // Release only channels the owning connection service has proved unreferenced.
 // Keep authentication/connecting episodes alive; never infer task ownership here.
-// Cancellation is nonblocking, and Close still joins retired processes.
+// Cancellation is nonblocking. Keep the target indexed until cleanup completes,
+// so Start cannot overlap its process and Close still joins it.
 func (t *Transport) ReleaseUnused(addresses []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	pending := t.retired[:0]
-	for _, done := range t.retired {
-		select {
-		case <-done:
-		default:
-			pending = append(pending, done)
-		}
-	}
-	t.retired = pending
 	for _, address := range addresses {
 		target, ok := Target(address)
 		if !ok {
@@ -265,9 +275,14 @@ func (t *Transport) ReleaseUnused(addresses []string) {
 			continue
 		}
 		c.stopped = true
+		c.released = true
 		c.cancel()
-		t.retired = append(t.retired, c.done)
-		delete(t.tunnels, key)
+		select {
+		case <-c.done:
+			delete(t.tunnels, key)
+		default:
+			// run removes this same generation after all owned resources exit.
+		}
 	}
 }
 
@@ -287,7 +302,7 @@ func (t *Transport) FailedChannelAddresses() []string {
 func (t *Transport) Close() {
 	t.mu.Lock()
 	t.closed = true
-	wait := append([]chan struct{}{}, t.retired...)
+	wait := make([]chan struct{}, 0, len(t.tunnels))
 	for _, c := range t.tunnels {
 		c.stopped = true
 		c.cancel()
@@ -328,6 +343,12 @@ func (t *Transport) run(ctx context.Context, c *tunnel, interactive bool) {
 		// Publish terminal state only after the child, broker and private socket
 		// have all exited. A concurrent Resolve cannot overlap generations.
 		close(c.done)
+		if c.released {
+			key, _ := targetKey(c.target)
+			if t.tunnels[key] == c {
+				delete(t.tunnels, key)
+			}
+		}
 	}()
 	if e := localstate.EnsurePrivateDirectory(t.root); e != nil {
 		issue = "ssh_config_unreadable"
