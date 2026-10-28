@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -169,8 +170,11 @@ func TestSourceEvidenceCannotAuthorizeWorkOrBackground(t *testing.T) {
 	s.state.PrincipalID = "owner"
 	for _, kind := range []string{"application_summary", "external_material", ""} {
 		ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: kind}})
-		if s.WorkAdmission(ctx) == nil {
-			t.Fatal("source gained delegation authority", kind)
+		err := s.WorkAdmission(ctx)
+		var admission *api.WorkAdmissionError
+		var rejection *api.WorkMessageRejection
+		if !errors.As(err, &admission) || admission.Code != "source_not_authorized" || errors.As(err, &rejection) || admission.Cause == nil {
+			t.Fatal("source refusal lost type/cause or falsely settled an input receipt", kind, err)
 		}
 		if s.AuthorizeBackground(ctx, "reminder", "fingerprint") == nil {
 			t.Fatal("source gained background authority", kind)

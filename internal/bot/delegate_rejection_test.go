@@ -29,7 +29,7 @@ func (f *rejectionCompactTasks) SendTask(_ context.Context, in api.TaskMessage) 
 }
 
 func TestDelegateRejectionReasons(t *testing.T) {
-	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "workspace_invalid", "native_conflict", "native_rejected", ""} {
+	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "native_conflict", "native_rejected", ""} {
 		for _, continuation := range []bool{false, true} {
 			t.Run(reason+map[bool]string{false: "/create", true: "/continue"}[continuation], func(t *testing.T) {
 				outcome := "rejected"
@@ -50,7 +50,7 @@ func TestDelegateRejectionReasons(t *testing.T) {
 					t.Fatal("original receipt lost", data)
 				}
 				message := e["message"]
-				temporary := reason == "updater_paused" || reason == "capacity_full" || reason == "work_admission_failed"
+				temporary := reason == "updater_paused" || reason == "capacity_full"
 				if temporary && (!strings.Contains(message, "Retry later") || !strings.Contains(message, "30 seconds") || strings.Contains(message, "definitively rejected")) {
 					t.Fatal("temporary refusal guidance", message)
 				}
@@ -164,5 +164,14 @@ func TestDelegateUsesNativeCauseDiagnosticProjection(t *testing.T) {
 	e := out.StructuredContent["error"].(map[string]string)
 	if e["reason"] != "native_rejected" || e["detail"] != "native admission unavailable; [private details omitted]" {
 		t.Fatal(out.StructuredContent)
+	}
+}
+
+func TestUnclassifiedAdmissionDoesNotRecommendTimedRetry(t *testing.T) {
+	f := &rejectionCompactTasks{task: api.Task{Outcome: "rejected"}, err: &api.WorkMessageRejection{Code: "work_admission_failed", Cause: errors.New("unclassified admission")}}
+	out, _ := invokeRejectionCompact(t, f, false)
+	message := out.StructuredContent["error"].(map[string]string)["message"]
+	if strings.Contains(message, "30 seconds") || strings.Contains(message, "temporarily") || strings.Contains(message, "Retry later") {
+		t.Fatal("unclassified admission was asserted temporary", message)
 	}
 }
