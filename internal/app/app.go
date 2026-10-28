@@ -518,6 +518,7 @@ func (a *Application) startRuntime() error {
 		}
 	}
 	manager.SetLocale(a.locale)
+	manager.ConfigureDiagnostics(a.host.Diagnostics)
 	a.configureTaskFiles(manager)
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })

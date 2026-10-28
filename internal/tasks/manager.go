@@ -19,6 +19,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
@@ -69,6 +70,7 @@ type state struct {
 }
 
 type Manager struct {
+	diagnostics          *diagnosticlog.Logger
 	finished             func(api.WorkState) error
 	operationObserver    func(api.WorkOperation) error
 	environmentMu        sync.Mutex
@@ -464,6 +466,13 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	if !valid(in.RequestID, in.Prompt) || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
+	id := m.startTaskID(in)
+	dispatched := false
+	defer func() {
+		if !dispatched {
+			m.logStartRejection(in, id, task, err)
+		}
+	}()
 	finishInputs := m.beginInputPreparation(len(in.Attachments) > 0 || len(in.Files) > 0)
 	defer finishInputs()
 	in.Files, err = m.inputFiles(ctx, in.Attachments, in.Files)
@@ -483,14 +492,13 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.installingUpdateRetryLater")))
+		return m.rejectStartBeforeDispatch(in.RequestID, "updater_paused", errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	if e := m.refresh(); e != nil {
 		return api.Task{}, e
 	}
-	id, fp := "task-"+hash(m.provider, in.RequestID), hash(in.Title, in.Prompt)
+	fp := hash(in.Title, in.Prompt)
 	if in.Machine != "" {
-		id = "task-" + hash("remote", in.Machine, in.RequestID)
 		fp = hash(in.Title, in.Prompt, in.Machine)
 	}
 	if in.Workspace != "" {
@@ -506,7 +514,6 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	if _, ok := m.work.(api.WorkRouter); ok && in.Machine == "" {
 		// Stable requests survive a default/secretary switch. Legacy provider IDs
 		// remain recognizable; a retry cannot allocate a second native Worker.
-		id = "task-" + hash("local", in.RequestID)
 		for _, provider := range []string{"codex", "caelis", m.provider} {
 			candidate := "task-" + hash(provider, in.RequestID)
 			if r := m.state.Records[candidate]; r != nil && m.owns(r) {
@@ -532,13 +539,13 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	m.mu.Unlock()
 	used, e := m.admissionUsage(ctx, in.Machine)
 	if e != nil {
-		return m.rejectStartBeforeDispatch(in.RequestID, e)
+		return m.rejectStartBeforeDispatch(in.RequestID, "work_admission_failed", e)
 	}
 	if used >= m.maximumRunning() {
-		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.taskCapacityFull")))
+		return m.rejectStartBeforeDispatch(in.RequestID, "capacity_full", errors.New(m.text("host.taskCapacityFull")))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
-		return m.rejectStartBeforeDispatch(in.RequestID, e)
+		return m.rejectStartBeforeDispatch(in.RequestID, "work_admission_failed", e)
 	}
 	runtime := ""
 	if router, ok := m.work.(api.WorkRouter); ok {
@@ -579,14 +586,14 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		var err error
 		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
 		if err != nil {
-			return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: err}
+			return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Code: "workspace_invalid", Cause: err}
 		}
 	}
 	if e := workerAction(m, in.Machine, func() error { return m.validateWorkerInputs(ctx, id, in.Files) }); e != nil {
 		return api.Task{Outcome: "rejected"}, &api.WorkMessageRejection{Cause: e}
 	}
 	if m.paused {
-		return m.rejectStartBeforeDispatch(in.RequestID, errors.New(m.text("host.installingUpdateRetryLater")))
+		return m.rejectStartBeforeDispatch(in.RequestID, "updater_paused", errors.New(m.text("host.installingUpdateRetryLater")))
 	}
 	nativeStart := api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions}
 	nativeIntent := nativeStart
@@ -631,12 +638,13 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	m.markInflight(id, true)
 	defer m.markInflight(id, false)
+	dispatched = true
 	v, e := workerIO(m, in.Machine, func() (api.Task, error) { return m.work.StartWork(ctx, nativeStart) })
 	result, captureErr := m.capture(id, v, e)
-	if result.Outcome == "rejected" {
+	if result.Outcome == "rejected" || result.Outcome == "conflicted" {
 		captureErr = errors.Join(captureErr, m.releaseRejectedInputFiles(id, in.RequestID))
 	}
-	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
+	if m.started != nil && result.ID == id && result.Outcome != "rejected" && result.Outcome != "conflicted" && (v.ID == "" || v.ID == id) {
 		visible := result
 		if captureErr != nil {
 			visible.Status, visible.Outcome = "unknown", "unknown"
@@ -760,7 +768,10 @@ func (m *Manager) captureMessage(id string, v api.Task, callErr error, reconcili
 	var rejected *api.WorkMessageRejection
 	if !reconciliation && (v.ID == "" || v.ID == id) && errors.As(callErr, &rejected) {
 		outcome = "rejected"
-	} else if callErr == nil && v.ID == id && (v.Outcome == "accepted" || v.Outcome == "rejected") {
+		if v.Outcome == "conflicted" {
+			outcome = "conflicted"
+		}
+	} else if callErr == nil && v.ID == id && (v.Outcome == "accepted" || v.Outcome == "rejected" || v.Outcome == "conflicted") {
 		outcome = v.Outcome
 	}
 	out, err := m.capture(id, v, callErr)
@@ -851,7 +862,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 				receipt, readErr := workerIO(m, machine, func() (api.WorkOperation, error) { return native.ReadWorkOperation(ctx, query) })
 				if readErr == nil {
 					prior.Outcome = receipt.Outcome
-					if receipt.Outcome == "accepted" || receipt.Outcome == "rejected" {
+					if receipt.Outcome == "accepted" || receipt.Outcome == "rejected" || receipt.Outcome == "conflicted" {
 						m.mu.Lock()
 						if current.RequestOutcomes == nil {
 							current.RequestOutcomes = map[string]string{}
@@ -883,7 +894,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		defer m.markInflight(in.ID, false)
 		v, err := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 		v, err = m.captureMessage(in.ID, v, err, true)
-		if v.Outcome == "rejected" || err == nil && v.Outcome == "accepted" {
+		if v.Outcome == "rejected" || v.Outcome == "conflicted" || err == nil && v.Outcome == "accepted" {
 			m.mu.Lock()
 			if current.RequestOutcomes == nil {
 				current.RequestOutcomes = map[string]string{}
@@ -955,10 +966,10 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.markInflight(in.ID, false)
 	v, e := workerIO(m, machine, func() (api.Task, error) { return m.work.SendWork(ctx, in) })
 	v, e = m.captureMessage(in.ID, v, e, false)
-	if v.Outcome == "rejected" {
+	if v.Outcome == "rejected" || v.Outcome == "conflicted" {
 		e = errors.Join(e, m.releaseRejectedInputFiles(in.ID, in.RequestID))
 	}
-	if v.Outcome == "rejected" || e == nil && v.Outcome == "accepted" {
+	if v.Outcome == "rejected" || v.Outcome == "conflicted" || e == nil && v.Outcome == "accepted" {
 		m.mu.Lock()
 		if r.RequestOutcomes == nil {
 			r.RequestOutcomes = map[string]string{}

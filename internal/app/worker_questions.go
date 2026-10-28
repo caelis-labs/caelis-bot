@@ -110,6 +110,10 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			}
 			result, err := manager.SendTask(api.WithWorkerQuestionAnswer(ctx, question.AsyncCallID), api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
+			// Question receipts retain their accepted/rejected/unknown contract.
+			if outcome == "conflicted" {
+				outcome = "rejected"
+			}
 			if outcome != "accepted" && outcome != "rejected" {
 				outcome = "unknown"
 			}
@@ -184,7 +188,11 @@ func (a *Application) reconcileFinishedQuestions(state api.WorkState) error {
 func (a *Application) configureInteractionLifecycle(manager *tasks.Manager) {
 	manager.SetFinishedObserver(a.reconcileFinishedQuestions)
 	manager.SetOperationObserver(func(v api.WorkOperation) error {
-		return a.textControl.SettleAsyncOperation(v.TaskID, v.RequestID, v.Outcome)
+		outcome := v.Outcome
+		if outcome == "conflicted" {
+			outcome = "rejected"
+		}
+		return a.textControl.SettleAsyncOperation(v.TaskID, v.RequestID, outcome)
 	})
 }
 

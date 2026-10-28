@@ -20,17 +20,23 @@ import (
 type answerReceiptOwner struct {
 	*workerFixture
 	err        error
+	outcome    string
 	requestIDs []string
 }
 
 func (w *answerReceiptOwner) SendWork(_ context.Context, in api.TaskMessage) (api.Task, error) {
 	w.requestIDs = append(w.requestIDs, in.RequestID)
-	return w.states[in.ID].Task, w.err // Deliberately carries an old accepted task view.
+	v := w.states[in.ID].Task // Deliberately carries an old accepted task view by default.
+	if w.outcome != "" {
+		v.Outcome = w.outcome
+	}
+	return v, w.err
 }
 
 func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.T) {
-	for _, rejected := range []bool{true, false} {
-		t.Run(fmt.Sprint(rejected), func(t *testing.T) {
+	for _, outcome := range []string{"rejected", "conflicted", "unknown"} {
+		t.Run(outcome, func(t *testing.T) {
+			rejected := outcome != "unknown"
 			e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 			logs := t.TempDir()
 			a, root := fixtureApp(t, e, Host{Diagnostics: diagnosticlog.New(logs)})
@@ -38,6 +44,10 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 			owner := &answerReceiptOwner{workerFixture: base, err: errors.New("fixture lost receipt")}
 			if rejected {
 				owner.err = &api.WorkMessageRejection{Cause: errors.New("fixture not dispatched")}
+			}
+			if outcome == "conflicted" {
+				owner.outcome = outcome
+				owner.err = &api.WorkMessageRejection{Code: "native_conflict", Cause: errors.New("fixture conflict")}
 			}
 			pool := workPool(root, "codex", map[string]*workerFixture{"codex": base})
 			pool.resident = owner

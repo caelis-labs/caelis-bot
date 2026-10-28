@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 func TestOnlyAcknowledgedOriginalInterruptionSuppressesReport(t *testing.T) {
@@ -161,6 +162,8 @@ func TestCreationAdmissionRefusalKeepsOriginalUnknown(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			f := newRuntime()
 			m := openFixture(t, t.TempDir(), "codex", f)
+			log := diagnosticlog.New(t.TempDir())
+			m.ConfigureDiagnostics(log)
 			f.unknownStart = true
 			original, err := m.StartTask(t.Context(), input("original-unknown"))
 			if err == nil || original.Outcome != "unknown" {
@@ -180,12 +183,16 @@ func TestCreationAdmissionRefusalKeepsOriginalUnknown(t *testing.T) {
 			before := f.starts
 			denied, err := m.StartTask(t.Context(), input("new-admission"))
 			var refusal *api.WorkMessageRejection
-			if !errors.As(err, &refusal) || denied.Outcome != "rejected" || f.starts != before {
+			wantReason := map[string]string{"capacity": "capacity_full", "paused": "updater_paused", "native_admission": "work_admission_failed"}[kind]
+			if !errors.As(err, &refusal) || refusal.Code != wantReason || refusal.Cause == nil || denied.Outcome != "rejected" || f.starts != before {
 				t.Fatal("pre-dispatch refusal became uncertain", denied, err)
 			}
 			same, err := m.StartTask(t.Context(), input("original-unknown"))
 			if errors.As(err, &refusal) || same.ID != original.ID || same.Outcome != "unknown" || f.starts != before {
 				t.Fatal("admission refusal erased original uncertainty", same, err)
+			}
+			if log.Status()["written"] != uint64(1) {
+				t.Fatal("original unknown was logged as a fresh refusal", log.Status())
 			}
 		})
 	}

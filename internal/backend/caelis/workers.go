@@ -103,7 +103,7 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 	p := s.state.Views[w.Binding.SessionId]
 	currentTurn := observedTurn(p)
 	receipt, recorded := s.state.Operations[w.PromptID]
-	if out.Status == "failed" && out.Outcome == "rejected" && (w.Binding.SessionId == "" || recorded && (receipt.Outcome == "rejected" || receipt.Outcome == "conflicted")) {
+	if out.Status == "failed" && (out.Outcome == "rejected" || out.Outcome == "conflicted") && (w.Binding.SessionId == "" || recorded && (receipt.Outcome == "rejected" || receipt.Outcome == "conflicted")) {
 		return out
 	}
 	operationTurn := receipt.TurnID
@@ -122,7 +122,7 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		submission := w.Submission
 		if recorded && (receipt.Outcome == "rejected" || receipt.Outcome == "conflicted") {
 			out = submission.BeforeTask
-			out.Outcome = "rejected"
+			out.Outcome = receipt.Outcome
 		} else if !recorded || receipt.Outcome == "unknown" {
 			out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
 			return out
@@ -148,7 +148,7 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		// A legacy continuation has no saved preceding-turn identity. Only an
 		// exact accepted receipt with a matching native target can clear it.
 		if receipt.Outcome == "rejected" || receipt.Outcome == "conflicted" {
-			out.Outcome = "rejected"
+			out.Outcome = receipt.Outcome
 		} else if !recorded || receipt.Outcome != "accepted" && receipt.Outcome != "committed" || operationTurn == "" || currentTurn != operationTurn {
 			out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
 			return out
@@ -290,8 +290,9 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	}
 	s.mu.Lock()
 	c := s.client
-	s.mu.Unlock()
 	op := w.operationID("create", w.Task.ID)
+	_, createRecorded := s.state.Operations[op]
+	s.mu.Unlock()
 	if w.Binding.SessionId == "" {
 		path := "/sessions"
 		var request any = wire.CreateSessionRequest{OperationId: &op, Profile: &w.Start.Profile}
@@ -302,8 +303,12 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		result, e := s.command(ctx, op, path, request)
 		if e != nil || !succeeded(result.Outcome) {
 			if result.Outcome == "rejected" || result.Outcome == "conflicted" {
-				w.Task.Status, w.Task.Outcome, w.Start = "failed", "rejected", nil
-				return w.Task, errors.Join(e, s.saveWorker(w))
+				w.Task.Status, w.Task.Outcome, w.Start = "failed", string(result.Outcome), nil
+				save := s.saveWorker(w)
+				if save == nil && !createRecorded && result.OperationId == op {
+					e = nativeWorkerRefusal(result, e)
+				}
+				return w.Task, errors.Join(e, save)
 			}
 			return w.Task, errors.Join(e, errors.New("独立任务创建未确认"))
 		}
@@ -339,6 +344,9 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	if e != nil {
 		return w.Task, e
 	}
+	s.mu.Lock()
+	_, promptRecorded := s.state.Operations[w.PromptID]
+	s.mu.Unlock()
 	if w.Native {
 		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, Input: &w.Start.Prompt, ContentParts: parts})
 	} else {
@@ -352,9 +360,12 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	if succeeded(result.Outcome) {
 		w.Task.Status, w.Start = "pending", nil
 	} else if result.Outcome == "rejected" || result.Outcome == "conflicted" {
-		w.Task.Status, w.Start = "failed", nil
+		w.Task.Status, w.Task.Outcome, w.Start = "failed", string(result.Outcome), nil
 	}
 	save := s.saveWorker(w)
+	if save == nil && !promptRecorded && result.OperationId == w.PromptID && (result.Outcome == "rejected" || result.Outcome == "conflicted") {
+		e = nativeWorkerRefusal(result, e)
+	}
 	return w.Task, errors.Join(e, save)
 }
 func (s *Session) saveWorker(w worker) error {
@@ -540,6 +551,29 @@ func (s *Session) beginWorkerSubmission(w worker, op string, steer bool) (worker
 	return w, nil
 }
 
+// nativeWorkerRefusal is only used for a fresh, exact-operation refusal after
+// persistence succeeds. Native details remain an internal cause for the caller's
+// diagnostic projection; the local code carries the refusal classification.
+func nativeWorkerRefusal(result wire.CommandResult, cause error) error {
+	code := "native_rejected"
+	if result.Outcome == "conflicted" {
+		code = "native_conflict"
+	}
+	if cause == nil {
+		var details []string
+		for _, detail := range []string{string(result.ErrorCode), string(result.ErrorKind), value(result.Detail)} {
+			if detail != "" {
+				details = append(details, detail)
+			}
+		}
+		if len(details) == 0 {
+			details = append(details, code)
+		}
+		cause = errors.New(strings.Join(details, ": "))
+	}
+	return &api.WorkMessageRejection{Cause: cause, Code: code}
+}
+
 func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, callErr error) (api.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -547,7 +581,7 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 	switch result.Outcome {
 	case "rejected", "conflicted":
 		w.Task = w.Submission.BeforeTask
-		w.Task.Outcome = "rejected"
+		w.Task.Outcome = string(result.Outcome)
 		w.Submission = nil
 	case "accepted", "committed":
 		w.Task.Status, w.Task.Outcome, w.Stopped = "pending", "accepted", false
@@ -563,8 +597,8 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 	// Only this newly submitted invocation reaches finishWorkerSubmission.
 	// Preserve explicit pre-dispatch/native refusal, not an older projection or
 	// a failed lookup of an unknown operation. Persistence must succeed first.
-	if callErr != nil && result.OperationId == previous.Submission.OperationID && (result.Outcome == "rejected" || result.Outcome == "conflicted") {
-		callErr = &api.WorkMessageRejection{Cause: callErr}
+	if result.OperationId == previous.Submission.OperationID && (result.Outcome == "rejected" || result.Outcome == "conflicted") {
+		callErr = nativeWorkerRefusal(result, callErr)
 	}
 	return s.workerViewLocked(w), callErr
 }
@@ -609,6 +643,9 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		}
 		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, parts, busy)
 		projected.Outcome = productOutcome(res.Outcome)
+		if res.Outcome == "conflicted" {
+			projected.Outcome = "conflicted"
+		}
 		if res.Outcome == "unknown" && err == nil {
 			err = errors.New("original request receipt remains unknown")
 		}

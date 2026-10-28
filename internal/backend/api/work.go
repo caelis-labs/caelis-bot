@@ -33,7 +33,11 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 // settle an earlier dispatch. Task status and missing receipts are not proof.
 type WorkMessageRejection struct {
 	Cause error
-	Code  string // Locally classified cause, never native error text.
+	// Code is a stable, optional local classification, never native error text.
+	// Creation refusals use updater_paused, capacity_full, work_admission_failed,
+	// workspace_invalid, native_conflict or native_rejected. Empty legacy codes
+	// carry no retry guidance; Cause still preserves the original error chain.
+	Code string
 }
 
 func (e *WorkMessageRejection) Error() string { return e.Cause.Error() }

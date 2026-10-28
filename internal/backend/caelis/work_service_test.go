@@ -76,6 +76,50 @@ func TestWorkServiceStopFencesNativeGenerationAndOriginalReceipt(t *testing.T) {
 		t.Fatal("conflicting digest accepted")
 	}
 }
+func TestReadWorkOperationPreservesOriginalNativeRefusalWithoutReplay(t *testing.T) {
+	for _, kind := range []string{"start", "send", "stop", "decision"} {
+		for _, outcome := range []wire.Outcome{"conflicted", "rejected"} {
+			t.Run(kind+"/"+string(outcome), func(t *testing.T) {
+				var posts atomic.Int32
+				s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != "POST" || posts.Add(1) != 1 {
+						t.Errorf("original operation replayed or unnecessarily read: %s %s", r.Method, r.URL.Path)
+					}
+					writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: outcome})
+				})
+				addServiceWorker(s, "task", "work", nativeWorkHead("original"))
+				q := api.WorkOperationQuery{TaskID: "task", RequestID: "original-request", Kind: kind, Fingerprint: "original-fingerprint"}
+				nativeKind := kind
+				if kind == "start" {
+					nativeKind = "prompt"
+				}
+				op := s.state.Workers[q.TaskID].operationID(nativeKind, q.RequestID)
+				ctx := withWorkIntent(t.Context(), q.TaskID, q.RequestID, q.Kind, q.Fingerprint)
+				if result, err := s.command(ctx, op, "/sessions/work/prompt", wire.PromptRequest{OperationId: &op, Input: pointer("synthetic original input")}); err != nil || result.Outcome != outcome {
+					t.Fatal("native refusal not recorded", result, err)
+				}
+				beforeJSON, _ := json.Marshal(s.state.Operations[op])
+				wantOutcome := string(outcome)
+				if kind == "stop" || kind == "decision" {
+					wantOutcome = "rejected"
+				}
+				for range 2 {
+					result, err := s.ReadWorkOperation(t.Context(), q)
+					if err != nil || result.Outcome != wantOutcome || result.WorkOperationQuery != q || posts.Load() != 1 {
+						t.Fatal("exact native refusal folded or replayed", result, err, posts.Load())
+					}
+				}
+				afterJSON, _ := json.Marshal(s.state.Operations[op])
+				loaded, err := loadBinding(s.path)
+				storedJSON, _ := json.Marshal(loaded.Operations[op])
+				if err != nil || string(beforeJSON) != string(afterJSON) || string(beforeJSON) != string(storedJSON) {
+					t.Fatal("exact refusal journal changed during projection", err)
+				}
+			})
+		}
+	}
+}
+
 func TestWorkServiceUnknownStopNeverRedispatches(t *testing.T) {
 	var posts atomic.Int32
 	head := nativeWorkHead("one")

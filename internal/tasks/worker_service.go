@@ -117,7 +117,7 @@ func (m *Manager) ReconcileTaskRequest(ctx context.Context, id, request string) 
 	if v.WorkOperationQuery != q {
 		return api.WorkOperation{}, errors.New("original operation identity mismatch")
 	}
-	if v.Outcome != "accepted" && v.Outcome != "rejected" {
+	if v.Outcome != "accepted" && v.Outcome != "rejected" && v.Outcome != "conflicted" {
 		return v, nil
 	}
 	m.mu.Lock()

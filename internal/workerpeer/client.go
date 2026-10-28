@@ -132,8 +132,8 @@ func Call(ctx context.Context, c Connection, in Request) (Response, error) {
 		err = api.ValidateWorkFileMetadata(in.InputMetadata, out.Capabilities)
 	}
 	if err != nil && out.Rejected && out.Contract == api.WorkerContract && (c.Peer == "" || c.Peer == out.Peer) {
-		if in.Action == "send" {
-			err = &api.WorkMessageRejection{Cause: err}
+		if in.Action == "start" || in.Action == "send" {
+			err = &api.WorkMessageRejection{Cause: err, Code: out.RejectionCode}
 		} else if in.Action == "decision" {
 			err = &api.DecisionValidationError{Message: err.Error()}
 		}

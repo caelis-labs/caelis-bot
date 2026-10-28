@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -132,18 +135,89 @@ func (r *Runtime) callDelegate(ctx context.Context, q map[string]any) api.ToolRe
 	if err != nil || task.Status == "unknown" || task.Outcome == "unknown" || task.Outcome == "rejected" || task.Outcome == "conflicted" {
 		code, message := "unconfirmed", "The original Worker submission is not confirmed. The Host retained its original receipt and will not replay it with a new ID."
 		var rejected *api.WorkMessageRejection
-		if task.Outcome == "rejected" && errors.As(err, &rejected) {
-			code, message = "submission_rejected", "This input was definitively rejected; no new Worker input was accepted. Check the original task, selected file references and native limits before a corrected intent."
-			if taskID == "" {
-				message = "Worker creation was definitively rejected; no Worker input was accepted. Check the selected workspace and native limits. For workspace errors, use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+		reason, detail := "", ""
+		if task.Outcome == "rejected" || task.Outcome == "conflicted" {
+			if errors.As(err, &rejected) {
+				reason = rejected.Code
+				detail = delegationRejectionDetail(rejected.Cause)
+				code, message = "submission_rejected", delegationRejectionGuidance(reason)
+				if task.Outcome == "conflicted" {
+					code, message = "submission_conflicted", delegationRejectionGuidance("native_conflict")
+				}
+			} else if err == nil {
+				code, reason = "submission_rejected", "native_rejected"
+				if task.Outcome == "conflicted" {
+					code, reason = "submission_conflicted", "native_conflict"
+				}
+				message = delegationRejectionGuidance(reason)
+				detail = delegationRejectionDetail(nil)
 			}
 		}
-		if err == nil && (task.Outcome == "rejected" || task.Outcome == "conflicted") {
-			code, message = "native_rejection", "The original Worker submission was rejected by its native owner; inspect the task before another action."
-		}
-		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message}}, true)
+		data["reason"], data["detail"] = reason, detail
+		return compactValue(map[string]any{"ok": false, "outcome": task.Outcome, "data": data, "error": map[string]string{"code": code, "message": message, "reason": reason, "detail": detail}}, true)
 	}
 	return compactValue(map[string]any{"ok": true, "data": data}, false)
+}
+
+func delegationRejectionGuidance(reason string) string {
+	switch reason {
+	case "updater_paused":
+		return "Worker admission is temporarily paused for an update. Retry later, after at least 30 seconds; retain the original request and task."
+	case "capacity_full":
+		return "Worker capacity is temporarily full. Retry later, after at least 30 seconds or when active work finishes; retain the original request and task."
+	case "work_admission_failed":
+		return "Worker admission is temporarily unavailable. Retry later, after at least 30 seconds; retain the original request and task."
+	case "workspace_invalid":
+		return "The workspace was rejected before Worker input was accepted. Use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+	case "native_conflict":
+		return "The original Worker submission conflicted with its native owner. Inspect the original task and request before another action."
+	case "native_rejected":
+		return "The native owner rejected this Worker submission. Inspect the original task and refusal before another action; do not bypass a denied approval."
+	default:
+		return "This Worker input was rejected. Inspect the original task and refusal before another action; no retry guidance is available."
+	}
+}
+
+var delegationPrivateTail = regexp.MustCompile(`(?i)(?:\b(?:body|prompt|payload|request[ _-]?body|response[ _-]?body|authorization|proxy-authorization|cookie|set-cookie|headers?|credentials?|password|passwd|secret|access[ _-]?token|refresh[ _-]?token|token|api[ _-]?key)\b["']?\s*(?:[:=]|\s)|\b(?:request|response)["']?\s*[:=]|\b(?:bearer|basic)\s+|[\{\[])`)
+var delegationURL = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s<>"']+`)
+var delegationSecret = regexp.MustCompile(`(?i)\b(?:sk-[a-z0-9_-]+|gh[pousr]_[a-z0-9_]+|github_pat_[a-z0-9_]+|AKIA[A-Z0-9]{16}|eyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+)\b`)
+
+// Causes can contain complete prompts, credentials and native response bodies.
+// Retain only a sanitized first-line summary; never retain a private payload tail.
+func delegationRejectionDetail(cause error) string {
+	if cause == nil {
+		return "No additional cause details are available."
+	}
+	text := cause.Error()
+	if end := strings.IndexAny(text, "\r\n"); end >= 0 {
+		text = text[:end]
+	}
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(text, ""))
+	// Remove URLs before looking for credential keys in their query strings.
+	// Do not let our replacement markers become structured-payload markers.
+	text = delegationURL.ReplaceAllString(text, "URL_REDACTED")
+	if location := delegationPrivateTail.FindStringIndex(text); location != nil {
+		text = text[:location[0]] + "[private details omitted]"
+	}
+	text = strings.ReplaceAll(text, "URL_REDACTED", "[URL redacted]")
+	text = delegationSecret.ReplaceAllString(text, "[credential redacted]")
+	text = strings.TrimSpace(text)
+	if len(text) > 512 {
+		end := 509
+		for end > 0 && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		text = text[:end] + "…"
+	}
+	if text == "" {
+		return "Additional cause details were withheld for privacy."
+	}
+	return text
 }
 
 func taskEnvironments(provider api.TaskProvider, localStatus string) []map[string]string {

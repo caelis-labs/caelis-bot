@@ -339,6 +339,9 @@ func (s *Server) dispatch(ctx context.Context, peer string, in Request) (out Res
 		var decision *api.DecisionValidationError
 		var decisionValue api.DecisionValidationError
 		out.Rejected = errors.As(err, &message) || errors.As(err, &decision) || errors.As(err, &decisionValue)
+		if message != nil {
+			out.RejectionCode = message.Code
+		}
 		return out
 	}
 	if in.Action == "unpair" {

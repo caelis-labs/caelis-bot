@@ -144,6 +144,9 @@ func (s *Session) originalWorkOperationLocked(ctx context.Context, nativeID stri
 		journal = s.state.Operations[nativeID]
 		s.mu.Unlock()
 	}
+	if journal.Outcome == "conflicted" && (intent.Kind == "start" || intent.Kind == "send") {
+		return "conflicted", true, nil
+	}
 	return productOutcome(wire.Outcome(journal.Outcome)), true, nil
 }
 

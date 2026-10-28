@@ -69,6 +69,7 @@ func (a *Application) repairFeaturesLocked() error {
 			return err
 		}
 		manager.SetLocale(a.locale)
+		manager.ConfigureDiagnostics(a.host.Diagnostics)
 		a.configureTaskFiles(manager)
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
