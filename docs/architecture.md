@@ -1081,6 +1081,23 @@ Re-enabling restores saved child shortcuts and recoverable capture records. The
 gate does not govern ordinary chat images or Desktop World task observation and
 capture. Screen Recording remains a separate macOS permission; preference reads
 and disabling never request it.
+macOS shortcuts are owned by `BotHotkeys` on the application main thread, using
+Carbon exclusive registration and revision-tagged press/release events. An enabled
+OS symbolic shortcut or `eventHotKeyExistsErr` is a conflict; other registration
+errors stay unavailable. A service retry loop checks only unregistered effective
+preferences, with an eight-second backoff cap and wake/application lifecycle nudges.
+The service lock serializes recovery with preference writes, feature gates and shutdown;
+registered shortcuts are not continuously rebound. Expected conflicts persist the
+new desired key and retire the previous key only after the preference write succeeds.
+State transitions log slot/status/native error code, never captured key input.
+A main-run-loop timer exists only while a shortcut is held; physical key-up readback
+clears a missing release without resetting a genuinely held key or repeating its action.
+Settings observe the same state while visible and on focus, ignoring reads older than
+an edit. Registration is not a claim about screen-capture permission, keyboard event
+taps, function-key media behavior or physical delivery. On current macOS, an exclusive
+registration can supersede a pre-existing non-exclusive registration; API success for
+non-exclusive clients is therefore not an availability signal.
+
 First-run feature selection has its own native completion marker, separate from
 the legacy permission guide. New installs save the chosen capture gate before marking
 the feature step complete; an old completed permission guide migrates without
