@@ -288,5 +288,8 @@
   "taskDismiss": "Dismiss",
   "taskBackToChat": "Back to chat",
   "taskLastStatus": "Last known:",
-  "taskEnvironmentDeleted": "The original machine connection was deleted. This task’s environment is unavailable."
+  "taskEnvironmentDeleted": "The original machine connection was deleted. This task’s environment is unavailable.",
+  "taskSearch": "Search tasks",
+  "taskShowHistory": "Show past tasks ({count})",
+  "taskHideHistory": "Hide past tasks"
 }

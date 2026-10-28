@@ -4,7 +4,8 @@ import {CopyText,MessageContent} from './MessageContent';
 import {ArtifactLink} from './ArtifactLink';
 import {ChatScroll} from './chat-scroll';
 import {useI18n} from './i18n';
-import {workerMessages,workerMessageStart} from './worker-messages';
+import {workerMessages,workerMessageStart,workerLiveReplies} from './worker-messages';
+import {workerTerminal} from './worker-output-read';
 import {WorkerTaskStatus,type useWorkerOutput} from './WorkerOutput';
 
 type Output=Omit<ReturnType<typeof useWorkerOutput>,'environmentUnavailable'>&{environmentUnavailable?:boolean};
@@ -14,6 +15,12 @@ type Output=Omit<ReturnType<typeof useWorkerOutput>,'environmentUnavailable'>&{e
 export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=true,hideHeading=false}:{id:string;task?:Pick<Task,'title'|'status'|'machineName'>;output:Output;onClose?:()=>void;heading?:ReactNode;closeLabel?:string;active?:boolean;hideHeading?:boolean}){
  const {t}=useI18n();
  const messages=useMemo(()=>workerMessages(output.conversation,output.observation?.items),[output.conversation,output.observation]);
+ const status=output.observation?.task.status??output.conversation?.status??task?.status;
+ // A loading render is not a history baseline; wait for the first observation.
+ const observed=!!output.observation;
+ const previous=useRef<{id:string;active:boolean;observed:boolean;messages:typeof messages;live:Set<string>}>(undefined);
+ const live=useMemo(()=>active&&!workerTerminal.has(status??'')?workerLiveReplies(previous.current?.id===id&&previous.current.active&&previous.current.observed?previous.current.messages:undefined,messages,previous.current?.live??new Set()):new Set<string>(),[id,active,messages,status]);
+ useLayoutEffect(()=>{previous.current={id,active,observed,messages,live}},[id,active,observed,messages,live]);
  const [error,setError]=useState(''),[limit,setLimit]=useState(40),[following,setFollowing]=useState(true);
  const [startID,setStartID]=useState<string>();
  const start=workerMessageStart(messages,limit,following?undefined:startID);
@@ -44,7 +51,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
   setFollowing(false);setStartID(anchor);setLimit(value);
   reading.current.set(id,{top:viewport.current?.scrollTop??0,following:false,limit:value,startID:anchor});
  };
- const status=output.observation?.task.status??output.conversation?.status??task?.status;
+
  const failed=output.historyFailed||output.observationFailed;
  return <section className="worker-chat" data-updates={output.observationFailed?'unavailable':'available'} aria-label={t('chat.taskPanel')}>
   {!hideHeading&&<header className="worker-chat-heading"><div className="worker-chat-title"><div className="worker-chat-title-line">{heading??<h2>{task?.title||t('chat.taskTitle')}</h2>}<span className="worker-chat-status" role="status">{output.observationFailed&&<>{t('chat.taskLastStatus')} </>}<WorkerTaskStatus status={status}/></span></div><span className="worker-chat-machine">{task?(task.machineName||t('chat.taskLocalMachine')):''}</span></div>{onClose&&<button className="worker-chat-close" onClick={onClose} aria-label={t('chat.closeTaskPanel')}>{closeLabel??t('chat.taskReturn')}</button>}</header>}
@@ -54,7 +61,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
     {start>0&&<button className="worker-chat-earlier text-action" onClick={earlier}>{t('chat.taskEarlier')}</button>}
     {messages.slice(start).map(message=><article key={message.id} data-worker-message={message.id} className={`worker-message ${message.role}`}>
      {message.text&&<><div className="worker-message-actions"><CopyText text={message.text} report={setError}/></div>
-     <MessageContent text={message.text} report={setError}/></>}
+     <MessageContent text={message.text} report={setError} animate={live.has(message.id)}/></>}
      {!!message.artifacts.length&&<div className="artifacts">{message.artifacts.map(file=><ArtifactLink key={file.id} file={file} report={setError}/>)}</div>}
     </article>)}
     {!messages.length&&<p className="worker-chat-empty" role="status">{t(output.conversation?'chat.taskHistoryEmpty':failed?'chat.taskHistoryUnavailable':'chat.taskLoading')}</p>}

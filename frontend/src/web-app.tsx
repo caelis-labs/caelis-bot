@@ -10,6 +10,7 @@ import {BotSetup} from './BotSetup';
 import {SetupLoading} from './SetupLoading';
 import {SettingsDialog} from './settings/runtime/SettingsDialog';
 import {WebTasks,useWebTasks} from './WebTasks';
+import {primaryWebTask} from './web-task-choices';
 import {desktop} from './desktop';
 import {settingsHasModal} from './context-navigation';
 import type {WebClient,WebNavigation} from './web-transport';
@@ -27,7 +28,7 @@ export function WebApp({client}:{client:WebClient}){
  const taskOpen=tasksOpen||workspaceNav?.view==='task';
  const lastTask=useRef('');
  if(nav?.task)lastTask.current=nav.task;
- const openTasks=()=>{if(settingsHasModal())return;const id=lastTask.current||taskState.tasks[0]?.id;if(id)void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true));else setTasksOpen(true);};
+ const openTasks=()=>{if(settingsHasModal())return;const id=lastTask.current||primaryWebTask(taskState.tasks)?.id;if(id)void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true));else setTasksOpen(true);};
  const closeTasks=()=>{setTasksOpen(false);void client.navigation({view:'chat'}).then(()=>requestAnimationFrame(()=>workspace.current?.querySelector<HTMLElement>('.composer-editor[contenteditable=true]')?.focus({preventScroll:true}))).catch(()=>setNavigationFailed(true));};
  const [preview,setPreview]=useState<{id:string;text:string;truncated:boolean}|null>(null),[notice,setNotice]=useState('');
  const content=useRef<HTMLDivElement>(null),workspace=useRef<HTMLDivElement>(null),settingsPanel=useRef<HTMLDivElement>(null);
