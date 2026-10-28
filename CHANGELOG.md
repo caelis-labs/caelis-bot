@@ -1,22 +1,23 @@
 # Changelog
 
-## [0.20.0](https://github.com/caelis-labs/caelis-bot/compare/v0.19.2...v0.20.0) (2026-10-28)
-
+## [0.20.0](https://github.com/caelis-labs/caelis-bot/compare/v0.19.2...v0.20.0) (2026-10-29)
 
 ### Features
 
-* **caelis:** adopt Core v0.74.0 compaction settings and usage ([#252](https://github.com/caelis-labs/caelis-bot/issues/252)) ([d099330](https://github.com/caelis-labs/caelis-bot/commit/d09933067aab9a691e3e960da6f2f53c6228eb5a))
+* Bundle official Caelis Core **v0.74.0**, with matching public protocol provenance. Add dynamic asynchronous and idle compaction settings, retire the old MCP cache toggle, and preserve cache read/write usage presence and TTL. Background compaction jobs remain separate from foreground turns. ([#252](https://github.com/caelis-labs/caelis-bot/pull/252))
 
+### Bug fixes
 
-### Bug Fixes
+* Keep Worker completion feedback and subsequent delegation in the normal Agent Loop. Preserve original user/tool identities, recover stale Worker projections through native reads, and retain accurate pre-dispatch rejection evidence. Completed Workers remain available for explicit continuation. ([#250](https://github.com/caelis-labs/caelis-bot/pull/250), [#249](https://github.com/caelis-labs/caelis-bot/issues/249))
+* Preserve Worker questions, approval targets and answer receipts across continued execution generations; reject stale finish callbacks without closing newer work. ([#247](https://github.com/caelis-labs/caelis-bot/pull/247))
+* Preserve actual Worker rejection reasons and distinguish authorization failures from retryable admission outcomes. ([#246](https://github.com/caelis-labs/caelis-bot/pull/246), [#248](https://github.com/caelis-labs/caelis-bot/pull/248))
+* Align dark backgrounds, keep completed Worker history accessible without crowding current task choices, and smooth split-view output while preserving corrections, final output, task switching and reading position. ([#251](https://github.com/caelis-labs/caelis-bot/pull/251), [#245](https://github.com/caelis-labs/caelis-bot/issues/245))
+* Recover macOS shortcuts after conflicts and transient SSH disconnections without losing existing work. ([#243](https://github.com/caelis-labs/caelis-bot/pull/243), [#240](https://github.com/caelis-labs/caelis-bot/pull/240))
 
-* classify unauthorized Worker admission without retry loops ([#248](https://github.com/caelis-labs/caelis-bot/issues/248)) ([d00223d](https://github.com/caelis-labs/caelis-bot/commit/d00223d4206b8fca41b990794c6774bed5825c71))
-* keep Worker follow-up in the normal Agent Loop ([#250](https://github.com/caelis-labs/caelis-bot/issues/250)) ([437386d](https://github.com/caelis-labs/caelis-bot/commit/437386de2a06bbf482b00f9a0c0be7372f9ad919))
-* preserve Worker questions across continued executions ([#247](https://github.com/caelis-labs/caelis-bot/issues/247)) ([c6f2663](https://github.com/caelis-labs/caelis-bot/commit/c6f2663c8b69a90ccf96844047eb8977d2b81e30))
-* recover macOS shortcuts after conflicts ([#243](https://github.com/caelis-labs/caelis-bot/issues/243)) ([058d407](https://github.com/caelis-labs/caelis-bot/commit/058d407160bf3a06946fc5a1e6439b26eb69801f))
-* **ssh:** keep recovering transient disconnections ([#240](https://github.com/caelis-labs/caelis-bot/issues/240)) ([50f1a36](https://github.com/caelis-labs/caelis-bot/commit/50f1a364673916cc48d87aecf0c1c8d914d0e73f))
-* **web:** smooth Worker reading and keep task choices current ([#251](https://github.com/caelis-labs/caelis-bot/issues/251)) ([24ce9cc](https://github.com/caelis-labs/caelis-bot/commit/24ce9cc575e2b69d390f6f909a6ffb719440cf38))
-* **worker:** surface rejection reason codes instead of a fixed hint ([#246](https://github.com/caelis-labs/caelis-bot/issues/246)) ([722fefb](https://github.com/caelis-labs/caelis-bot/commit/722fefb2406e59fb912b106955e94eb4c8e78792)), closes [#244](https://github.com/caelis-labs/caelis-bot/issues/244)
+### Maintenance
+
+* Update Wails to v3.0.0-beta.34, SQLite to v1.61.0 and Vite to 8.3.5. ([#239](https://github.com/caelis-labs/caelis-bot/pull/239))
+* Correct persistence and plugin lifecycle fixtures exposed on Fedora and preserve complete Windows test coverage in bounded partitions. These test changes do not enable native OAuth on Linux. ([#242](https://github.com/caelis-labs/caelis-bot/pull/242))
 
 ## [0.19.2](https://github.com/caelis-labs/caelis-bot/compare/v0.19.1...v0.19.2) (2026-10-27)
 
