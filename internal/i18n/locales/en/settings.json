@@ -176,6 +176,8 @@
   "shortcutTitle": "Chat shortcut",
   "shortcutLoadFailed": "Could not load shortcut",
   "shortcutChooseAnother": "Choose another shortcut, or open this feature from the menu.",
+  "shortcutConflictUnavailable": "Unavailable · shortcut conflict",
+  "shortcutUnavailable": "Shortcut unavailable",
   "shortcutSaved": "Saved",
   "shortcutDisabled": "Global shortcut disabled",
   "shortcutSaveFailed": "Could not save shortcut",

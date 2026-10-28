@@ -19,6 +19,7 @@ node --test \
   script/content-pack.test.mjs script/asset-pack.test.mjs \
   script/question-presentation.test.mjs script/chat-presentation.test.mjs script/chat-observation.test.mjs script/chat-time.test.mjs script/worker-output.test.mjs script/web-approval-url.test.mjs \
   script/reduced-motion.test.mjs script/streaming-text.test.mjs script/markdown-chunks.test.mjs
+bash script/hotkey-native-test.sh
 go test -tags private_mac_apis ./...
 go test -tags webfixture ./cmd/web-fixture
 git diff --check

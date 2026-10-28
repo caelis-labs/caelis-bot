@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"runtime/cgo"
+	"time"
 	"unsafe"
 
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
@@ -80,6 +81,8 @@ func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Serv
 	d := &macDriver{}
 	d.events = newNativeEventQueue(func(e nativeEvent) {
 		switch e.kind {
+		case 24:
+			s.requestShortcutRecovery()
 		case 20:
 			go s.refreshCapture()
 		case 21:
@@ -466,7 +469,7 @@ func (d *macDriver) registerHotkey(v Shortcut, tasks int) error {
 	}
 	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled), C.int(tasks))) })
 	if status != 0 {
-		return errors.New(i18n.Text(i18n.DefaultLocale, "native.shortcutConflict", nil))
+		return &shortcutRegistrationError{Code: status}
 	}
 	return nil
 }
@@ -578,3 +581,5 @@ func macContextNavigation(window *application.WebviewWindow, settings, enabled b
 	}
 	application.InvokeSync(func() { C.bot_context_navigation(window.NativeWindow(), mode, visible, text) })
 }
+
+func (d *macDriver) shortcutRecoveryInterval() time.Duration { return time.Second }
