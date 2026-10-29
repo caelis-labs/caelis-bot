@@ -5,6 +5,7 @@
 static NSUInteger deliveries;
 static NSString *deliveredID;
 static NSUInteger permissionRequests;
+API_AVAILABLE(macos(12.3))
 @interface BotCaptureConsentFixture : NSObject
 + (void)getShareableContentExcludingDesktopWindows:(BOOL)exclude onScreenWindowsOnly:(BOOL)only completionHandler:(void (^)(SCShareableContent *,NSError *))completion;
 @end
@@ -64,24 +65,9 @@ static void checkInteraction(NSString *root) {
     owner.canvas=[[BotCaptureCanvas alloc] initWithFrame:NSMakeRect(0,0,1280,800)];
     BotCaptureCanvas *canvas=owner.canvas;canvas.owner=owner;canvas.document=fixtureDocument();
     owner.overlay.contentView=canvas;[canvas buildToolbar];[owner.overlay makeKeyAndOrderFront:nil];
-    assert(canvas.backgroundButton.state==NSControlStateValueOn);
-    canvas.backgroundButton.state=NSControlStateValueOff;[canvas changeBackground:canvas.backgroundButton];
-    assert(!canvas.document.includeBackground&&owner.includeBackground);
-    assert(canvas.scopeLabel.stringValue.length&&canvas.askButton.title.length);
-    canvas.backgroundButton.state=NSControlStateValueOn;[canvas changeBackground:canvas.backgroundButton];
-    assert(canvas.document.includeBackground);
     canvas.document.identifier=@"receipt-locked";canvas.document.outcome=@"unknown";[canvas updateAvailability];
-    assert(!canvas.backgroundButton.enabled&&!canvas.askButton.enabled);
-    canvas.backgroundButton.state=NSControlStateValueOff;[canvas changeBackground:canvas.backgroundButton];
-    assert(canvas.document.includeBackground&&canvas.backgroundButton.state==NSControlStateValueOn);
-    canvas.restored=YES;[canvas updateAvailability];
-    assert(canvas.backgroundButton.hidden&&[canvas.scopeLabel.stringValue isEqual:@"Full screen included"]);
-    canvas.restored=NO;
-    canvas.document.identifier=nil;canvas.document.outcome=nil;canvas.document.source=@"clipboard";canvas.document.includeBackground=NO;[canvas updateAvailability];
-    assert(canvas.backgroundButton.hidden);
-    canvas.backgroundButton.state=NSControlStateValueOn;[canvas changeBackground:canvas.backgroundButton];
-    assert(!canvas.document.includeBackground);
-    canvas.document.source=@"screen";[canvas updateAvailability];
+    assert(!canvas.askButton.enabled);
+    canvas.document.identifier=nil;canvas.document.outcome=@"draft";[canvas updateAvailability];
     [canvas focusNote];
     BotCaptureFieldEditor *editor=(BotCaptureFieldEditor *)canvas.noteEditor.currentEditor;
     assert([editor isKindOfClass:BotCaptureFieldEditor.class]);
@@ -124,6 +110,28 @@ static void checkInteraction(NSString *root) {
     [owner capture];[owner paste];[owner togglePins];assert(!owner.overlay&&owner.pins.count==0&&deliveries==before);
     [owner stop];
 }
+static void checkToolbarPosition(BotCaptureCanvas *canvas) {
+    BotCaptureDocument *original=canvas.document;
+    canvas.document=fixtureDocument();canvas.document.canvasSize=canvas.bounds.size;
+    NSRect selections[]={NSMakeRect(300,100,700,300),NSMakeRect(1150,700,100,90),NSMakeRect(0,0,20,20),canvas.bounds};
+    for(int i=0;i<4;i++) {
+        canvas.document.selection=selections[i];[canvas positionToolbar];
+        NSRect frame=canvas.toolbar.frame;
+        assert(NSContainsRect(NSInsetRect(canvas.bounds,8,8),frame));
+        if(i==0)assert(NSMaxX(frame)==NSMaxX(selections[i])&&NSMinY(frame)==NSMaxY(selections[i])+10);
+        if(i==1)assert(NSMaxX(frame)==NSMaxX(selections[i])&&NSMaxY(frame)==NSMinY(selections[i])-10);
+        if(i==3)assert(NSMaxX(frame)==NSMaxX(canvas.bounds)-8&&NSMaxY(frame)==NSMaxY(canvas.bounds)-8);
+    }
+    for(int reverse=0;reverse<2;reverse++) {
+        NSPoint start=reverse?NSMakePoint(1000,400):NSMakePoint(300,100),end=reverse?NSMakePoint(300,100):NSMakePoint(1000,400);
+        canvas.document.selection=NSZeroRect;canvas.adjustingSelection=YES;
+        NSEvent *(^mouse)(NSEventType,NSPoint)=^NSEvent *(NSEventType type,NSPoint point){return [NSEvent mouseEventWithType:type location:[canvas convertPoint:point toView:nil] modifierFlags:0 timestamp:0 windowNumber:canvas.window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];};
+        [canvas mouseDown:mouse(NSEventTypeLeftMouseDown,start)];[canvas mouseDragged:mouse(NSEventTypeLeftMouseDragged,end)];[canvas mouseUp:mouse(NSEventTypeLeftMouseUp,end)];
+        assert(NSEqualRects(canvas.document.selection,NSMakeRect(300,100,700,300)));
+        assert(NSMaxX(canvas.toolbar.frame)==1000);
+    }
+    canvas.document=original;[canvas positionToolbar];
+}
 static void checkRedaction(NSBitmapImageRep *rep,NSInteger x,NSInteger y) {
     NSColor *color=[[rep colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];
     if(color.redComponent>0.12||color.greenComponent>0.12||color.blueComponent>0.12){
@@ -159,14 +167,12 @@ int main(int argc,char **argv) {
         BotCapture *owner=[BotCapture new];owner.handle=1;owner.root=root;
         [owner setAvailability:@{@"state":@"supported"}];
         BotCaptureDocument *doc=fixtureDocument();
-        NSBitmapImageRep *crop=[doc render:NO maximumEdge:0],*background=[doc render:YES maximumEdge:2400];
+        NSBitmapImageRep *crop=[doc renderWithMaximumEdge:0];
         assert(crop.pixelsWide==1200&&crop.pixelsHigh==460);
         checkRedaction(crop,600,340);
-        checkRedaction(background,1200,788);
         NSError *error=nil;NSDictionary *metadata=[doc writeToRoot:root error:&error];
-        assert(metadata&&[metadata[@"background"] boolValue]);
-        assert([metadata[@"selection"][@"x"] integerValue]==637);
-        assert([metadata[@"selection"][@"width"] integerValue]==1126);
+        assert(metadata&&!metadata[@"background"]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:[[root stringByAppendingPathComponent:doc.identifier] stringByAppendingPathComponent:@"context.jpg"]]);
         doc.identifier=nil;
         NSUInteger count=doc.marks.count;[doc undo];assert(doc.marks.count==count-1);[doc redo];assert(doc.marks.count==count);
         NSRect visible=NSScreen.mainScreen.visibleFrame;
@@ -180,6 +186,7 @@ int main(int argc,char **argv) {
         [owner ask:owner.canvas];assert(deliveries==0);
         [owner setAvailability:@{@"state":@"supported"}];assert(owner.canvas.askButton.enabled);
         if(live){[NSApp run];return 0;}
+        checkToolbarPosition(owner.canvas);
         checkToolbarAppearance(owner.canvas,argc>1?[NSString stringWithUTF8String:argv[1]]:nil);
         checkInteraction(root);
         checkConsentAtUse();
@@ -239,7 +246,7 @@ int main(int argc,char **argv) {
         BotCaptureCanvas *unsavedPin=(BotCaptureCanvas *)owner.pins.lastObject.contentView;
         [owner ask:unsavedPin];assert(deliveries==3&&!unsaved.identifier.length&&[unsaved.outcome isEqual:@"draft"]);
         [owner stop];[[NSFileManager defaultManager] removeItemAtPath:root error:nil];
-        puts("CAPTURE NATIVE PASS: crop/context redaction, pixels, pin viewport, capability gate and receipt lifecycle");
+        puts("CAPTURE NATIVE PASS: selection-only export, lower-right panel, reverse drag, redaction, pin viewport, capability gate and receipt lifecycle");
     }
     return 0;
 }

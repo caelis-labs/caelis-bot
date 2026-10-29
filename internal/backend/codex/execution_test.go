@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"image"
-	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -295,7 +294,7 @@ func TestScreenModelCapabilitySwitchAndDispatchRecheck(t *testing.T) {
 	}
 }
 
-func TestScreenInputDeliversBothImagesWithCurrentModel(t *testing.T) {
+func TestScreenInputDeliversSelectionWithCurrentModel(t *testing.T) {
 	s, f := sessionPair(t, "")
 	m := catalogEntry()
 	m["inputModalities"] = []string{"text", "image"}
@@ -307,25 +306,21 @@ func TestScreenInputDeliversBothImagesWithCurrentModel(t *testing.T) {
 	}
 	dir := t.TempDir()
 	files := []api.InputFile{}
-	for _, name := range []string{"selection.png", "context.jpg"} {
+	for _, name := range []string{"selection.png"} {
 		path := filepath.Join(dir, name)
 		out, err := os.Create(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		pixels := image.NewRGBA(image.Rect(0, 0, 10, 10))
-		if name == "selection.png" {
-			err = png.Encode(out, pixels)
-		} else {
-			err = jpeg.Encode(out, pixels, nil)
-		}
+		err = png.Encode(out, pixels)
 		out.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
 		files = append(files, api.InputFile{Name: name, Path: path})
 	}
-	receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-image-pair", Text: "synthetic screen input", ScreenInput: true}, files)
+	receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-image-selection", Text: "synthetic screen input", ScreenInput: true}, files)
 	if err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
@@ -336,8 +331,8 @@ func TestScreenInputDeliversBothImagesWithCurrentModel(t *testing.T) {
 	if err = json.Unmarshal(raw, &input); err != nil {
 		t.Fatal(err)
 	}
-	if len(input) != 3 || input[0]["type"] != "text" || input[1]["type"] != "localImage" || input[2]["type"] != "localImage" {
-		t.Fatalf("lost native image pair: %s", raw)
+	if len(input) != 2 || input[0]["type"] != "text" || input[1]["type"] != "localImage" {
+		t.Fatalf("lost native selection: %s", raw)
 	}
 	// Confirm the Runtime owns copies before the capture owner removes temporary files.
 	os.RemoveAll(dir)

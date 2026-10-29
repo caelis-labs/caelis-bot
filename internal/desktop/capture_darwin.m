@@ -134,8 +134,6 @@ static BOOL composing(NSTextView *editor) {
 @property NSTextField *textEditor;
 @property NSTextField *noteEditor;
 @property NSButton *askButton;
-@property NSButton *backgroundButton;
-@property NSTextField *scopeLabel;
 @property NSMutableArray<NSButton *> *toolButtons;
 @property NSButton *widthButton;
 @property NSPopover *widthPopover;
@@ -390,45 +388,29 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     self.statusLabel=[NSTextField labelWithString:@""];self.statusLabel.frame=NSMakeRect(12,93,width-24,20);
     self.statusLabel.font=[NSFont systemFontOfSize:11];self.statusLabel.textColor=NSColor.secondaryLabelColor;
     [self.toolbar addSubview:self.statusLabel];
-    // Make sending scope visible before any submission. It belongs to this
-    // frozen document; changing it never changes the next capture's preference.
-    for(NSView *view in self.toolbar.subviews){NSRect frame=view.frame;frame.origin.y+=24;view.frame=frame;}
-    self.backgroundButton=[NSButton checkboxWithTitle:[self.owner text:@"capture.includeBackground" fallback:@"Also send full screen"] target:self action:@selector(changeBackground:)];
-    self.backgroundButton.frame=NSMakeRect(12,6,300,22);self.backgroundButton.font=[NSFont systemFontOfSize:11];
-    self.backgroundButton.state=self.document.includeBackground?NSControlStateValueOn:NSControlStateValueOff;
-    [self.toolbar addSubview:self.backgroundButton];
-    self.scopeLabel=[NSTextField labelWithString:@""];self.scopeLabel.frame=NSMakeRect(300,9,width-312,18);
-    self.scopeLabel.alignment=NSTextAlignmentRight;self.scopeLabel.font=[NSFont systemFontOfSize:11];self.scopeLabel.textColor=NSColor.secondaryLabelColor;
-    [self.toolbar addSubview:self.scopeLabel];
     [self updateAvailability];[self positionToolbar];[self updateTools];[self updateWidthPreview];
-}
-- (void)changeBackground:(NSButton *)sender {
-    if(self.document.identifier.length||[self.document.source isEqual:@"clipboard"]){[self updateAvailability];return;}
-    self.document.includeBackground=sender.state==NSControlStateValueOn;[self updateAvailability];
 }
 - (void)positionToolbar {
     if(!self.toolbar)return;
     CGFloat width=self.toolbar.frame.size.width;
     if(self.pinned) {
         NSRect frame=self.window.frame,visible=self.window.screen.visibleFrame;
-        CGFloat x=MAX(NSMinX(visible)+8,MIN(NSMaxX(visible)-width-8,frame.origin.x));
+        CGFloat x=MAX(NSMinX(visible)+8,MIN(NSMaxX(visible)-width-8,NSMaxX(frame)-width));
         CGFloat height=self.toolbar.frame.size.height;CGFloat y=frame.origin.y-height-8;if(y<NSMinY(visible))y=MIN(NSMaxY(visible)-height,NSMaxY(frame)+8);
         [self.toolbarPanel setFrameOrigin:NSMakePoint(x,y)];return;
     }
     NSRect r=self.document.selection;
-    CGFloat x=MAX(8,MIN(self.bounds.size.width-width-8,r.origin.x));
-    CGFloat height=self.toolbar.frame.size.height;CGFloat y=NSMaxY(r)+10;if(y+height>self.bounds.size.height-8)y=MAX(8,r.origin.y-height-10);
+    CGFloat x=MAX(8,MIN(self.bounds.size.width-width-8,NSMaxX(r)-width));
+    CGFloat height=self.toolbar.frame.size.height;
+    CGFloat y=NSMaxY(r)+10,above=NSMinY(r)-height-10;
+    if(y+height>NSHeight(self.bounds)-8 && above>=8)y=above;
+    y=MAX(8,MIN(NSHeight(self.bounds)-height-8,y));
     [self.toolbar setFrameOrigin:NSMakePoint(x,y)];
 }
 - (void)updateAvailability {
     BOOL pending=[self.document.outcome isEqual:@"unknown"]||[self.document.outcome isEqual:@"accepted"];
     BOOL supported=[self.owner.availability[@"state"] isEqual:@"supported"];
     self.askButton.enabled=supported&&!pending;
-    BOOL clipboard=[self.document.source isEqual:@"clipboard"];
-    self.backgroundButton.hidden=clipboard||self.restored;
-    self.backgroundButton.enabled=!self.document.identifier.length;
-    self.backgroundButton.state=self.document.includeBackground?NSControlStateValueOn:NSControlStateValueOff;
-    self.scopeLabel.stringValue=self.restored?(self.document.includeBackground?[self.owner text:@"capture.fullScreenIncluded" fallback:@"Full screen included"]:[self.owner text:@"capture.selectionOnly" fallback:@"Selection only"]):clipboard?[self.owner text:@"capture.clipboardOnly" fallback:@"Clipboard image only"]:self.document.includeBackground?@"":[self.owner text:@"capture.selectionOnly" fallback:@"Selection only"];
     self.askButton.contentTintColor=self.askButton.enabled?NSColor.controlAccentColor:NSColor.disabledControlTextColor;
     self.askButton.layer.backgroundColor=[NSColor.controlAccentColor colorWithAlphaComponent:self.askButton.enabled?0.16:0.04].CGColor;
     NSString *message=@"";
@@ -438,10 +420,10 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self showMessage:message];
 }
 - (void)showMessage:(NSString *)message {
-    // Scope remains visible; only delivery exceptions add another row.
+    // Only delivery exceptions add another row.
     self.statusLabel.stringValue=message?:@"";self.statusLabel.hidden=!message.length;
     self.noteEditor.toolTip=message.length?message:nil;
-    NSRect frame=self.toolbar.frame;frame.size.height=message.length?144:120;self.toolbar.frame=frame;
+    NSRect frame=self.toolbar.frame;frame.size.height=message.length?120:96;self.toolbar.frame=frame;
     if(self.pinned){NSRect panelFrame=self.toolbarPanel.frame;panelFrame.size.height=frame.size.height;[self.toolbarPanel setFrame:panelFrame display:YES];}
     [self positionToolbar];
     self.noteEditor.textColor=NSColor.labelColor;
@@ -641,7 +623,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 }
 - (void)copyImage {
     [self.widthPopover close];
-    [self commitText];NSImage *image=imageFromBitmap([self.document render:NO maximumEdge:0]);
+    [self commitText];NSImage *image=imageFromBitmap([self.document renderWithMaximumEdge:0]);
     if(!image)return;
     [NSPasteboard.generalPasteboard clearContents];
     if([NSPasteboard.generalPasteboard writeObjects:@[image]]){if(!self.pinned)[self.owner finish:YES];else [self showMessage:[self.owner text:@"capture.copied" fallback:@"Copied"]];}
@@ -650,7 +632,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self commitText];NSSavePanel *panel=[NSSavePanel savePanel];panel.allowedContentTypes=@[UTTypePNG];panel.nameFieldStringValue=@"Screenshot.png";
     [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response){
         if(response!=NSModalResponseOK)return;
-        NSData *data=[[self.document render:NO maximumEdge:0] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        NSData *data=[[self.document renderWithMaximumEdge:0] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
         NSError *error=nil;
         if(![data writeToURL:panel.URL options:NSDataWritingAtomic error:&error])[self showMessage:[self.owner text:@"capture.saveFailed" fallback:@"Could not save image"]];
         else if(!self.pinned)[self.owner finish:YES];
@@ -668,7 +650,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 - (instancetype)init {
     if((self=[super init])) {
         _enabled=YES;
-        _includeBackground=YES;_pins=[NSMutableArray new];_availability=@{@"state":@"unknown"};_language=@{};_excludedWindows=@[];_observers=[NSMutableArray new];
+        _pins=[NSMutableArray new];_availability=@{@"state":@"unknown"};_language=@{};_excludedWindows=@[];_observers=[NSMutableArray new];
         __weak BotCapture *weak=self;
         _refreshTimer=[NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer *timer){
             BotCapture *strong=weak;
@@ -715,7 +697,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         [alert addButtonWithTitle:[self text:@"capture.ok" fallback:@"OK"]];[alert runModal];return;
     }
     if(@available(macOS 14.0,*)) {
-        self.preparing=YES;NSUInteger generation=++self.generation;BOOL includeBackground=self.includeBackground;
+        self.preparing=YES;NSUInteger generation=++self.generation;
         NSPoint pointer=NSEvent.mouseLocation;NSScreen *screen=NSScreen.mainScreen;
         for(NSScreen *candidate in NSScreen.screens)if(NSPointInRect(pointer,candidate.frame)){screen=candidate;break;}
         NSRect frame=screen.frame;CGDirectDisplayID displayID=[screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
@@ -761,7 +743,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
                         owner.preparing=NO;
                         if(failure||!still){[owner captureError];return;}
                         BotCaptureDocument *doc=[BotCaptureDocument new];doc.image=still;doc.canvasSize=frame.size;doc.pixelScale=scale;doc.capturedAt=[[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-                        doc.includeBackground=includeBackground;doc.windows=rects;doc.applicationName=application;doc.windowTitle=title;
+                        doc.windows=rects;doc.applicationName=application;doc.windowTitle=title;
                         owner.overlay=capturePanel(frame,YES);owner.canvas=[[BotCaptureCanvas alloc] initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];
                         owner.canvas.owner=owner;owner.canvas.document=doc;owner.canvas.last=NSMakePoint(pointer.x-frame.origin.x,NSMaxY(frame)-pointer.y);
                         owner.overlay.contentView=owner.canvas;[owner.overlay makeKeyAndOrderFront:nil];[owner.overlay makeFirstResponder:owner.canvas];
@@ -787,7 +769,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 - (void)pinDocument:(BotCaptureDocument *)document at:(NSPoint)point {
     // Pin retains original context in its document; crop presentation uses a
     // separate view transform without replacing the full capture.
-    NSBitmapImageRep *rep=[document render:NO maximumEdge:0];if(!rep)return;
+    NSBitmapImageRep *rep=[document renderWithMaximumEdge:0];if(!rep)return;
     NSScreen *screen=NSScreen.mainScreen;
     for(NSScreen *candidate in NSScreen.screens)if(NSPointInRect(point,candidate.frame)){screen=candidate;break;}
     NSRect available=screen.visibleFrame;
@@ -809,7 +791,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     if(rect.size.width<1||rect.size.height<1||rect.size.width>16384||rect.size.height>16384)return;
     BotCaptureDocument *doc=[BotCaptureDocument new];doc.image=image;doc.canvasSize=image.size;doc.selection=rect;
     for(NSImageRep *rep in image.representations)if(rep.pixelsWide>0)doc.pixelScale=MAX(doc.pixelScale,(CGFloat)rep.pixelsWide/image.size.width);
-    doc.includeBackground=NO;doc.source=@"clipboard";
+    doc.source=@"clipboard";
     [self pinDocument:doc at:NSEvent.mouseLocation];[self refresh];
 }
 - (void)togglePins {
@@ -851,7 +833,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         if([result[@"outcome"] isEqual:@"draft"]) {
             canvas.document.identifier=nil;
             // Restored documents only retain the rendered selection in memory.
-            if(canvas.restored){canvas.document.includeBackground=NO;canvas.restored=NO;}
+            if(canvas.restored){canvas.restored=NO;}
             [canvas buildToolbar];
         }
         if([result[@"outcome"] isEqual:@"accepted"]){[canvas.toolbarPanel close];[pin close];[self.pins removeObject:(BotCapturePanel *)pin];}
@@ -867,7 +849,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         NSString *path=[[self.root stringByAppendingPathComponent:identifier] stringByAppendingPathComponent:@"selection.png"];
         NSImage *image=[[NSImage alloc] initWithContentsOfFile:path];if(!image)continue;
         BotCaptureDocument *doc=[BotCaptureDocument new];doc.image=image;doc.canvasSize=image.size;doc.selection=NSMakeRect(0,0,image.size.width,image.size.height);
-        doc.source=@"clipboard";doc.includeBackground=[meta[@"background"] boolValue];doc.identifier=identifier;doc.outcome=record[@"outcome"];doc.note=meta[@"note"]?:@"";
+        doc.source=@"clipboard";doc.identifier=identifier;doc.outcome=record[@"outcome"];doc.note=meta[@"note"]?:@"";
         [self pinDocument:doc at:NSScreen.mainScreen.visibleFrame.origin];
         BotCaptureCanvas *canvas=(BotCaptureCanvas *)self.pins.lastObject.contentView;canvas.restored=YES;[canvas buildToolbar];
     }
@@ -897,7 +879,6 @@ void bot_capture_receipt(void *pointer,const char *json) {[( __bridge BotCapture
 void bot_capture_restore(void *pointer,const char *json) {[( __bridge BotCapture *)pointer restore:captureJSON(json)];}
 void bot_capture_stop(void *pointer) {BotCapture *c=(__bridge_transfer BotCapture *)pointer;[c stop];}
 
-void bot_capture_preferences(void *pointer,int value) {[( __bridge BotCapture *)pointer setIncludeBackground:value!=0];}
 int bot_capture_copy_image(const void *bytes,int length) {
     if(!bytes||length<=0||length>8*1024*1024)return 0;
     NSImage *image=[[NSImage alloc] initWithData:[NSData dataWithBytes:bytes length:length]];if(!image)return 0;

@@ -123,7 +123,7 @@ type windowsDriver struct {
 
 func newWindowsDriver(a *application.App, pet, bubble, history *application.WebviewWindow, s *Service) (*windowsDriver, error) {
 	d := &windowsDriver{app: a, pet: pet, bubbleWindow: bubble, history: history, service: s, contextStarted: time.Now()}
-	d.capture = &windowsCapture{driver: d, drafts: map[string]*windowsCaptureDraft{}, enabled: s.capture.preferences.Enabled, includeBackground: s.capture.preferences.IncludeBackground}
+	d.capture = &windowsCapture{driver: d, drafts: map[string]*windowsCaptureDraft{}, enabled: s.capture.preferences.Enabled}
 	d.callback = syscall.NewCallback(func(hwnd uintptr, msg uint32, wparam, lparam, id, data uintptr) uintptr {
 		switch msg {
 		case 0x113: // WM_TIMER: single waits for the OS double-click interval.

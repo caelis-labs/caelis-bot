@@ -223,7 +223,6 @@
   "activityPlan": "Planning",
   "activityRespond": "Responding",
   "screenSelection": "Selected screenshot",
-  "screenContext": "Screen context",
   "screenImageUnavailable": "Screenshot preview unavailable",
   "screenCopy": "Copy image",
   "screenCopyFailed": "Could not copy this image.",

@@ -87,7 +87,7 @@ func TestScreenSubmitRechecksModelAndPreservesUnknownReceipt(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Error(err)
 		}
-		if value(req.SourceKind) != "user" || len(req.ContentParts) != 2 || value(req.Input) != "screen context" {
+		if value(req.SourceKind) != "user" || len(req.ContentParts) != 1 || value(req.Input) != "screen context" {
 			t.Error("lost screen input", req)
 		}
 		for _, p := range req.ContentParts {
@@ -109,7 +109,7 @@ func TestScreenSubmitRechecksModelAndPreservesUnknownReceipt(t *testing.T) {
 	}
 	enabled.Store(true)
 	files := []api.InputFile{}
-	for _, name := range []string{"selection.png", "context.jpg"} {
+	for _, name := range []string{"selection.png"} {
 		p := filepath.Join(t.TempDir(), name)
 		if err := os.WriteFile(p, []byte("synthetic image bytes"), 0600); err != nil {
 			t.Fatal(err)

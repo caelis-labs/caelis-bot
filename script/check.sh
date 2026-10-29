@@ -17,7 +17,7 @@ node --test \
   script/setup-stage.test.mjs script/permission-actions.test.mjs script/native-call.test.mjs script/web-transport.test.mjs script/telegram-link.test.mjs script/web-csrf.test.mjs script/web-operations.test.mjs script/managed-update-client.test.mjs script/read-recovery.test.mjs script/login-at-login.test.mjs script/task-preferences.test.mjs \
   script/runtime-settings.test.mjs script/remote-machines.test.mjs script/connections-loader.test.mjs script/context-navigation.test.mjs script/composer-document.test.mjs script/codex-runtime-panel.test.mjs script/desktop-world.test.mjs \
   script/content-pack.test.mjs script/asset-pack.test.mjs \
-  script/question-presentation.test.mjs script/chat-presentation.test.mjs script/chat-observation.test.mjs script/chat-time.test.mjs script/worker-output.test.mjs script/web-approval-url.test.mjs \
+  script/question-presentation.test.mjs script/chat-presentation.test.mjs script/chat-observation.test.mjs script/chat-time.test.mjs script/capture-editor.test.mjs script/worker-output.test.mjs script/web-approval-url.test.mjs \
   script/reduced-motion.test.mjs script/streaming-text.test.mjs script/markdown-chunks.test.mjs
 bash script/hotkey-native-test.sh
 go test -tags private_mac_apis ./...

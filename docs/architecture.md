@@ -1046,8 +1046,8 @@ System preference changes are observed live; history and explicit custom PNG ava
 This is presentation policy only; Bot skill guidance and tool behavior are unchanged.
 
 Native screen input owns immutable image/thumbnail bytes and its independent durable receipt; renderer receives
-opaque handles. Capture preferences freeze at acquisition; redaction affects both images. Submitted documents
-cannot change scope. Ask Bot rechecks negotiated model image support immediately before dispatch. Unknown delivery
+opaque handles. Only the confirmed annotated selection is exported and sent; legacy full-screen preferences
+and unsubmitted context attachments are ignored. Submitted documents cannot change scope. Ask Bot rechecks negotiated model image support immediately before dispatch. Unknown delivery
 never resends; unreadable receipts remain uncertain. Attachment maintenance uses native Trash, protects originals,
 selected/active files and symlinks, and never constitutes image resubmission.
 

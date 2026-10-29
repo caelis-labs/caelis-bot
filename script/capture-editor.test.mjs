@@ -50,9 +50,9 @@ test('keyboard selection movement keeps dimensions within captured pixels',()=>{
 
 test('floating capture tools follow the selection and flip above near the screen edge',()=>{
  const viewport={width:1280,height:720},card={width:520,height:120};
- assert.deepEqual(captureToolbarPosition({x:80,y:100,width:400,height:200},viewport,card),{x:80,y:310});
- assert.deepEqual(captureToolbarPosition({x:1000,y:500,width:200,height:200},viewport,card),{x:752,y:370});
- assert.deepEqual(captureToolbarPosition({x:0,y:0,width:1280,height:720},viewport,card),{x:8,y:8});
+ assert.deepEqual(captureToolbarPosition({x:80,y:100,width:400,height:200},viewport,card),{x:8,y:310});
+ assert.deepEqual(captureToolbarPosition({x:1000,y:500,width:200,height:200},viewport,card),{x:680,y:370});
+ assert.deepEqual(captureToolbarPosition({x:0,y:0,width:1280,height:720},viewport,card),{x:752,y:592});
 });
 
 test('capture toolbar stays reachable on small viewports and negative coordinates',()=>{
@@ -61,3 +61,10 @@ test('capture toolbar stays reachable on small viewports and negative coordinate
  const q=captureToolbarPosition({x:350,y:180,width:10,height:20},{width:360,height:200},{width:344,height:160});
  assert.deepEqual(q,{x:8,y:10});
 });
+
+ test('right alignment uses normalized selection for every drag direction',()=>{
+  for(const [start,end] of [[{x:300,y:100},{x:1000,y:400}],[{x:1000,y:400},{x:300,y:100}],[{x:300,y:400},{x:1000,y:100}],[{x:1000,y:100},{x:300,y:400}]]){
+   const selection=captureDragRect(start,end);
+   assert.deepEqual(captureToolbarPosition(selection,{width:1280,height:800},{width:520,height:96}),{x:480,y:410});
+  }
+ });
