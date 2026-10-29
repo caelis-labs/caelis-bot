@@ -74,6 +74,26 @@ func TestChangedWorkerQuestionGenerationGetsNewPrivateNotice(t *testing.T) {
 	}
 }
 
+func TestWorkerQuestionNoticeSurvivesTaskRename(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
+	var reported []error
+	a, root := fixtureApp(t, e, Host{ReportError: func(err error) { reported = append(reported, err) }})
+	startNoticeResident(t, a)
+	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	wireTestWorkers(t, a, workPool(root, "codex", map[string]*workerFixture{"codex": owner}))
+	item := api.Item{ID: "worker-question:original", TurnKey: "worker-turn", Kind: "assistant", AsyncCallID: "original-call", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"A", "B"}}}}
+	for _, title := range []string{"", "First title", "Renamed task"} {
+		owner.states["work-one"] = api.WorkState{Task: api.Task{ID: "work-one", Title: title}, AsyncQuestions: []api.Item{item}}
+		a.observeWorkerQuestions(t.Context())
+	}
+	if len(reported) != 0 || len(e.reports) != 1 {
+		t.Fatal("title changed delivery identity", reported, e.reports)
+	}
+	if got := a.WorkerQuestions(); len(got) != 1 || got[0].TaskTitle != "Renamed task" {
+		t.Fatal("original question lost current title", got)
+	}
+}
+
 func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})

@@ -4,12 +4,60 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 )
+
+func TestSystemDeliveryRetriesOnlyUnwrittenNativeIntent(t *testing.T) {
+	var posts atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/prompt") {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		posts.Add(1)
+		var req wire.PromptRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "accepted"})
+	})
+	r, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Start(s)
+	defer r.Close()
+	s.mu.Lock()
+	path := s.path
+	s.path = t.TempDir() // Native journal fails; resident delivery ledger stays writable.
+	s.mu.Unlock()
+	message := api.SystemMessage{ID: "original-notice", Source: api.SystemWorkerApproval, Text: "Original approval is pending."}
+	receipt, err := r.SubmitSystem(t.Context(), message)
+	if receipt.Outcome != "rejected" || !receipt.Deferred || posts.Load() != 0 {
+		t.Fatalf("unwritten native intent became uncertain: %+v %v posts=%d", receipt, err, posts.Load())
+	}
+	s.mu.Lock()
+	_, exists := s.state.Operations[message.ID]
+	s.path = path
+	s.mu.Unlock()
+	if exists {
+		t.Fatal("failed intent retained in native journal")
+	}
+	for range 2 {
+		if receipt, err = r.SubmitSystem(t.Context(), message); err != nil || receipt.Outcome != "accepted" {
+			t.Fatal("original ID did not recover", receipt, err)
+		}
+	}
+	if posts.Load() != 1 {
+		t.Fatal("native POST repeated", posts.Load())
+	}
+}
 
 func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	const notice = "Task task-42 is completed."

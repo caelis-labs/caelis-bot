@@ -115,7 +115,7 @@ func (a *Application) observeWorkerApprovalNotice(ctx context.Context, snapshot 
 		if !approval.GuardianEligible() || approval.Status != "pending" {
 			continue
 		}
-		text := fmt.Sprintf("Worker approval %s is pending for task %s. Read the original request with bot_interactions.", approval.ID, approval.TaskTitle)
+		text := fmt.Sprintf("Worker approval %s is pending. Read the original request with bot_interactions.", approval.ID)
 		a.deliverWorkerInteraction(ctx, "approval", approval.ID, text)
 	}
 }

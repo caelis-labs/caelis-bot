@@ -68,6 +68,24 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	before = s.Snapshot().CurrentTurn
+	func() {
+		blocked := t.TempDir()
+		s.mu.Lock()
+		path := s.path
+		s.path = blocked
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			s.path = path
+			s.mu.Unlock()
+		}()
+		if err := manager.DeliverTaskReport(ctx); err == nil {
+			t.Fatal("native journal failure was not reported")
+		}
+		if len(model.observed()) != 1 {
+			t.Fatal("unwritten native intent reached the model")
+		}
+	}()
 	if err := manager.DeliverTaskReport(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -139,5 +157,5 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 			t.Fatal("source missing at native provider", source)
 		}
 	}
-	t.Logf("native requests=%d; failed Worker producer, four system sources, actual source_kind/grant, exact Bot-to-Core human bytes (Core UI trims outer whitespace), hidden system inputs, duplicate receipts passed", len(calls))
+	t.Logf("native requests=%d; journal-write failure recovery, failed Worker producer, four system sources, actual source_kind/grant, exact Bot-to-Core human bytes (Core UI trims outer whitespace), hidden system inputs, duplicate receipts passed", len(calls))
 }

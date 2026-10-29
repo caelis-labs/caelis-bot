@@ -15,13 +15,19 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
+// Only preparation failures carry this proof. Once native dispatch starts,
+// uncertainty must be reconciled through the retained operation.
+type commandNotDispatchedError struct{ error }
+
+func (e *commandNotDispatchedError) Unwrap() error { return e.error }
+
 // command persists exact bytes before dispatch. Unknown journals are read only;
 // transport retries can never accidentally create a second native operation.
 // Caller serializes mutations with step; stream projection only takes mu.
 func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...api.Submission) (wire.CommandResult, error) {
 	b, e := json.Marshal(req)
 	if e != nil {
-		return wire.CommandResult{}, e
+		return wire.CommandResult{}, &commandNotDispatchedError{e}
 	}
 	hash := digest(b)
 	s.mu.Lock()
@@ -37,6 +43,14 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 			return wire.CommandResult{OperationId: op, Outcome: "conflicted"}, errors.New("操作标识已用于不同请求")
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return wire.CommandResult{}, &commandNotDispatchedError{err}
+	}
+	if s.client == nil {
+		s.mu.Unlock()
+		return wire.CommandResult{}, &commandNotDispatchedError{errors.New("Caelis 尚未连接")}
 	}
 	source := wire.SessionSource{}
 	var prompt wire.PromptRequest
@@ -118,10 +132,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	c := s.client
 	s.mu.Unlock()
 	if e != nil {
-		return wire.CommandResult{}, e
-	}
-	if c == nil {
-		return wire.CommandResult{}, errors.New("Caelis 尚未连接")
+		return wire.CommandResult{}, &commandNotDispatchedError{e}
 	}
 	var out wire.CommandResult
 	var headers struct {
@@ -322,6 +333,13 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		out, e = s.submitNativeInput(ctx, sid, in.ID, modelText, req.ContentParts, true)
 	} else {
 		out, e = s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req, in)
+	}
+	var undispatched *commandNotDispatchedError
+	if errors.As(e, &undispatched) {
+		// No native operation exists. Do not turn a second receipt write to the
+		// same unavailable journal into an uncertainty fence.
+		receipt.Deferred = true
+		return receipt, e
 	}
 	receipt.Deferred = false
 	receipt.Outcome = productOutcome(out.Outcome)

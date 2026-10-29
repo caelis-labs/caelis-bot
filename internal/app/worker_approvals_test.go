@@ -189,6 +189,23 @@ func TestWorkerApprovalNoticesUseOneOriginalReportEach(t *testing.T) {
 	}
 }
 
+func TestWorkerApprovalNoticeSurvivesTaskRename(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true, Approvals: []api.Approval{{ID: "original-approval", TaskID: "task-one", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allow"}}}}}}
+	var reported []error
+	a, _ := fixtureApp(t, e, Host{ReportError: func(err error) { reported = append(reported, err) }})
+	startNoticeResident(t, a)
+	for _, title := range []string{"", "First title", "Renamed task"} {
+		e.snapshot.Approvals[0].TaskTitle = title
+		a.observeWorkerApprovalNotice(t.Context(), e.snapshot)
+	}
+	if len(reported) != 0 || len(e.reports) != 1 {
+		t.Fatal("title changed delivery identity", reported, e.reports)
+	}
+	if got := a.WorkerApprovals(); len(got) != 1 || got[0].TaskTitle != "Renamed task" {
+		t.Fatal("original interaction lost current title", got)
+	}
+}
+
 func TestWorkerApprovalUnacceptedNoticeRetainsOriginalUserCard(t *testing.T) {
 	for _, outcome := range []string{"rejected", "unknown"} {
 		t.Run(outcome, func(t *testing.T) {

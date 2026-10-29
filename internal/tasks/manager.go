@@ -1094,19 +1094,37 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	}
 	id := message.ID
 	if selected.ReportID == id {
-		if receipt.ID == id && receipt.Outcome == "accepted" {
-			selected.ReportState = "delivered"
-		} else if receipt.ID == id && receipt.Outcome == "rejected" && (e == nil || receipt.Deferred) {
-			selected.ReportState = "pending"
-		}
-	} else if receipt.ID == id && receipt.Outcome == "accepted" {
+		m.settleReportLocked(id, &selected.ReportState, receipt)
+	} else {
 		for i := range selected.PreviousReports {
 			if selected.PreviousReports[i].ID == id {
-				selected.PreviousReports[i].State = "delivered"
+				m.settleReportLocked(id, &selected.PreviousReports[i].State, receipt)
+				if selected.PreviousReports[i].State == "pending" {
+					selected.PreviousReports[i].State = "observed" // superseded before dispatch
+				}
 			}
 		}
 	}
 	return errors.Join(e, m.write())
+}
+
+func (m *Manager) settleReportLocked(id string, state *string, receipt api.Receipt) {
+	if receipt.ID != id {
+		return
+	}
+	switch receipt.Outcome {
+	case "accepted":
+		*state = "delivered"
+	case "rejected":
+		if receipt.Deferred {
+			*state = "pending"
+			return
+		}
+		if *state != "rejected" {
+			m.diagnostics.Write(diagnosticlog.Record{Component: "tasks", Code: "report_rejected", Item: id})
+		}
+		*state = "rejected"
+	}
 }
 
 func (m *Manager) prepareTaskReport() (string, api.SystemMessage, error) {
@@ -1121,13 +1139,17 @@ func (m *Manager) prepareTaskReport() (string, api.SystemMessage, error) {
 	s := m.snapshot()
 	m.mu.Lock()
 	for _, r := range m.state.Records {
-		if m.owns(r) && r.ReportState == "dispatching" && m.reports.SystemReceipt(r.ReportID).Outcome == "accepted" {
-			r.ReportState = "delivered"
+		if m.owns(r) && r.ReportState == "dispatching" {
+			m.settleReportLocked(r.ReportID, &r.ReportState, m.reports.SystemReceipt(r.ReportID))
 		}
 		if m.owns(r) {
 			for i := range r.PreviousReports {
-				if r.PreviousReports[i].State == "dispatching" && m.reports.SystemReceipt(r.PreviousReports[i].ID).Outcome == "accepted" {
-					r.PreviousReports[i].State = "delivered"
+				previous := &r.PreviousReports[i]
+				if previous.State == "dispatching" {
+					m.settleReportLocked(previous.ID, &previous.State, m.reports.SystemReceipt(previous.ID))
+					if previous.State == "pending" {
+						previous.State = "observed"
+					}
 				}
 			}
 		}

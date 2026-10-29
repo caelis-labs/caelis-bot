@@ -121,7 +121,7 @@ func (f *reportRefusalRuntime) SubmitSystem(_ context.Context, in api.SystemMess
 	if f.reject {
 		outcome = "rejected"
 	}
-	return api.Receipt{ID: in.ID, Outcome: outcome}, nil
+	return api.Receipt{ID: in.ID, Outcome: outcome, Deferred: f.reject}, nil
 }
 func TestFailureReportFreezesOriginalTextBeforeDispatch(t *testing.T) {
 	root := t.TempDir()

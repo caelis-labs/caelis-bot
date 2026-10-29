@@ -11,8 +11,17 @@ import (
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
+
+func (r *Runtime) ConfigureDiagnostics(log *diagnosticlog.Logger) {
+	if log != nil && r.deliveryErr != nil {
+		r.deliveryWarning.Do(func() {
+			log.Write(diagnosticlog.Record{Component: "system_delivery", Code: "storage_unavailable", Fingerprint: diagnosticlog.Fingerprint([]byte(r.deliveryErr.Error()))})
+		})
+	}
+}
 
 // Delivery contains no task, permission or event state. Retained identities are
 // needed even after a producer is read/retired or the selected Runtime changes.
@@ -177,7 +186,10 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 		return rejected, errors.New("invalid system message")
 	}
 	if r.deliveryErr != nil {
-		return rejected, r.deliveryErr
+		// This attempt cannot dispatch. The persistent status and one diagnostic
+		// expose the fault without emitting an error for every pending producer.
+		rejected.Deferred = true
+		return rejected, nil
 	}
 	b, _ := json.Marshal(message)
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256(b))

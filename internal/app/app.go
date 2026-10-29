@@ -403,6 +403,7 @@ func (a *Application) preparePersonalLocked() error {
 			return err
 		}
 		a.companion = resident
+		resident.ConfigureDiagnostics(a.host.Diagnostics)
 		resident.ConfigureInitialization(a.initialization)
 		if a.personal != nil {
 			if err := resident.ConfigurePersonal(a.personal); err != nil {

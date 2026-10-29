@@ -41,7 +41,7 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 		for _, item := range state.AsyncQuestions {
 			for _, q := range a.textControl.AsyncButtonQuestions(item.ID) {
 				if q.State == "" {
-					text := fmt.Sprintf("Worker task %s has pending question %s. Read the original question with bot_interactions.", state.Task.Title, q.ShortID)
+					text := fmt.Sprintf("Worker question %s is pending. Read the original question with bot_interactions.", q.ShortID)
 					a.deliverWorkerInteraction(ctx, "question", item.ID+":"+q.Fingerprint, text)
 					break
 				}

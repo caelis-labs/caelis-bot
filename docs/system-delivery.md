@@ -36,6 +36,9 @@ continues to own its durable request bytes, native targets and receipt reconcili
   fence for a later attempt with the same ID; preparation errors retain this distinction.
 - Failure to save intent prevents dispatch. Failure to save a returned receipt keeps
   the prior unknown fence. Invalid delivery storage disables delivery, not user chat.
+  It remains visible in Bot status and emits one sanitized diagnostic per resident,
+  rather than an error on every observation. New attempts defer until storage is
+  restored and the resident reopens the original ledger.
 - A reused ID with different content is rejected. A different selected Runtime cannot
   reconcile an original provider's unknown operation.
 
@@ -45,6 +48,14 @@ continuation cannot receive the previous execution's acknowledgment. Caelis obse
 late command results under its adapter lock, releases it before calling the resident,
 and rechecks the original session when settling. Its message also carries the original
 native owner fence, preventing delivery to a replacement conversation.
+
+Task report submission and receipt reconciliation use the same transitions:
+accepted becomes delivered, definitive rejection becomes a diagnostic terminal
+`rejected` state, and only deferred rejection returns to pending. A rejected report
+cannot block the next Worker. Caelis marks pre-dispatch preparation/journal failures
+explicitly, so an unwritten native intent does not leave a resident unknown fence.
+Interaction notice bodies use stable request identities; current task titles are
+read from `bot_interactions`, not frozen or included in the delivery fingerprint.
 
 ## Native input and presentation
 

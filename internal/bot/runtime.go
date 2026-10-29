@@ -66,8 +66,10 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	deliveries     *systemDeliveryLog
-	deliveryErr    error
+	deliveries      *systemDeliveryLog
+	deliveryErr     error
+	deliveryWarning sync.Once
+
 	userWaiting    atomic.Int32
 	events         *eventplan.Engine
 	eventsErr      error
@@ -573,6 +575,9 @@ func wakePrompt(messages []string) string {
 func (r *Runtime) Status() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.deliveryErr != nil {
+		return "System notices need recovery; chat remains available. Preserve local data and use the diagnostic report."
+	}
 	if r.nativeErr != nil {
 		return "Saved native arrangements need recovery; original data is preserved."
 	}

@@ -2,16 +2,132 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
+
+func TestUnavailableDeliveryLedgerHasPersistentStatusWithoutRepeatedWarnings(t *testing.T) {
+	for _, broken := range []string{"corrupt", "unreadable"} {
+		t.Run(broken, func(t *testing.T) {
+			root := t.TempDir()
+			ledger := filepath.Join(root, "system-deliveries.json")
+			if broken == "corrupt" {
+				if err := os.WriteFile(ledger, []byte("{private-broken-record"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Mkdir(ledger, 0700); err != nil {
+				t.Fatal(err)
+			}
+			r, err := New(filepath.Join(root, "bot.json"), nil)
+			if err != nil {
+				t.Fatal("system storage fault disabled chat", err)
+			}
+			log := diagnosticlog.New(filepath.Join(root, "Logs"))
+			f := &systemDeliveryFixture{ready: true, outcome: "accepted", receipts: map[string]api.Receipt{}}
+			r.engine = f
+			message := api.SystemMessage{ID: "pending-notice", Source: api.SystemWorkerResult, Text: "Task completed."}
+			status := r.Status()
+			if status == "" || strings.Contains(status, root) || strings.Contains(status, "private-broken-record") {
+				t.Fatal("missing or unsafe fault status", status)
+			}
+			for range 3 {
+				r.ConfigureDiagnostics(log)
+				if receipt, err := r.SubmitSystem(t.Context(), message); err != nil || receipt.Outcome != "rejected" || !receipt.Deferred {
+					t.Fatal("unavailable delivery should defer without repeated errors", receipt, err)
+				}
+				if r.Status() != status {
+					t.Fatal("persistent fault status disappeared")
+				}
+			}
+			if len(f.inputs) != 0 {
+				t.Fatal("unreadable ledger permitted a system effect")
+			}
+			if receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "real-user", Text: "Continue normally"}, nil); err != nil || receipt.Outcome != "accepted" || len(f.inputs) != 1 || f.inputs[0].HostNotice {
+				t.Fatal("ordinary chat was blocked", receipt, err)
+			}
+			data, err := os.ReadFile(filepath.Join(root, "Logs", "error.jsonl"))
+			if err != nil || strings.Count(string(data), "\n") != 1 || !strings.Contains(string(data), `"code":"storage_unavailable"`) || strings.Contains(string(data), root) {
+				t.Fatal("missing, repeated or unsafe diagnostics", string(data), err)
+			}
+			// Repair this never-dispatched fixture, then reopen the same identity.
+			if err := os.Remove(ledger); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := New(r.path, nil)
+			if err != nil || restored.State().ID != r.State().ID || restored.Status() != "" {
+				t.Fatal("reopened healthy storage remained degraded", err)
+			}
+			f.ready = true
+			restored.engine = f
+			if receipt, err := restored.SubmitSystem(t.Context(), message); err != nil || receipt.Outcome != "accepted" || len(f.inputs) != 2 {
+				t.Fatal("pending original ID did not resume after recovery", receipt, err)
+			}
+		})
+	}
+}
+
+func TestRejectedTaskReportDoesNotStarveNextWorker(t *testing.T) {
+	for _, first := range []string{"rejected", "unknown"} {
+		t.Run(first, func(t *testing.T) {
+			r, f := systemFixture(t)
+			f.outcome = first
+			work := &delegateAdmissionRuntime{states: []api.WorkState{
+				{Runtime: "codex", ExecutionKey: "turn-a", Task: api.Task{ID: "a", Status: "completed"}},
+				{Runtime: "codex", ExecutionKey: "turn-b", Task: api.Task{ID: "b", Status: "failed"}},
+			}}
+			root := t.TempDir()
+			path := filepath.Join(root, "tasks.json")
+			m, err := tasks.Open(path, filepath.Join(root, "Tasks"), "codex", work, r, f.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := m.DeliverTaskReport(t.Context()); err != nil || len(f.inputs) != 1 {
+				t.Fatal(err, f.inputs)
+			}
+			original := f.inputs[0].ID
+			f.receipts[original] = api.Receipt{ID: original, Outcome: "rejected"}
+			f.outcome = "accepted"
+			for range 3 {
+				if err := m.DeliverTaskReport(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(f.inputs) != 2 || f.inputs[1].ID == original {
+				t.Fatal("rejected A starved B or was replayed", f.inputs)
+			}
+			var saved struct {
+				Records map[string]struct{ ReportState string }
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || json.Unmarshal(data, &saved) != nil {
+				t.Fatal("cannot read task acknowledgments", err)
+			}
+			if saved.Records["a"].ReportState != "rejected" || saved.Records["b"].ReportState != "delivered" {
+				t.Fatalf("wrong durable acknowledgments: %+v", saved)
+			}
+			if receipt := r.SystemReceipt(original); receipt.Outcome != "rejected" {
+				t.Fatal(receipt)
+			}
+			m, err = tasks.Open(path, filepath.Join(root, "Tasks"), "codex", work, r, f.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = m.DeliverTaskReport(t.Context()); err != nil || len(f.inputs) != 2 {
+				t.Fatal("restart retried a settled report", err)
+			}
+		})
+	}
+}
 
 type systemDeliveryFixture struct {
 	mu           sync.Mutex
