@@ -110,3 +110,18 @@ func TestObservationCompletionReplayAndRestart(t *testing.T) {
 		t.Fatal("new binding retained old evidence")
 	}
 }
+
+func TestObservationInvalidPersistedSampleCount(t *testing.T) {
+	for _, count := range []int{-1, 9} {
+		now := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+		s := State{Observation: Observation{Session: "resident", Configuration: "model", InputCount: count, InputKnown: true}}
+		if Confidence(s.Observation, 0, 0, now).Input != 0 {
+			t.Fatal("invalid series supplied evidence")
+		}
+		s.Start("resident", "next", now)
+		s.Sample("next", "model", 12_000)
+		if !s.Finish("next", true, now) || s.InputCount != 1 || !s.InputKnown || s.Inputs[0] != 12_000 {
+			t.Fatal("invalid persisted count prevented fresh observation", s)
+		}
+	}
+}

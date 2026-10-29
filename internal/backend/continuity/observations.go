@@ -48,6 +48,9 @@ func (s *State) Sample(turn, configuration string, input int64) {
 	if s.Active != turn || turn == "" || configuration == "" || input <= 0 || s.Compacted {
 		return
 	}
+	if s.InputCount < 0 || s.InputCount > len(s.Inputs) {
+		s.Inputs, s.InputCount, s.InputKnown = [8]int64{}, 0, false
+	}
 	if s.Configuration != configuration {
 		s.Configuration, s.Inputs, s.InputCount, s.Input = configuration, [8]int64{}, 0, 0
 	}
