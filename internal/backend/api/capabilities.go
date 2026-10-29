@@ -117,6 +117,9 @@ type ToolConnection struct {
 	RuntimeVersion string
 	// PrepareTurn refreshes host-owned local metadata before submission; FinishTurn
 	// runs after authoritative resident completion, outside adapter locks.
+	// DeliverSystem routes native completion evidence through resident admission.
+	// Call outside adapter locks.
+	DeliverSystem  func(context.Context, SystemMessage) (Receipt, error)
 	PrepareTurn    func(context.Context) error
 	FinishTurn     func()
 	PrepareContext func(context.Context) (ContextSeed, error)

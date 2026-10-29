@@ -167,12 +167,6 @@ type TaskMachine struct {
 }
 type TaskMachineProvider interface{ TaskMachines() []TaskMachine }
 
-// ReportSubmitter appends a bounded application notice only when idle. It must
-// not promote that notice into a new user request or delegation authority.
-type ReportSubmitter interface {
-	SubmitReport(context.Context, Submission) (Receipt, error)
-}
-
 // WorkerInteractionPort exposes only original, Bot-owned Worker approval
 // requests to the resident Bot. Native adapters still own every decision.
 type WorkerInteractionPort interface {
@@ -200,12 +194,7 @@ type WorkerQuestion struct {
 type BackgroundRuntime interface {
 	AuthorizeBackground(context.Context, string, string) error
 	RevokeBackground(context.Context, string) error
-	SubmitBackground(context.Context, Submission, []string) (Receipt, error)
 }
-
-// BackgroundReceiptProvider reads retained native submission evidence without
-// dispatching again, even after later user input replaces LastReceipt.
-type BackgroundReceiptProvider interface{ BackgroundReceipt(string) Receipt }
 
 // BackgroundResult is retained presentation evidence for one native submission.
 // ObservedAt is the host's first observation, not a fabricated native timestamp.

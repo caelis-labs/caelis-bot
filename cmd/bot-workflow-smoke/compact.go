@@ -78,6 +78,7 @@ func runCompact() error {
 		return e
 	}
 	config := bridge.Config(executable)
+	config.DeliverSystem = resident.SubmitSystem
 	skill, e := botskills.Install(dir)
 	if e != nil {
 		return e
@@ -116,7 +117,7 @@ func runCompact() error {
 		return e
 	}
 	defer engine.Close(context.Background())
-	manager, e := tasks.Open(filepath.Join(dir, "tasks.json"), filepath.Join(dir, "Tasks"), provider, engine.(api.WorkRuntime), engine.(api.ReportSubmitter), engine.Snapshot)
+	manager, e := tasks.Open(filepath.Join(dir, "tasks.json"), filepath.Join(dir, "Tasks"), provider, engine.(api.WorkRuntime), resident, engine.Snapshot)
 	if e != nil {
 		return e
 	}

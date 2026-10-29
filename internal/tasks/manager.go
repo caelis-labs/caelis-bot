@@ -94,7 +94,7 @@ type Manager struct {
 	paused               bool            // protected by op; updater admission fence
 	path, root, provider string
 	work                 api.WorkRuntime
-	reports              api.ReportSubmitter
+	reports              api.SystemDelivery
 	snapshot             func() api.Snapshot
 	localeMu             sync.RWMutex
 	locale               func() i18n.Locale
@@ -137,7 +137,7 @@ func (m *Manager) text(key string, args ...map[string]any) string {
 	return i18n.Text(l, key, a)
 }
 
-func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportSubmitter, snapshot func() api.Snapshot) (*Manager, error) {
+func Open(path, root, provider string, work api.WorkRuntime, reports api.SystemDelivery, snapshot func() api.Snapshot) (*Manager, error) {
 	if !filepath.IsAbs(path) || !filepath.IsAbs(root) || provider == "" || work == nil || reports == nil || snapshot == nil {
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.taskHostConfigIncomplete", nil))
 	}
@@ -355,6 +355,35 @@ func (m *Manager) owns(r *record) bool {
 	}
 	p, ok := m.work.(api.WorkRouter)
 	return ok && r.Runtime != "" && p.OwnsWork(r.Runtime)
+}
+
+// LegacySystemReceipts imports notification acknowledgments from pre-unification
+// task records. Task ReportState remains the business acknowledgment/read state;
+// reconciliation uses the shared delivery port, never the latest UI receipt.
+func (m *Manager) LegacySystemReceipts() []api.Receipt {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []api.Receipt
+	add := func(id, state string) {
+		if id == "" || (state != "delivered" && state != "dispatching") {
+			return
+		}
+		outcome := "unknown"
+		if state == "delivered" {
+			outcome = "accepted"
+		}
+		out = append(out, api.Receipt{ID: id, Outcome: outcome})
+	}
+	for _, r := range m.state.Records {
+		if r == nil {
+			continue
+		}
+		add(r.ReportID, r.ReportState)
+		for _, previous := range r.PreviousReports {
+			add(previous.ID, previous.State)
+		}
+	}
+	return out
 }
 
 // HostReportIDs comes only from the native task ledger. A prior version may
@@ -1050,35 +1079,88 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 // DeliverTaskReport is finite: native generation -> one durable dispatch.
 // Uncertain delivery is only reconciled, never automatically resubmitted.
 func (m *Manager) DeliverTaskReport(ctx context.Context) error {
+	taskID, message, err := m.prepareTaskReport()
+	if err != nil || message.ID == "" {
+		return err
+	}
+	// Never hold the task operation gate while waiting for resident admission.
+	// A human continuation may advance the execution; settle only the original ID.
+	receipt, e := m.reports.SubmitSystem(ctx, message)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	selected := m.state.Records[taskID]
+	if selected == nil {
+		return e
+	}
+	id := message.ID
+	if selected.ReportID == id {
+		m.settleReportLocked(id, &selected.ReportState, receipt)
+	} else {
+		for i := range selected.PreviousReports {
+			if selected.PreviousReports[i].ID == id {
+				m.settleReportLocked(id, &selected.PreviousReports[i].State, receipt)
+				if selected.PreviousReports[i].State == "pending" {
+					selected.PreviousReports[i].State = "observed" // superseded before dispatch
+				}
+			}
+		}
+	}
+	return errors.Join(e, m.write())
+}
+
+func (m *Manager) settleReportLocked(id string, state *string, receipt api.Receipt) {
+	if receipt.ID != id {
+		return
+	}
+	switch receipt.Outcome {
+	case "accepted":
+		*state = "delivered"
+	case "rejected":
+		if receipt.Deferred {
+			*state = "pending"
+			return
+		}
+		if *state != "rejected" {
+			m.diagnostics.Write(diagnosticlog.Record{Component: "tasks", Code: "report_rejected", Item: id})
+		}
+		*state = "rejected"
+	}
+}
+
+func (m *Manager) prepareTaskReport() (string, api.SystemMessage, error) {
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return nil
+		return "", api.SystemMessage{}, nil
 	}
 	if e := m.refresh(); e != nil {
-		return e
+		return "", api.SystemMessage{}, e
 	}
 	s := m.snapshot()
 	m.mu.Lock()
 	for _, r := range m.state.Records {
-		if m.owns(r) && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
-			r.ReportState = "delivered"
+		if m.owns(r) && r.ReportState == "dispatching" {
+			m.settleReportLocked(r.ReportID, &r.ReportState, m.reports.SystemReceipt(r.ReportID))
 		}
-		if m.owns(r) && s.LastReceipt.Outcome == "accepted" {
+		if m.owns(r) {
 			for i := range r.PreviousReports {
-				if r.PreviousReports[i].State == "dispatching" && r.PreviousReports[i].ID == s.LastReceipt.ID {
-					r.PreviousReports[i].State = "delivered"
+				previous := &r.PreviousReports[i]
+				if previous.State == "dispatching" {
+					m.settleReportLocked(previous.ID, &previous.State, m.reports.SystemReceipt(previous.ID))
+					if previous.State == "pending" {
+						previous.State = "observed"
+					}
 				}
 			}
 		}
 	}
 	if e := m.write(); e != nil {
 		m.mu.Unlock()
-		return e
+		return "", api.SystemMessage{}, e
 	}
 	if !s.CanSend {
 		m.mu.Unlock()
-		return nil
+		return "", api.SystemMessage{}, nil
 	}
 	ids := make([]string, 0, len(m.state.Records))
 	for id := range m.state.Records {
@@ -1095,7 +1177,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	}
 	if selected == nil {
 		m.mu.Unlock()
-		return nil
+		return "", api.SystemMessage{}, nil
 	}
 	id := selected.ReportID
 	text := fmt.Sprintf("Task %s is %s.", selected.View.ID, selected.View.Status)
@@ -1116,26 +1198,10 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	if e := m.write(); e != nil {
 		selected.ReportState = "pending"
 		m.mu.Unlock()
-		return e
+		return "", api.SystemMessage{}, e
 	}
 	m.mu.Unlock()
-	receipt, e := m.reports.SubmitReport(ctx, api.Submission{ID: id, Text: text})
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if selected.ReportID == id {
-		if receipt.ID == id && receipt.Outcome == "accepted" {
-			selected.ReportState = "delivered"
-		} else if e == nil && receipt.ID == id && receipt.Outcome == "rejected" {
-			selected.ReportState = "pending"
-		}
-	} else if receipt.ID == id && receipt.Outcome == "accepted" {
-		for i := range selected.PreviousReports {
-			if selected.PreviousReports[i].ID == id {
-				selected.PreviousReports[i].State = "delivered"
-			}
-		}
-	}
-	return errors.Join(e, m.write())
+	return selected.View.ID, api.SystemMessage{ID: id, Text: text, Source: api.SystemWorkerResult}, nil
 }
 
 var _ api.TaskProvider = (*Manager)(nil)

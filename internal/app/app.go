@@ -79,7 +79,6 @@ type Application struct {
 	pluginSyncError         bool
 	pluginChanges           map[string]uint64 // Package-local desired revisions awaiting projection.
 	updateMu                sync.Mutex
-	interactionNoticeMu     sync.Mutex
 	started, closed         bool
 	updatePrepared          bool
 	cancel                  context.CancelFunc
@@ -371,7 +370,7 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 	if _, ok := engine.(api.WorkRuntime); !ok {
 		return errors.New(i18n.Text(l, "host.backendMissingDelegation", nil))
 	}
-	if _, ok := engine.(api.ReportSubmitter); !ok {
+	if _, ok := engine.(api.SystemDelivery); !ok {
 		return errors.New(i18n.Text(l, "host.backendMissingReporting", nil))
 	}
 	return nil
@@ -404,6 +403,7 @@ func (a *Application) preparePersonalLocked() error {
 			return err
 		}
 		a.companion = resident
+		resident.ConfigureDiagnostics(a.host.Diagnostics)
 		resident.ConfigureInitialization(a.initialization)
 		if a.personal != nil {
 			if err := resident.ConfigurePersonal(a.personal); err != nil {
@@ -508,12 +508,20 @@ func (a *Application) startRuntime() error {
 	if a.started {
 		return a.repairFeaturesLocked()
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.currentEngine().(api.ReportSubmitter), a.currentEngine().Snapshot)
+	if err := a.preparePersonalLocked(); err != nil {
+		return err
+	}
+	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.companion, a.currentEngine().Snapshot)
 	if err != nil && a.host.ReportError != nil {
 		a.host.ReportError(err)
 	}
 	if importer, ok := a.currentEngine().(interface{ ImportHostReportIDs([]string) error }); ok && manager != nil {
 		if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil && a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+	}
+	if manager != nil {
+		if err := a.companion.ImportSystemReceipts(manager.LegacySystemReceipts()); err != nil && a.host.ReportError != nil {
 			a.host.ReportError(err)
 		}
 	}
@@ -568,6 +576,7 @@ func (a *Application) startRuntime() error {
 		executable, err = os.Executable()
 		if err == nil {
 			config := bridge.Config(executable)
+			config.DeliverSystem = resident.SubmitSystem
 			if a.skillPath != "" {
 				config.Instructions = botskills.Bootstrap()
 				config.SkillInstructions = botskills.Instructions(a.skillPath)

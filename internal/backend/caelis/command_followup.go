@@ -50,15 +50,55 @@ func (s *Session) observeApprovalHeadLocked(state wire.SessionState) {
 	}
 }
 
+type commandNotice struct {
+	callID, session string
+	message         api.SystemMessage
+}
+
 func (s *Session) reportApprovedCommands(ctx context.Context) error {
-	// Keep the observed Session/client binding stable through admission of the
-	// notice. Reconnect, user submissions and provider changes use this same gate.
+	notice, err := s.prepareCommandNotice(ctx)
+	if err != nil || notice == nil {
+		return err
+	}
+	s.mu.Lock()
+	tools := s.tools.Clone()
+	s.mu.Unlock()
+	if tools == nil || tools.DeliverSystem == nil {
+		return nil
+	}
+	receipt, err := tools.DeliverSystem(ctx, notice.message)
+	if err != nil || receipt.Deferred {
+		return err
+	}
+	s.mu.Lock()
+	same := s.state.Session.SessionId == notice.session
+	originalOutcome := s.state.Operations[notice.message.ID].Outcome
+	received := false
+	if v := s.state.Views[notice.session]; v != nil {
+		received = v.CommandResults[notice.callID].Received
+	}
+	s.mu.Unlock()
+	if !same {
+		return nil
+	}
+	if received {
+		return s.finishCommandFollowup(notice.callID)
+	}
+	if originalOutcome != "" {
+		return s.recordCommandDelivery(notice.callID, originalOutcome)
+	}
+	return s.recordCommandDelivery(notice.callID, receipt.Outcome)
+}
+
+func (s *Session) prepareCommandNotice(ctx context.Context) (*commandNotice, error) {
+	// Native observation holds the adapter gate. Release it before resident
+	// admission; the message retains its original conversation fence.
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
 	if !slices.Contains(s.info.Capabilities, commandObservationCapability) {
 		s.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	ready := s.snapshotLocked().CanSend
 	if v := s.state.Views[s.state.Session.SessionId]; v == nil || !v.CommandCaughtUp {
@@ -77,13 +117,13 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	if !ready || len(pending) == 0 || c == nil {
-		return nil
+		return nil, nil
 	}
 	// Public, application-scoped observation only. No private session store and
 	// no model invocation while a command is still running or awaiting approval.
 	var list wire.TaskList
 	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/tasks", nil, &list, "", ""); err != nil {
-		return err
+		return nil, err
 	}
 	slices.Sort(pending)
 	for _, callID := range pending {
@@ -92,7 +132,7 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 		// An idle state read can overtake SSE; terminal exit alone proves neither.
 		if observed.Received {
 			if err := s.finishCommandFollowup(callID); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
@@ -122,7 +162,7 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 			// model result. Never treat a stale directory's Running as final.
 			var output wire.TerminalOutput
 			if err := c.json(ctx, "POST", "/sessions/"+idPath(sid)+"/terminals/output", wire.TerminalRequest{SessionId: sid, TerminalId: task.TaskId}, &output, "", ""); err != nil {
-				return err
+				return nil, err
 			}
 			if output.ExitStatus == nil {
 				continue
@@ -136,7 +176,7 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 		if recorded {
 			// Unknown dispatch is reconciled by operation reads, never resubmitted.
 			if err := s.recordCommandDelivery(callID, j.Outcome); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
@@ -147,25 +187,17 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 		readyNow := s.snapshotLocked().CanSend && s.state.Views[sid].CommandCaughtUp
 		s.mu.Unlock()
 		if latest.Received {
-			return s.finishCommandFollowup(callID)
+			return nil, s.finishCommandFollowup(callID)
 		}
 		if !readyNow {
-			return nil
+			return nil, nil
 		}
 		text := fmt.Sprintf("Command %s is %s.", task.Handle, status)
-		receipt, err := s.submitGrantLocked(ctx, api.Submission{ID: op, Text: text, HostNotice: true}, nil, "external_material", "")
-		if err != nil {
-			return err
-		}
-		s.mu.Lock()
-		outcome := s.state.Operations[op].Outcome
-		s.mu.Unlock()
-		if outcome == "" {
-			outcome = receipt.Outcome
-		}
-		return s.recordCommandDelivery(callID, outcome)
+		return &commandNotice{callID: callID, session: sid, message: api.SystemMessage{
+			ID: op, Text: text, Source: api.SystemCommandResult, RuntimeOwner: s.Snapshot().RuntimeOwner,
+		}}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (s *Session) finishCommandFollowup(id string) error {

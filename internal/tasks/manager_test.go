@@ -69,9 +69,9 @@ func (f *fixtureRuntime) StopWork(_ context.Context, id string) (api.Task, error
 	f.states[id] = s
 	return s.Task, nil
 }
-func (f *fixtureRuntime) SubmitReport(_ context.Context, in api.Submission) (api.Receipt, error) {
+func (f *fixtureRuntime) SubmitSystem(_ context.Context, in api.SystemMessage) (api.Receipt, error) {
 	f.reports++
-	f.lastReport = in
+	f.lastReport = in.NativeInput()
 	out := api.Receipt{ID: in.ID, Outcome: "accepted"}
 	if f.unknownReport {
 		out.Outcome = "unknown"
@@ -212,7 +212,7 @@ func TestReportPersistsAndUnknownDeliveryNeverReplays(t *testing.T) {
 		t.Fatal(e)
 	}
 	id := f.snapshot.LastReceipt.ID
-	if f.lastReport.ID != id || f.lastReport.Text != fmt.Sprintf("Task %s is completed.", v.ID) {
+	if f.lastReport.ID != id || f.lastReport.Text != (api.SystemMessage{Source: api.SystemWorkerResult, Text: fmt.Sprintf("Task %s is completed.", v.ID)}).NativeInput().Text {
 		t.Fatal("completion notice lost exact handle or state", f.lastReport)
 	}
 	m = openFixture(t, root, "fixture", f)
@@ -426,4 +426,11 @@ func TestWorkspaceNeverAdoptsExistingOrSymlinkDirectory(t *testing.T) {
 	if _, e := prepareWorkspace(link, "two"); e == nil {
 		t.Fatal("followed symlink")
 	}
+}
+
+func (f *fixtureRuntime) SystemReceipt(id string) api.Receipt {
+	if f.snapshot.LastReceipt.ID == id {
+		return f.snapshot.LastReceipt
+	}
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }

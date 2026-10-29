@@ -336,6 +336,8 @@ type Submission struct {
 	Scheduled bool `json:"-"`
 	// HostNotice hides host-authored evidence; it is never a permission grant.
 	HostNotice bool `json:"-"`
+	// SystemOwner fences an independently produced native notice before dispatch.
+	SystemOwner string `json:"-"`
 	// OriginRequests is host-captured registration provenance, not a grant.
 	OriginRequests []string `json:"-"`
 	// ModelInputOverride is a host-owned model input for an async question reply.

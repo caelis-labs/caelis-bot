@@ -15,13 +15,19 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
+// Only preparation failures carry this proof. Once native dispatch starts,
+// uncertainty must be reconciled through the retained operation.
+type commandNotDispatchedError struct{ error }
+
+func (e *commandNotDispatchedError) Unwrap() error { return e.error }
+
 // command persists exact bytes before dispatch. Unknown journals are read only;
 // transport retries can never accidentally create a second native operation.
 // Caller serializes mutations with step; stream projection only takes mu.
 func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...api.Submission) (wire.CommandResult, error) {
 	b, e := json.Marshal(req)
 	if e != nil {
-		return wire.CommandResult{}, e
+		return wire.CommandResult{}, &commandNotDispatchedError{e}
 	}
 	hash := digest(b)
 	s.mu.Lock()
@@ -37,6 +43,14 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 			return wire.CommandResult{OperationId: op, Outcome: "conflicted"}, errors.New("操作标识已用于不同请求")
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return wire.CommandResult{}, &commandNotDispatchedError{err}
+	}
+	if s.client == nil {
+		s.mu.Unlock()
+		return wire.CommandResult{}, &commandNotDispatchedError{errors.New("Caelis 尚未连接")}
 	}
 	source := wire.SessionSource{}
 	var prompt wire.PromptRequest
@@ -118,10 +132,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	c := s.client
 	s.mu.Unlock()
 	if e != nil {
-		return wire.CommandResult{}, e
-	}
-	if c == nil {
-		return wire.CommandResult{}, errors.New("Caelis 尚未连接")
+		return wire.CommandResult{}, &commandNotDispatchedError{e}
 	}
 	var out wire.CommandResult
 	var headers struct {
@@ -201,7 +212,7 @@ func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []ap
 }
 
 func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
-	receipt := api.Receipt{ID: in.ID, Outcome: "rejected"}
+	receipt := api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: in.HostNotice}
 	if in.ID == "" || len(in.ID) > 128 || len(in.ModelInputText()) > 256<<10 || len(in.ReferenceIDs) != 0 || len(files) > 4 {
 		receipt.Message = "Caelis 不支持此消息或插件引用"
 		return receipt, nil
@@ -212,6 +223,10 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		return api.Receipt{}, api.ErrRecoveryPending
 	}
 	v := s.snapshotLocked()
+	if in.SystemOwner != "" && in.SystemOwner != v.RuntimeOwner {
+		s.mu.Unlock()
+		return api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: true}, nil
+	}
 	original, retry := s.state.Operations[in.ID]
 	if retry && in.HostNotice && original.hostNotice() {
 		// Reconcile the original intent, including legacy summary sources.
@@ -319,6 +334,14 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	} else {
 		out, e = s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req, in)
 	}
+	var undispatched *commandNotDispatchedError
+	if errors.As(e, &undispatched) {
+		// No native operation exists. Do not turn a second receipt write to the
+		// same unavailable journal into an uncertainty fence.
+		receipt.Deferred = true
+		return receipt, e
+	}
+	receipt.Deferred = false
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {
 		receipt.Outcome = "unknown"

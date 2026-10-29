@@ -514,8 +514,9 @@ the Telegram thumbnail as one explicitly labelled frame; a missing or invalid
 thumbnail is a rejected input, never a claimed understanding of the animation.
 The adapter supplies ordinary Bot image input and retains the original Telegram
 message request ID, receipt and no-replay rule.
-Host task and command completion reports enter through `SubmitReport` as internal
-inputs. Codex persists their exact client IDs in the native binding and imports
+Host task and command completion reports enter through resident `SubmitSystem`
+admission as independent internal inputs. Codex persists their exact client IDs
+in the native binding and imports
 delivered or uncertain IDs from the existing native product task ledger before
 history projection; Caelis submits ordinary `external_material` evidence and
 persists a local `hostNotice` marker in its command journal, correlated with the
@@ -742,6 +743,13 @@ Resident Runtime replacement is fenced by active work, approvals and unknown out
 Worker-default changes are live and have no task-state fence; existing tasks keep their native owners.
 A read-only check or selecting a settings tab does not change the execution owner. Model/effort/tier changes
 may apply to the next native request; directories, sandbox and inheritance are create-time configuration.
+
+System producers share `api.SystemMessage`, resident `SubmitSystem` admission and
+per-ID `SystemReceipt` reads. Task/approval/question/schedule/event records own
+business state; the delivery log owns only original transport identities/outcomes.
+Adapters submit independent marked input and hide it using native provenance, never
+by rewriting human text or matching a prefix. See [system delivery](system-delivery.md)
+for ownership, migration, lock ordering, receipt semantics and verification limits.
 
 ## Durable data
 

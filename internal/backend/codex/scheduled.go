@@ -41,13 +41,22 @@ func (s *Session) presentScheduled(v api.Snapshot) api.Snapshot {
 // This compatibility remains until pre-provenance Bot histories are unsupported.
 var legacyWakeID = regexp.MustCompile(`^wake-[A-Z2-7]{26}$`)
 
-func (s *Session) BackgroundReceipt(id string) api.Receipt {
+func (s *Session) SystemReceipt(id string) api.Receipt {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.systemReceiptLocked(id)
+}
+
+func (s *Session) systemReceiptLocked(id string) api.Receipt {
+	if !s.binding.HostReports[id] {
+		if _, exists := s.binding.Scheduled[id]; !exists {
+			return api.Receipt{ID: id, Outcome: "unknown"}
+		}
+	}
 	if s.binding.LastReceipt != nil && s.binding.LastReceipt.ID == id {
 		return *s.binding.LastReceipt
 	}
-	if s.binding.Scheduled[id] != "" {
+	if s.binding.Scheduled[id] != "" || s.binding.HostReportTurns[id].Turn != "" {
 		return api.Receipt{ID: id, Outcome: "accepted"}
 	}
 	return api.Receipt{ID: id, Outcome: "unknown"}

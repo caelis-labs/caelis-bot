@@ -882,14 +882,8 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn, history ...boo
 		t.View.Failure = s.childTerminalStatus[opaque(t.Thread, turn.ID)].Failure
 		t.Run = turn.ID
 		t.View.Status = turn.Status
-		reportID := "task-report-" + opaque(t.Thread, turn.ID)
-		if t.ReportID != reportID {
-			t.ReportID = reportID
-			t.ReportState = "pending"
-		}
-		if t.SuppressReport {
-			t.ReportState = "observed"
-		}
+		// Product tasks own completion notification eligibility. Old native
+		// report fields are decoded only to migrate already-issued receipts.
 		for _, item := range turn.Items {
 			if item.Type == "agentMessage" && item.Delivery != "async" {
 				t.View.Result = boundedText(item.Text, 6000)
@@ -1176,12 +1170,15 @@ func (s *Session) stopWork(ctx context.Context, id string, guarded *api.WorkStop
 }
 
 // Notices retain their origin even though the native wire accepts text input.
-func (s *Session) SubmitReport(ctx context.Context, in api.Submission) (api.Receipt, error) {
-	return s.submitWithSource(ctx, in, nil, true, true)
+func (s *Session) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	if !message.Valid() {
+		return api.Receipt{ID: message.ID, Outcome: "rejected"}, errors.New("invalid system message")
+	}
+	return s.submitWithSource(ctx, message.NativeInput(), nil, true, true)
 }
 
 var _ api.WorkRuntime = (*Session)(nil)
-var _ api.ReportSubmitter = (*Session)(nil)
+var _ api.SystemDelivery = (*Session)(nil)
 
 // Legacy retired flags are ignored. Preserve identity and effect receipts; an
 // unavailable cache is not a native execution result or a permission decision.

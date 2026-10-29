@@ -83,7 +83,7 @@ func (s *Session) RevokeBackground(ctx context.Context, id string) error {
 	s.mu.Unlock()
 	return e
 }
-func (s *Session) SubmitBackground(ctx context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+func (s *Session) submitScheduledSystem(ctx context.Context, in api.Submission, ids []string) (api.Receipt, error) {
 	if len(ids) != 1 {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("后台激活必须对应一个已授权提醒")
 	}
@@ -96,11 +96,11 @@ func (s *Session) SubmitBackground(ctx context.Context, in api.Submission, ids [
 	return s.submitGrant(ctx, in, nil, "authorized_background", g.Grant.Id)
 }
 
-func (s *Session) BackgroundReceipt(id string) api.Receipt {
+func (s *Session) SystemReceipt(id string) api.Receipt {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	j, ok := s.state.Operations[id]
-	if !ok || !j.Scheduled {
+	if !ok || (!j.Scheduled && !j.hostNotice()) {
 		return api.Receipt{ID: id, Outcome: "unknown"}
 	}
 	return api.Receipt{ID: id, Outcome: productOutcome(wire.Outcome(j.Outcome))}

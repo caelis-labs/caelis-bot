@@ -43,7 +43,7 @@ func TestAttachmentStorageIncludesWorkerInputsAndOutputCopies(t *testing.T) {
 
 func workerStorageManager(t *testing.T, a *Application, root string) {
 	t.Helper()
-	m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "fixture", a.machines, a.currentEngine().(api.ReportSubmitter), a.currentEngine().Snapshot)
+	m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "fixture", a.machines, a.currentEngine().(api.SystemDelivery), a.currentEngine().Snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

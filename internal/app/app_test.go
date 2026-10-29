@@ -146,7 +146,7 @@ func (*testEngine) SendWork(context.Context, api.TaskMessage) (api.Task, error) 
 func (*testEngine) StopWork(context.Context, string) (api.Task, error) {
 	return api.Task{}, errors.New("not used")
 }
-func (*testEngine) SubmitReport(context.Context, api.Submission) (api.Receipt, error) {
+func (*testEngine) SubmitSystem(context.Context, api.SystemMessage) (api.Receipt, error) {
 	return api.Receipt{}, errors.New("not used")
 }
 
@@ -521,4 +521,12 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	if strings.Contains(string(body), "External note") {
 		t.Fatal("deleted note not removed from index")
 	}
+}
+
+func (e *testEngine) SystemReceipt(id string) api.Receipt {
+	v := e.Snapshot()
+	if v.LastReceipt.ID == id {
+		return v.LastReceipt
+	}
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }

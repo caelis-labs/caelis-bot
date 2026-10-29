@@ -93,7 +93,7 @@ func TestCompletionThroughNativeSnapshotAndChat(t *testing.T) {
 				t.Fatal("initial delegation route", *texts)
 			}
 
-			if receipt, err := s.SubmitReport(t.Context(), api.Submission{ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
+			if receipt, err := s.SubmitSystem(t.Context(), api.SystemMessage{Source: api.SystemWorkerResult, ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
 				t.Fatal(receipt, err)
 			}
 			f.comment(t, "completion-report", "Checking completed work")
@@ -384,7 +384,7 @@ func TestCodexRenewalKeepsSharedDeliveryWithoutResettingAllowance(t *testing.T) 
 	if err := s.RenewConversation(t.Context(), "renewal-dream", s.ConversationState().Session); err != nil {
 		t.Fatal(err)
 	}
-	if receipt, err := s.SubmitReport(t.Context(), api.Submission{ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := s.SubmitSystem(t.Context(), api.SystemMessage{Source: api.SystemWorkerResult, ID: "completion-report", Text: "PRIVATE internal worker notice"}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	f.complete(t, "completion-report", "Renewed runtime report")

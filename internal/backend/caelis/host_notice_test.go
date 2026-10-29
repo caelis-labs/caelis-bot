@@ -4,24 +4,72 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 )
+
+func TestSystemDeliveryRetriesOnlyUnwrittenNativeIntent(t *testing.T) {
+	var posts atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/prompt") {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		posts.Add(1)
+		var req wire.PromptRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "accepted"})
+	})
+	r, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Start(s)
+	defer r.Close()
+	s.mu.Lock()
+	path := s.path
+	s.path = t.TempDir() // Native journal fails; resident delivery ledger stays writable.
+	s.mu.Unlock()
+	message := api.SystemMessage{ID: "original-notice", Source: api.SystemWorkerApproval, Text: "Original approval is pending."}
+	receipt, err := r.SubmitSystem(t.Context(), message)
+	if receipt.Outcome != "rejected" || !receipt.Deferred || posts.Load() != 0 {
+		t.Fatalf("unwritten native intent became uncertain: %+v %v posts=%d", receipt, err, posts.Load())
+	}
+	s.mu.Lock()
+	_, exists := s.state.Operations[message.ID]
+	s.path = path
+	s.mu.Unlock()
+	if exists {
+		t.Fatal("failed intent retained in native journal")
+	}
+	for range 2 {
+		if receipt, err = r.SubmitSystem(t.Context(), message); err != nil || receipt.Outcome != "accepted" {
+			t.Fatal("original ID did not recover", receipt, err)
+		}
+	}
+	if posts.Load() != 1 {
+		t.Fatal("native POST repeated", posts.Load())
+	}
+}
 
 func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	const notice = "Task task-42 is completed."
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		var req wire.PromptRequest
-		if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SourceKind) != "external_material" || value(req.Input) != notice {
+		if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SourceKind) != "external_material" || value(req.Input) != (api.SystemMessage{Source: api.SystemWorkerResult, Text: notice}).NativeInput().Text {
 			t.Errorf("wrong host report submission: %s %+v", r.URL.Path, req)
 		}
 		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("host-turn")}})
 	})
 	in := api.Submission{ID: "host-report-42", Text: notice}
-	if receipt, err := s.SubmitReport(t.Context(), in); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := s.SubmitSystem(t.Context(), api.SystemMessage{Source: api.SystemWorkerResult, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	user := json.RawMessage(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Task task-42 is completed."}}`)
@@ -141,7 +189,7 @@ func TestLegacyReportRetryPreservesOriginalJournal(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.state = restored
-			receipt, err := s.SubmitReport(t.Context(), in)
+			receipt, err := s.SubmitSystem(t.Context(), api.SystemMessage{Source: api.SystemWorkerResult, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests})
 			if err != nil || receipt.Outcome != outcome {
 				t.Fatal("old report reclassified", receipt, err)
 			}
@@ -151,7 +199,7 @@ func TestLegacyReportRetryPreservesOriginalJournal(t *testing.T) {
 			}
 			changed := in
 			changed.Text = "Changed intent"
-			if r, _ := s.SubmitReport(t.Context(), changed); r.Outcome != "rejected" || r.Message == "" || s.state.Operations[in.ID].Outcome != outcome {
+			if r, _ := s.SubmitSystem(t.Context(), api.SystemMessage{Source: api.SystemWorkerResult, ID: changed.ID, Text: changed.Text, OriginRequests: changed.OriginRequests}); r.Outcome != "rejected" || r.Message == "" || s.state.Operations[in.ID].Outcome != outcome {
 				t.Fatal("old ID reused", r)
 			}
 			if err := s.recoverOperation(t.Context(), in.ID); err != nil {
@@ -173,5 +221,17 @@ func TestOrdinaryEvidenceDoesNotInventCompletionReceipt(t *testing.T) {
 	s.state.Operations["material"] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", TurnID: "material-turn", Source: wire.SessionSource{Kind: "external_material", OperationId: "material"}}
 	if out := s.Snapshot(); len(out.ReportSources) != 0 {
 		t.Fatal("evidence kind became completion metadata", out.ReportSources)
+	}
+}
+
+func TestSystemNoticeCannotEnterReplacementConversation(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("wrong-owner notice reached native transport") })
+	message := api.SystemMessage{ID: "original-command-result", Source: api.SystemCommandResult, Text: "Original command completed.", RuntimeOwner: "retired-native-owner"}
+	receipt, err := s.SubmitSystem(t.Context(), message)
+	if err != nil || receipt.ID != message.ID || receipt.Outcome != "rejected" || !receipt.Deferred {
+		t.Fatal("native target fence lost", receipt, err)
+	}
+	if s.SystemReceipt(message.ID).Outcome != "unknown" {
+		t.Fatal("unattempted input gained a native receipt")
 	}
 }

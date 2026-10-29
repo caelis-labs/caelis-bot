@@ -64,8 +64,11 @@ func (a *Application) repairFeaturesLocked() error {
 		return err
 	}
 	if a.tasks == nil {
-		manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.currentEngine().(api.ReportSubmitter), a.currentEngine().Snapshot)
+		manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.companion, a.currentEngine().Snapshot)
 		if err != nil {
+			return err
+		}
+		if err := a.companion.ImportSystemReceipts(manager.LegacySystemReceipts()); err != nil {
 			return err
 		}
 		manager.SetLocale(a.locale)

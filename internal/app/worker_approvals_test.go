@@ -86,6 +86,7 @@ func TestRetainedWorkerApprovalRemainsVisibleAndUsesOriginalOwner(t *testing.T) 
 func TestConversationGuardDoesNotTreatWorkerApprovalAsConversationWork(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Approvals: []api.Approval{{ID: "worker", Owner: "task", Status: "pending"}}}}
 	a, _ := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	if err := a.guardConversationChange(); err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +106,8 @@ func (e *workerApprovalEngine) Decide(_ context.Context, decision api.Decision) 
 	}
 	return nil
 }
-func (e *workerApprovalEngine) SubmitReport(_ context.Context, input api.Submission) (api.Receipt, error) {
-	e.reports = append(e.reports, input)
+func (e *workerApprovalEngine) SubmitSystem(_ context.Context, input api.SystemMessage) (api.Receipt, error) {
+	e.reports = append(e.reports, input.NativeInput())
 	if e.reportOutcome != "" {
 		return api.Receipt{ID: input.ID, Outcome: e.reportOutcome}, nil
 	}
@@ -118,6 +119,7 @@ func TestWorkerApprovalGuardianKeepsOriginalChoiceAndBotSelfBoundary(t *testing.
 	self := api.Approval{ID: "bot-own", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "allowOnce"}}}
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true, Approvals: []api.Approval{worker, self}}}
 	a, _ := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	if got := a.Backend.Snapshot().Approvals; len(got) != 2 {
 		t.Fatalf("unreported Worker approval was hidden: %+v", got)
 	}
@@ -158,6 +160,7 @@ func TestWorkerApprovalSecretAndURLNeedDirectUserPath(t *testing.T) {
 		{ID: "rule", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "rule", Details: "private policy"}}},
 	}}}
 	a, _ := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	if len(a.WorkerApprovals()) != 0 || len(a.Backend.Snapshot().Approvals) != 4 {
 		t.Fatal("opaque Worker approval was hidden from direct user path")
 	}
@@ -178,10 +181,28 @@ func TestWorkerApprovalNoticesUseOneOriginalReportEach(t *testing.T) {
 		{ID: "bot-own", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "allow"}}},
 	}}}
 	a, _ := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	a.observeWorkerApprovalNotice(t.Context(), e.snapshot)
 	a.observeWorkerApprovalNotice(t.Context(), e.snapshot)
 	if len(e.reports) != 2 || e.reports[0].ID == e.reports[1].ID {
 		t.Fatalf("Worker notices were lost, duplicated, or included Bot self approval: %+v", e.reports)
+	}
+}
+
+func TestWorkerApprovalNoticeSurvivesTaskRename(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true, Approvals: []api.Approval{{ID: "original-approval", TaskID: "task-one", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allow"}}}}}}
+	var reported []error
+	a, _ := fixtureApp(t, e, Host{ReportError: func(err error) { reported = append(reported, err) }})
+	startNoticeResident(t, a)
+	for _, title := range []string{"", "First title", "Renamed task"} {
+		e.snapshot.Approvals[0].TaskTitle = title
+		a.observeWorkerApprovalNotice(t.Context(), e.snapshot)
+	}
+	if len(reported) != 0 || len(e.reports) != 1 {
+		t.Fatal("title changed delivery identity", reported, e.reports)
+	}
+	if got := a.WorkerApprovals(); len(got) != 1 || got[0].TaskTitle != "Renamed task" {
+		t.Fatal("original interaction lost current title", got)
 	}
 }
 
@@ -190,6 +211,7 @@ func TestWorkerApprovalUnacceptedNoticeRetainsOriginalUserCard(t *testing.T) {
 		t.Run(outcome, func(t *testing.T) {
 			e := &workerApprovalEngine{testEngine: newTestEngine(), reportOutcome: outcome, snapshot: api.Snapshot{CanSend: true, Approvals: []api.Approval{{ID: "worker-original", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allow"}}}}}}
 			a, _ := fixtureApp(t, e, Host{})
+			startNoticeResident(t, a)
 			a.observeWorkerApprovalNotice(t.Context(), e.snapshot)
 			if got := a.Backend.Snapshot().Approvals; len(got) != 1 || got[0].ID != "worker-original" {
 				t.Fatalf("unaccepted Guardian notice hid original user card: %+v", got)
@@ -224,4 +246,13 @@ func TestRetainedApprovalChangesReachChatWithoutResidentRevision(t *testing.T) {
 	if !a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus).Changed {
 		t.Fatal("resolved retained approval remained visible")
 	}
+}
+
+func startNoticeResident(t *testing.T, a *Application) {
+	t.Helper()
+	if err := a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	a.companion.ConfigureInitialization(nil)
+	a.companion.Start(a.currentEngine())
 }

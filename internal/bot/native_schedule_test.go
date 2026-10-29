@@ -40,14 +40,15 @@ func (f *scheduleGrantEngine) RevokeBackground(_ context.Context, id string) err
 	f.revoked = id
 	return nil
 }
-func (f *scheduleGrantEngine) SubmitBackground(ctx context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+func (f *scheduleGrantEngine) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	in, ids := message.NativeInput(), message.Grants
 	if len(ids) != 1 || ids[0] != f.authorized {
 		return api.Receipt{}, errors.New("wrong grant")
 	}
 	f.submitted = ids[0]
 	return f.Submit(ctx, in, nil)
 }
-func (f *scheduleGrantEngine) BackgroundReceipt(id string) api.Receipt { return f.receipt }
+func (f *scheduleGrantEngine) SystemReceipt(id string) api.Receipt { return f.receipt }
 
 const nativeRequest = `{"request":{"type":"save","id":"demo","label":"Native","prompt":"Offer a timely break","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`
 
@@ -57,7 +58,7 @@ type retainedReminderEngine struct {
 	reads   []string
 }
 
-func (f *retainedReminderEngine) BackgroundReceipt(id string) api.Receipt {
+func (f *retainedReminderEngine) SystemReceipt(id string) api.Receipt {
 	f.reads = append(f.reads, id)
 	return f.receipt
 }
@@ -105,7 +106,7 @@ func TestReminderRecoveryPrecedesNativeEvent(t *testing.T) {
 			if err := r.Tick(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if len(base.submissions) != 2 || !strings.Contains(base.submissions[1].Text, "registered arrangement") {
+			if len(base.submissions) != 2 || !strings.Contains(base.submissions[1].Text, "[Bot system event: callback;") {
 				t.Fatal("native event did not resume after reconciliation", base.submissions)
 			}
 			*now = now.Add(time.Minute)
@@ -156,7 +157,11 @@ func TestReminderRecoveryRequiresExactDurableAcceptance(t *testing.T) {
 					t.Fatal("unresolved wake allowed a new dispatch", base.submissions)
 				}
 			}
-			if len(f.reads) != 2 || f.reads[0] != id || f.reads[1] != id {
+			wantReads := 2
+			if outcome == "rejected" || outcome == "write-failure" {
+				wantReads = 1
+			} // Terminal delivery proof is persisted independently of Wake.
+			if len(f.reads) != wantReads || f.reads[0] != id || f.reads[len(f.reads)-1] != id {
 				t.Fatal("receipt not read by exact wake ID", f.reads)
 			}
 		})

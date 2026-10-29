@@ -16,6 +16,7 @@ import (
 func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
 	wireTestWorkers(t, a, pool)
@@ -187,6 +188,7 @@ func TestRedactedQ23Q24MigrationThroughProductFinish(t *testing.T) {
 	}
 	e := newTestEngine()
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	controlBytes, _ := json.Marshal(f.Control)
 	if err := os.WriteFile(filepath.Join(root, "text-channel-control.json"), controlBytes, 0600); err != nil {
 		t.Fatal(err)

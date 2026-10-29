@@ -437,6 +437,14 @@ func TestDeferredWakeKeepsOriginalOccurrence(t *testing.T) {
 	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || !s.Plans[0].Finished.IsZero() || !s.Plans[0].LastWake.IsZero() || len(s.WakeAttempts) != 0 {
 		t.Fatal(s)
 	}
+	failedPrepare := errors.New("delivery intent could not be saved")
+	d.Submit = func(context.Context, string, string, string) (string, error) { return "deferred", failedPrepare }
+	if err := e.Tick(t.Context(), p.Next, d); !errors.Is(err, failedPrepare) {
+		t.Fatal("lost preparation error", err)
+	}
+	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || len(s.WakeAttempts) != 0 {
+		t.Fatal("unattempted delivery became uncertain", s)
+	}
 	d.Submit = func(_ context.Context, got, _, _ string) (string, error) {
 		if got != id {
 			t.Fatal("identity changed")
