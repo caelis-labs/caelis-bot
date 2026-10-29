@@ -876,8 +876,12 @@ fails without consuming the handoff or marking injection complete. Resume that
 same new binding after repair. Once dispatched, an uncertain first input keeps its
 frozen seed and original receipt; do not reread memory and replay that input.
 
-Time/health cues remain unimplemented pending comparable sampled context evidence;
-see the [metric audit and continuity scope](design/bot-continuity-runtime.md).
+Resident adapters incrementally sample ordinary request input counters into bounded
+durable windows. Codex can attach an occasional private application-context review
+invitation to the next ordinary submission, with the original receipt and persistent
+cooldown. Caelis currently samples only: its public prompt contract lacks independent
+application context, and Bot does not substitute a user content part. See the
+[soft-cue policy and evidence boundaries](design/bot-continuity-soft-cues.md).
 
 Legacy `dream-*.json` receipts are read without dispatching another maintenance
 turn. A matching completed `HANDOFF.md` may migrate once into the private record;

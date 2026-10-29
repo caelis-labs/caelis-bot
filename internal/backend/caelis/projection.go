@@ -661,6 +661,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			retireRunHead(v, value(st.Run.TurnId))
 			observeStateHead(v, st.Run)
 			v.State = st
+			if sid == s.state.Session.SessionId && s.tools != nil {
+				s.state.Continuity.Bind(sid, time.Time{}, time.Now())
+			}
 			s.observeWorkerActivityLocked(sid, st)
 			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
 			v.CommandCaughtUp = false
@@ -778,6 +781,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			for _, e := range d.Events {
 				s.logEnvelope(e)
 				if d.Source == wire.StreamSourceClassExact && v.CommandCaughtUp {
+					s.sampleContinuity(v, e, time.Now())
 					applyLiveUsage(v, e, time.Now().Round(0))
 				}
 				s.applyScheduledEnvelope(v, e, inputScope{InstanceID: instance, SessionID: sid})

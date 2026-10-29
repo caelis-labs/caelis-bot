@@ -18,12 +18,14 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
+	"github.com/caelis-labs/caelis-bot/internal/backend/continuity"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type binding struct {
+	Continuity     continuity.State  `json:"continuity,omitempty"`
 	AsyncAdmission asyncAdmission    `json:"asyncAdmission,omitempty"`
 	ToolLayout     int               `json:"toolLayout,omitempty"`
 	Artifacts      map[string]string `json:"artifacts,omitempty"`
@@ -135,6 +137,10 @@ type Session struct {
 	usage                  api.ContextUsage
 	usageReason            string
 	usageTurn              string
+	cueTurn                string
+	cueCompacting          bool
+	cueReview              bool
+	cueTotal               int64
 	usageTotal             int64
 	historyMu              sync.Mutex
 	op                     sync.Mutex
@@ -814,6 +820,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = false
 	s.binding.ThreadID = response.Thread.ID
+	s.bindContinuity(response.Thread)
 	if method == "thread/start" && s.opts.BotTools != nil {
 		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
 		if len(s.opts.BotTools.Services) > 0 {
@@ -1104,6 +1111,10 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	var cue string
+	if run == "" && s.opts.BotTools != nil && s.binding.Context.Injected && !in.Dream && s.binding.Continuity.Configuration == s.continuityConfiguration() {
+		cue = s.binding.Continuity.Prepare(in.ID, time.Now())
+	}
 	if report {
 		if s.binding.HostReports == nil {
 			s.binding.HostReports = map[string]bool{}
@@ -1138,6 +1149,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 			delete(s.binding.HostReports, in.ID)
 		}
 		s.binding.Context.Resolve(in.ID, "rejected")
+		s.binding.Continuity.Resolve(in.ID, "rejected", time.Now())
 		s.mu.Unlock()
 		r.Message = "无法保存发送记录，消息未发送"
 		return r, nil
@@ -1149,6 +1161,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	s.update()
 	s.mu.Unlock()
 	params := map[string]any{"threadId": threadID, "clientUserMessageId": in.ID, "input": input}
+	if cue != "" {
+		params["additionalContext"] = map[string]any{"caelis-bot-continuity": map[string]string{"kind": "application", "value": cue}}
+	}
 	method := "turn/start"
 	if run == "" {
 		s.applyExecution(params, false)
@@ -1234,6 +1249,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	s.binding.LastReceipt = &r
 	s.binding.Context.Resolve(in.ID, r.Outcome)
+	s.binding.Continuity.Resolve(in.ID, r.Outcome, time.Now())
 	if err := s.save(); err != nil {
 		s.state.Message = "对话记录未能保存，请勿重复发送；下次启动需核对历史"
 	} else {

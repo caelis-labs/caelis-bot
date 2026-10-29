@@ -17,6 +17,7 @@ import (
 )
 
 type nativeThread struct {
+	CreatedAt      int64        `json:"createdAt"`
 	ID             string       `json:"id"`
 	ParentThreadID string       `json:"parentThreadId"`
 	Turns          []nativeTurn `json:"turns"`
@@ -233,6 +234,7 @@ func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) 
 			s.binding.LastReceipt = &receipt
 			s.binding.Pending = nil
 			s.binding.Context.Resolve(item.ClientID, "accepted")
+			s.binding.Continuity.Resolve(item.ClientID, "accepted", time.Now())
 			if s.save() != nil {
 				s.state.Message = "已收到发送回执，但本地记录保存失败"
 			} else {
@@ -512,6 +514,7 @@ func (s *Session) applyEvent(event Notification) {
 		s.applyReview(event)
 		return
 	case "thread/tokenUsage/updated":
+		s.sampleContinuity(event)
 		s.applyUsage(event)
 		return
 	case "turn/started", "turn/completed", "item/started", "item/completed",
@@ -552,9 +555,14 @@ func (s *Session) applyEvent(event Notification) {
 					s.usageReason = "awaiting_token_usage"
 				}
 				s.usageTurn = n.Turn.ID
+				s.cueTurn, s.cueTotal, s.cueCompacting = n.Turn.ID, 0, false
+				s.cueReview = false
 			}
 			if n.Turn.Error != nil {
 				s.logEvent(event, "turn_failed", diagnosticlog.Reason(n.Turn.Error.Message))
+			}
+			if event.Method == "turn/completed" && s.cueTurn == n.Turn.ID {
+				s.cueTurn = ""
 			}
 			s.applyTurn(target.ThreadID, n.Turn, false)
 		}
@@ -591,7 +599,16 @@ func (s *Session) applyEvent(event Notification) {
 			if !complete && n.Item.Type == "agentMessage" {
 				n.Item.Status = "inProgress"
 			}
+			if n.Item.Type == "enteredReviewMode" || n.Item.Type == "exitedReviewMode" {
+				s.cueReview = n.Item.Type == "enteredReviewMode"
+				s.cueTotal = 0
+				s.binding.Continuity.ForgetTurn(target.TurnID)
+				_ = s.save()
+			}
 			if n.Item.Type == "contextCompaction" {
+				s.cueCompacting, s.cueTotal = !complete, 0
+				s.binding.Continuity.ForgetTurn(target.TurnID)
+				_ = s.save()
 				s.usage, s.usageTotal = api.ContextUsage{}, 0
 				s.usageReason = "native_compaction"
 			}

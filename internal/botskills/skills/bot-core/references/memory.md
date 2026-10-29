@@ -58,6 +58,11 @@ After delivering a batch of work or a clear goal change, assess whether obsolete
 task detail or unused tools make the context cumbersome. Keep a useful context;
 do not Dream after every reply or wait for it to become unusable.
 
+Treat a private continuity invitation as a chance to assess usefulness, not proof
+that content is stale or permission to discard it. Prioritize new user instructions
+and revocations. If the context remains useful, continue the current work and defer
+review without a maintenance announcement. Otherwise prepare the handoff in steps.
+
 Prepare in steps that can resume after an interruption:
 
 1. Read current `MEMORY.md`. Use recent `INDEX.md` entries and known open handles

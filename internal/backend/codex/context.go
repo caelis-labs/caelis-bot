@@ -274,6 +274,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	s.binding.PastThreads = append(append([]string{}, old.PastThreads...), source)
 	s.binding.Context, s.binding.Unsubmitted = contextseed.State{}, true
+	s.bindContinuity(response.Thread)
 	if err := s.save(); err != nil {
 		s.binding = old
 		return err

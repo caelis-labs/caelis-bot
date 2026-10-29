@@ -13,6 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/statemigration"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
+	"github.com/caelis-labs/caelis-bot/internal/backend/continuity"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
@@ -96,6 +97,7 @@ type callRecord struct {
 	Receipt *wire.SessionToolCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
+	Continuity        continuity.State `json:"continuity,omitempty"`
 	migrationSource   json.RawMessage
 	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
