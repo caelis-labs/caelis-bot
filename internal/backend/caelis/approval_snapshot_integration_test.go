@@ -54,7 +54,12 @@ func workerApprovalSnapshotAcceptance(t *testing.T, ctx context.Context, s *Sess
 	call := wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, TurnId: "synthetic-parent", Source: wire.SessionSource{Kind: "user", OperationId: "native-snapshot-source"}}
 	s.mu.Unlock()
 	workerCtx := context.WithValue(ctx, invocationKey{}, call)
-	task, err := s.StartWork(workerCtx, api.WorkStart{ID: "snapshot-worker", Workspace: t.TempDir(), ExecutionOverride: &api.WorkExecutionSettings{Model: mainModel}, TaskStart: api.TaskStart{RequestID: "native-snapshot-start", Title: "Native approval snapshot", Prompt: key}})
+	// Native Host keys workspaces by basename; sibling tests already own "001".
+	workspace := filepath.Join(t.TempDir(), "native-approval-snapshot")
+	if err := os.Mkdir(workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.StartWork(workerCtx, api.WorkStart{ID: "snapshot-worker", Workspace: workspace, ExecutionOverride: &api.WorkExecutionSettings{Model: mainModel}, TaskStart: api.TaskStart{RequestID: "native-snapshot-start", Title: "Native approval snapshot", Prompt: key}})
 	if err != nil {
 		t.Fatal(err)
 	}
