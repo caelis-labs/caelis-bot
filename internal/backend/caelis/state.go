@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/statemigration"
@@ -24,28 +25,35 @@ type pendingInput struct {
 }
 
 type journal struct {
-	StopTarget     *wire.TurnTarget   `json:"stopTarget,omitempty"`
-	Work           *workIntent        `json:"work,omitempty"`
-	OriginRequests []string           `json:"originRequests,omitempty"`
-	OriginOwner    string             `json:"originOwner,omitempty"`
-	ReceiptID      string             `json:"receiptID,omitempty"`
-	Dream          bool               `json:"dream,omitempty"`
-	HostNotice     bool               `json:"hostNotice,omitempty"`
-	PendingInput   *pendingInput      `json:"pendingInput,omitempty"`
-	TurnID         string             `json:"turnID,omitempty"`
-	Scheduled      bool               `json:"scheduled,omitempty"`
-	Digest         string             `json:"digest"`
-	Path           string             `json:"path"`
-	Body           json.RawMessage    `json:"body"`
-	Outcome        string             `json:"outcome"`
-	Resource       string             `json:"resource,omitempty"`
-	Source         wire.SessionSource `json:"source"`
+	RenewalDeferred bool               `json:"renewalDeferred,omitempty"`
+	StopTarget      *wire.TurnTarget   `json:"stopTarget,omitempty"`
+	Work            *workIntent        `json:"work,omitempty"`
+	OriginRequests  []string           `json:"originRequests,omitempty"`
+	OriginOwner     string             `json:"originOwner,omitempty"`
+	ReceiptID       string             `json:"receiptID,omitempty"`
+	Dream           bool               `json:"dream,omitempty"`
+	HostNotice      bool               `json:"hostNotice,omitempty"`
+	PendingInput    *pendingInput      `json:"pendingInput,omitempty"`
+	TurnID          string             `json:"turnID,omitempty"`
+	Scheduled       bool               `json:"scheduled,omitempty"`
+	Digest          string             `json:"digest"`
+	Path            string             `json:"path"`
+	Body            json.RawMessage    `json:"body"`
+	Outcome         string             `json:"outcome"`
+	Resource        string             `json:"resource,omitempty"`
+	Source          wire.SessionSource `json:"source"`
 }
 
 // Only old journals derive presentation from their original native source.
 // New notices use ordinary evidence input and an independent local marker.
 func (j journal) hostNotice() bool {
 	return j.HostNotice || j.Source.Kind == "application_summary"
+}
+
+// A deferred empty-session create has no prompt or effect in the source
+// conversation. Keep reconciling its original receipt without freezing chat.
+func (j journal) deferredRenewal(id string) bool {
+	return j.RenewalDeferred && j.Path == "/sessions" && strings.HasPrefix(id, "tool-renew-")
 }
 
 type view struct {

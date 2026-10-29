@@ -63,11 +63,17 @@ type blockedRenewEngine struct {
 }
 
 func (e *blockedRenewEngine) RenewAfterTool(ctx context.Context, invocation api.ToolInvocation) (string, error) {
+	if err := api.CheckRenewalGuard(ctx); err != nil {
+		return "", err
+	}
 	close(e.entered)
 	select {
 	case <-e.release:
 	case <-ctx.Done():
 		return "", ctx.Err()
+	}
+	if err := api.CheckRenewalGuard(ctx); err != nil {
+		return "", err
 	}
 	e.renewed = true
 	return "new-session", nil
@@ -79,14 +85,14 @@ type reportAfterRenewal struct {
 }
 
 func (r *reportAfterRenewal) DeliverTaskReport(context.Context) error {
-	if !r.engine.renewed {
+	if !r.engine.renewed && len(r.engine.submissions) == 0 {
 		panic("task feedback entered old context before terminal handoff")
 	}
 	r.calls++
 	return nil
 }
 
-func TestConcurrentUserAndFeedbackWaitForTerminalHandoff(t *testing.T) {
+func TestHumanCorrectionPrecedesQueuedFeedbackAndDefersHandoff(t *testing.T) {
 	r, _, _ := fixture(t)
 	if err := r.openHandoff(); err != nil {
 		t.Fatal(err)
@@ -106,6 +112,14 @@ func TestConcurrentUserAndFeedbackWaitForTerminalHandoff(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("renewal not reached")
 	}
+	done, err := r.BeginUserActivity() // Host ingress precedes native submission.
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := openHandoff(r.handoff.path)
+	if err != nil || !restored.pending().Superseded {
+		t.Fatal("human correction was not durably fenced", err)
+	}
 	userDone := make(chan error, 1)
 	go func() {
 		_, err := r.SubmitUser(ctx, api.Submission{ID: "user-after-dream", Text: "Continue"}, nil)
@@ -121,9 +135,60 @@ func TestConcurrentUserAndFeedbackWaitForTerminalHandoff(t *testing.T) {
 	if err := <-userDone; err != nil {
 		t.Fatal(err)
 	}
-	if reports.calls != 1 || len(e.submissions) != 1 || e.submissions[0].ID != "user-after-dream" || r.handoff.pending().NewSession != "new-session" {
-		t.Fatal("message or feedback lost after renewal", reports.calls, e.submissions, r.handoff.pending())
+	done()
+	if reports.calls != 0 || len(e.submissions) != 1 || e.submissions[0].ID != "user-after-dream" || e.renewed || r.handoff.pending().CallID != "" {
+		t.Fatal("correction lost priority or changed the old binding", reports.calls, e.submissions, r.handoff.pending())
 	}
+	if err := r.Tick(ctx); err != nil || reports.calls != 1 {
+		t.Fatal("original feedback did not resume after the user input", err)
+	}
+}
+
+func TestWorkerArrivalsDoNotInvalidateTerminalHandoff(t *testing.T) {
+	r, _, _ := fixture(t)
+	if err := r.openHandoff(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handoff.saveTurn("original", "old", "turn", "Keep original task receipt and pending question."); err != nil {
+		t.Fatal(err)
+	}
+	e := &blockedRenewEngine{entered: make(chan struct{}), release: make(chan struct{})}
+	reports := &queuedRenewalReports{engine: e}
+	r.engine, r.reports = e, reports
+	finished := make(chan error, 1)
+	go func() { finished <- r.Tick(t.Context()) }()
+	<-e.entered
+	for _, id := range []string{"original-result-1", "original-result-2", "original-question-3", "original-result-4"} {
+		reports.pending = append(reports.pending, id)
+	}
+	close(e.release)
+	if err := <-finished; err != nil || !e.renewed || r.handoff.pending().NewSession != "new-session" {
+		t.Fatal("nonempty Worker queue starved renewal", err)
+	}
+	for range 3 {
+		if err := r.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(reports.delivered, ","); got != "original-result-1,original-result-2,original-question-3,original-result-4" {
+		t.Fatal("original queue records were lost, replayed or reordered", got)
+	}
+}
+
+type queuedRenewalReports struct {
+	engine             *blockedRenewEngine
+	pending, delivered []string
+}
+
+func (r *queuedRenewalReports) DeliverTaskReport(context.Context) error {
+	if !r.engine.renewed {
+		panic("feedback crossed uncommitted renewal")
+	}
+	if len(r.pending) != 0 {
+		r.delivered = append(r.delivered, r.pending[0])
+		r.pending = r.pending[1:]
+	}
+	return nil
 }
 
 func TestUserInputIsNotSubmittedIntoAnActiveTerminalTurn(t *testing.T) {

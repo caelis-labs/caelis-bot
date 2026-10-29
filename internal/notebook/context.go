@@ -43,6 +43,12 @@ func (v *Vault) contextFile(name string) ([]byte, error) {
 	if err != nil || len(b) > maxContextFile || !utf8.Valid(b) {
 		return nil, errors.New("上下文笔记无法完整读取")
 	}
+	end, err := f.Stat()
+	current, pathErr := v.root.Lstat(name)
+	if err != nil || pathErr != nil || !os.SameFile(info, current) ||
+		end.Size() != int64(len(b)) || end.Size() != info.Size() || !end.ModTime().Equal(info.ModTime()) {
+		return nil, errors.New("上下文笔记已改变，请重试")
+	}
 	return b, nil
 }
 

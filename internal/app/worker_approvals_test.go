@@ -64,6 +64,8 @@ func (e *workerApprovalEngine) WorkTerminal(context.Context, string) (api.Termin
 func TestRetainedWorkerApprovalRemainsVisibleAndUsesOriginalOwner(t *testing.T) {
 	current := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, _ := fixtureApp(t, current, Host{})
+	humanIngress := 0
+	a.Backend.SetUserActivityObserver(func() func() { humanIngress++; return func() {} })
 	worker := api.Approval{ID: "old-worker-request", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allowOnce", Scope: "once"}}}
 	old := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Approvals: []api.Approval{worker, {ID: "old-bot-request", Owner: "conversation", Status: "pending"}}}}
 	a.localWork.mu.Lock()
@@ -80,6 +82,12 @@ func TestRetainedWorkerApprovalRemainsVisibleAndUsesOriginalOwner(t *testing.T) 
 	}
 	if len(current.decisions) != 0 || len(old.decisions) != 1 || old.decisions[0].ID != worker.ID {
 		t.Fatal("decision moved to new Runtime")
+	}
+	if humanIngress != 0 {
+		t.Fatal("Agent Worker decision invalidated the resident handoff")
+	}
+	if err := a.Backend.Decide(t.Context(), api.Decision{ID: worker.ID, Choice: "allowOnce"}); err != nil || humanIngress != 1 {
+		t.Fatal("direct human decision missed ingress priority", err)
 	}
 }
 

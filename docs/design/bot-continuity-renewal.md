@@ -1,6 +1,7 @@
 # Bot continuity: memory review and meaningful session renewal
 
-Status: phase-two proposal, not implemented. Review phase one before implementation.
+Status: phase-two candidate cue policy; continuity fixes are implemented separately
+on phase one, pending review. See the [runtime audit and tested scope](bot-continuity-runtime.md).
 Use a soft cue to invite useful consolidation; it neither authorizes discarding
 context nor proves that renewal is appropriate. Keep a healthy Session. A large
 window does not make a persistently expensive, stale working set healthy.
@@ -8,16 +9,17 @@ window does not make a persistently expensive, stale working set healthy.
 ## Current evidence and missing measurements
 
 The inspected Bot baseline is `d22c7696800d54d411ae231d7689e31839b6bf79`, including
-approval snapshot ordering PR #253. These are source findings, not formal-account
+approval snapshot ordering PR #253; phase one was reviewed at `f51f029f64acd7d6d27b9e59bc2c9717a3d9d7bb`.
+The table records that baseline. These are source findings, not formal-account
 acceptance. The user's time/health proposal supersedes the earlier model-only
 direction for future work; [current product behavior](../product.md#连续性与主动工作)
-stays unchanged until implementation is reviewed.
+retains model-led Dream; automatic cues are not enabled by the continuity fixes.
 
 | Evidence | Meaning and limit |
 | --- | --- |
 | Formal Codex Session dates from September 19; no observed Dream/handoff; post-compaction records mostly 80–96k, latest about 119k | User-provided investigation, not re-read here. These records motivate measuring retained context; they do not establish billable cost, a trustworthy live gauge or a trigger. `input_tokens=0` is not a billing total. |
 | [`Vault.PrepareContext`](../../internal/notebook/context.go), [`contextseed`](../../internal/backend/contextseed/seed.go), adapter `context.go` | Readable `MEMORY.md` at the Bot Notebook root is supplied at the first input of each new Session. The seed is frozen for its original input; acceptance is saved before handoff consumption. It is not reloaded every turn. |
-| [`app.go`](../../internal/app/app.go) context callback | A memory-read error currently permits an empty seed. Missing files are allowed; nonregular, invalid UTF-8 and over-128-KiB files fail. Strict readable-memory admission for planned renewal is a gap. |
+| [`app.go`](../../internal/app/app.go) context callback | The baseline swallowed memory-read errors. The continuity fix propagates them, checks memory before renewal and preserves the seed's original acceptance semantics. Missing files remain allowed; an observed edit/deletion during preparation defers the old candidate. |
 | [`Vault.Refresh`](../../internal/notebook/vault.go) | INDEX generates Markdown path/title navigation, descending by path; dated paths form a timeline. It contains neither note bodies nor completion status, and is not injected. |
 | [`api/context.go`](../../internal/backend/api/context.go), [Codex usage](../../internal/backend/codex/usage.go), [Caelis usage](../../internal/backend/caelis/usage.go) | Current live usage lacks a persisted comparable baseline series. Codex rejects zero input counters and invalidates its gauge on compaction; Caelis requires a fresh same-turn gauge/provider pair. Billing totals, transcript record counts and token drops are not retained-working-set measurements. |
 | [`dream_tool.go`](../../internal/bot/dream_tool.go), [`handoff.go`](../../internal/bot/handoff.go), [Codex renewal](../../internal/backend/codex/context.go), [Caelis renewal](../../internal/backend/caelis/context.go) | Existing `bot_dream({handoff})` saves at most 16 KiB under the original invocation, ends that turn, journals native creation and checks the old binding again before switching. Rejected/unknown creation retains original receipts; no replacement request ID. |
@@ -139,19 +141,20 @@ keep input queued under its original identity throughout native creation. Do not
 hold an ingress/UI lock across network or file I/O. Queue ownership continues
 while only resident report dispatch waits for the short renewal opportunity.
 
-Caelis currently captures grants before creation and later rechecks resident
-state; final grant/revocation comparison is a specific gap to close. Coordinate
-that read-only authority snapshot with the approval owner. It is not a new model
-approval store. A stale candidate stays unused; never restore a revoked grant.
+Inspection confirmed Caelis renewal, grant creation and revocation already share
+the same admission lock. No extra authority revision is needed. A concurrent
+revocation uses the current binding after admission; the original source and
+authorization operation remain unchanged. Human ingress still fences a stale
+handoff before commit. A deferred destination stays unused.
 
 ## New state only where existing records are insufficient
 
-- A bounded provider/configuration observation record: first-observed time,
+- Future cue work only: a bounded provider/configuration observation record, first-observed time,
   optional initial/post-compaction baselines, at most 32 samples and the last cue's
   original receipt/cooldown. Unknown fields remain explicit. No retired scheduler.
-- If absent in existing ingress/admission records, a narrow resident human/authority
-  generation captured in the existing renewal journal, plus required-memory digest
-  checks. Prove the need per adapter; do not add a universal continuity revision.
+- Implemented: resident human ingress priority, a superseded flag and memory digest
+  on the existing handoff, plus original native receipt retention for unused
+  destinations. No universal continuity or authority revision.
 - No preparation transaction, parallel task ledger, full-history coverage manifest,
   new tool schema or new workflow engine. Use the existing private handoff record
   and Notebook note for the handoff and review progress respectively.
@@ -166,8 +169,9 @@ not an independent preparation state machine.
 
 ## Acceptance to implement and verify
 
-All cases below are future requirements, not phase-one results. Synthetic numbers
-exercise policy hypotheses; real-model and formal-profile evidence stay separate.
+The cue cases below remain future requirements. Synthetic numbers exercise policy
+hypotheses, not validated thresholds. The linked runtime audit identifies the
+continuity cases now covered by fixtures and native synthetic-model acceptance.
 
 | Scenario | Observable result |
 | --- | --- |

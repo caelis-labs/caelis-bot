@@ -29,7 +29,13 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	defer cancel()
 	model := newAcceptanceModel()
 	model.set("CASE_DREAM", modelStep{Name: "bot_dream", Args: map[string]string{"handoff": "Identity: fixture Bot. Goal: continue original task. Original task handle: task-123. Unknown receipt: receipt-456. Next: respond to the next user input."}})
-	server := httptest.NewServer(http.HandlerFunc(model.serve))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Supply explicit provider counters in this isolated fixture only.
+		response := httptest.NewRecorder()
+		model.serve(response, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.ReplaceAll(response.Body.String(), `"response":{`, `"response":{"usage":{"input_tokens":50,"output_tokens":3,"total_tokens":53},`)))
+	}))
 	defer server.Close()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -150,5 +156,21 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	}
 	if len(s.state.PastSessions) == 0 || s.state.PastSessions[len(s.state.PastSessions)-1] != old {
 		t.Fatal("old Core Session identity not retained")
+	}
+	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+	s.mu.Lock()
+	usage, evidence := s.state.Views[old].Usage, s.state.Views[old].UsageEvidence
+	s.mu.Unlock()
+	if usage.InputTokens != 50 || usage.OutputTokens != 3 || usage.Window != 0 || evidence != "awaiting_context_gauge" {
+		t.Fatal("native provider counters acquired unsupported context-gauge semantics", usage, evidence)
+	}
+	t.Logf("native synthetic usage: input=%d output=%d context_evidence=%s", usage.InputTokens, usage.OutputTokens, evidence)
+	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_later", Text: "CASE_LATER keep the original limits."}, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_LATER")) != 0 && s.Snapshot().CanSend })
+	later, _ := json.Marshal(model.seen("CASE_LATER")[0])
+	if strings.Count(string(later), "[Private Bot handoff:") != 1 || strings.Count(string(later), "[Bot context:") != 1 || resident.PrepareHandoffContext().HandoffDigest != "" {
+		t.Fatal("native Core reinjected or lost the accepted seed")
 	}
 }

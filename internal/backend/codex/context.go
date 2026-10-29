@@ -168,6 +168,12 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		s.mu.Unlock()
 		return nil
 	}
+	for _, receipt := range s.binding.DeferredToolRenewals {
+		if receipt.CallID == id && receipt.Source == source && receipt.Turn == toolTurn {
+			s.mu.Unlock()
+			return api.ErrConversationRenewalDeferred
+		}
+	}
 	d, exists := s.binding.Dreams[id]
 	turn := s.binding.Scheduled[id]
 	if toolTurn != "" {
@@ -183,6 +189,11 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
+	s.mu.Unlock()
+	if err := s.checkRenewalGuard(ctx, id); err != nil {
+		return err
+	}
+	s.mu.Lock()
 	c := s.client
 	var attempted toolRenewalRecord
 	freshAttempt := false
@@ -245,6 +256,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if response.Thread.ID == "" || response.Thread.ID == source {
 		return ErrProtocol
 	}
+	if err := s.checkRenewalGuard(ctx, id); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend || (toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
@@ -273,6 +287,32 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	s.state.Phase, s.state.Message = "idle", ""
 	s.update()
 	return nil
+}
+
+func (s *Session) checkRenewalGuard(ctx context.Context, id string) error {
+	err := api.CheckRenewalGuard(ctx)
+	if !errors.Is(err, api.ErrConversationRenewalDeferred) {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.binding.ToolRenewal
+	if pending == nil || pending.CallID != id {
+		return err
+	}
+	if pending.NewThread == "" {
+		return api.ErrConversationRenewalUnknown
+	}
+	// A known, unused destination is retained in this native journal. It must
+	// neither be adopted after a correction nor block a later, distinct Dream.
+	old := s.binding.DeferredToolRenewals
+	s.binding.DeferredToolRenewals = append(append([]toolRenewalRecord{}, old...), *pending)
+	s.binding.ToolRenewal = nil
+	if saveErr := s.save(); saveErr != nil {
+		s.binding.ToolRenewal, s.binding.DeferredToolRenewals = pending, old
+		return saveErr
+	}
+	return err
 }
 
 var _ api.ConversationRuntime = (*Session)(nil)

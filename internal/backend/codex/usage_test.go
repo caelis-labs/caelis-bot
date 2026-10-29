@@ -126,3 +126,24 @@ func TestUsageCacheCounterPresence(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalContextReestimateIsNotProviderUsageOrAFreshBaseline(t *testing.T) {
+	s := NewSession(SessionOptions{})
+	s.binding.ThreadID = "resident"
+	s.applyEvent(Notification{Method: "turn/started", Params: json.RawMessage(`{"threadId":"resident","turn":{"id":"turn","status":"inProgress"}}`)})
+	when := time.Now().Round(0)
+	provider := Notification{Method: "thread/tokenUsage/updated", ReceivedAt: when, Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":80000,"inputTokens":79000,"outputTokens":1000},"total":{"totalTokens":9000000},"modelContextWindow":1000000}}`)}
+	s.applyEvent(provider)
+	// Codex recompute_token_usage replaces last, leaves cumulative totals intact,
+	// and emits the same notification without tagging the estimate's provenance.
+	reestimate := Notification{Method: provider.Method, ReceivedAt: when.Add(time.Minute), Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":119000,"inputTokens":0,"outputTokens":0},"total":{"totalTokens":9000000},"modelContextWindow":1000000}}`)}
+	s.applyEvent(reestimate)
+	if s.usage.Used != 80000 || s.usage.InputTokens != 79000 || !s.usage.ModelAt.Equal(when) {
+		t.Fatal("local estimate became a new model sample", s.usage)
+	}
+	s.applyEvent(Notification{Method: "item/completed", Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","item":{"id":"compact","type":"contextCompaction"}}`)})
+	s.applyEvent(reestimate)
+	if !s.usage.ModelAt.IsZero() || s.usage.Used != 0 {
+		t.Fatal("local estimate established a measured post-compaction baseline", s.usage)
+	}
+}

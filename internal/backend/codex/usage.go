@@ -6,8 +6,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// The last model response estimates the current context; total is used only to
-// reject duplicate notifications. Historical threads and worker usage are excluded.
+// Accept live provider-style counters, using cumulative total only to reject
+// duplicate notifications. App Server also emits local re-estimates with zero
+// input counters; those are not model usage or a measured post-compaction baseline.
+// Historical threads and worker usage are excluded.
 func (s *Session) applyUsage(event Notification) {
 	var n struct {
 		Thread string `json:"threadId"`

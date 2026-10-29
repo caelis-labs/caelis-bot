@@ -58,15 +58,29 @@ After delivering a batch of work or a clear goal change, assess whether obsolete
 task detail or unused tools make the context cumbersome. Keep a useful context;
 do not Dream after every reply or wait for it to become unusable.
 
-Before calling `bot_dream`, update core memory and relevant notes, then verify
-still-open work against its original records. Supply a complete `handoff` of at
-most 16 KiB with identity and standing constraints, current goals, unfinished
-original task handles, pending decisions, authorization limits and revocations,
-uncertain operations and original receipts, retained resources and next actions.
-Keep completed results brief; omit transcripts, tool schemas and secrets.
+Prepare in steps that can resume after an interruption:
+
+1. Read current `MEMORY.md`. Use recent `INDEX.md` entries and known open handles
+   to find work needing attention; follow relevant older links. Check original
+   task and interaction records. Do not scan all history or wait for every Worker
+   to finish. Keep review progress and detailed results in a dated note.
+2. Update core memory and relevant notes. Apply new user corrections, decisions
+   and revocations before continuing the handoff. Confirm the core is readable;
+   resolve a failed read before calling Dream.
+3. Supply a complete `handoff` of at most 16 KiB with identity and standing
+   constraints, current goals, unfinished original task handles, pending decisions,
+   authorization limits and revocations, uncertain operations and original
+   receipts, retained resources and next actions. Keep completed results brief;
+   omit transcripts, tool schemas and secrets.
 
 Finish necessary file writes and delivery before the call. Dream ends the owning
 turn; do not place other effects alongside it or depend on another step in that
 turn. Preserve original work and receipts if handoff fails, and follow
 [Recovery](recovery.md). A handoff does not answer pending questions, expand
 permission or authorize replay of uncertain effects.
+
+After renewal, use the supplied core and handoff to resume. Read pending reports
+and their original records as they arrive; a handoff summary is not proof that a
+Worker has finished or a user has answered. If renewal is deferred by a correction
+or changed memory, continue from the latest instruction and files before preparing
+another handoff.

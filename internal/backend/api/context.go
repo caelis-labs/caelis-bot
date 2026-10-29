@@ -16,6 +16,28 @@ var ErrConversationRenewalRejected = errors.New("conversation renewal rejected")
 // The old bound context remains usable; never replay a create without its ID.
 var ErrConversationRenewalUnknown = errors.New("conversation renewal outcome unknown")
 
+// ErrConversationRenewalDeferred leaves the source bound. Any known empty
+// destination remains an original receipt, never authority to replay creation.
+var ErrConversationRenewalDeferred = errors.New("conversation renewal deferred")
+
+type renewalGuardKey struct{}
+
+// WithRenewalGuard carries the host's memory and human-input check through the
+// existing native renewal call. It does not add a model tool or a preparation turn.
+func WithRenewalGuard(ctx context.Context, check func() error) context.Context {
+	return context.WithValue(ctx, renewalGuardKey{}, check)
+}
+
+func CheckRenewalGuard(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if check, ok := ctx.Value(renewalGuardKey{}).(func() error); ok {
+		return check()
+	}
+	return nil
+}
+
 // ContextSeed is application-owned data appended at the first request boundary,
 // never policy or an instruction override. HandoffDigest permits conditional
 // consumption only after native acceptance has been durably recorded.
@@ -36,8 +58,10 @@ type ConversationState struct {
 	// of Idle: an observed running turn must still invalidate an older handoff.
 	Observed bool
 	Idle     bool
-	// Usage is a live resident-context gauge, never cumulative billed tokens.
-	// It is deliberately not persisted or restored from transcript history.
+	// Usage is adapter-qualified live model evidence, never cumulative billing.
+	// Codex's last-response total and a Caelis context gauge are not equivalent
+	// retained-working-set samples. Neither establishes a post-compaction floor.
+	// These observations are not persisted or restored from transcript history.
 	Usage ContextUsage
 	// UsageEvidence is an adapter-generated enum for anonymous diagnostics.
 	UsageEvidence string

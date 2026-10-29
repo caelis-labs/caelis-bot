@@ -857,6 +857,28 @@ matching private digest. Normal inbound messages, task feedback, MCP connection
 configuration and auth stay with the Bot; old model history and ToolSearch results
 stay with the old Session. An unknown creation is reconciled under its original ID.
 
+Before accepting terminal Dream, the host reads the current core memory and saves
+its digest in the existing handoff. Both adapters recheck readable, unchanged
+memory and human supersession before creation and before committing the binding.
+Human ingress reserves priority before waiting for resident dispatch; a pending
+handoff's superseded marker survives restart. Ordinary Worker reports remain in
+their original queues and do not invalidate the handoff. Native Caelis grant
+creation/revocation already shares renewal admission; no global authority revision
+or preparation protocol is added. Unresolved resident effects keep their existing
+admission fence; owned Worker operations do not fence the resident's renewal.
+
+A known unused destination retains its original creation receipt and cannot later
+be adopted by the superseded call. An unknown empty creation retains its original
+attempt; it allows old-context conversation but blocks another creation until the
+outcome is reconciled. Required-memory failure before commit keeps the old binding.
+If memory becomes unreadable after commit but before first input, seed preparation
+fails without consuming the handoff or marking injection complete. Resume that
+same new binding after repair. Once dispatched, an uncertain first input keeps its
+frozen seed and original receipt; do not reread memory and replay that input.
+
+Time/health cues remain unimplemented pending comparable sampled context evidence;
+see the [metric audit and continuity scope](design/bot-continuity-runtime.md).
+
 Legacy `dream-*.json` receipts are read without dispatching another maintenance
 turn. A matching completed `HANDOFF.md` may migrate once into the private record;
 the Notebook file remains untouched. Rejected renewal continues the old binding.

@@ -237,14 +237,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		unknown = true
 	}
 	for id, j := range s.state.Operations {
-		workerOperation := false
-		for _, worker := range s.state.Workers {
-			if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(j.Path, "/sessions/"+idPath(sid)+"/") {
-				workerOperation = true
-				break
-			}
-		}
-		if j.Outcome == "unknown" && id != s.sendingScheduled && !workerOperation {
+		if j.Outcome == "unknown" && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) {
 			if s.dispatching[id] {
 				dispatching = true
 			} else {

@@ -99,6 +99,10 @@ func (r *Runtime) reconcileLegacyDream() error {
 // completed handoff can rotate on this input; rejection falls back to the old
 // session, while an unknown creation stays on its original receipt.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	done, _ := r.BeginUserActivity()
+	defer done()
+	// A failed private marker write must not prevent original user input; the
+	// in-memory fence and native source-turn check still protect this process.
 	r.step.Lock()
 	defer r.step.Unlock()
 	if r.remoteRecoveryPending(in) {
@@ -168,18 +172,21 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 			}
 			if a.Ready {
 				text, err := d.vault.LegacyDreamHandoff(a.ID)
-				if err != nil || r.handoff == nil {
+				memoryDigest, memoryErr := r.dreamMemoryDigest(ctx)
+				if err != nil || memoryErr != nil || r.handoff == nil {
 					a.Ready = false // keep the old usable Session and the Notebook file
-				} else if err := r.handoff.save(a.ID, a.Session, text); err != nil {
+				} else if err := r.handoff.saveTurnWithMemory(a.ID, a.Session, "", text, memoryDigest); err != nil {
 					a.Ready = false // private persistence failed before any native create
 				} else {
-					err = p.RenewConversation(ctx, a.ID, a.Session)
-					if err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
+					err = p.RenewConversation(r.guardRenewal(ctx, r.handoff.pending()), a.ID, a.Session)
+					if err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) && !errors.Is(err, api.ErrConversationRenewalDeferred) {
 						rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
 						return reject()
 					}
 					if errors.Is(err, api.ErrConversationRenewalRejected) {
 						_ = r.handoff.record(a.ID, "", "rejected")
+					} else if errors.Is(err, api.ErrConversationRenewalDeferred) {
+						_ = r.handoff.record(a.ID, "", "fallback")
 					} else if err == nil {
 						if recordErr := r.handoff.record(a.ID, p.ConversationState().Session, "committed"); recordErr != nil {
 							rejected.Message = "交接结果尚未保存，消息未发送，请重试"
@@ -193,6 +200,31 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		}
 	}
 	return r.engine.Submit(ctx, in, files)
+}
+
+// BeginUserActivity runs before waiting for submission or renewal locks. The
+// caller holds priority through its original input/decision/stop operation.
+func (r *Runtime) BeginUserActivity() (func(), error) {
+	r.registeringUser.Add(1)
+	defer r.registeringUser.Add(-1)
+	r.waitingUsers.Add(1)
+	r.userGeneration.Add(1)
+	var err error
+	if r.handoff != nil {
+		err = r.handoff.supersede()
+	}
+	r.mu.Lock()
+	engine := r.engine
+	r.mu.Unlock()
+	if conversation, ok := engine.(api.ConversationRuntime); ok {
+		state := conversation.ConversationState()
+		r.lastHumanTurn.Store(&state)
+	}
+	// Also cover a Dream saved while the native turn snapshot was being read.
+	if r.handoff != nil {
+		err = errors.Join(err, r.handoff.supersede())
+	}
+	return func() { r.waitingUsers.Add(-1) }, err
 }
 
 func terminalConversationStatus(status string) bool {

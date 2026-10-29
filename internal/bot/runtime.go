@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -92,6 +93,11 @@ type Runtime struct {
 	action         func(string) error
 	done           chan struct{}
 	cancel         context.CancelFunc
+
+	userGeneration  atomic.Uint64
+	registeringUser atomic.Int64
+	lastHumanTurn   atomic.Pointer[api.ConversationState]
+	waitingUsers    atomic.Int64
 }
 
 func (r *Runtime) ConfigureWorkerInteractions(port api.WorkerInteractionPort) {
@@ -357,6 +363,9 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	if r.engine == nil {
 		return nil
 	}
+	if r.waitingUsers.Load() != 0 {
+		return nil
+	}
 	if r.handoff != nil {
 		pending := r.handoff.pending()
 		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
@@ -366,6 +375,9 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 				return nil
 			}
 		}
+	}
+	if r.waitingUsers.Load() != 0 {
+		return nil
 	}
 	if r.initialization != nil {
 		if err := r.initialization.Deliver(ctx, r.engine, r.provider); err != nil {

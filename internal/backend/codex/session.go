@@ -44,20 +44,21 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context          contextseed.State            `json:"context,omitempty"`
-	ContextInputs    map[string]int               `json:"contextInputs,omitempty"`
-	Dreams           map[string]dreamRecord       `json:"dreams,omitempty"`
-	PastThreads      []string                     `json:"pastThreads,omitempty"`
-	RenewedBy        string                       `json:"renewedBy,omitempty"`
-	ToolRenewal      *toolRenewalRecord           `json:"toolRenewal,omitempty"`
-	ScheduledOrigins map[string][]api.InputSource `json:"scheduledOrigins,omitempty"`
-	Scheduled        map[string]string            `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
-	HostReports      map[string]bool              `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
-	HostReportTurns  map[string]hostReportTurn    `json:"hostReportTurns,omitempty"`
-	RecoveryNotices  map[string]bool              `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets   []string                     `json:"cleanupTargets,omitempty"`
-	StopState        string                       `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns         map[string]string            `json:"stopRuns,omitempty"`
+	Context              contextseed.State            `json:"context,omitempty"`
+	ContextInputs        map[string]int               `json:"contextInputs,omitempty"`
+	Dreams               map[string]dreamRecord       `json:"dreams,omitempty"`
+	PastThreads          []string                     `json:"pastThreads,omitempty"`
+	RenewedBy            string                       `json:"renewedBy,omitempty"`
+	ToolRenewal          *toolRenewalRecord           `json:"toolRenewal,omitempty"`
+	DeferredToolRenewals []toolRenewalRecord          `json:"deferredToolRenewals,omitempty"`
+	ScheduledOrigins     map[string][]api.InputSource `json:"scheduledOrigins,omitempty"`
+	Scheduled            map[string]string            `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
+	HostReports          map[string]bool              `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
+	HostReportTurns      map[string]hostReportTurn    `json:"hostReportTurns,omitempty"`
+	RecoveryNotices      map[string]bool              `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets       []string                     `json:"cleanupTargets,omitempty"`
+	StopState            string                       `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns             map[string]string            `json:"stopRuns,omitempty"`
 
 	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
 	CapacityStopThread   string `json:"capacityStopThread,omitempty"`

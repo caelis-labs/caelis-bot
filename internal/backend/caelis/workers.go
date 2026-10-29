@@ -51,6 +51,15 @@ type worker struct {
 	Activity    string              `json:"-"`
 }
 
+func (s *Session) workerOperationLocked(operation journal) bool {
+	for _, worker := range s.state.Workers {
+		if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(operation.Path, "/sessions/"+idPath(sid)+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // The callback boundary validates the original source operation and native claim.
 // Its turn's initial provenance is not a permission switch: Guardian reviews
 // each tool action against the conversation, including later user steering.

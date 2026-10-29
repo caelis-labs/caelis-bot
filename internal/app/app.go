@@ -593,7 +593,7 @@ func (a *Application) startRuntime() error {
 						if a.host.ReportError != nil {
 							a.host.ReportError(err)
 						}
-						seed = api.ContextSeed{}
+						return api.ContextSeed{}, err
 					}
 				}
 				handoff := resident.PrepareHandoffContext()
@@ -669,6 +669,13 @@ func (a *Application) startRuntime() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
+	a.Backend.SetUserActivityObserver(func() func() {
+		done, err := resident.BeginUserActivity()
+		if err != nil && a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+		return done
+	})
 	resident.Start(a.currentEngine())
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
 	if a.Telegram != nil {

@@ -62,6 +62,7 @@ type Service struct {
 	outbox                      []outgoingMessage
 	botStatus                   func() string
 	beforeInterrupt             func()
+	userActivity                func() func()
 	mu                          sync.Mutex
 	presentationRevision        uint64 // Local visible state independent of the engine and chat log.
 	draft                       api.Draft
@@ -662,6 +663,7 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	defer s.beginUserActivity()()
 	input.Quoted = api.BoundQuote(input.Quoted)
 	s.mu.Lock()
 	commandHandler := s.commandHandler
@@ -773,6 +775,7 @@ func (s *Service) SetCommandHandler(handler func(context.Context, api.Submission
 // AnswerQuestion is the desktop's direct control entry. The shared text
 // controller still owns the short reference, original request and receipt.
 func (s *Service) AnswerQuestion(ctx context.Context, shortID, binding, value, requestID string) string {
+	defer s.beginUserActivity()()
 	s.mu.Lock()
 	answer := s.questionAnswerer
 	s.mu.Unlock()
@@ -790,6 +793,24 @@ func (s *Service) SetUserSubmitter(f func(context.Context, api.Submission, []api
 	s.mu.Lock()
 	s.submitUser = f
 	s.mu.Unlock()
+}
+
+// Observe human ingress before file preparation, command handling or native
+// locks. Worker reports use their existing delivery path, without this observer.
+func (s *Service) SetUserActivityObserver(f func() func()) {
+	s.mu.Lock()
+	s.userActivity = f
+	s.mu.Unlock()
+}
+
+func (s *Service) beginUserActivity() func() {
+	s.mu.Lock()
+	begin := s.userActivity
+	s.mu.Unlock()
+	if begin != nil {
+		return begin()
+	}
+	return func() {}
 }
 func (s *Service) submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	s.mu.Lock()
@@ -810,6 +831,7 @@ func (s *Service) submit(ctx context.Context, in api.Submission, files []api.Inp
 }
 func (s *Service) SetInterruptObserver(f func()) { s.mu.Lock(); s.beforeInterrupt = f; s.mu.Unlock() }
 func (s *Service) Interrupt(ctx context.Context) error {
+	defer s.beginUserActivity()()
 	s.mu.Lock()
 	stop := s.beforeInterrupt
 	s.mu.Unlock()
@@ -819,6 +841,18 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	return s.currentEngine().Interrupt(ctx)
 }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error {
+	defer s.beginUserActivity()()
+	return s.decide(ctx, d)
+}
+
+// DecideWorkerApproval preserves the original native decision route. The Bot's
+// Worker interaction owner validates the target and choices; this Agent action
+// is not new human ingress and must not invalidate a resident handoff.
+func (s *Service) DecideWorkerApproval(ctx context.Context, d api.Decision) error {
+	return s.decide(ctx, d)
+}
+
+func (s *Service) decide(ctx context.Context, d api.Decision) error {
 	if owner, ok := s.workerInteractionOwner().(interface {
 		DecideRetainedApproval(context.Context, api.Decision) (bool, error)
 	}); ok {
