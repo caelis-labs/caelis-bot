@@ -636,13 +636,21 @@ func TestGuardianHostIntegration(t *testing.T) {
 	mu.Lock()
 	requests := clone(reviewRequests)
 	mu.Unlock()
-	if len(requests) < 6 {
-		t.Fatal("reviewer not exercised")
-	}
+	// Each selected case verifies its review/effect. This check applies to the
+	// resident's explicit profile, before exercising ordinary native defaults.
 	for _, req := range requests {
 		if tools, ok := req["tools"].([]any); ok && len(tools) > 0 {
-			t.Fatal("Application Guardian received ambient query tools")
+			t.Fatal("resident Guardian received ambient query tools")
 		}
+	}
+	if !t.Run("G11_native_worker_snapshot_before_review", func(t *testing.T) {
+		// G05 restarted the Host; use the current connection, not its old URL.
+		s.mu.Lock()
+		currentHost := s.client
+		s.mu.Unlock()
+		workerApprovalSnapshotAcceptance(t, ctx, s, currentHost, main, mainSelector, reviewerSelector, effectDir, configureReview)
+	}) {
+		return
 	}
 	t.Log("Guardian selected subtests passed; see the executed subtest list")
 }

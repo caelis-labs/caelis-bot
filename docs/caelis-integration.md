@@ -303,6 +303,31 @@ callbacks 继续沿用原调用 ID、原 catalog 和参数的 claim/result 账�
 重连、重复 result、Host 重启都不重新执行副作用。
 
 
+The public `approval.active` field is the caller-resolvable native FIFO head.
+Guardian work contributes to `run.waiting_approval` and the review feed, without
+creating a manual decision. Bot must not wait for a review event to establish
+this distinction, infer native authority from an empty Worker binding profile,
+or hide every native approval. A genuine manual head retains its original target
+and native choices. Review delivery order affects presentation, not authority.
+
+Core 0.74.0 can incorrectly include automatic requests in this snapshot before
+Bot receives review events. The existing profile/review display guards cannot
+fully repair that older Host behavior. The fix belongs in Core's queue projection;
+it needs no new wire field, Bot permission mode, or alternate approval ledger.
+Keep the existing guards while supporting the pinned older runtime. Do not claim
+the bundled runtime is fixed until a corrected Core release is pinned and tested.
+
+`TestNativeWorkerApprovalSnapshotAndReviewOrdering` covers native bindings without
+profiles, fresh projections, duplicate/delayed events, all four terminal statuses,
+and a subsequent genuine manual request. Guardian acceptance case
+`G11_native_worker_snapshot_before_review` creates an ordinary Native Worker with
+`StartWork`, holds a synthetic provider decision, and consumes state plus two real
+reconnect bootstrap frames before delivering review events to fresh projections.
+It then checks the original native effect occurs exactly once. Run this release
+gate with `CAELIS_BOT_TEST_BINARY` pointing to the candidate executable; it is
+expected to fail on Core 0.74.0. These are real local Host/process and synthetic
+provider tests, not paid-provider judgment or native GUI acceptance.
+
 ## Core release acceptance and remaining limits
 
 The exact delivered Core schema and generated wire must be pinned together after integration.
