@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -69,5 +70,47 @@ func TestWorkerObservationRetriesOnlySameOwnerProjection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Cancellation after a fully decoded response must still precede publication
+// of an idle/finish proof. Closing the successful body fixes that ordering.
+type cancelReadBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelReadBody) Close() error { b.cancel(); return b.ReadCloser.Close() }
+
+type cancelReadTransport struct {
+	http.RoundTripper
+	cancel context.CancelFunc
+}
+
+func (tr cancelReadTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := tr.RoundTripper.RoundTrip(r)
+	if err == nil {
+		response.Body = cancelReadBody{ReadCloser: response.Body, cancel: tr.cancel}
+	}
+	return response, err
+}
+func TestCancelledSuccessfulWorkerReadCannotPublishFinishProof(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var gets atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/work/state" {
+			t.Errorf("unexpected owner/effect: %s %s", r.Method, r.URL.Path)
+			return
+		}
+		gets.Add(1)
+		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("turn")}})
+	})
+	s.client.http.Transport = cancelReadTransport{RoundTripper: s.client.http.Transport, cancel: cancel}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work", PrincipalId: "owner"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted"}, PromptID: "original", Activity: "idle"}
+	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("turn")}}, Seen: map[string]bool{}}
+	got, err := s.ObserveWork(ctx, "task")
+	if !errors.Is(err, context.Canceled) || api.TaskFinishToken(got.State) != "" || s.state.Workers["task"].Activity != "" || gets.Load() != 1 {
+		t.Fatal("cancelled successful read published idle/finish proof", got, err, gets.Load())
 	}
 }

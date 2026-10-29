@@ -74,6 +74,13 @@ check that the next user input does not reinject memory/handoff. Both existing
 native unified-delivery tests also run unchanged. Logs and exact-head checks are
 linked in the PR validation record.
 
+The first Linux CI run exposed a pre-existing cancellation gap in Caelis
+`ReadWork` (unchanged since #250): a successfully decoded HTTP read could publish
+idle/finish proof after cancellation. A deterministic response-close cancellation
+test reproduces it on the unchanged function. A separate follow-up commit checks
+cancellation under the publication lock; it does not alter task ownership or
+replay policy. The failed run and red/green evidence remain in the PR record.
+
 ## Limits
 
 Semantic completeness of model-written notes, authorization summaries and review

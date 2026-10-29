@@ -493,6 +493,9 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return projected, err
+		}
 		current, exists := s.state.Workers[id]
 		if !exists {
 			return api.Task{}, errors.New("original worker binding changed")
