@@ -1,6 +1,6 @@
 # Lightweight memory-review invitations
 
-Based on main `67c8216195b511b869aeda25f0ad718600dfe0c4` and #258 system delivery.
+Based on main `16dd63547a934cacf4e44e415a4375c03026cec6` and #258 system delivery.
 Replaces #256's stacked, multi-window implementation. Dream handoff stability
 belongs to #255; this producer never calls Dream or creates a native session.
 The sole model workflow is [bot-core memory guidance](../../internal/botskills/skills/bot-core/references/memory.md).
