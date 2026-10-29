@@ -1,40 +1,70 @@
-# Keep useful private continuity
+# Maintain Bot memory
 
-Use native file tools, within the user's authorization, to maintain `MEMORY.md`
-and Notebook notes. Keep core long-term facts and preferences brief in `MEMORY.md`;
-put project context, commitments and detailed work records in notes. These are
-private to this user. A particular project's delivery or development habits belong
-here, not in shared Bot guidance. Preserve exact choices and distinguish what the
-user said from an uncertain inference.
+Bot memory is `Notebook/MEMORY.md` and the Markdown notes in that Notebook.
+Use native file tools to maintain it as part of the user's ongoing work. Runtime
+Memory, such as `~/.codex/memories`, is separate: its instructions and update rules
+do not define Bot memory maintenance. Do not copy between the two automatically.
 
-Consult relevant memory when it can improve the current work. Use `INDEX.md` for
-note paths and titles, then open relevant files; use native reads or `rg` to search
-contents. The index is generated, so leave it alone. For a note not yet listed,
-use a file listing. No separate recall tool is available.
+## Keep the core current
 
-Save useful decisions, milestones and results as work progresses in
-`YYYY/MM/DD/<topic>.md`, using the local date. `bot_schedule` `context` gives fresh
-time when needed. For ongoing work, retain the goal, latest constraints, original
-task handles and artifacts, verified progress, unanswered questions and next step.
-Use current task records for changing execution status; a dated note is context,
-not proof that work is still running or finished.
+Keep your identity and personality, stable user preferences, important agreements
+and links to continuing commitments in `MEMORY.md`. Preserve exact scope, limits
+and revocations of relevant authorization; a saved agreement is context, not a
+new grant or a substitute for native approval. Distinguish explicit choices from
+inference. Keep private project habits here or in notes, not in shared Skills.
 
-Keep records light, linking to durable artifacts and retained resources rather
-than copying checkouts, builds or caches into the Notebook. Record the path,
-reason, owner and next cleanup step for temporary resources that must wait;
-follow [Working resources](resources.md) when their dependency ends.
+Review the core after meaningful decisions or corrections. Replace obsolete facts,
+merge duplicates and move detailed history into linked notes. Keep enough detail
+to preserve identity and important constraints without growing a transcript or
+reducing memory to vague labels. Do not fill a quota or discard useful facts just
+to make the file shorter.
 
-Read the latest file before editing and preserve unrelated user edits. Replace
-superseded preferences instead of accumulating contradictory current claims.
-Confirm an update only after the write succeeds. When asked to forget something,
-update the relevant files you are authorized to manage; describe what was removed
-without claiming that old conversations or external backups were erased.
+At the first input of a new Bot session, the app supplies readable `MEMORY.md` as
+saved context. It does not reload the file on every turn or inject note bodies or
+`INDEX.md`. Read the latest file when updating it or checking a change; do not
+assume a missing or unreadable file was supplied. Preserve unrelated edits and
+confirm a memory update only after the write succeeds.
 
-When obsolete task details or unused tools make your context cumbersome, save
-useful knowledge and use `bot_dream` with a concise handoff. Include identity and
-standing constraints, the current goal, unfinished work and original handles,
-uncertain operations and receipts, outstanding decisions, retained resources and
-the next useful action. Keep finished work brief and omit transcripts, tool schemas
-and secrets. Use it when useful after a batch of work or a change of goal, rather
-than after every reply. A handoff preserves context; it does not authorize replaying
-an uncertain effect.
+## Find and save continuing work
+
+Use generated `INDEX.md` to find dated note paths and titles, starting with recent
+work when reviewing commitments. Open relevant notes to find unfinished items;
+the index does not contain their status or full text. Follow links to older open
+work and use file reads or `rg` for content search. List files for notes not yet
+indexed. Do not edit the generated index.
+
+Save decisions, milestones and useful results in `YYYY/MM/DD/<topic>.md` using the
+local date; `bot_schedule` `context` supplies fresh time when needed. For open work,
+retain its goal, latest constraints, original task handles, artifacts, verified
+progress, unanswered questions, authorization limits and next action. Record a
+cancellation or changed decision where the old plan would otherwise mislead you.
+Check current task, interaction and arrangement records before acting on a note.
+
+Link to durable artifacts rather than copying builds or checkouts into Notebook.
+For retained temporary resources, record path, reason, cleanup owner and next step;
+follow [Resources](resources.md) when their dependency ends. When attention must
+return later, use [Events](events.md) or [Reminders](reminders.md); a note alone
+cannot wake you.
+
+When asked to forget, update the authorized Bot memory files and their relevant
+links. Do not restore deleted facts from history or claim to erase old Runtime
+conversations, Runtime Memory or external backups.
+
+## Prepare a useful Dream handoff
+
+After delivering a batch of work or a clear goal change, assess whether obsolete
+task detail or unused tools make the context cumbersome. Keep a useful context;
+do not Dream after every reply or wait for it to become unusable.
+
+Before calling `bot_dream`, update core memory and relevant notes, then verify
+still-open work against its original records. Supply a complete `handoff` of at
+most 16 KiB with identity and standing constraints, current goals, unfinished
+original task handles, pending decisions, authorization limits and revocations,
+uncertain operations and original receipts, retained resources and next actions.
+Keep completed results brief; omit transcripts, tool schemas and secrets.
+
+Finish necessary file writes and delivery before the call. Dream ends the owning
+turn; do not place other effects alongside it or depend on another step in that
+turn. Preserve original work and receipts if handoff fails, and follow
+[Recovery](recovery.md). A handoff does not answer pending questions, expand
+permission or authorize replay of uncertain effects.

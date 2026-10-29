@@ -318,6 +318,22 @@ func TestNativeHostIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	// Instrument only this temporary installed bundle. Assert staged native reads
+	// without coupling the contract to the guide's editorial headings.
+	skillMarkers := map[string]string{}
+	for _, relative := range []string{"SKILL.md", "references/tasks.md", "references/interactions.md", "references/screen-input.md", "references/recovery.md", "references/telegram-setup.md"} {
+		path := filepath.Join(filepath.Dir(skillPath), relative)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		marker := "progressive-body-fixture:" + relative
+		skillMarkers[relative] = marker
+		if err := os.WriteFile(path, append(body, []byte("\n"+marker+"\n")...), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
@@ -484,7 +500,22 @@ func TestNativeHostIntegration(t *testing.T) {
 		return
 	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
-		steps := []modelStep{{Name: "Read", Args: map[string]string{"path": skillPath}}, {Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}}
+		// Exercise the production native-root path independently of the legacy
+		// instruction guide used by the surrounding compatibility scenarios.
+		skillConfig := *config
+		skillConfig.Instructions = botskills.Bootstrap()
+		skillConfig.SkillInstructions = botskills.Instructions(skillPath)
+		skillConfig.BuiltinSkillRoots = []string{filepath.Dir(skillPath)}
+		s := New(Options{Directory: filepath.Join(root, "native-skill-bot"), Settings: settings})
+		if err := s.ConfigureBotTools(&skillConfig); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Connect(ctx); err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close(context.Background())
+		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+		steps := []modelStep{{Name: "Skill", Args: map[string]string{"name": "bot-core"}}, {Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}}
 		for _, ref := range []string{"interactions.md", "screen-input.md", "recovery.md", "telegram-setup.md"} {
 			steps = append(steps, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", ref)}})
 		}
@@ -506,18 +537,41 @@ func TestNativeHostIntegration(t *testing.T) {
 		first, _ := json.Marshal(requests[0])
 		second, _ := json.Marshal(requests[1])
 		third, _ := json.Marshal(requests[2])
-		if !strings.Contains(string(first), "Work as Caelis Bot, a persistent personal assistant,") || strings.Contains(string(first), "# Be the user's continuing assistant") {
+		if !strings.Contains(string(first), "- bot-core:") || strings.Contains(string(first), skillMarkers["SKILL.md"]) {
 			t.Fatal("skill metadata absent or body eagerly injected")
 		}
-		if !strings.Contains(string(second), "# Be the user's continuing assistant") || strings.Contains(string(second), "# Arrange and follow through on Worker work") || !strings.Contains(string(third), "# Arrange and follow through on Worker work") {
+		if !strings.Contains(string(second), skillMarkers["SKILL.md"]) || strings.Contains(string(second), skillMarkers["references/tasks.md"]) || !strings.Contains(string(third), skillMarkers["references/tasks.md"]) {
 			t.Fatal("progressive native reads did not expose skill and reference")
 		}
-		for i, marker := range []string{"# Handle native decisions and questions", "# Understand what the user is pointing at", "# Continue helping through a local failure", "# Help the user connect Telegram"} {
+		for i, marker := range []string{skillMarkers["references/interactions.md"], skillMarkers["references/screen-input.md"], skillMarkers["references/recovery.md"], skillMarkers["references/telegram-setup.md"]} {
 			before, _ := json.Marshal(requests[i+2])
 			after, _ := json.Marshal(requests[i+3])
 			if strings.Contains(string(before), marker) || !strings.Contains(string(after), marker) {
 				t.Fatal("conditional guide did not load", marker)
 			}
+		}
+		ordinary := filepath.Join(root, "ordinary-skill-scope")
+		if err := os.Mkdir(ordinary, 0700); err != nil {
+			t.Fatal(err)
+		}
+		op := "ordinary-skill-session"
+		var created, result wire.CommandResult
+		if err := host.json(ctx, "POST", "/sessions", wire.CreateSessionRequest{OperationId: &op, Cwd: &ordinary}, &created, op, ""); err != nil || !succeeded(created.Outcome) {
+			t.Fatal("ordinary session creation failed", err)
+		}
+		sid := value(created.SessionId)
+		if sid == "" && created.Resource != nil {
+			sid = value(created.Resource.Ref)
+		}
+		model.set("CASE_SKILL_ORDINARY")
+		op = "ordinary-skill-prompt"
+		if err := host.json(ctx, "POST", "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &op, Input: pointer("CASE_SKILL_ORDINARY")}, &result, op, ""); err != nil || !succeeded(result.Outcome) {
+			t.Fatal("ordinary prompt rejected", err)
+		}
+		waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_SKILL_ORDINARY")) > 0 })
+		payload, _ := json.Marshal(model.seen("CASE_SKILL_ORDINARY")[0])
+		if strings.Contains(string(payload), skillPath) || strings.Contains(string(payload), "- bot-core:") || strings.Contains(string(payload), skillMarkers["SKILL.md"]) {
+			t.Fatal("resident skill leaked into an ordinary session")
 		}
 	}) {
 		return
@@ -807,7 +861,7 @@ func TestNativeHostIntegration(t *testing.T) {
 				t.Fatal("worker did not inherit Runtime model")
 			}
 			payload, _ := json.Marshal(requests[0])
-			if strings.Contains(string(payload), skillPath) || strings.Contains(string(payload), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(payload), "Native identity sentinel") {
+			if strings.Contains(string(payload), skillPath) || strings.Contains(string(payload), "- bot-core:") || strings.Contains(string(payload), skillMarkers["SKILL.md"]) || strings.Contains(string(payload), "Native identity sentinel") {
 				t.Fatal("resident skill/memory leaked into worker")
 			}
 		}

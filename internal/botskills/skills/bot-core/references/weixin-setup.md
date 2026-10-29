@@ -1,53 +1,51 @@
-# Help the user connect Weixin
+# Set up and use Weixin
 
-Weixin is a private entry and additional delivery endpoint for the same Bot
-conversation. Guide pairing in **Settings → Messaging → Weixin**. The user scans,
-confirms on the phone, then confirms the masked account on the Mac. Phone
-verification codes belong in Settings; never request codes, tokens or pairing
-screenshots in chat.
+Use Settings → Messaging → Weixin. The user scans, confirms on the phone and then
+confirms the masked account on the host. Keep verification codes in settings;
+never request codes, tokens or pairing screenshots in chat.
 
-Each distinct valid phone text, including `/r`, `/answer` and `/approve`, refreshes
-the local receive allowance and context. Desktop or Telegram input does not close
-or renew that window. New shared Bot/Runtime/Worker output can use the remaining
-allowance regardless of which entry started the work. Private Worker transcripts
-and old conversation history are not copied into Weixin.
+Weixin provides one paired user's private text entry and delivery window for the
+same Bot conversation. Groups, incoming attachments and quoted-message authority
+are unsupported. Pause retains pairing; removal deletes local credentials, not
+server authorization.
 
-The first meaningful output is prompt; later short messages and stage results are
-combined. Active approvals precede questions, then results/status, then progress
-and nonurgent files. Native options and original action bindings stay intact.
-Already handled or expired interactions are not sent as actionable cards. A
-Runtime Final is not proof that all Worker work has ended.
+## Commands and delivery
 
-`/r` or `/refresh` continues retained unattempted body parts without starting a
-model request or rerunning work. It can also recover retired progress from the
-current shared IM's last 128 visible items within twelve hours and since channel
-observation began. Results come first; progress covered by a result is skipped.
-It does not scan older history or replay accepted, rejected or unknown sends.
-Normal new input drops old queued progress and
-nonurgent files; still-current important results may continue, while results held
-by an exhausted/paused window need `/r`. `/status` reads local state, `/help` lists
-commands, and `/stop` requests native interruption. `/approve` and `/answer` use
-the original pending request.
+Each distinct valid phone text, including control commands, refreshes the local
+window. Desktop/Telegram inputs neither close nor renew it. New shared output can
+use remaining allowance regardless of its initiating entry; private Worker
+transcripts and old history are not mirrored.
 
-The ten-send estimate, length caps and safety expiry are local conservative
-policy, not a guaranteed server quota or charging rule. Every attempted text part,
-card part or file message counts, including rejection/uncertainty. Upload and
-typing do not count. HTTP acceptance does not prove phone display. A new message
-cannot change the actual receipt of an old in-flight attempt.
+- `/r` or `/refresh`: continue retained unattempted reply parts and eligible recent
+  progress; no model request or work replay.
+- `/status`, `/help`: read local state or commands.
+- `/stop`: request native interruption.
+- `/approve`, `/answer`: decide the original pending request; see
+  [Interactions](interactions.md).
 
-Markdown chunks are complete when the allowance can fit the reply. Otherwise the
-phone receives explicitly labelled complete-block excerpts and a route to the full
-shared desktop conversation. A preview is a separate delivery, never proof that
-the full body arrived. `/r` continues retained original body parts and does not
-replay the preview; uncertain original body parts still require reconciliation.
-If a body exceeds the bounded delivery cache, use the desktop entry for its full
-text. Do not treat excerpts as summaries or claim all key results fit. Keep useful conclusions clear in the actual reply. Native action
-options are never shortened. Files must be existing Bot-owned Artifacts, not paths
-in prose. Deferred file names remain readable; ask which file is needed and expose
-that same owned Artifact in the new reply. Unknown file delivery must not replay.
-Settings distinguishes preparation, unavailable/upload failures and uncertain or
-rejected message delivery. Check original receipts before claiming delivery.
+First meaningful output is prompt; later short output is combined. Approvals,
+questions and useful results take priority over progress/files. Native options
+remain intact; a Runtime Final does not prove all Worker work is finished.
 
-One paired user's private text is supported. Groups, incoming attachments and
-quoted-message authority are outside this channel. Pausing retains pairing;
-removal deletes local credentials, not server-side authorization.
+New input drops queued ordinary progress and nonurgent files. Important current
+results may continue; results held by a paused/exhausted window need `/r`. That
+command can recover progress from at most 128 current shared IM items within
+twelve hours and since channel observation began. It does not traverse older
+history or replay accepted, rejected or unknown sends.
+
+The ten-send estimate and safety expiry are local policy, not guaranteed server
+quota or billing. Each attempted text/card/file part counts, including rejection
+or uncertainty; upload/typing do not. Acceptance does not prove phone display.
+
+## Long replies and files
+
+When full text cannot fit, delivery uses labelled complete-block excerpts with a
+route to the full desktop conversation. An excerpt is neither a summary nor proof
+that all results arrived. `/r` continues retained original parts without replaying
+the preview. Use the desktop for bodies beyond the delivery cache.
+
+Files require existing Bot-owned Artifact handles, not paths in prose. If an
+unattempted file was deferred, identify the needed file and expose that same owned
+Artifact in a new reply. Inspect settings and original receipts for preparation,
+upload and message outcomes. Unknown file/text delivery must not replay; use
+[Recovery](recovery.md).

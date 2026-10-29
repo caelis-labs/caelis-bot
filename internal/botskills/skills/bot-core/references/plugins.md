@@ -1,56 +1,35 @@
-# Plugins
+# Discover and use plugins
 
-The user manages reviewed packages in Settings → Plugins. A package can provide
-Skills, tools, or both. Installation and enable state are separate from a service
-account connection. Describe only the current installed and working capability;
-do not describe a package as connected without a confirmed connection result.
+Discover the current catalog when an extra capability is needed. Read a matching
+Skill body and returned tool schema on demand. Settings → Plugins manages package
+installation and enable state; account connection is separate. Describe a
+capability as connected only after a confirmed connection result.
 
-When the user asks to use an extra capability, discover the current catalog.
-Read a matching Skill body only when the task needs it. If its tool is unavailable
-or fails, keep the original action receipt and use healthy tools for independent
-work. Do not repeat a possibly accepted external action through another route.
+When an external tool's name is unclear, read `../mcp-tools.json` beside this
+Skill directory for last-confirmed connected tool names/descriptions. Use those
+as native ToolSearch clues, then read the returned schema. The index grants no
+permission; do not invent calls when it or search is unavailable.
 
-Desktop World is the built-in computer-use plugin. It is initially enabled and
-can be disabled in Settings → Plugins. Before operating the desktop, confirm it
-is enabled, load its `desktop-world` Skill on demand, and discover the current
-MCP `exec` schema through the active Runtime. Use the Skill's `cua` script API
-and its linked references for exact UI operations and receipt recovery. The
-old `bot_desktop_*` tools are retired. Omit the `session` argument: Desktop World
-owns one execution context per MCP process. Execution IDs may be short; retain
-the exact original ID and use the same originating MCP connection when fetching
-status, result, images or cancellation. Reconnection does not recreate a receipt.
-A completed execution receipt proves delivery, so read back the intended UI effect
-before reporting success. A loaded schema from an older session is
-not proof that a disabled plugin can still run. Follow Runtime tool approval
-and operating-system permission decisions separately; a package being enabled grants
-neither one.
+Proceed within the user's requested target and scope. If a provider is absent,
+state the limitation and continue available work. Do not invent login controls or
+ask for tokens in chat. For failed actions, retain the original receipt and use
+[Recovery](recovery.md) before switching routes.
 
-For browser work, load the plugin's linked browser guidance and follow its
-current discovery results and `next_call` suggestions. Runtime tool approval owns
-the decision; do not invent an extra download confirmation. After
-`runtime_context_reset`, observe again to obtain fresh handles. The reset does
-not renew permission or settle an uncertain action; retain its original receipt
-and never replay it to rebuild context.
+## Computer interaction
 
-On Windows, inspect the original receipt and current UI before retrying an input
-that reports a foreground error; the input may already have taken effect. Follow
-the plugin's restrictions for DPI and modal dialogs. Do not issue guessed pixel
-coordinates when screenshot and window geometry disagree, or try to work around
-a pending execution by opening another computer-use context.
+Confirm the built-in Desktop World plugin is enabled, read its `desktop-world`
+Skill and relevant browser/platform guidance, and discover the active MCP `exec`
+schema. Use its `cua` API and current discovery/`next_call` results. Omit `session`;
+the plugin owns one execution context per MCP process. Retain exact execution IDs
+and use the originating connection for status, results, images or cancellation.
+The retired `bot_desktop_*` tools are unavailable.
 
-When an external tool is relevant but its exact name is unclear, read
-`../mcp-tools.json` beside this Skill's directory. It lists only tools last
-confirmed from connected plugin services. Use its names and descriptions as
-clues for native ToolSearch, then read the returned schema before calling.
-The index is neither a schema nor a grant. If it is absent or search is
-unavailable, do not invent a tool call.
+Read back the intended UI effect before claiming success. Plugin enablement,
+Runtime approval and OS permissions are separate. A cached schema does not prove
+a disabled plugin is usable. After `runtime_context_reset`, observe fresh handles;
+it does not renew grants or settle uncertain effects. Never replay an action to
+rebuild context or open another context to bypass pending execution.
 
-For GitHub work, identify the repository, target and intended change from the
-user's request and use tools available on the current connection. Proceed within
-that authorization; ask when a necessary choice or permission is missing. Keep
-the original write receipt and reconcile an unknown result before trying again.
-
-The available reviewed catalog may be small. If a requested provider is absent,
-say so plainly and help with work that is possible now. Do not invent a login
-button, ask the user to paste a token in chat, or claim that installing a guide
-grants access to Gmail, GitHub, or other accounts.
+On Windows, inspect the original receipt and UI before retrying foreground errors;
+input may already have taken effect. Follow the plugin's DPI/modal restrictions.
+Do not guess pixels when screenshot and window geometry disagree.
