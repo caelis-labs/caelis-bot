@@ -644,7 +644,11 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 	}
 	if !t.Run("G11_native_worker_snapshot_before_review", func(t *testing.T) {
-		workerApprovalSnapshotAcceptance(t, ctx, s, host, main, mainSelector, reviewerSelector, effectDir, configureReview)
+		// G05 restarted the Host; use the current connection, not its old URL.
+		s.mu.Lock()
+		currentHost := s.client
+		s.mu.Unlock()
+		workerApprovalSnapshotAcceptance(t, ctx, s, currentHost, main, mainSelector, reviewerSelector, effectDir, configureReview)
 	}) {
 		return
 	}

@@ -44,7 +44,7 @@ func TestNativeWorkerApprovalSnapshotAndReviewOrdering(t *testing.T) {
 				t.Fatal("delayed progress regressed the original terminal review", got)
 			}
 			// A real native manual request remains visible even with review
-			// history and a reused provider call ID. It retains native choices.
+			// history. It retains the original request identity and native choices.
 			a := testApproval()
 			a.RequestId = "manual"
 			a.Target.TurnId = "turn"
@@ -53,6 +53,9 @@ func TestNativeWorkerApprovalSnapshotAndReviewOrdering(t *testing.T) {
 			got := s.Snapshot().Approvals
 			if len(got) != 1 || got[0].NativeID != "manual" || got[0].TaskID != "task" || got[0].Owner != "task" {
 				t.Fatal("review history hid or retargeted a real manual request", got)
+			}
+			if len(got[0].Choices) != 2 || got[0].Choices[0].ID != "native-allow" || got[0].Choices[1].ID != "native-reject" {
+				t.Fatal("manual choices changed", got[0].Choices)
 			}
 			v.State.Approval.Active = nil
 			if len(s.Snapshot().Approvals) != 0 {
