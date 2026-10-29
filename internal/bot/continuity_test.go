@@ -224,3 +224,18 @@ func TestContinuityDefinitiveRejectionConsumesCooldownAndCredits(t *testing.T) {
 		t.Fatal("fresh evidence did not earn a fresh invitation")
 	}
 }
+
+func TestContinuityMissingAgeRemainsUnavailable(t *testing.T) {
+	for _, future := range []bool{false, true} {
+		r, f, now := reviewTestRuntime(t, "codex")
+		f.observation.Since = time.Time{}
+		if future {
+			f.observation.Since = now.Add(time.Hour)
+		}
+		f.observation.Compactions = 6 // other observed evidence can earn an invitation
+		reviewTicks(t, r)
+		if len(f.inputs) != 1 || !strings.Contains(f.inputs[0].Text, "age lower bound: unavailable;") {
+			t.Fatal("missing time was rendered as an invented age", f.inputs)
+		}
+	}
+}

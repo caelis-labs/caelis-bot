@@ -143,7 +143,11 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 	if score.Total() < continuity.Threshold {
 		return c.save(next)
 	}
-	text := fmt.Sprintf("Optional memory review. Observed session age lower bound: %d days; since the last invitation: %d observed completed turns, %d observed successful compactions. Request input: %s. These are limited observations, not stale-content or billing evidence. Current user instructions take priority. Keep working or defer if context is useful. For review, read bot-core references/memory.md. Consolidation and choosing whether/when to call bot_dream are separate decisions. No maintenance announcement is needed; if there is nothing useful to deliver, return exactly %s.", int(max(0, now.Sub(o.Since).Hours()/24)), max(o.Turns, next.BaseTurns)-next.BaseTurns, max(o.Compactions, next.BaseCompactions)-next.BaseCompactions, reviewInput(o), api.SilentReminder)
+	age := "unavailable"
+	if !o.Since.IsZero() && !o.Since.After(now) {
+		age = fmt.Sprintf("%d days", int(now.Sub(o.Since).Hours()/24))
+	}
+	text := fmt.Sprintf("Optional memory review. Observed session age lower bound: %s; since the last invitation: %d observed completed turns, %d observed successful compactions. Request input: %s. These are limited observations, not stale-content or billing evidence. Current user instructions take priority. Keep working or defer if context is useful. For review, read bot-core references/memory.md. Consolidation and choosing whether/when to call bot_dream are separate decisions. No maintenance announcement is needed; if there is nothing useful to deliver, return exactly %s.", age, max(o.Turns, next.BaseTurns)-next.BaseTurns, max(o.Compactions, next.BaseCompactions)-next.BaseCompactions, reviewInput(o), api.SilentReminder)
 	next.Pending = &api.SystemMessage{ID: "continuity-" + rand.Text(), Source: api.SystemContinuityReview, Text: text, RuntimeOwner: r.engine.Snapshot().RuntimeOwner}
 	if next.Pending.RuntimeOwner == "" {
 		next.Pending = nil
