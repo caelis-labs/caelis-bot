@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 func TestV0183RedactedProductionMigrationAndRestart(t *testing.T) {
@@ -156,7 +157,10 @@ func TestResolvedUnknownNativeClaimAndOrphanDraftReclaimed(t *testing.T) {
 
 func TestRealAnswerReceiptsSettleRecycleAndRestartWithoutAccumulation(t *testing.T) {
 	root := t.TempDir()
-	s, _ := Open(root, nil)
+	s, err := Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	accepted := true
 	bind := func() {
@@ -183,7 +187,7 @@ func TestRealAnswerReceiptsSettleRecycleAndRestartWithoutAccumulation(t *testing
 		feedback := s.HandleDesktopQuestion(t.Context(), fmt.Sprint("original-dispatch-", n), "Q1", card.QuestionCards[0].Binding, "1", api.Snapshot{Connection: "ready", RuntimeOwner: "owner"})
 		q := s.state.AsyncQuestions["Q1"]
 		if len(s.state.AsyncReceipts) != 0 || accepted && q.State != "answered" || !accepted && (q.State != "" || q.Title != item.AsyncQuestions[0].Title) {
-			t.Fatal("settled receipt leaked or rejected answer lost its original", n, feedback)
+			t.Fatalf("settled receipt leaked or rejected answer lost its original: iteration=%d feedback=%s save=%+v", n, feedback, localstate.DescribeFailure(s.lastSaveError))
 		}
 		q.ExpiresAt = time.Now().Add(-time.Second).Unix()
 		s.state.AsyncQuestions["Q1"] = q

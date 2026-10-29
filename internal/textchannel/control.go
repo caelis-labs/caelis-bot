@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"math"
 	"net"
@@ -80,6 +81,7 @@ type document struct {
 	AsyncActive                map[string]string        `json:"asyncActive,omitempty"`   // item ID -> exact question fingerprint
 }
 type Store struct {
+	lastSaveError          error // transient diagnostic; never a business-state receipt
 	revision               uint64
 	mu                     sync.Mutex
 	path                   string
@@ -251,6 +253,11 @@ func (s *Store) save() error {
 	s.compactClosedQuestionCopies()
 	s.compactNativeControls()
 	if err := localstate.Write(s.path, s.state); err != nil {
+		failure := localstate.DescribeFailure(err)
+		if s.lastSaveError == nil || localstate.DescribeFailure(s.lastSaveError).Reason() != failure.Reason() {
+			slog.Warn("Text channel state save failed", "reason", failure.Reason(), "elapsed_ms", failure.ElapsedMS, "completion_ready", failure.CompletionReady)
+		}
+		s.lastSaveError = err
 		s.state = previous
 		s.secretAnswers = previousSecret
 		return err

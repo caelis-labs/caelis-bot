@@ -12,10 +12,18 @@ import (
 
 var writers sync.Map // One in-flight OS write per product document.
 
-func Write(path string, value any) error {
+func Write(path string, value any) (err error) {
 	if path == "" {
 		return nil
 	}
+	started := time.Now()
+	phase := "encode"
+	completionReady := false
+	defer func() {
+		if err != nil {
+			err = &writeError{cause: err, phase: phase, elapsed: time.Since(started), completionReady: completionReady}
+		}
+	}()
 	// Encode under the owner's lock; a timed-out disk writer never reads its
 	// mutable maps later. Disk timeout is not a successful durable receipt.
 	body, err := json.Marshal(value)
@@ -27,6 +35,7 @@ func Write(path string, value any) error {
 	defer cancel()
 	entry, _ := writers.LoadOrStore(path, make(chan struct{}, 1))
 	gate := entry.(chan struct{})
+	phase = "writer_admission"
 	select {
 	case gate <- struct{}{}:
 	case <-ctx.Done():
@@ -34,10 +43,12 @@ func Write(path string, value any) error {
 	}
 	done := make(chan error, 1)
 	go func() { defer func() { <-gate }(); done <- writeBytes(path, body) }()
+	phase = "writer_completion"
 	select {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
+		completionReady = len(done) != 0
 		return ctx.Err()
 	}
 }
