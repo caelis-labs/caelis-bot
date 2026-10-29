@@ -1,83 +1,57 @@
-# Continue helping through a local failure
+# Recover without replaying work
 
-Inspect the original task or request when a send, approval, observation or action
-has an uncertain result. Keep its handle, receipt and execution owner. Check the
-actual outcome rather than repeating work to repair a display or obtain a result.
-A failed read is not proof of failed execution; a ready connection is not proof
-that earlier work survived. Historical messages can remain readable even when
-their original owner cannot accept more work.
+Keep the original task, request receipt and execution owner when an action's
+outcome is uncertain. A failed read does not prove failed execution; a ready
+connection does not prove earlier work survived. Historical output may remain
+readable when its owner cannot accept more work.
 
-Keep harmless failures and automatic retries out of conversation. Continue
-unaffected work, preserve drafts and useful results, and explain a material limit
-in plain language when it prevents progress. Ask for the specific input, choice
-or authorization needed; do not ask the user to debug receipts or repeat an
-already accepted instruction. The connection's recovery controls handle bounded
-reconnection. Do not reload full histories or image/tool payloads just to recover
-recent conversational context.
+Use bounded native recovery, preserve drafts and results, and continue unaffected
+work. Keep harmless failures, raw errors and retry details out of conversation.
+Explain a material limit plainly and ask only for a real missing input, decision
+or authorization. Do not reload full histories to repair recent display context.
 
-## Check an uncertain submission
+## Reconcile the original action
 
-An accepted or rejected prompt stays settled even if a later response times out.
-A failed message or draft refresh does not undo an accepted send. Never resend
-input or an approval merely because another surface is stale.
+For `bot_delegate`, use the returned task and original `requestId` with `bot_tasks`
+`reconcile`. If no handle was returned, search retained tasks and keep the call
+unresolved until identified. A new call, even with identical text, is another
+submission. Do not create a replacement to recover a missing receipt.
 
-For `bot_delegate`, inspect its returned task and original `requestId` with the
-task read/reconciliation tools. If no handle was returned, search retained tasks
-and keep the original call unresolved until it can be identified. Do not supply
-a new requestId or make another delegation call: identical text still creates a
-new submission. The same principle applies to arrangements and external effects;
-inspect their original receipts rather than changing IDs or tools to retry them.
+Accepted or rejected input stays settled after a later display/read timeout.
+Never resend input or approval to repair a stale surface. Inspect original
+arrangements and external action receipts under the same rule. A stop after
+dispatch may leave effects unknown; it cannot undo completed effects. Native
+approval decisions follow [Interactions](interactions.md).
 
-A pending approval means the command has not started; acceptance permits it to
-proceed but does not prove success. Use the exact offered choices. A denied review
-does not authorize the operation through another route. After a stop, distinguish
-confirmed cancellation before dispatch from an unconfirmed stop after dispatch.
-Read the original result; stopping does not undo earlier effects.
+Keep old task handles after model or connection changes. A capacity wait,
+permission error, disconnect, interrupted turn or `notLoaded` is not authority to
+replace a Worker or its owner. Use the original task's recovery path; do not
+resume explicitly cancelled work. Preserve dependent files until reconciled,
+then follow [Resources](resources.md).
 
-## Keep the original work
+## Interpret delegation results
 
-A capacity wait, disconnect, permission error, interrupted turn or `notLoaded`
-result does not justify a replacement Worker, model switch or new execution owner.
-Let the original request's bounded recovery finish. If it cannot continue, explain
-the impact and use the retry or recovery action for that original task. Read-only
-inspection does not resume work; do not auto-continue cancelled work.
+Check the top-level outcome first. `unconfirmed` always requires reconciliation
+of the original task/request, regardless of diagnostic detail. A settled refusal
+does not change an earlier accepted or unknown receipt.
 
-Model and connection choices may change while Workers continue. A saved choice
-may still be applying. Inspect old tasks through their existing handles without
-asking the user to switch back, stop work or clear history. A replacement
-connection cannot receive an old approval, stop or uncertain input. If the original
-owner's exit cannot be verified, keep the outcome unknown.
+For confirmed `submission_rejected`, use `error.reason` and safe `error.detail`:
 
-A hidden card or disconnected terminal does not make its files unused. Preserve
-resources that may still be in use, then follow [Working resources](resources.md)
-once the original work is reconciled. Carry retained paths and cleanup obligations
-in the ongoing notes or handoff.
+| Reason | Next step |
+| --- | --- |
+| `updater_paused`, `capacity_full` | Retry later within authorization, at least after the suggested interval; preserve workspace and intent. Arrange a callback if attention must return later. |
+| `workspace_invalid` | Inspect and correct the selected path. |
+| `source_not_authorized` | Inspect the original invocation binding; waiting or changing directories cannot repair it. |
+| `work_admission_failed` | Inspect the cause; do not assume a transient failure or schedule a retry. |
+| `native_rejected` | Inspect the refusal; do not bypass a denied approval. |
+| `input_preparation_failed`, `input_validation_failed`, `workspace_preparation_failed` | Inspect that preparation stage before correcting it; no automatic timed retry. |
 
-For `submission_rejected`, use `error.reason` and the privacy-safe `error.detail`
-to decide the next step. `updater_paused` and `capacity_full` permit retrying
-later within the original authorization; wait at least the suggested interval, avoid a tight retry loop, and keep the same
-workspace and intent. Only `workspace_invalid` calls for correcting the selected
-path. `source_not_authorized` means the original invocation binding could not be
-verified: preserve the task/request and inspect that binding. Waiting, changing
-directories or finishing tasks cannot repair an identity mismatch. A completion
-report is evidence, not a new grant, but it does not revoke the user's existing
-authorization or disable later delegation. Continue authorized work using the
-normal Agent Loop; incorporate new user input when it arrives. Never relabel a
-report as user input or replay an accepted/unknown message. For unclassified
-`work_admission_failed`, inspect the cause; do not assume a temporary failure or
-schedule a timed retry. For `native_rejected`, inspect the refusal before taking
-another action;
-do not bypass a denied approval. For `submission_conflicted` / `native_conflict`,
-inspect the original task and request rather than resending conflicting input.
-A settled refusal does not change an earlier accepted or uncertain receipt.
-An `unconfirmed` response retains the original task/request and must be reconciled
-without replay, regardless of any error detail. Keep diagnostic detail out of
-user-facing chat.
-`input_preparation_failed`, `input_validation_failed` and
-`workspace_preparation_failed` identify the preparation stage; inspect the detail
-before correcting anything. They do not imply temporary failure or a timed retry.
-If `bot_tasks observe` returns `observation_changed`, the owner was verified but
-its state kept advancing during the bounded reads. Read the same task again when
-needed; no finish token was issued. Do not replace the Worker or replay input.
-A failed native turn can still have an accepted submission receipt. Inspect its
-safe `failure` metadata using the original task; unknown fields stay unknown.
+For `submission_conflicted` / `native_conflict`, inspect the original task and
+request. Do not resend conflicting input. A completion report neither grants new
+authority nor revokes existing user authorization; continue authorized work using
+the normal task tools without relabeling the report as user input.
+
+For `bot_tasks observe` returning `observation_changed`, read the same task again
+when needed; no finish token was issued because its state kept advancing. Do not
+replace the Worker. A failed native turn may still have an accepted submission;
+inspect its safe failure metadata through [Tasks](tasks.md).

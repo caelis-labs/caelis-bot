@@ -1,106 +1,59 @@
-# Help the user connect Telegram
+# Set up and use Telegram
 
-Treat Telegram as another place to use the same assistant and conversation.
-Help a beginner complete the short setup in **Settings → Messaging → Telegram**.
-Messaging is the channel overview; it shows the actual Telegram connection state.
-The Telegram detail has a return link to that overview. AI accounts and models
-are separate settings destinations. Older direct Telegram links still open the detail.
-Do not ask for a token in conversation or put one in notes, files, commands, screenshots,
-logs, or tool arguments. The user pastes it into the masked Bot token field; the app
-stores it in its private local credential directory. Never claim setup succeeded until the app says Connected.
+Use Settings → Messaging → Telegram for the same Bot conversation. Keep tokens
+and complete pairing links out of chat, notes, commands, tool arguments and logs.
+The user pastes the token into the masked settings field. Confirm success only
+when the app reports Connected.
 
-## Create a Bot with BotFather
+## Pair
 
-1. Open [the verified @BotFather](https://t.me/BotFather) in Telegram. Check its
-   verified badge and exact username; similarly named accounts are not BotFather.
-2. Send `/newbot`. BotFather first asks for a display name. Suggest a simple name
-   the user likes; it does not change their Caelis Bot identity.
-3. Choose a unique username ending in `bot`, such as `MyCaelisHelperBot`. If taken,
-   add a short personal suffix and try again.
-4. BotFather gives an API token. Ask the user to copy it directly into the Bot Token
-   field in Caelis Bot settings and click Connect. They should not send it to you.
-5. Use Open in Telegram on the pairing page, then tap Start in that chat. The
-   complete link carries a short-lived pairing payload; searching for the Bot and
-   tapping Start alone cannot identify this pairing attempt. If opening fails, use
-   Copy complete pairing link and open it in the user's browser. Keep the full link
-   private: never ask them to paste it into conversation, logs, or tool arguments.
-   Return to Caelis Bot settings and explicitly confirm the displayed account is
-   theirs. Receiving Start is not authorization by itself.
+1. Open the verified [@BotFather](https://t.me/BotFather); check the exact username
+   and verified badge. Send `/newbot`, choose a display name and a unique username
+   ending in `bot`. These names do not change Caelis Bot's identity.
+2. Copy the issued token directly to settings and select Connect.
+3. Use Open in Telegram and Start through the complete short-lived pairing link.
+   If needed, use Copy complete pairing link and open it privately in a browser.
+   A plain Bot URL or username search cannot identify the pairing attempt.
+4. Confirm the displayed account in Caelis Bot settings. Receiving Start alone
+   does not authorize it.
 
-Give one short step at a time when the user needs help. Use the app's Open BotFather
-and Open in Telegram buttons where possible; the user does not need a server,
-public URL, chat ID, webhook, or command-line setup.
+Offer one short step at a time when needed. No server, webhook or command-line
+setup is required. For an existing Bot, stop its previous app's Telegram connection
+and retrieve its token through BotFather `/mybots`. Do not revoke or rename unless
+asked. Switch this Bot to Caelis Bot replaces an existing webhook and discards its
+pending messages; leave that explicit choice to the user. Stop a competing poller
+before Try connecting again.
 
-## Use an existing Bot
+## Use
 
-An existing Bot can be used. Ask the
-user to stop its Telegram connection in the previous app first. In BotFather,
-send `/mybots`, select the Bot, and choose API Token, then follow steps 4–5 above.
-Do not revoke its token or change its name unless the user asks. If Caelis Bot
-reports an existing webhook, explain that Switch this Bot to Caelis Bot disconnects
-the previous service and discards its pending messages. Let the user choose that
-explicit setup action. If another app is polling, stop that app's connection and
-click Try connecting again; do not keep reconnecting competing clients.
+Text, images, stickers and files go through the paired private chat; incoming files
+are limited to 8 MB. Animated/video stickers supply a preview frame when available;
+see [Received media](received-media.md). Replies stream and may span messages.
+Desktop messages/attachments also appear; pairing does not copy old private history.
 
-## Use and troubleshoot
+`/status` checks availability; `/stop` interrupts current work. Native decisions
+use the exact offered card/buttons or commands in [Interactions](interactions.md).
+Keep marked secrets in native fields. Some logins or OS prompts need the desktop.
+Keep Bot running and the host online; closing chat does not stop it, but sleep
+or disconnection delays reception.
 
-- Send text, a photo, a sticker, or a file to the paired private chat. Incoming files are
-  limited to 8 MB each so both supported runtimes can accept them. The Bot uses
-  its existing tools and capabilities to interpret attachments. Animated and
-  video stickers arrive as a single preview frame when one is available.
-- Replies update progressively in Telegram. Long replies span multiple messages.
-  Desktop messages and attachments also appear there. Earlier private history is
-  not copied when an account is first paired.
-- `/stop` stops current work; `/status` reports whether the Mac is online and busy.
-  An approval with Runtime-provided choices, including Computer Use, can be answered
-  using its Telegram buttons. Show the choices actually offered for that request;
-  a session or lasting permission is available only when the Runtime offers it.
-  Requests needing forms, secrets, or external login direct the user to the Mac.
-  An old button may expire after a decision, reconnect, or change of task. If a
-  decision's result is uncertain, check the original request on the Mac; do not
-  tap a different option to repeat it.
-- Keep Caelis Bot running and the Mac online. Closing its conversation window
-  does not stop the connection. A sleeping or offline Mac cannot receive messages
-  until it reconnects.
-- If the pairing link expires, click Try connecting again. Only the account
-  confirmed on the Mac is allowed to send work to the assistant.
-- An ordinary, wrong or expired `/start` cannot create a pairing candidate. Do not
-  offer a plain Bot URL or manual username search as a pairing substitute. If the
-  complete link still leaves the page waiting, distinguish link expiry, channel
-  receive/polling issues and a stale status view; the waiting screen alone proves
-  none of these. Preserve the original attempt instead of repeatedly renewing it.
-- Distinguish Not set up, Connecting, Waiting for pairing, Confirm your account,
-  Connected, Paused, Reconnecting and Needs attention. A waiting screen or a
-  successful status read is not pairing confirmation. Follow the single action
-  shown for the current state; do not repeatedly submit a token or request a new
-  link while the original connection action is unresolved.
-- For network errors, check internet access and the Mac's proxy/VPN. For a blocked
-  Bot, unblock it in Telegram. If the saved credential cannot be read, paste the
-  token again in settings.
-- After restarting the Mac app, messages wait until its existing conversation is
-  ready for native input. Local chat messages remain visible independently. Do not ask the user to resend while it is reconnecting. Sending a
-  large outgoing attachment does not prevent `/stop`, `/status`, or approval choices.
-- The app uses the Mac's system proxy, including automatic configuration (PAC).
-  If automatic discovery fails, it follows the Mac's remaining connection choices.
-  A system-allowed direct connection still follows VPN/TUN routing, including
-  FlClash; it does not turn off those apps. If all choices fail, help the user check
-  the proxy/VPN. Do not change or restart it unless asked, or expose the token to
-  diagnose connectivity.
-- An uncertain delivery is not permission to repeat it. Inspect the original
-  message on the Mac and Telegram before deciding whether to send anything again.
-- If a completed reply is visible on the Mac but missing in Telegram, keep the
-  original work result. An app update does not automatically resend older
-  rejected or uncertain Telegram deliveries. Help the user read that reply on
-  the Mac; continue the conversation in Telegram with a new user message only
-  when they choose to do so. Do not repeat the original work to repair the chat.
-- Pause retains the saved pairing and token. Remove connection clears the pairing
-  and deletes this app's saved token after an explicit confirmation. It does not
-  delete the Telegram Bot.
+## Diagnose setup or delivery
 
-A Runtime disconnect or a failed background subscription does not mean the Bot
-app stopped. Keep helping the user through available controls. `/status` and
-reconnect/approval buttons provide receipt feedback while native work is checked.
-Treat an unconfirmed background task as that task's uncertainty; read its original
-handle and receipt rather than creating a replacement. A recent-message sync or
-attachment display failure is not evidence that a native task failed. Never ask
-the user to delete a Session or replay an action to clear a display error.
+Follow the current state's action: Connecting, Waiting for pairing, Confirm your
+account, Connected, Paused, Reconnecting or Needs attention. A waiting screen is
+not proof of expired pairing or failed polling. Preserve unresolved attempts;
+refresh an expired link through Try connecting again, not repeated token submission.
+
+For network problems, inspect host internet/proxy/VPN availability. The app uses
+system proxy choices, including PAC; system direct routing does not disable a VPN.
+Do not change/restart network software unless authorized. Unblock a blocked Bot
+in Telegram; re-enter an unreadable saved token only in settings.
+
+During reconnection, keep original messages queued rather than asking for resends.
+If a completed reply is missing on Telegram, retain the result and inspect the
+original delivery. Updates do not backfill rejected/unknown sends. Help read the
+reply on the desktop; do not repeat the work to repair delivery. Use
+[Recovery](recovery.md) for uncertain tasks or actions.
+
+Pause retains pairing and token. Remove connection deletes this app's pairing and
+saved token after confirmation; it does not delete the Telegram Bot.

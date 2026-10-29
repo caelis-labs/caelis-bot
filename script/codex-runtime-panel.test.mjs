@@ -4,12 +4,16 @@ import {createServer} from 'vite';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
-after(()=>server.close());
 const {CodexRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/CodexRuntimePanel.tsx');
 const {BuiltinRuntimePanel}=await server.ssrLoadModule('/src/settings/runtime/BuiltinRuntimePanel.tsx');
 const {TeamSettings}=await server.ssrLoadModule('/src/settings/runtime/TeamSettings.tsx');
 const {ConnectionsPage}=await server.ssrLoadModule('/src/settings/runtime/ConnectionsPage.tsx');
 const {Recovery}=await server.ssrLoadModule('/src/SurfaceBoundary.tsx');
+const {existingModelChoice,activateExistingModel}=await server.ssrLoadModule('/src/settings/runtime/onboarding-models.ts');
+const {CodexLogin}=await server.ssrLoadModule('/src/settings/runtime/CodexLogin.tsx');
+// Complete module loading before registering tests so cleanup cannot close Vite
+// while a later top-level import is still discovering test cases.
+after(()=>server.close());
 
 test('contextual errors preserve the actual failure and have only an explicitly supplied retry',()=>{
  const failed=renderToStaticMarkup(React.createElement(Recovery,{message:'Model was removed during selection'}));
@@ -94,7 +98,6 @@ test('bundled Caelis needs no installation or self-update, while Host activation
  assert.match(panel({...bundled,serviceUpdateAvailable:true}),/Enable installed version/);
 });
 
-const {existingModelChoice,activateExistingModel}=await server.ssrLoadModule('/src/settings/runtime/onboarding-models.ts');
 const modelSetup={state:'ready',selectedModel:'saved/one',models:[{value:'saved/one',label:'One',noAuth:false},{value:'saved/two',label:'Two',noAuth:false},{value:'locked',label:'Needs credentials',noAuth:true}]};
 test('onboarding reuses authenticated models even before a default model is selected',()=>{
  assert.deepEqual(existingModelChoice(null),{models:[],selected:''});
@@ -172,7 +175,6 @@ test('onboarding progress retains the action label and disables repeated submiss
  assert.doesNotMatch(page,/Ready|Continue|Connecting/);
 });
 
-const {CodexLogin}=await server.ssrLoadModule('/src/settings/runtime/CodexLogin.tsx');
 test('shared device ceremony has one account primary and one secondary key entry',()=>{
  const html=renderToStaticMarkup(React.createElement(CodexLogin,{state:base,onAction:()=>{}}));
  assert.equal((html.match(/>Log in with ChatGPT</g)||[]).length,1);

@@ -39,6 +39,22 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Instrument only this temporary installed bundle. Assert staged native reads
+	// without coupling the contract to the guide's editorial headings.
+	skillMarkers := map[string]string{}
+	for _, relative := range []string{"SKILL.md", "references/tasks.md", "references/interactions.md", "references/screen-input.md", "references/recovery.md", "references/telegram-setup.md"} {
+		path := filepath.Join(filepath.Dir(skillPath), relative)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		marker := "progressive-body-fixture:" + relative
+		skillMarkers[relative] = marker
+		if err := os.WriteFile(path, append(body, []byte("\n"+marker+"\n")...), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	vault, err := notebook.OpenVault(filepath.Join(dir, "Notebook"))
 	if err != nil {
 		t.Fatal(err)
@@ -169,16 +185,16 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if len(initial) != 3 {
 		t.Fatalf("expected two native file-read stages: %d model requests", len(initial))
 	}
-	if !strings.Contains(initial[0], "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(initial[0], "# Restore your context") {
+	if !strings.Contains(initial[0], skillPath) || strings.Contains(initial[0], skillMarkers["SKILL.md"]) {
 		t.Fatal("metadata absent or eager body injection")
 	}
-	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Arrange and continue independent work") || !strings.Contains(initial[2], "# Arrange and continue independent work") {
+	if !strings.Contains(initial[1], skillMarkers["SKILL.md"]) || strings.Contains(initial[1], skillMarkers["references/tasks.md"]) || !strings.Contains(initial[2], skillMarkers["references/tasks.md"]) {
 		t.Fatal("native file tools did not progressively load skill")
 	}
-	if strings.Contains(initial[1], "# Handle native decisions and questions") || !strings.Contains(initial[2], "# Handle native decisions and questions") {
+	if strings.Contains(initial[1], skillMarkers["references/interactions.md"]) || !strings.Contains(initial[2], skillMarkers["references/interactions.md"]) {
 		t.Fatal("interaction policy reference was not progressively loaded")
 	}
-	for _, marker := range []string{"# Help the user connect Telegram"} {
+	for _, marker := range []string{skillMarkers["references/telegram-setup.md"]} {
 		if strings.Contains(initial[1], marker) || !strings.Contains(initial[2], marker) {
 			t.Fatal("conditional guide did not load", marker)
 		}
@@ -195,7 +211,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if !correlated {
 		t.Fatal("native user input did not preserve submission identity")
 	}
-	if !strings.Contains(initial[1], "references/memory.md") || !strings.Contains(initial[1], "references/interactions.md") || strings.Contains(initial[1], "Supply a complete handoff") {
+	if !strings.Contains(initial[1], "references/memory.md") || !strings.Contains(initial[1], "references/interactions.md") || strings.Contains(initial[1], skillMarkers["references/recovery.md"]) {
 		t.Fatal("bot-core routes or progressive disclosure missing")
 	}
 	old := s.ConversationState().Session
@@ -269,7 +285,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	mu.Lock()
 	workerRequest := requests[5]
 	mu.Unlock()
-	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, "You are Caelis Bot, a persistent personal assistant.") {
+	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, skillMarkers["SKILL.md"]) {
 		t.Fatal("resident skill leaked into native worker")
 	}
 	nativeEngine, err := eventplan.Open(filepath.Join(dir, "events.json"), nil, time.Now())
