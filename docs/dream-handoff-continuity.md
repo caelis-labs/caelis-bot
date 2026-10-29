@@ -1,7 +1,8 @@
 # Dream handoff continuity
 
-This change replaces the continuity portion of draft #255 (`b779063b`) on main
-`67c8216195b511b869aeda25f0ad718600dfe0c4`, after unified delivery #258. It does not
+This change replaces the continuity portion of draft #255 (`b779063b`), originally
+based on unified delivery #258 and now incorporating main
+`16dd63547a934cacf4e44e415a4375c03026cec6` (#260). It does not
 implement soft-cue sampling/thresholds or investigate the separate historical
 plugin HTTP 500 and Telegram timeout. Those remain separately owned.
 
@@ -80,6 +81,22 @@ idle/finish proof after cancellation. A deterministic response-close cancellatio
 test reproduces it on the unchanged function. A separate follow-up commit checks
 cancellation under the publication lock; it does not alter task ownership or
 replay policy. The failed run and red/green evidence remain in the PR record.
+
+The Windows receipt-lifecycle failure did not retain its underlying save error;
+its historical filesystem error or deadline cannot be inferred from a later pass.
+The original save boundary now records deduplicated, path-free error category,
+write phase, OS code and elapsed time while preserving the original error cause.
+The two-second write wait and unknown-result policy are unchanged. Deterministic
+post-answer deadline and filesystem failures verify restart recovery through the
+original receipt, never another answer. The 257-answer lifecycle test now verifies
+unknown identity before reconciling a proven post-answer deadline once; filesystem
+errors still fail that lifecycle test. The same injected deadline at iteration 153
+fails its previous immediate-settlement assertion and passes the revised test.
+Diagnostic-only CI success is recorded separately from that causal test evidence.
+
+Handoff files use `handoff_continuity` names to avoid add/add conflicts with the
+independent soft-cue implementation in #261. No shared binding signature changes
+or reminder implementation are part of this follow-up.
 
 ## Limits
 

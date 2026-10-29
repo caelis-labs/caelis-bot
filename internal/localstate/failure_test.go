@@ -34,7 +34,8 @@ func TestWriteFailureIsSafeAndPreservesCause(t *testing.T) {
 }
 
 func TestWriteFailureDistinguishesFilesystemFromAdmissionDeadline(t *testing.T) {
-	if got := DescribeFailure(Write(t.TempDir(), map[string]string{"secret": "private"})); got.Kind != "filesystem" || got.OSCode == 0 {
+	// Observe the native failure itself, separately from the bounded wait.
+	if got := DescribeFailure(WriteConfirmed(t.TempDir(), map[string]string{"secret": "private"})); got.Kind != "filesystem" || got.OSCode == 0 {
 		t.Fatal("missing filesystem evidence", got)
 	}
 	path := filepath.Join(t.TempDir(), "blocked.json")

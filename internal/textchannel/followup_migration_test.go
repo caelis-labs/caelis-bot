@@ -3,6 +3,7 @@ package textchannel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,13 +164,21 @@ func TestRealAnswerReceiptsSettleRecycleAndRestartWithoutAccumulation(t *testing
 	}
 	calls := 0
 	accepted := true
+	var receipt api.Receipt
+	var settlementFailure error
 	bind := func() {
-		s.SetAsyncAnswerer(func(_ context.Context, _ Inbound, _ string) (api.Receipt, error) {
+		s.SetAsyncAnswerer(func(_ context.Context, in Inbound, _ string) (api.Receipt, error) {
 			calls++
+			receipt = api.Receipt{ID: in.ID, Outcome: "rejected"}
 			if accepted {
-				return api.Receipt{Outcome: "accepted"}, nil
+				receipt.Outcome = "accepted"
 			}
-			return api.Receipt{Outcome: "rejected"}, nil
+			return receipt, nil
+		})
+		s.SetAsyncUpdateObserver(func(item api.Item) {
+			if len(item.QuestionCards) == 1 && item.QuestionCards[0].State == "unknown" {
+				settlementFailure = s.lastSaveError
+			}
 		})
 	}
 	bind()
@@ -184,8 +193,28 @@ func TestRealAnswerReceiptsSettleRecycleAndRestartWithoutAccumulation(t *testing
 			t.Fatal(err)
 		}
 		accepted = n%2 == 0
-		feedback := s.HandleDesktopQuestion(t.Context(), fmt.Sprint("original-dispatch-", n), "Q1", card.QuestionCards[0].Binding, "1", api.Snapshot{Connection: "ready", RuntimeOwner: "owner"})
+		receipt, settlementFailure = api.Receipt{}, nil
+		request := fmt.Sprint("original-dispatch-", n)
+		snapshot := api.Snapshot{Connection: "ready", RuntimeOwner: "owner"}
+		feedback := s.HandleDesktopQuestion(t.Context(), request, "Q1", card.QuestionCards[0].Binding, "1", snapshot)
 		q := s.state.AsyncQuestions["Q1"]
+		if settlementFailure != nil {
+			// A bounded save may finish later. Verify uncertainty first, then
+			// reconcile the original native receipt once, without another answer.
+			if !errors.Is(settlementFailure, context.DeadlineExceeded) || !errors.Is(s.lastSaveError, context.DeadlineExceeded) || q.State != "unknown" || q.ReplyID != request || q.Fingerprint != card.QuestionCards[0].Binding || receipt.ID != request || calls != n+1 {
+				t.Fatalf("unexpected persistence failure: iteration=%d save=%+v", n, localstate.DescribeFailure(settlementFailure))
+			}
+			t.Logf("original receipt recovery: iteration=%d save=%+v", n, localstate.DescribeFailure(settlementFailure))
+			snapshot.LastReceipt = receipt
+			if err := s.ReconcileAsync(snapshot, nil); err != nil {
+				t.Fatal("original receipt reconciliation failed", err)
+			}
+			// Rejected questions restore prose from their original native item.
+			if _, err := s.AsyncCard(item, "owner"); err != nil {
+				t.Fatal(err)
+			}
+			q = s.state.AsyncQuestions["Q1"]
+		}
 		if len(s.state.AsyncReceipts) != 0 || accepted && q.State != "answered" || !accepted && (q.State != "" || q.Title != item.AsyncQuestions[0].Title) {
 			t.Fatalf("settled receipt leaked or rejected answer lost its original: iteration=%d feedback=%s save=%+v", n, feedback, localstate.DescribeFailure(s.lastSaveError))
 		}
