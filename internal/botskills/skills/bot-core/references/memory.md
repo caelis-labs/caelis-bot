@@ -1,7 +1,9 @@
 # Maintain Bot memory
 
-Bot memory is `Notebook/MEMORY.md` and the Markdown notes in that Notebook.
-Use native file tools to maintain it as part of the user's ongoing work. Runtime
+Use `MEMORY.md` and Markdown notes relative to the Bot Notebook root.
+`Notebook/MEMORY.md` names that core file from the Bot data directory; when your
+working directory is the Notebook root, use `MEMORY.md`, not `Notebook/MEMORY.md`.
+Maintain these files with native file tools as part of the user's ongoing work. Runtime
 Memory, such as `~/.codex/memories`, is separate: its instructions and update rules
 do not define Bot memory maintenance. Do not copy between the two automatically.
 

@@ -1,299 +1,190 @@
-# Bot continuity: staged memory review and session renewal
+# Bot continuity: memory review and meaningful session renewal
 
-Status: phase-two proposal, not implemented. Review phase one before starting this
-work. Phase one changes the packaged Skill and its loading fixtures only; it does
-not enable scheduled maintenance, change Dream admission or change Memory injection.
+Status: phase-two proposal, not implemented. Review phase one before implementation.
+Use a soft cue to invite useful consolidation; it neither authorizes discarding
+context nor proves that renewal is appropriate. Keep a healthy Session. A large
+window does not make a persistently expensive, stale working set healthy.
 
-## Purpose and authority
+## Current evidence and missing measurements
 
-Keep one personal assistant identity across meaningful internal Session generations.
-Use real elapsed time and measured context health to offer a private, optional
-review cue. The Bot consolidates continuing work and memory in small steps, then
-uses the existing `bot_dream` terminal handoff when that improves continuity.
-A healthy old Session stays in use. Age, a token count or an app upgrade alone
-must not trigger a cue, maintenance turn or renewal.
+The inspected Bot baseline is `d22c7696800d54d411ae231d7689e31839b6bf79`, including
+approval snapshot ordering PR #253. These are source findings, not formal-account
+acceptance. The user's time/health proposal supersedes the earlier model-only
+direction for future work; [current product behavior](../product.md#连续性与主动工作)
+stays unchanged until implementation is reviewed.
 
-The user has explicitly authorized designing time/health cues. This proposal
-supersedes the earlier model-only direction for future implementation; the
-[current product behavior](../product.md#连续性与主动工作) remains unchanged until
-that implementation is reviewed and validated. No idle LLM polling, timer-driven
-forced rotation, new conversation navigation or second task/approval authority.
-
-## Evidence and current gaps
-
-The source baseline is `d22c7696800d54d411ae231d7689e31839b6bf79` (including
-approval snapshot ordering PR #253). Source inspection is evidence of code behavior,
-not proof that the formal account exercised it.
-
-| Observation | Evidence / limit |
+| Evidence | Meaning and limit |
 | --- | --- |
-| Formal Codex conversation dates from September 19; no observed `bot_dream` or `handoff-codex.json`; post-compaction records mostly 80–96k and latest about 119k | User-provided investigation, not re-read from the formal profile in this change. `input_tokens=0` is not a billing total or reliable trigger. |
-| `MEMORY.md` is automatically supplied at a new Session's first input, not every turn | [`Vault.PrepareContext`](../../internal/notebook/context.go), [`contextseed.State`](../../internal/backend/contextseed/seed.go), both adapter `context.go` files. Acceptance is persisted before consumption; an unknown first send keeps its frozen original seed. |
-| Auto-injection can currently omit Memory | [`app.go` PrepareContext callback](../../internal/app/app.go) reports a file-read failure internally and continues with an empty seed. Missing files are allowed; nonregular/invalid UTF-8/over-128-KiB files fail. “Every Session always has current memory” is therefore not yet a strict guarantee. |
-| INDEX is generated navigation, not a body/status index | [`Vault.Refresh`](../../internal/notebook/vault.go) sorts Markdown paths descending, extracts titles, skips hidden/symlink entries and excludes legacy HANDOFF. Dated paths form a time navigation aid; arbitrary filenames are not a chronological event log. App startup, submit preparation and completion refresh it. It is not injected. |
-| No current host age/health wake | [`dream.go`](../../internal/bot/dream.go) only recovers legacy receipts; `TestNoAutomaticDreamEvenAfterUpgradeAndHighUsage` covers that boundary. |
-| Dream requires original invocation and a nonempty handoff of at most 16 KiB | [`dream_tool.go`](../../internal/bot/dream_tool.go), [`handoff.go`](../../internal/bot/handoff.go): durable private summary, terminal turn, original renewal receipt, accepted first-input digest consumption. Old binding is retained on rejected/unknown fallback; a successful tool response alone does not prove renewal. |
-| Context evidence is incomplete across adapters/restarts | [`api/context.go`](../../internal/backend/api/context.go) has live `Used`, `Window`, `ModelAt`, `UsageEvidence`, not Session creation time or a pressure history. Codex [`usage.go`](../../internal/backend/codex/usage.go) rejects zero input counters; [`projection.go`](../../internal/backend/codex/projection.go) invalidates usage on native compaction. Caelis [`usage.go`](../../internal/backend/caelis/usage.go) requires a fresh same-turn gauge/provider pair. Neither should infer health from billing totals or restored transcript counters. |
-| Existing owners already retain work and decisions | [`tasks.Manager`](../../internal/tasks/manager.go), [`interaction lifecycle`](interaction-lifecycle-followup.md), [`event arrangements`](../architecture.md#registered-event-arrangements) keep execution generations, original receipts, cancellation and expiry. A completed turn is not task completion. |
-| Caelis retired-tool reclamation is distinct from renewal | User-provided Core fact: only marked-retired tools are collected at a safe checkpoint. This Bot change neither verifies the Core implementation nor assumes active recalled tools expire. Do not use schema count/age as an automatic eviction instruction. |
+| Formal Codex Session dates from September 19; no observed Dream/handoff; post-compaction records mostly 80–96k, latest about 119k | User-provided investigation, not re-read here. These records motivate measuring retained context; they do not establish billable cost, a trustworthy live gauge or a trigger. `input_tokens=0` is not a billing total. |
+| [`Vault.PrepareContext`](../../internal/notebook/context.go), [`contextseed`](../../internal/backend/contextseed/seed.go), adapter `context.go` | Readable `MEMORY.md` at the Bot Notebook root is supplied at the first input of each new Session. The seed is frozen for its original input; acceptance is saved before handoff consumption. It is not reloaded every turn. |
+| [`app.go`](../../internal/app/app.go) context callback | A memory-read error currently permits an empty seed. Missing files are allowed; nonregular, invalid UTF-8 and over-128-KiB files fail. Strict readable-memory admission for planned renewal is a gap. |
+| [`Vault.Refresh`](../../internal/notebook/vault.go) | INDEX generates Markdown path/title navigation, descending by path; dated paths form a timeline. It contains neither note bodies nor completion status, and is not injected. |
+| [`api/context.go`](../../internal/backend/api/context.go), [Codex usage](../../internal/backend/codex/usage.go), [Caelis usage](../../internal/backend/caelis/usage.go) | Current live usage lacks a persisted comparable baseline series. Codex rejects zero input counters and invalidates its gauge on compaction; Caelis requires a fresh same-turn gauge/provider pair. Billing totals, transcript record counts and token drops are not retained-working-set measurements. |
+| [`dream_tool.go`](../../internal/bot/dream_tool.go), [`handoff.go`](../../internal/bot/handoff.go), [Codex renewal](../../internal/backend/codex/context.go), [Caelis renewal](../../internal/backend/caelis/context.go) | Existing `bot_dream({handoff})` saves at most 16 KiB under the original invocation, ends that turn, journals native creation and checks the old binding again before switching. Rejected/unknown creation retains original receipts; no replacement request ID. |
+| [`tasks.Manager`](../../internal/tasks/manager.go), [interactions](interaction-lifecycle-followup.md), [arrangements](../architecture.md#registered-event-arrangements) | Work, questions, occurrences and delivery receipts already have durable owners. They do not need to be copied into a new continuity ledger. |
+| Caelis retired-tool collection | User-provided Core fact: only marked-retired tools are reclaimed at a safe checkpoint. No schema eviction or reset of active tools is proposed here. |
 
-Phase-one verification and its exact commands/results belong in the PR. Native
-Runtime fixtures use synthetic providers: they verify transport and context
-boundaries, not the model's judgment or formal-account behavior. The acceptance
-matrix below describes additional phase-two work, not results already obtained.
+The native fixtures in phase one use synthetic providers. They verify loading,
+transport and isolation, not model judgment, memory quality or formal usage.
 
-## Minimal implementation
+## Candidate inputs and testable policy
 
-Reuse `internal/bot`, `ConversationState`, `contextseed`, private handoff records,
-Notebook, task/interaction ledgers and existing report/schedule admission. Extend
-their boundaries rather than adding a memory database or another workflow engine.
+Measure retained context separately from window pressure and money. Collect only
+observations already produced by ordinary resident activity; do not create idle
+LLM turns or throwaway Sessions to measure a baseline.
 
-1. Add a small provider/session-scoped continuity record under app-private storage:
-   observation start, proven creation time if available, a bounded health sample
-   ring, last cue receipt, cooldown and preparation progress. Do not reuse the
-   retired `dream-*.json` scheduler or infer birth time from it.
-2. Project typed health observations and compaction events in each adapter. Keep
-   usage/billing fields separate. Persist only bounded evidence with original
-   session/turn/model identity and timestamps; historical samples are not live
-   evidence after reconnect or a model/window change.
-3. Run a pure eligibility function on already observed turn-completion/input
-   boundaries. Attach one private cue to the next ordinary admitted input/report
-   through existing host provenance. Do not create an idle model turn. Persist cue
-   admission with that original input, so a lost response cannot replay it.
-4. Extend the existing `bot_dream` request with a small preparation operation
-   (`prepare`, `validate`, `discard`) returning an opaque preparation token and
-   bounded original-record pointers. The existing handoff call remains supported.
-   Add a `preparationToken` for final commit. Pin old catalog schemas so historical
-   calls retain their original identity; legacy calls run the same host preflight
-   internally and fail safely if a continuity revision changes during admission.
-5. The Bot uses ordinary file/task/interaction/schedule tools for staged review.
-   `prepare` and `validate` observe only; neither writes memory, decides a request,
-   starts a Worker nor rotates a Session. `validate` checks current input/authority
-   revisions and refreshed file digests, then supplies a commit token. Final Dream
-   compares it under the existing input/tool admission fence before saving handoff.
-6. Extend current handoff/seed preparation with the validated continuity manifest
-   and current core memory; fail a planned renewal before switching if those
-   required files or native references cannot be read consistently.
-
-Preparation metadata belongs in the existing private handoff store (versioned,
-with restart handling), and the small sample/cue record belongs to the Bot's
-existing provider state. No new writable model memory API. The operation shape
-and compatibility golden snapshots are reviewed implementation details, not
-phase-one advertised capabilities.
-
-## Algorithm inputs and initial policy
-
-Inputs must distinguish known zero, unknown, stale and invalid. Use a fakeable
-clock for tests and UTC durations for cooldowns; local dates are only for Notebook
-navigation. Wall-clock jumps do not invent elapsed activity.
-
-| Input | Source and use |
+| Input | Proposed interpretation and unavailable case |
 | --- | --- |
-| Session identity and proven age | Native binding/creation evidence; otherwise first observation is a conservative lower bound. Never derive age from the oldest visible IM message, file mtime or Bot install time. |
-| Recent real activity | Accepted resident input IDs/times and completed native model responses. Worker ticks, tool/UI updates and reconnects do not refresh model health. |
-| Context pressure | Fresh same-session/model `used / window`, with source, event/turn ID and timestamp. Require a valid positive window and known gauge semantics. Store at most 32 samples spanning 7 days. |
-| Compaction outcome | Native event identity, time and first valid post-compaction sample. Missing outcome/gauge remains unknown. No synthetic “compacted” fact from a token drop. |
-| Health recovery | Low recent pressure and low compaction frequency reset the candidate. A changed model/window begins a new comparable sample series. |
-| Admission blockers | Resident active work, pending native approvals, unread input, unknown resident effects, existing handoff, update/runtime transition and unavailable original owners. Use existing owners, not prose. |
-| Continuity revision | All accepted/queued human ingress (including Stop/revocation), task execution/report revisions, interaction lifecycle/claim revisions, schedule/grant revisions and memory/file digests. |
+| Real time | Native creation time if proven, otherwise first observation as an age lower bound. Record sample times and last review. File mtime, upgrade and reconnect are not Session birth. Clock rollback cannot invent elapsed time. |
+| Comparable configuration | Provider/model/version where exposed, context-window semantics, resident instructions, initial tool/skill assembly and memory/seed digest. A material configuration change starts a new series; do not compare unlike tokenization or injection. |
+| Initial baseline `B0` | First few small ordinary requests after normal new-Session seed injection, before substantial task material. Record only if the native gauge and request phase are known. An old Session without these observations has unknown `B0`; never reconstruct it from the latest low sample. |
+| Sustained working-set floor `B` | A lower-envelope summary of valid resident request-context gauges over multiple ordinary turns/days. Large transient inputs are not a floor. Keep sample identity, phase and provenance; this is a context-size proxy, not dollars or semantic necessity. |
+| Post-compaction baseline | First valid ordinary request gauges after identified native compactions, compared across compactions/configurations. Require the native event and a valid later gauge; neither a token drop nor a restored transcript counter proves this measurement. It supports `B` but two compactions are not mandatory. |
+| Relative retained growth | `B - B0` and `B / B0` only for comparable, positive, known baselines. Absolute `B` remains useful when `B0` is missing. Window utilization is supplementary, never a required high threshold. |
+| Work becoming stale | Verified completed/cancelled/superseded handles still referenced in the current working context or a bounded recent review, plus time since they ceased to matter. Task-ledger timestamps alone cannot prove their text remains in context. “Old” is not permission to delete it. |
 
-Proposed conservative constants for review, not measured optimal thresholds:
+The public protocols must first be checked for a reliable request-context gauge
+independent of billable counters. When `input_tokens=0`, missing phase information
+or absent native compaction evidence prevents a measurement, mark that input
+unavailable. Do not scrape Runtime Memory or claim a semantic working-set metric
+from aggregate counts. Context-to-task linkage is also not implemented: bounded
+Bot review can identify examples, but no current host counter proves stale content.
+
+Initial hypotheses for replayable fixtures, not tuned production thresholds:
 
 ```text
-fresh := observed original binding + a valid current health observation
-         no more than 15 minutes old, from the current model/window series
-safe_to_cue := no competing resident turn/admission blocker and no unread input
-old_pressure := proven_age >= 7 days
-                and >= 3 distinct fresh-at-capture response samples over >= 1 hour
-                with pressure >= 0.70
-                and >= 2 confirmed compactions in the last active 24 hours
-                whose first valid post-compaction pressure remained >= 0.60
-acute_pressure := proven_age >= 24 hours
-                  and >= 2 distinct samples over >= 10 minutes with pressure >= 0.85
-                  and a confirmed native context-exhaustion failure or compaction
-                  after which pressure still remained >= 0.80
-eligible := fresh and safe_to_cue and (old_pressure or acute_pressure)
-            and no accepted cue for this session in the last 24 hours
+comparable := current native binding/configuration and a valid recent gauge
+              (for example, at most 15 minutes old)
+sustained := at least 4 comparable floor observations spanning at least 2 days
+material_baseline := B >= 64k context tokens
+                     OR (known B0 and B >= 2 * B0 and B - B0 >= 16k)
+staleness_evidence := several verified obsolete work references
+                     (example: 3 handles, obsolete for at least 7 days)
+long_plateau := the material baseline is observed for at least 14 days
+candidate := age_lower_bound >= 7 days and comparable and sustained
+             and material_baseline and (staleness_evidence or long_plateau)
 ```
 
-Every condition requires evidence; unknown fails eligibility rather than becoming
-zero or satisfying pressure. A healthy Session (no sustained pressure/repeated
-ineffective compaction) never qualifies merely through age. A fresh response below
-0.60 clears accumulated pressure; two lower-pressure responses after a cue reset
-its candidate. Upgrade/restart alone never resets the cue budget. Rollback of the
-wall clock holds eligibility until elapsed time can be established again.
+These values must be tested against real provider semantics before implementation.
+Use a robust lower envelope/median across distinct observation windows, not the
+minimum of one anomalous counter. Post-compaction observations strengthen the
+baseline evidence without requiring near-exhaustion. Missing `B0` disables only
+the relative branch; a missing trustworthy `B` disables numerical candidacy.
+Known recent obsolete work may still inform normal model-led review, clearly
+without a measured-cost claim. Explicit user review and model-led Dream remain
+available independently of this policy.
 
-For zero `input_tokens`, phase two must first establish whether the native public
-protocol exposes an independent, trustworthy context gauge. If so, project that
-gauge independently of billable counters and test zero/missing fields separately.
-If not, leave automatic eligibility unavailable for that provider and retain
-model/user-requested Dream. Do not estimate from `total_tokens`, scrape private
-Runtime memory, or use the user-provided 119k observation as a hard threshold.
+At the next ordinary admitted input/report, a candidate can receive one private
+cue describing observed age, baseline, comparison and known obsolete references.
+Use an initial seven-day cooldown for unchanged evidence; persist the cue's
+original admission ID. The Bot may defer because the material is still useful.
+A cue does not wake an idle model, certify safe deletion or force Dream. Native
+context-exhaustion recovery remains separate from this housekeeping invitation.
 
-A cue tells the Bot the observation period and evidence, asks it to assess whether
-recent detail can be consolidated, and explicitly permits deferral when context
-is useful. It is private host data, not a new user grant or a chat notification.
-The Bot may perform useful preparation over subsequent normal turns. The cue's
-24-hour suppression does not expire an unfinished preparation or authorize a
-background retry. A user-requested review remains available regardless of policy.
+## Minimal loop using existing capabilities
 
-No autonomous wake is needed for the first implementation. If the user requests
-review at a later time, the Bot can create an ordinary authorized schedule; it
-still uses the same preflight and cannot force Dream. Independent Worker notices
-and existing schedules continue normally.
+1. **Review a bounded slice.** Follow current goal/open-work links in MEMORY, recent
+   dated INDEX entries and the last review note. Read relevant note bodies and
+   the original records for the work actually being considered. Record where to
+   resume if the slice exceeds the current turn's budget. Do not scan every page
+   of task history or require proof that no older work exists.
+2. **Consolidate incrementally.** Use normal file tools to update notes and core
+   memory, preserving user edits. Keep identity/personality, stable preferences,
+   important agreements and their scope/revocations, current goals and durable
+   links. Move detailed chronology to notes; remove stale or duplicate claims.
+   Read back writes. No target word count or quota justifies dropping key facts.
+3. **Handoff when useful.** Finish due foreground delivery and call the existing
+   `bot_dream` with a bounded summary: current goal/constraints, essential pending
+   original handles and unknown receipts, review-note path, and pointers to the
+   owners of queued results/questions. State any unreviewed area rather than
+   inventing completeness. No `prepare`, `validate`, `discard` or model commit token.
+4. **Resume through existing seed/delivery.** Preserve the native renewal journal,
+   binding checks and first-input seed. The new Session reads current memory and
+   the handoff, then receives pending reports through their original queues and
+   reads original records when needed. It does not reconstruct or replay effects.
 
-## Staged preparation and core memory
+Review progress belongs in an ordinary dated note. The core file is `MEMORY.md`
+relative to the Bot Notebook root, distinct from Runtime Memory. Its useful length
+depends on material facts; the existing 128-KiB read ceiling is a safety limit,
+not a target. Respect deliberate deletion; do not resurrect a previous copy.
+Unreadable required memory should prevent a planned switch while leaving the old
+Session usable. After the first new input is dispatched, keep its frozen original
+seed on uncertainty rather than rewriting and resending that input.
 
-The Bot follows the memory reference with the following additional stage-two
-contract. Each stage is resumable; progress records evidence/watermarks, not an
-LLM promise that a checklist is complete.
+## Admission without handoff starvation
 
-1. **Inventory:** prepare on the current resident Session. Read the newest dated
-   INDEX entries since the last successful review, with a minimum seven-day lookback;
-   follow older open-work links from MEMORY and the prior review note. Read note
-   bodies, then page current task/interaction/arrangement records. A review budget
-   can limit a turn's work, but unvisited pages remain explicit unfinished coverage.
-2. **Reconcile:** distinguish completed results, still-open commitments, awaiting
-   input, revoked/cancelled work and unknown effects. Check original execution
-   generations and receipts. Keep missing evidence unknown. Do not finish a task
-   merely to remove a question or make the handoff smaller.
-3. **Write:** update dated notes and the latest MEMORY without overwriting user
-   edits. Read back writes. Maintain links for longer context, original handles,
-   decisions/revocations and cleanup obligations. INDEX remains generated; refresh
-   navigation after notes change, never edit its text manually.
-4. **Validate:** refresh native records and input/authority revisions, read current
-   file digests and review any changes since preparation. Resolve changed facts
-   or explicitly retain their uncertainty. Call `validate` only after coverage and
-   memory review are complete. A native read failure cannot certify the manifest.
-5. **Commit:** deliver any due result, then call `bot_dream` with the validated token
-   and bounded handoff. Runtime ends the owning turn and uses its existing renewal
-   journal. No same-batch effect or model step follows the terminal call.
+Separate changes that affect the meaning/authority of the handoff from ordinary
+updates already safely retained by their owners:
 
-`MEMORY.md` should usually be about 4–12 KiB of UTF-8 text; 32 KiB is a review
-threshold, not a truncation instruction. These are initial editorial budgets,
-not new file limits. Preserve identity/personality, stable preferences, material
-agreements and their current scope/revocations, and pointers to important open
-work. A short file is valid when few facts exist; never pad it or drop critical
-facts to hit a length. Move detailed chronology to notes, replace stale assertions
-and avoid duplicated current claims. The existing 128-KiB read ceiling is a safety
-bound, not a target. Byte count cannot certify semantic completeness.
-
-The user may edit or delete memory at any time. Digest conflicts require re-read
-and reconciliation, not automatic restoration from a last-known copy. For renewal,
-unreadable/oversized core memory or incomplete review keeps the old Session usable;
-never silently seed a new Session without required continuity. First-ever startup
-with genuinely absent memory remains valid. Fresh seed injection reads the current
-file at dispatch, freezes it for that original input and consumes handoff only
-after durable native acceptance. Later file changes are read normally, not patched
-into an already dispatched input under the same ID.
-
-## Preserve work, decisions and authority
-
-| Information | Durable owner and handoff treatment |
+| Change during review/renewal | Treatment |
 | --- | --- |
-| Tasks | Existing task ledger retains task/environment/runtime/owner and execution generation. Manifest contains original handles and revision; new Session reads current records. No replacement Worker or migration of native ownership. |
-| User scope and standing authorization | MEMORY/dated notes preserve exact agreement, source input reference, bounds, expiry and later revocation. They are context. Native approval/grant stores remain enforcement authority. A broad preference cannot turn into permission for another action. |
-| Revocations and Stop | Existing ingress and native stop/grant/schedule receipts win over older summaries. Advance the continuity revision at ingress, before a delayed model sees the text. Never copy a captured grant snapshot back over a later revocation. |
-| Pending questions/approvals | Original interaction IDs, bindings, choices and deadlines stay with their current owners. Preserve pointers plus unresolved requirements. Session renewal neither answers nor expires them, and a closure notice is not consent. |
-| Unknown effects | Keep original request/operation IDs and outcomes in their existing journals. Manifest references them; unknown stays non-replayable even if task text says finished. Never create new IDs to restore progress. |
-| Schedules and callbacks | Existing definitions, grants, occurrences, report IDs and delivery receipts survive unchanged. New context re-reads them; no callback duplication or assumed phone delivery. |
-| Artifacts and resources | Notes retain original artifact references, paths, ownership and cleanup obligations. Active/dirty/shared/uncertain resources stay retained. |
+| New human instruction, correction, answer, Stop or revocation | Admit as high priority. Re-read the affected scope/goal. A relevant change after final handoff capture invalidates that capture; continue the old Session or reconcile the already committed new binding. |
+| Change to resident authorization, original resident approval target, runtime/model assembly or required memory | Check the affected existing owner at final admission. Do not copy stale grants or ignore a user file edit. Pending resident effects/approvals that cannot survive rebinding block that switch. |
+| Normal Worker result, progress update, question, schedule occurrence or notification retained in a durable queue | Keep the original ID, execution owner and delivery receipt. It does not invalidate the handoff merely by arriving. Let the new Session read it through existing delivery. Independent Workers keep running. |
+| A report already admitted as a new resident turn | Existing turn/binding checks apply; do not replace an active resident turn. At the next terminal boundary, give an elected handoff a bounded admission opportunity before another ordinary queued report. Human input keeps priority. |
+| Unknown resident effect or unconfirmed renewal | Reconcile the original receipt; do not use renewal to clear uncertainty. Independent unknown Worker effects retain their original owner and can be referenced without a global stop. |
 
-The manifest is a bounded snapshot of pointers, revisions and coverage, never a
-second source of truth. If handles exceed its budget, retain a stable page anchor
-into the original ledger and mark remaining coverage; do not silently omit work.
-Native approval payloads and secrets do not enter the summary. On the first new
-Session input, include a bounded notice to read the referenced current records;
-later actions still revalidate the original target. Bot identity and connections
-remain unchanged.
+Do not require all queues to be empty, all Worker revisions to match or all old
+notes to be read. Pending delivery belongs to existing queues, not to a frozen
+handoff snapshot. Owner-provided stable pending handles/cursors can aid resumption;
+when no stable cursor exists, use existing pending delivery and exact handles,
+not an invented offset checkpoint. This review does not mark messages delivered,
+finish tasks, close questions or grant authority.
 
-The approval bridge work is already merged as PR #253. Its snapshot/ordering
-regressions and native decision path remain intact. Phase one changes no bridge
-interface. Phase two needs a narrow read-only interaction revision/pending snapshot
-from the existing owner, plus an admission fence against decision/revocation races;
-it must not copy choice authority into the model handoff. Coordinate that port
-with the approval owner before implementation. A session-scoped pending resident
-interaction blocks commit; independent Worker interactions may remain only if
-original-owner routing and the revision fence are verified end to end.
+Reuse resident admission and original-turn checks. If a narrow extra fence is
+needed, track only human ingress/current-goal and authorization changes relevant
+to the resident handoff, not every task/event revision. Register human ingress
+before it waits for resident dispatch. Check again before adopting the new binding;
+keep input queued under its original identity throughout native creation. Do not
+hold an ingress/UI lock across network or file I/O. Queue ownership continues
+while only resident report dispatch waits for the short renewal opportunity.
 
-## New input, races and fallback
+Caelis currently captures grants before creation and later rechecks resident
+state; final grant/revocation comparison is a specific gap to close. Coordinate
+that read-only authority snapshot with the approval owner. It is not a new model
+approval store. A stale candidate stays unused; never restore a revoked grant.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Observing
-  Observing --> Suggested: time and health eligible
-  Suggested --> Preparing: Bot elects review
-  Suggested --> Observing: useful context or later normal activity
-  Preparing --> Preparing: small steps, new input, revalidation
-  Preparing --> Validated: coverage and current revisions checked
-  Validated --> Preparing: any input, authority or file revision changes
-  Validated --> Renewing: fenced bot_dream commit
-  Renewing --> SeedPending: durable new native binding
-  SeedPending --> Observing: first input accepted and digest consumed
-  Renewing --> OldUsable: rejected or safe unknown fallback
-  Preparing --> OldUsable: cancellation or exhausted preparation
-  OldUsable --> Observing: continue original work
-```
+## New state only where existing records are insufficient
 
-Human input always wins over preparation. Record ingress before model admission;
-new messages, answers and revocations invalidate the commit token. Continue that
-same user goal in the old Session, apply the correction, then revalidate if still
-useful. Do not discard or automatically resend a queued input. New Worker reports
-and schedule events stay in their original delivery ledgers and either join the
-review revision or wait for the resulting binding; they are not renewed effects.
+- A bounded provider/configuration observation record: first-observed time,
+  optional initial/post-compaction baselines, at most 32 samples and the last cue's
+  original receipt/cooldown. Unknown fields remain explicit. No retired scheduler.
+- If absent in existing ingress/admission records, a narrow resident human/authority
+  generation captured in the existing renewal journal, plus required-memory digest
+  checks. Prove the need per adapter; do not add a universal continuity revision.
+- No preparation transaction, parallel task ledger, full-history coverage manifest,
+  new tool schema or new workflow engine. Use the existing private handoff record
+  and Notebook note for the handoff and review progress respectively.
 
-Between validation and commit, compare revisions under a short admission fence.
-Do not hold UI/ingress locks during file reads, network calls or model work. If
-input arrives during native creation, keep its original ingress identity queued,
-invalidate the prepared snapshot and prefer the old binding until reconciliation.
-A created empty Session is not permission to execute anything. Before final binding
-commit, recheck input epoch, original native state, current grants and file digest;
-a stale candidate cannot replace the old binding. After binding commit, queued
-input goes once to the new Session with seed and current continuity notices.
+Failed review keeps the old Session and previous successful file writes. A failed
+handoff save must not end its turn. Rejected renewal uses the old binding; unknown
+creation retains its original attempt and only falls back when that binding is
+authoritatively usable. After a committed switch, resume the same new binding and
+original first-input receipt. Never run both bindings or repeat unknown creation.
+These paths reuse existing recovery; missing guarantees require focused fixes,
+not an independent preparation state machine.
 
-Caelis currently copies grants before renewal creation and checks resident state
-again later; phase two must also compare grant/revocation revisions at commit.
-Codex must keep its current original-call `thread/start` attempt fence; an unknown
-empty-thread creation cannot be retried under a new call ID. Extend both existing
-journals to record abandoned candidates without adopting them after fallback.
-No auto-delete or guessed receipt reconciliation is required for an orphan.
+## Acceptance to implement and verify
 
-Preparation read/write failure leaves previous files and the old Session. A failed
-Dream save never ends the native turn. A rejected renewal continues the old binding.
-An unknown renewal preserves its original attempt and summary, falls back only
-when the old binding is authoritatively usable, and never reissues creation. A
-failure after binding commit resumes that same new binding and first-input receipt;
-it must not run both old and new Sessions. Native owner uncertainty may block the
-affected send, but UI, drafts and independent Worker operations remain available.
-Use bounded existing recovery and calm recovery surfaces, not a maintenance loop.
+All cases below are future requirements, not phase-one results. Synthetic numbers
+exercise policy hypotheses; real-model and formal-profile evidence stay separate.
 
-## Acceptance matrix
-
-These scenarios are required phase-two tests; none is claimed as passed by the
-phase-one Skill change.
-
-| Scenario | Observable acceptance |
+| Scenario | Observable result |
 | --- | --- |
-| Old healthy Session, upgrade, long sleep or reconnect | No cue, no model call and no renewal from age/idle/version alone. |
-| Old sustained pressure with ineffective compaction | One cue on the next admitted ordinary input; original event/input IDs retained; no idle LLM invocation. |
-| Acute pressure vs one high sample | Only the documented multi-sample/time/native-event predicate qualifies; one high sample does not. |
-| Zero/missing billing, unknown window, stale/restored/Worker usage | No fabricated health or cost; independent valid gauge usable only when protocol semantics are proven. |
-| Useful context after cue | Bot defers; same Session continues; cooldown survives restart; no forced Dream. |
-| Recent INDEX notes plus an older open commitment | Bot opens note bodies and live records, follows the old link and retains both unfinished obligations. An unvisited page blocks certification. |
-| Memory tiny, stale, duplicate, oversized, deleted or concurrently edited | Preserve key facts and user edits; reorganize without padding/truncation/resurrection. Unreadable required seed blocks renewal, not old-session use. |
-| Worker completes but a required answer is missing | Original question stays pending; no finish token used merely to clear it. Closed questions grant nothing. |
-| Worker continuation races with a late completion | Preserve current execution generation and new questions; old finish/report cannot close them. |
-| Approval/revocation/Stop arrives during preparation, validation or creation | Token invalidates and current native authority wins; no snapshot can revive revoked scope or dispatch a stale option. |
-| New human message at each handoff boundary | Exactly one original input reaches the authoritative binding with the latest constraints; no input lost, duplicated or hidden by review. |
-| Worker report/schedule fires during handoff | Original report/occurrence receipt delivered once; no duplicate callback or external effect. |
-| Unknown delegation/answer/send before and after restart | Same unresolved original IDs remain; new Session observes and never replays. |
-| Disk failure / rejected or unknown native creation / crash at each persistence boundary | Old usable binding or the committed new binding remains singular; summary and receipts survive; no second create for an unknown attempt. |
-| Successful renewal on Codex and Caelis | New native Session, stable Bot identity/Worker owners, current MEMORY and validated handoff at first input, no old transcript or recalled schema import, acceptance-only consumption. |
-| Skill scope | Only metadata initially, body/references through native reads, no resident Skill/Notebook leakage into ordinary sessions or independent Workers. |
+| Month-old stable low floor: `B0=18k`, `B=20k`, 1M window, no obsolete carried work | No cue or renewal from age alone, including reconnect/upgrade. |
+| Month-old sustained high floor: `B=90k` for 14 days after compactions, 1M window, `B0` unknown | A soft review candidate despite 9% utilization. No automatic discard or renewal. |
+| Same configuration grows from `B0=12k` to `B=36k`, with verified stale handles | Relative branch can invite review below the absolute threshold; still respect time/sustained evidence. |
+| One large attachment, model/window change, zero/missing usage or unproven compaction | No invented floor, initial baseline, cost or compaction; retain unavailable evidence and normal model/user review. |
+| High baseline contains useful active work | Bot defers; original Session continues, cooldown suppresses repeated invitations. |
+| Recent note plus older open-work link; much unrelated history remains unread | Relevant commitments survive; renewal does not require full-history scanning or a claim of exhaustive review. |
+| Continuous Worker completions and scheduled arrivals throughout review/switch | Review can finish; original queues retain all records and deliver once through the resulting binding. No global quiet-period requirement. |
+| Human correction/revocation during final capture, native creation or first-input admission | Original input retained once; current goal/authority wins; stale grants cannot be copied back. |
+| Pending Worker question or newer execution after an older completion | Original routing/generation survives; renewal does not answer, close, finish or restart it. |
+| Core memory stale, tiny, oversized, deleted or concurrently edited | Preserve important facts/user edits; no padding/truncation/resurrection; unreadable required seed blocks only the planned switch. |
+| Unknown delegation/send, rejected creation, crash at each existing journal boundary | Preserve original IDs, one authoritative binding and seed acceptance semantics; no replay or duplicate callback. |
+| Successful renewal on both Runtimes | Stable Bot identity and Worker owners; new native Session gets current core memory and handoff once, then pending records from their existing owners. |
 
-Start with pure-clock eligibility and revision-race fixtures, then both adapters
-with installed native Runtimes and synthetic providers. Finally use an isolated
-Bot profile and a real model for staged memory quality, deferral, new-message
-priority and identity retention. Formal-account observation and native GUI behavior
-remain separate acceptance categories. No production rotation is authorized or
-performed by this design delivery.
+Start with pure-clock/configuration-baseline fixtures and continuous-queue/human-
+priority admission tests. Follow with both native Runtime fixtures, then isolated
+real-model review quality and deferral tests. Formal-account rotation and native
+GUI acceptance are separate; neither is performed by this proposal.

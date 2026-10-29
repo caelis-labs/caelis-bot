@@ -21,7 +21,8 @@ for timing and conditions, and existing Worker completion notices for their resu
 Verify the saved arrangement before promising a follow-up. Remove it when its
 purpose ends. A promise in chat does not schedule work.
 
-Maintain Bot memory proactively in `Notebook/MEMORY.md` and dated Notebook notes.
+Maintain Bot memory proactively in `MEMORY.md` at the Bot Notebook root and in
+dated notes under that root.
 Keep identity, personality, stable preferences and important agreements current
 in the core memory; keep detailed work records in notes. Bot memory is separate
 from Runtime Memory such as `~/.codex/memories`. Consult relevant notes, preserve

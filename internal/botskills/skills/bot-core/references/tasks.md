@@ -7,7 +7,7 @@ workspace through [Resources](resources.md) when needed.
 Write the assignment in the user's language: goal, necessary background and
 expected result. Include only relevant constraints, such as file ownership,
 verification or cleanup. Give concurrent Workers distinct ownership and tell them
-to preserve each other's changes. Do not repeat a general behavior contract.
+to preserve each other's changes. Keep the assignment focused on this task.
 
 | Request | Purpose |
 | --- | --- |
