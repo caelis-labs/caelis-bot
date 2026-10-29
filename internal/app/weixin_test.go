@@ -1,11 +1,9 @@
 package app
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 func TestSharedChannelSnapshotAlreadyExcludesBotHandledWorkerApprovals(t *testing.T) {
@@ -14,7 +12,10 @@ func TestSharedChannelSnapshotAlreadyExcludesBotHandledWorkerApprovals(t *testin
 	engine := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{Connection: "ready", RuntimeOwner: "native", Approvals: []api.Approval{worker, manual}}}
 	a, _ := fixtureApp(t, engine, Host{})
 	before := a.Backend.Snapshot()
-	if err := localstate.Write(filepath.Join(a.root, "worker-interaction-notices.json"), workerApprovalNotice{Version: 1, States: map[string]string{"approval:worker-request": "accepted"}}); err != nil {
+	if err := a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.companion.ImportSystemReceipts([]api.Receipt{{ID: api.WorkerInteractionMessageID("approval", "worker-request"), Outcome: "accepted"}}); err != nil {
 		t.Fatal(err)
 	}
 	weixin := a.Backend.Snapshot()

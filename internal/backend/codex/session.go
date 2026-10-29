@@ -1038,14 +1038,31 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	ctx, cancel := s.operation(ctx, 45*time.Second)
 	defer cancel()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}
+	if report {
+		r.Deferred = true
+	}
 	if !in.Scheduled && legacyWakeID.MatchString(in.ID) || len(in.ID) < 8 || len(in.ID) > 128 || len(in.ModelInputText()) > 128*1024 || (strings.TrimSpace(in.Text) == "" && len(files) == 0) {
 		r.Message = "请输入消息，或添加文件"
 		return r, nil
 	}
 	s.mu.Lock()
+	if in.SystemOwner != "" && in.SystemOwner != s.state.RuntimeOwner {
+		s.mu.Unlock()
+		return api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: true}, nil
+	}
 	if in.NativeIngressFence != "" && (s.reconnectActive || in.NativeIngressFence != fmt.Sprintf("codex:%s:%d", s.instance, s.epoch)) {
 		s.mu.Unlock()
 		return api.Receipt{}, api.ErrRecoveryPending
+	}
+	if report {
+		original := s.systemReceiptLocked(in.ID)
+		pending := s.binding.Pending != nil && s.binding.Pending.ID == in.ID
+		if original.Outcome != "unknown" || pending {
+			s.mu.Unlock()
+			return original, nil
+		}
+		// Imported HostReports mark presentation, not an attempted effect.
+		// The resident owns the durable no-replay fence; native facts settle it.
 	}
 	if s.state.LastReceipt.ID == in.ID {
 		r = s.state.LastReceipt
@@ -1141,6 +1158,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		r.Message = "无法保存发送记录，消息未发送"
 		return r, nil
 	}
+	r.Deferred = false
 	s.state.Phase = "sending"
 	s.state.Reviews = []api.Review{}
 	s.reviewOrigins = map[string]reviewOrigin{}

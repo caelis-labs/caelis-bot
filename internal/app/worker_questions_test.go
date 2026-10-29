@@ -13,6 +13,7 @@ import (
 func TestWorkerAsyncQuestionReachesGuardianAndAnswersOriginalWork(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
 	manager, err := tasks.Open(filepath.Join(root, "task-questions.json"), filepath.Join(root, "Tasks"), "codex", pool, owner, a.Backend.Snapshot)
@@ -58,6 +59,7 @@ func TestWorkerAsyncQuestionReachesGuardianAndAnswersOriginalWork(t *testing.T) 
 func TestChangedWorkerQuestionGenerationGetsNewPrivateNotice(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
 	wireTestWorkers(t, a, pool)
@@ -75,6 +77,7 @@ func TestChangedWorkerQuestionGenerationGetsNewPrivateNotice(t *testing.T) {
 func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
 	manager, err := tasks.Open(filepath.Join(root, "task-questions.json"), filepath.Join(root, "Tasks"), "codex", pool, owner, a.Backend.Snapshot)
@@ -108,6 +111,7 @@ func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
 func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	wireTestWorkers(t, a, workPool(root, "codex", map[string]*workerFixture{"codex": owner}))
 	item := api.Item{ID: "worker-question:presented", TurnKey: "run", Kind: "assistant", AsyncCallID: "native-original", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"One", "Two"}}}}
@@ -150,6 +154,7 @@ func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 func TestWorkerAnswerUsesOriginalTaskWhenResidentAdmissionIsIdle(t *testing.T) {
 	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
 	a, root := fixtureApp(t, e, Host{})
+	startNoticeResident(t, a)
 	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
 	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
 	wireTestWorkers(t, a, pool)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
@@ -334,9 +335,23 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 	}
 
+	var deliveryResident *bot.Runtime
+	defer func() {
+		if deliveryResident != nil {
+			deliveryResident.Close()
+		}
+	}()
 	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
+		if deliveryResident != nil {
+			deliveryResident.Close()
+		}
+		deliveryResident, e = bot.NewForRuntime(filepath.Join(root, "delivery-bot.json"), "caelis", nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		config.DeliverSystem = deliveryResident.SubmitSystem
 		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
@@ -345,6 +360,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal(e)
 		}
 		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+		deliveryResident.Start(s)
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
@@ -634,8 +650,8 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		model.set("CASE_NATIVE_EVENT_FIRE", modelStep{Reply: api.SilentReminder})
 		before := s.Snapshot().CurrentTurn
-		delivery := eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			receipt, err := s.SubmitBackground(ctx, api.Submission{ID: id, Text: text, Scheduled: true}, []string{"schedule:" + plan})
+		delivery := eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return deliveryResident.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
+			receipt, err := deliveryResident.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemCallback, ID: id, Text: text, Grants: []string{"schedule:" + plan}})
 			return receipt.Outcome, err
 		}}
 		err := nativeEngine.Tick(ctx, now, delivery)
@@ -644,7 +660,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		waitTurn(t, ctx, s, before)
 		a := nativeEngine.Snapshot().Occurrences[0]
-		if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
+		if a.Status != "accepted" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
 			t.Fatal("native event did not use native silent background path")
 		}
 		result := s.BackgroundResult(a.ID)
@@ -909,12 +925,12 @@ func TestNativeHostIntegration(t *testing.T) {
 		submitAcceptance(t, ctx, s, "CASE_SCHEDULE")
 		before := s.Snapshot().CurrentTurn
 		in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND", Scheduled: true}
-		r, e := s.SubmitBackground(ctx, in, []string{"fixture-reminder"})
+		r, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
 		if e != nil || r.Outcome != "accepted" {
 			t.Fatal(r, e)
 		}
 		waitTurn(t, ctx, s, before)
-		r, e = s.SubmitBackground(ctx, in, []string{"fixture-reminder"})
+		r, e = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
 		if e != nil || r.Outcome != "accepted" || len(model.seen("CASE_BACKGROUND")) != 1 {
 			t.Fatal("background duplicated", e)
 		}
@@ -928,7 +944,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		model.set("CASE_BACKGROUND_SKIP", modelStep{Reply: api.SilentReminder})
 		before = s.Snapshot().CurrentTurn
-		skipped, e := s.SubmitBackground(ctx, api.Submission{ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Scheduled: true}, []string{"fixture-reminder"})
+		skipped, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Grants: []string{"fixture-reminder"}})
 		if e != nil || skipped.Outcome != "accepted" {
 			t.Fatal(skipped, e)
 		}
@@ -945,7 +961,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if e = s.RevokeBackground(ctx, "fixture-reminder"); e != nil {
 			t.Fatal(e)
 		}
-		r, _ = s.SubmitBackground(ctx, api.Submission{ID: "wake-revoked", Text: "CASE_REVOKED"}, []string{"fixture-reminder"})
+		r, _ = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-revoked", Text: "CASE_REVOKED", Grants: []string{"fixture-reminder"}})
 		if r.Outcome != "rejected" || len(model.seen("CASE_REVOKED")) != 0 {
 			t.Fatal("revoked grant activated")
 		}

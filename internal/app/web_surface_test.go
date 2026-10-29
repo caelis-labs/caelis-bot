@@ -15,7 +15,7 @@ import (
 
 type conversationOwner struct {
 	api.WorkRuntime
-	api.ReportSubmitter
+	api.SystemDelivery
 	historyError error
 	ids          []string
 }

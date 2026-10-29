@@ -54,11 +54,12 @@ func (f *referenceGrantEngine) RevokeBackground(_ context.Context, id string) er
 	}
 	return nil
 }
-func (f *referenceGrantEngine) SubmitBackground(ctx context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+func (f *referenceGrantEngine) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	in, ids := message.NativeInput(), message.Grants
 	if f.revoked != "" {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("original grant revoked")
 	}
-	return f.scheduleGrantEngine.SubmitBackground(ctx, in, ids)
+	return f.scheduleGrantEngine.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: ids})
 }
 func (f *referenceGrantEngine) BackgroundResult(id string) api.BackgroundResult {
 	return api.BackgroundResult{ID: id, Complete: f.complete[id]}

@@ -377,7 +377,8 @@ type grantEngine struct {
 
 func (f *grantEngine) AuthorizeBackground(context.Context, string, string) error { return nil }
 func (f *grantEngine) RevokeBackground(context.Context, string) error            { return nil }
-func (f *grantEngine) SubmitBackground(_ context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+func (f *grantEngine) SubmitSystem(_ context.Context, message api.SystemMessage) (api.Receipt, error) {
+	in, ids := message.NativeInput(), message.Grants
 	f.background = append(f.background, append([]string(nil), ids...))
 	r := api.Receipt{ID: in.ID, Outcome: "accepted"}
 	f.view.LastReceipt = r
@@ -415,4 +416,14 @@ func TestReadOnlyToolsCannotCreateBackgroundWork(t *testing.T) {
 	if r.callLegacyTool(t.Context(), "bot_reminders_list", json.RawMessage(`{}`)).IsError {
 		t.Fatal("read-only listing rejected")
 	}
+}
+
+func (f *fakeEngine) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	return f.Submit(ctx, message.NativeInput(), nil)
+}
+func (f *fakeEngine) SystemReceipt(id string) api.Receipt {
+	if f.view.LastReceipt.ID == id {
+		return f.view.LastReceipt
+	}
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }

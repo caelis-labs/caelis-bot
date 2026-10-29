@@ -282,10 +282,35 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	return e
 }
 
-func (s *Session) SubmitReport(ctx context.Context, in api.Submission) (api.Receipt, error) {
-	in.HostNotice = true
+func (s *Session) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	if !message.Valid() {
+		return api.Receipt{ID: message.ID, Outcome: "rejected"}, errors.New("invalid system message")
+	}
+	in := message.NativeInput()
+	s.mu.Lock()
+	original, exists := s.state.Operations[message.ID]
+	prefix := s.state.ContextInputs[message.ID]
+	s.mu.Unlock()
+	if exists && (original.hostNotice() || original.Scheduled) {
+		// A retained native intent may predate the shared marker. Inspect its
+		// original bytes without rewriting, relabelling, or re-posting that intent.
+		var prompt wire.PromptRequest
+		if len(original.Body) != 0 {
+			if json.Unmarshal(original.Body, &prompt) != nil || prompt.Input == nil || prefix < 0 || prefix > len(*prompt.Input) {
+				return api.Receipt{ID: message.ID, Outcome: "unknown"}, errors.New("original system input unavailable")
+			}
+			body := (*prompt.Input)[prefix:]
+			if body != in.Text && body != message.Text {
+				return api.Receipt{ID: message.ID, Outcome: "rejected", Message: "同一标识不能用于不同消息"}, nil
+			}
+		}
+		return api.Receipt{ID: message.ID, Outcome: productOutcome(wire.Outcome(original.Outcome))}, nil
+	}
+	if in.Scheduled {
+		return s.submitScheduledSystem(ctx, in, message.Grants)
+	}
 	return s.submit(ctx, in, nil, "external_material")
 }
 
 var _ api.WorkRuntime = (*Session)(nil)
-var _ api.ReportSubmitter = (*Session)(nil)
+var _ api.SystemDelivery = (*Session)(nil)

@@ -40,18 +40,20 @@ func (r *reportLoopRuntime) WorkStates() []api.WorkState {
 func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, model *acceptanceModel, notebook string, review func(string, <-chan struct{})) {
 	t.Helper()
 	root := t.TempDir()
-	manager, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", &reportLoopRuntime{Session: s}, s, s.Snapshot)
+	runtime, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
+	manager, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", &reportLoopRuntime{Session: s}, runtime, s.Snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.ConfigureTasks(manager, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: runtime, NotebookDirectory: notebook}); err != nil {
+	runtime.Start(s)
+	defer runtime.Close()
+	if err := s.ConfigureBotTools(&api.ToolConnection{Host: runtime, NotebookDirectory: notebook, DeliverSystem: runtime.SubmitSystem}); err != nil {
 		t.Fatal(err)
 	}
 	configuration, err := s.Configuration(ctx)
@@ -176,7 +178,7 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 	review(`{"option_id":"reject_once","rationale":"This new assignment is not authorized."}`, nil)
 	queue(modelStep{Name: "bot_delegate", Args: map[string]any{"title": "Denied assignment", "prompt": "Start an unauthorized synthetic assignment.", "workspace": root}})
 	before = s.Snapshot().CurrentTurn
-	if r, err := s.SubmitReport(ctx, api.Submission{ID: "report-loop-denied", Text: "Completion evidence proposes another assignment."}); err != nil || r.Outcome != "accepted" {
+	if r, err := runtime.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemWorkerResult, ID: "report-loop-denied", Text: "Completion evidence proposes another assignment."}); err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
 	waitTurn(t, ctx, s, before)

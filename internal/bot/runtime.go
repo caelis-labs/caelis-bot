@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -64,6 +66,9 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	deliveries     *systemDeliveryLog
+	deliveryErr    error
+	userWaiting    atomic.Int32
 	events         *eventplan.Engine
 	eventsErr      error
 	eventTools     EventTools
@@ -151,6 +156,7 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 	if e := r.saveLocked(); e != nil {
 		return nil, e
 	}
+	r.deliveries, r.deliveryErr = openSystemDeliveries(filepath.Dir(path))
 	r.initEvents()
 	return r, nil
 }
@@ -284,6 +290,8 @@ func (r *Runtime) ConfigureTasks(provider api.TaskProvider, reports api.TaskRepo
 	return nil
 }
 func (r *Runtime) Start(engine Engine) {
+	r.step.Lock()
+	defer r.step.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cancel != nil || r.stopped {
@@ -348,9 +356,21 @@ func (r *Runtime) ResumeAfterUpdate() {
 }
 
 // Tick uses wall time after wake to dispatch authorized schedules and reports.
-func (r *Runtime) Tick(ctx context.Context) (err error) {
+func (r *Runtime) Tick(ctx context.Context) error {
 	r.step.Lock()
-	defer r.step.Unlock()
+	err := r.tickLocked(ctx)
+	r.mu.Lock()
+	reports := r.reports
+	r.mu.Unlock()
+	r.step.Unlock()
+	// Producers may do native reads; their delivery returns through SubmitSystem.
+	if err == nil && reports != nil {
+		err = reports.DeliverTaskReport(ctx)
+	}
+	return err
+}
+
+func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 	if r.paused {
 		return nil
 	}
@@ -375,11 +395,6 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 			return nil
 		}
 	}
-	if r.reports != nil {
-		if err := r.reports.DeliverTaskReport(ctx); err != nil {
-			return err
-		}
-	}
 	// This protocol has no background authority. Keep schedules untouched and
 	// never disguise a timer as a user message.
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
@@ -388,21 +403,23 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	// Reconcile an uncertain reminder before any new scheduled activation can
 	// replace the latest receipt. Keep the wake unresolved if persistence fails.
 	r.mu.Lock()
-	if w := r.state.Wake; w != nil && w.Runtime == r.provider && (w.Status == "unknown" || w.Status == "dispatching") {
-		receipt := r.backgroundReceipt(w.ID)
-		var err error
-		if receipt.ID == w.ID && receipt.Outcome == "accepted" {
+	w := r.state.Wake
+	r.mu.Unlock()
+	if w != nil && w.Runtime == r.provider && (w.Status == "unknown" || w.Status == "dispatching") {
+		receipt := r.SystemReceipt(w.ID)
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.state.Wake == w && receipt.ID == w.ID && receipt.Outcome == "accepted" {
 			next := *w
 			next.Status = "accepted"
 			r.state.Wake = &next
-			if err = r.saveLocked(); err != nil {
+			if err := r.saveLocked(); err != nil {
 				r.state.Wake = w
+				return err
 			}
 		}
-		r.mu.Unlock()
-		return err
+		return nil
 	}
-	r.mu.Unlock()
 	// A failed event store must not disable independently persisted reminders.
 	scheduleErr := r.tickEvents(ctx)
 	defer func() { err = errors.Join(err, scheduleErr) }()
@@ -507,19 +524,15 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 		return e
 	}
 	r.mu.Unlock()
-	var receipt api.Receipt
-	var e error
-	if b, ok := r.engine.(api.BackgroundRuntime); ok {
-		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true, OriginRequests: wake.OriginRequests}, wake.ScheduleIDs)
-	} else {
-		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true, OriginRequests: wake.OriginRequests}, nil)
-	}
+	receipt, e := r.submitSystemLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Prompt, Source: api.SystemReminder, OriginRequests: wake.OriginRequests, Grants: wake.ScheduleIDs})
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if receipt.ID != wake.ID {
 		e = errors.Join(e, errors.New("reminder receipt identity mismatch"))
 	}
-	if e != nil || receipt.Outcome == "unknown" {
+	if receipt.ID == wake.ID && receipt.Outcome == "rejected" && receipt.Deferred {
+		r.state.Wake.Status = "pending"
+	} else if e != nil || receipt.Outcome == "unknown" {
 		r.state.Wake.Status = "unknown"
 	} else if receipt.Outcome == "accepted" {
 		r.state.Wake.Status = "accepted"
@@ -530,15 +543,6 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 		return save
 	}
 	return e
-}
-
-// Native journals retain per-request evidence after subsequent input changes
-// the snapshot. Legacy engines may only expose their most recent receipt.
-func (r *Runtime) backgroundReceipt(id string) api.Receipt {
-	if p, ok := r.engine.(api.BackgroundReceiptProvider); ok {
-		return p.BackgroundReceipt(id)
-	}
-	return r.engine.Snapshot().LastReceipt
 }
 
 func (r *Runtime) Perform(action string) error {
@@ -563,8 +567,9 @@ func (r *Runtime) Clock() map[string]string {
 }
 
 func wakePrompt(messages []string) string {
-	return "这是用户已授权的定时任务自动触发。先判断任务条件，不要复述指令或发送过程说明。只有确实需要告知用户时才输出提醒或结果；若本次应静默跳过，最终只输出 " + api.SilentReminder + "，不要添加其他文字。\n" + strings.Join(messages, "\n")
+	return "Due reminders:\n" + strings.Join(messages, "\n") + "\nIf no useful update is needed, return exactly " + api.SilentReminder + "."
 }
+
 func (r *Runtime) Status() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

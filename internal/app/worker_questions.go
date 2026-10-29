@@ -41,8 +41,8 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 		for _, item := range state.AsyncQuestions {
 			for _, q := range a.textControl.AsyncButtonQuestions(item.ID) {
 				if q.State == "" {
-					text := fmt.Sprintf("Worker task %s has an asynchronous question %s. Inspect bot_interactions, answer it from the user's task context if clear, or present this exact question with bot_interactions type=present when information is missing. Do not create a duplicate async question. The original Worker must receive the exact reply.", state.Task.Title, q.ShortID)
-					a.reportWorkerInteraction(ctx, "question", item.ID+":"+q.Fingerprint, text)
+					text := fmt.Sprintf("Worker task %s has pending question %s. Read the original question with bot_interactions.", state.Task.Title, q.ShortID)
+					a.deliverWorkerInteraction(ctx, "question", item.ID+":"+q.Fingerprint, text)
 					break
 				}
 			}

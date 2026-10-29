@@ -301,7 +301,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := s.Snapshot().CurrentTurn
-	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
+	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
 		receipt, err := s.Submit(ctx, api.Submission{ID: id, Text: text, Scheduled: true}, nil)
 		return receipt.Outcome, err
 	}})
@@ -319,14 +319,14 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		}
 	}
 	a := nativeEngine.Snapshot().Occurrences[0]
-	if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
+	if a.Status != "accepted" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
 		t.Fatal("native event did not use native background projection")
 	}
 	result := s.BackgroundResult(a.ID)
 	if !result.Complete || !result.Visible {
 		t.Fatal("native visible result was not retained", result)
 	}
-	if err = nativeEngine.Tick(ctx, time.Now(), eventplan.Delivery{Receipt: func(id string) string { return s.BackgroundReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }}); err != nil {
+	if err = nativeEngine.Tick(ctx, time.Now(), eventplan.Delivery{Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }}); err != nil {
 		t.Fatal(err)
 	}
 	if nativeEngine.Snapshot().Occurrences[0].Status != "completed" {

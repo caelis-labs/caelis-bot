@@ -3,7 +3,10 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,7 +16,7 @@ import (
 
 func TestCommandObservationIsOptional(t *testing.T) {
 	var unexpected atomic.Int32
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+	s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/initialize") {
 			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("instance"), Capabilities: required})
 			return
@@ -61,7 +64,7 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 			var reads, posts atomic.Int32
 			var current atomic.Value
 			current.Store(wire.TaskStateRunning)
-			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+			s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/tasks") {
 					state := current.Load().(wire.TaskState)
 					reads.Add(1)
@@ -88,7 +91,7 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 				posts.Add(1)
 				var req wire.PromptRequest
 				_ = json.NewDecoder(r.Body).Decode(&req)
-				if value(req.SourceKind) != "external_material" || value(req.Input) != "Command command-1 is completed." {
+				if value(req.SourceKind) != "external_material" || value(req.Input) != (api.SystemMessage{Source: api.SystemCommandResult, Text: "Command command-1 is completed."}).NativeInput().Text {
 					t.Error("notice lost authority/identity")
 				}
 				if lost {
@@ -152,7 +155,7 @@ func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
 	for _, outcome := range []wire.Outcome{"rejected", "conflicted", "committed"} {
 		t.Run(string(outcome), func(t *testing.T) {
 			posts := 0
-			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+			s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/tasks") {
 					writeFixture(w, wire.TaskList{Tasks: []wire.TaskDescriptor{{SessionId: "main", Kind: "command", TaskId: "command-id", Handle: "command-1", State: "completed", ParentTool: &wire.TaskParentTool{ToolCallId: pointer("call")}}}})
 					return
@@ -207,7 +210,7 @@ func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
 func TestCommandFollowupRequiresUnconsumedCanonicalResult(t *testing.T) {
 	for _, scenario := range []string{"direct", "read", "wait", "batch", "no-evidence", "turn-not-ended", "transient"} {
 		t.Run(scenario, func(t *testing.T) {
-			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+			s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				if !strings.HasSuffix(r.URL.Path, "/tasks") {
 					t.Errorf("extra model activation %s", r.URL.Path)
 					return
@@ -259,7 +262,7 @@ func TestCommandFollowupRequiresUnconsumedCanonicalResult(t *testing.T) {
 }
 
 func TestCommandFollowupWaitsForRecoverySyncAndCanonicalEvidence(t *testing.T) {
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Errorf("recovery dispatched %s", r.URL.Path) })
+	s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Errorf("recovery dispatched %s", r.URL.Path) })
 	s.info.Capabilities = []string{commandObservationCapability}
 	s.trackCommandApprovalLocked("main", "call", "execute")
 	commandEvidenceFixture(s, "running", true)
@@ -281,7 +284,7 @@ func TestCommandFollowupWaitsForRecoverySyncAndCanonicalEvidence(t *testing.T) {
 	}
 }
 func TestCommandFollowupMigrationRepairsRejectedDone(t *testing.T) {
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") })
+	s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") })
 	s.state.ProjectionVersion = 6
 	s.state.CommandFollowups = map[string]commandFollowup{"call": {Done: true}}
 	op := "command-result-" + digest([]byte("main\x00call"))
@@ -299,7 +302,7 @@ func TestCommandFollowupMigrationRepairsRejectedDone(t *testing.T) {
 }
 
 func TestCommandFollowupReconnectFencesBeforeBootstrap(t *testing.T) {
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("canceled stream sent a request") })
+	s := commandFixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("canceled stream sent a request") })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	s.mu.Lock()
@@ -336,4 +339,17 @@ func TestCommandFollowupRecoveryOvertakesTerminalRead(t *testing.T) {
 	if s.state.CommandFollowups["call"].Done {
 		t.Fatal("recovery race completed notification")
 	}
+}
+
+func commandFixtureSession(t *testing.T, handler http.HandlerFunc) *Session {
+	t.Helper()
+	s := fixtureSession(t, handler)
+	resident, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.tools = &api.ToolConnection{DeliverSystem: resident.SubmitSystem}
+	resident.Start(s)
+	t.Cleanup(resident.Close)
+	return s
 }

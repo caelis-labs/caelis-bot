@@ -2,14 +2,9 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 // WorkerApprovals gives the resident Bot the exact offered choices for
@@ -92,11 +87,6 @@ func (a *Application) DecideWorkerApproval(ctx context.Context, d api.Decision) 
 	return api.Approval{ID: d.ID, Owner: "task", Status: "unknown"}, err
 }
 
-type workerApprovalNotice struct {
-	Version int               `json:"version"`
-	States  map[string]string `json:"states"`
-}
-
 func (a *Application) userVisibleApprovals(snapshot api.Snapshot) api.Snapshot {
 	visible := make([]api.Approval, 0, len(snapshot.Approvals))
 	for _, approval := range snapshot.Approvals {
@@ -109,17 +99,10 @@ func (a *Application) userVisibleApprovals(snapshot api.Snapshot) api.Snapshot {
 }
 
 func (a *Application) workerInteractionNoticeAccepted(kind, nativeID string) bool {
-	a.interactionNoticeMu.Lock()
-	defer a.interactionNoticeMu.Unlock()
-	b, err := os.ReadFile(filepath.Join(a.root, "worker-interaction-notices.json"))
-	if err != nil {
-		return false
-	}
-	var ledger workerApprovalNotice
-	if json.Unmarshal(b, &ledger) != nil || ledger.Version != 1 {
-		return false
-	}
-	return ledger.States[kind+":"+nativeID] == "accepted"
+	a.mu.Lock()
+	resident := a.companion
+	a.mu.Unlock()
+	return resident != nil && resident.SystemReceipt(api.WorkerInteractionMessageID(kind, nativeID)).Outcome == "accepted"
 }
 
 // A host report wakes the resident Bot once per original pending Worker
@@ -132,55 +115,24 @@ func (a *Application) observeWorkerApprovalNotice(ctx context.Context, snapshot 
 		if !approval.GuardianEligible() || approval.Status != "pending" {
 			continue
 		}
-		text := fmt.Sprintf("Worker has pending native approval %s for task %s. Inspect the exact offered request with bot_interactions and decide from the user's task intent when appropriate. If context is insufficient, ask the user. Do not infer permission from this notice; the Runtime must confirm the original decision.", approval.ID, approval.TaskTitle)
-		a.reportWorkerInteraction(ctx, "approval", approval.ID, text)
+		text := fmt.Sprintf("Worker approval %s is pending for task %s. Read the original request with bot_interactions.", approval.ID, approval.TaskTitle)
+		a.deliverWorkerInteraction(ctx, "approval", approval.ID, text)
 	}
 }
 
-func (a *Application) reportWorkerInteraction(ctx context.Context, kind, nativeID, text string) {
-	if !a.currentEngine().Snapshot().CanSend {
+func (a *Application) deliverWorkerInteraction(ctx context.Context, kind, nativeID, text string) {
+	a.mu.Lock()
+	resident := a.companion
+	a.mu.Unlock()
+	if resident == nil {
 		return
 	}
-	reporter, ok := a.currentEngine().(api.ReportSubmitter)
-	if !ok {
-		return
+	source := api.SystemWorkerApproval
+	if kind == "question" {
+		source = api.SystemWorkerQuestion
 	}
-	a.interactionNoticeMu.Lock()
-	defer a.interactionNoticeMu.Unlock()
-	path := filepath.Join(a.root, "worker-interaction-notices.json")
-	ledger := workerApprovalNotice{Version: 1, States: map[string]string{}}
-	if b, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(b, &ledger) != nil || ledger.Version != 1 || ledger.States == nil {
-			if a.host.ReportError != nil {
-				a.host.ReportError(fmt.Errorf("worker interaction notice ledger invalid"))
-			}
-			return
-		}
-	} else if !os.IsNotExist(err) {
-		if a.host.ReportError != nil {
-			a.host.ReportError(err)
-		}
-		return
-	}
-	key := kind + ":" + nativeID
-	if ledger.States[key] != "" {
-		return
-	}
-	ledger.States[key] = "dispatching"
-	if err := localstate.Write(path, ledger); err != nil {
-		if a.host.ReportError != nil {
-			a.host.ReportError(err)
-		}
-		return
-	}
-	sum := sha256.Sum256([]byte(key))
-	id := fmt.Sprintf("worker-interaction-%x", sum[:])
-	receipt, err := reporter.SubmitReport(ctx, api.Submission{ID: id, Text: text})
-	if err == nil && receipt.ID == id && receipt.Outcome == "accepted" {
-		ledger.States[key] = "accepted"
-		_ = localstate.Write(path, ledger)
-	} else if err == nil && receipt.ID == id && receipt.Outcome == "rejected" {
-		delete(ledger.States, key)
-		_ = localstate.Write(path, ledger)
+	_, err := resident.SubmitSystem(ctx, api.SystemMessage{ID: api.WorkerInteractionMessageID(kind, nativeID), Source: source, Text: text})
+	if err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
 	}
 }

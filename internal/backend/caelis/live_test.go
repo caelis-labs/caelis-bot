@@ -434,20 +434,20 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		submit(t, "live-schedule", "I authorize one test reminder. Call LiveSchedule once to save my authorization, then reply Done. Do not use an operating system scheduler.")
 		before := s.Snapshot().CurrentTurn
 		in := api.Submission{ID: "live-wake", Text: "This is the authorized test reminder. Reply exactly LIVE_REMINDER_COMPLETE. Do not call tools."}
-		r, err := s.SubmitBackground(c, in, []string{"live-reminder"})
+		r, err := s.SubmitSystem(c, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"live-reminder"}})
 		if err != nil || r.Outcome != "accepted" {
 			t.Fatal("background activation", r, err)
 		}
 		waitTurn(t, c, s, before)
 		completed := s.Snapshot().CurrentTurn
-		r, err = s.SubmitBackground(c, in, []string{"live-reminder"})
+		r, err = s.SubmitSystem(c, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"live-reminder"}})
 		if err != nil || r.Outcome != "accepted" || s.Snapshot().CurrentTurn != completed {
 			t.Fatal("duplicate background activation", err)
 		}
 		if err = s.RevokeBackground(c, "live-reminder"); err != nil {
 			t.Fatal(err)
 		}
-		r, _ = s.SubmitBackground(c, api.Submission{ID: "live-revoked", Text: in.Text}, []string{"live-reminder"})
+		r, _ = s.SubmitSystem(c, api.SystemMessage{Source: api.SystemReminder, ID: "live-revoked", Text: in.Text, Grants: []string{"live-reminder"}})
 		if r.Outcome != "rejected" {
 			t.Fatal("revoked grant accepted")
 		}

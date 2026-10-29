@@ -38,7 +38,7 @@ func (f *delegateAdmissionRuntime) StartWork(_ context.Context, in api.WorkStart
 	f.states = append(f.states, api.WorkState{Task: v, Activity: "active"})
 	return v, nil
 }
-func (f *delegateAdmissionRuntime) SubmitReport(context.Context, api.Submission) (api.Receipt, error) {
+func (f *delegateAdmissionRuntime) SubmitSystem(context.Context, api.SystemMessage) (api.Receipt, error) {
 	return api.Receipt{}, errors.New("unexpected report")
 }
 
@@ -131,4 +131,8 @@ func TestDelegateAdmissionSourcesAndDiagnostic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (f *delegateAdmissionRuntime) SystemReceipt(id string) api.Receipt {
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }

@@ -114,9 +114,9 @@ type reportRefusalRuntime struct {
 	reject bool
 }
 
-func (f *reportRefusalRuntime) SubmitReport(_ context.Context, in api.Submission) (api.Receipt, error) {
+func (f *reportRefusalRuntime) SubmitSystem(_ context.Context, in api.SystemMessage) (api.Receipt, error) {
 	f.reports++
-	f.lastReport = in
+	f.lastReport = in.NativeInput()
 	outcome := "accepted"
 	if f.reject {
 		outcome = "rejected"

@@ -114,7 +114,7 @@ func (w *workerFixture) RuntimeDefault(context.Context) (api.WorkExecutionSettin
 func (w *workerFixture) ConversationExecution(ctx context.Context) (api.WorkExecutionSettings, error) {
 	return w.RuntimeDefault(ctx)
 }
-func (w *workerFixture) SubmitReport(_ context.Context, in api.Submission) (api.Receipt, error) {
+func (w *workerFixture) SubmitSystem(_ context.Context, in api.SystemMessage) (api.Receipt, error) {
 	w.reports++
 	return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
 }
@@ -238,4 +238,8 @@ func TestMissingOriginalLocalRuntimeNeverFallsBack(t *testing.T) {
 	if active.starts != 0 {
 		t.Fatal("fell back to default")
 	}
+}
+
+func (w *workerFixture) SystemReceipt(id string) api.Receipt {
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }

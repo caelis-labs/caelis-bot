@@ -14,7 +14,7 @@ func TestHostReportSubmissionIsHiddenThroughReplayAndHistory(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	const notice = "Task task-42 is completed."
 	in := api.Submission{ID: "host-report-42", Text: notice}
-	if receipt, err := s.SubmitReport(testContext(t), in); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := s.SubmitSystem(testContext(t), api.SystemMessage{Source: api.SystemWorkerResult, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	turn := nativeTurn{ID: "run-native", Status: "completed", Items: []nativeItem{
@@ -66,7 +66,7 @@ func TestHostReportBindingUsesAcceptedTargetBeforeInputEcho(t *testing.T) {
 		return nil, false
 	}
 	f.mu.Unlock()
-	if receipt, err := s.SubmitReport(testContext(t), api.Submission{ID: "report-receipt", Text: "private notice"}); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := s.SubmitSystem(testContext(t), api.SystemMessage{Source: api.SystemWorkerResult, ID: "report-receipt", Text: "private notice"}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	got := s.Snapshot()
@@ -144,5 +144,31 @@ func TestHostReportIsHiddenInRecentHumanSummary(t *testing.T) {
 	got := s.Snapshot()
 	if len(got.Items) != 2 || got.Items[0].Kind != "assistant" || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
 		t.Fatal(got.Items)
+	}
+}
+
+func TestSystemNoticeCannotEnterReplacementConversation(t *testing.T) {
+	s, _ := sessionPair(t, "hold")
+	message := api.SystemMessage{ID: "original-command-result", Source: api.SystemCommandResult, Text: "Original command completed.", RuntimeOwner: "retired-native-owner"}
+	receipt, err := s.SubmitSystem(t.Context(), message)
+	if err != nil || receipt.ID != message.ID || receipt.Outcome != "rejected" || !receipt.Deferred {
+		t.Fatal("native target fence lost", receipt, err)
+	}
+	if s.SystemReceipt(message.ID).Outcome != "unknown" {
+		t.Fatal("unattempted input gained a native receipt")
+	}
+}
+
+func TestImportedHostProvenanceIsNotDeliveryIntent(t *testing.T) {
+	s, _ := sessionPair(t, "hold")
+	message := api.SystemMessage{ID: "legacy-pending-report", Source: api.SystemWorkerResult, Text: "Task completed."}
+	if err := s.ImportHostReportIDs([]string{message.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if s.SystemReceipt(message.ID).Outcome != "unknown" {
+		t.Fatal("provenance became acceptance")
+	}
+	if receipt, err := s.SubmitSystem(t.Context(), message); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal("legacy pending notice was starved by its presentation marker", receipt, err)
 	}
 }

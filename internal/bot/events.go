@@ -340,27 +340,20 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return nil
 		},
 		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			var receipt api.Receipt
-			var err error
 			source := origins[plan]
 			if original, ok := occOrigins[id]; ok {
 				source = original
 			}
-			in := api.Submission{ID: id, Text: text, Scheduled: true, OriginRequests: source}
-			if b, ok := r.engine.(api.BackgroundRuntime); ok {
-				receipt, err = b.SubmitBackground(ctx, in, []string{grants[plan]})
-			} else {
-				receipt, err = r.engine.Submit(ctx, in, nil)
-			}
+			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: id, Text: text, Source: api.SystemCallback, OriginRequests: source, Grants: []string{grants[plan]}})
 			if receipt.ID != id {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
-			if err == nil && receipt.Outcome == "rejected" && receipt.Deferred {
-				return "deferred", nil
+			if receipt.Outcome == "rejected" && receipt.Deferred {
+				return "deferred", err
 			}
 			return receipt.Outcome, err
 		}, Receipt: func(id string) string {
-			receipt := r.backgroundReceipt(id)
+			receipt := r.SystemReceipt(id)
 			if receipt.ID != id {
 				return "unknown"
 			}

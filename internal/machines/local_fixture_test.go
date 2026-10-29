@@ -19,7 +19,7 @@ func (inert) StopWork(context.Context, string) (api.Task, error)          { retu
 
 type reviewReports struct{}
 
-func (reviewReports) SubmitReport(context.Context, api.Submission) (api.Receipt, error) {
+func (reviewReports) SubmitSystem(context.Context, api.SystemMessage) (api.Receipt, error) {
 	return api.Receipt{}, nil
 }
 
@@ -36,4 +36,8 @@ func approveMachine(t *testing.T, target *dualPeerTarget, s *Service, id string)
 	if err != nil || v.State != "ready" {
 		t.Fatal("approved peer not ready", v, err)
 	}
+}
+
+func (reviewReports) SystemReceipt(id string) api.Receipt {
+	return api.Receipt{ID: id, Outcome: "unknown"}
 }
