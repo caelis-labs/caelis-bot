@@ -9,6 +9,9 @@ import (
 )
 
 func (r *Runtime) callDreamTool(ctx context.Context, args map[string]any) api.ToolResult {
+	r.continuity.Lock()
+	generation := r.userGeneration
+	r.continuity.Unlock()
 	invocation, ok := api.ToolInvocationFromContext(ctx)
 	if !ok || invocation.Provider != r.provider || len(invocation.CallID) > 256 {
 		return compactError("invocation_unavailable", errors.New("original resident tool call is unavailable"))
@@ -20,11 +23,21 @@ func (r *Runtime) callDreamTool(ctx context.Context, args map[string]any) api.To
 	if text == "" || len(text) > 16<<10 {
 		return compactError("invalid_handoff", errors.New("handoff must be a complete nonempty summary of at most 16 KiB"))
 	}
-	if err := r.handoff.saveTurn(invocation.CallID, invocation.Session, invocation.Turn, text); err != nil {
+	memory, err := r.dreamMemoryDigest(ctx)
+	if err != nil {
+		return compactError("memory_unavailable", err)
+	}
+	r.continuity.Lock()
+	defer r.continuity.Unlock()
+	if generation != r.userGeneration || r.registeringUser != 0 || r.lastHumanTurn.Session == invocation.Session && r.lastHumanTurn.Turn == invocation.Turn {
+		return compactError("handoff_superseded", errors.New("User activity superseded this Dream; continue in the current conversation"))
+	}
+	if err := r.handoff.saveTurnWithMemory(invocation.CallID, invocation.Session, invocation.Turn, text, memory); err != nil {
 		return compactError("handoff_unavailable", err)
 	}
 	out := compactValue(map[string]any{"ok": true, "data": map[string]any{"callId": invocation.CallID, "sourceSession": invocation.Session, "turn": invocation.Turn, "status": "accepted"}}, false)
 	out.TurnComplete = true
+	out.CheckTurnComplete = func() error { return r.checkDreamCompletion(invocation) }
 	return out
 }
 
@@ -33,6 +46,7 @@ func (r *Runtime) completeCodexDream(ctx context.Context, invocation api.ToolInv
 	if !ok {
 		return errors.New("native turn termination is unavailable")
 	}
+	ctx = api.WithRenewalGuard(ctx, func() error { return r.checkDreamCompletion(invocation) })
 	if err := terminator.CompleteToolTurn(ctx, invocation); err != nil {
 		return err
 	}
@@ -49,12 +63,22 @@ func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 	if pending.CallID == "" || pending.NewSession != "" || pending.Turn == "" {
 		return nil
 	}
+	if pending.Superseded {
+		if native, ok := r.engine.(api.ConversationRuntime); !ok || native.ConversationState().Session == pending.Source {
+			return r.handoff.record(pending.CallID, "", "fallback")
+		}
+		// A crash may leave the native binding committed and the host receipt
+		// unwritten. Reconcile that original ID before accepting first input.
+	}
 	renewer, ok := r.engine.(api.ToolContextRenewer)
 	if !ok {
 		return errors.New("native context renewal is unavailable")
 	}
-	session, err := renewer.RenewAfterTool(ctx, api.ToolInvocation{Provider: r.provider, CallID: pending.CallID, Session: pending.Source, Turn: pending.Turn})
+	session, err := renewer.RenewAfterTool(r.guardRenewal(ctx, pending), api.ToolInvocation{Provider: r.provider, CallID: pending.CallID, Session: pending.Source, Turn: pending.Turn})
 	if err != nil {
+		if errors.Is(err, api.ErrConversationRenewalDeferred) {
+			return r.handoff.record(pending.CallID, "", "fallback")
+		}
 		if errors.Is(err, api.ErrConversationRenewalRejected) {
 			return r.handoff.record(pending.CallID, "", "rejected")
 		}
@@ -65,7 +89,11 @@ func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 		}
 		return err
 	}
-	return r.handoff.record(pending.CallID, session, "committed")
+	if current := r.handoff.pending(); current.CallID == pending.CallID && current.NewSession == "" {
+		// Recover a native binding committed before a failed host receipt write.
+		return r.handoff.record(pending.CallID, session, "committed")
+	}
+	return nil
 }
 
 // RenewPendingToolHandoff runs after the resident callback Turn becomes

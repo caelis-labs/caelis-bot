@@ -37,6 +37,7 @@ func (s *Service) ApprovalPage(ctx context.Context, id string) (api.WorkURLPage,
 	return p.ReadWorkURL(ctx, task, id)
 }
 func (s *Service) SubmitApprovalPage(ctx context.Context, id, request, revision string, values map[string]string) (api.WorkURLReceipt, error) {
+	defer s.beginUserActivity()()
 	p, task, err := s.workerURLTask(id)
 	if err != nil {
 		return api.WorkURLReceipt{}, err

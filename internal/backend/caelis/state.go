@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/statemigration"
@@ -40,12 +41,20 @@ type journal struct {
 	Outcome        string             `json:"outcome"`
 	Resource       string             `json:"resource,omitempty"`
 	Source         wire.SessionSource `json:"source"`
+
+	RenewalDeferred bool `json:"renewalDeferred,omitempty"`
 }
 
 // Only old journals derive presentation from their original native source.
 // New notices use ordinary evidence input and an independent local marker.
 func (j journal) hostNotice() bool {
 	return j.HostNotice || j.Source.Kind == "application_summary"
+}
+
+// A deferred empty-session create has no prompt or effect in the source
+// conversation. Keep reconciling its original receipt without freezing chat.
+func (j journal) deferredRenewal(id string) bool {
+	return j.RenewalDeferred && j.Path == "/sessions" && strings.HasPrefix(id, "tool-renew-")
 }
 
 type view struct {

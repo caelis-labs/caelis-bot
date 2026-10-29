@@ -126,7 +126,7 @@ func TestConcurrentUserAndFeedbackWaitForTerminalHandoff(t *testing.T) {
 	}
 }
 
-func TestUserInputIsNotSubmittedIntoAnActiveTerminalTurn(t *testing.T) {
+func TestUserCorrectionSupersedesPendingDreamWithoutReplay(t *testing.T) {
 	r, _, _ := fixture(t)
 	if err := r.openHandoff(); err != nil {
 		t.Fatal(err)
@@ -134,16 +134,11 @@ func TestUserInputIsNotSubmittedIntoAnActiveTerminalTurn(t *testing.T) {
 	if err := r.handoff.saveTurn("original-call", "old-session", "terminal-turn", "Identity; original task and receipt."); err != nil {
 		t.Fatal(err)
 	}
-	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, state: api.ConversationState{Session: "old-session", Turn: "terminal-turn", Status: "running", Observed: true, Idle: false}}
-	r.engine = e // no renewal port: simulate a terminal receipt still in progress
-	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "early-user", Text: "Continue"}, nil)
-	if err != nil || receipt.Outcome != "rejected" || len(e.submissions) != 0 || r.handoff.pending().CallID != "original-call" {
-		t.Fatal("user input entered a Turn that is still terminating", receipt, err, e.submissions)
-	}
-	e.state.Status, e.state.Idle = "completed", true
-	receipt, err = r.SubmitUser(t.Context(), api.Submission{ID: "early-user", Text: "Continue"}, nil)
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, state: api.ConversationState{Session: "old-session", Turn: "terminal-turn", Status: "running", Observed: true}}
+	r.engine = e
+	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "human-correction", Text: "Keep the original task; wait for my review."}, nil)
 	if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || r.handoff.pending().CallID != "" {
-		t.Fatal("terminal fallback did not accept original user input", receipt, err, e.submissions)
+		t.Fatal("correction did not supersede old Dream exactly once", receipt, err, e.submissions)
 	}
 }
 

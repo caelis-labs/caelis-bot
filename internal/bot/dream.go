@@ -99,8 +99,8 @@ func (r *Runtime) reconcileLegacyDream() error {
 // completed handoff can rotate on this input; rejection falls back to the old
 // session, while an unknown creation stays on its original receipt.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
-	r.userWaiting.Add(1)
-	defer r.userWaiting.Add(-1)
+	done, _ := r.BeginUserActivity()
+	defer done()
 	r.step.Lock()
 	defer r.step.Unlock()
 	if r.remoteRecoveryPending(in) {

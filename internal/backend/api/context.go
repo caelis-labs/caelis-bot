@@ -16,6 +16,44 @@ var ErrConversationRenewalRejected = errors.New("conversation renewal rejected")
 // The old bound context remains usable; never replay a create without its ID.
 var ErrConversationRenewalUnknown = errors.New("conversation renewal outcome unknown")
 
+// Deferred keeps the source binding and the original unused creation receipt.
+var ErrConversationRenewalDeferred = errors.New("conversation renewal deferred")
+
+type renewalGuardKey struct{}
+type renewalCommitKey struct{}
+
+// Checks may read required memory outside native locks. Commit performs the
+// final human-priority check and adoption in one short host critical section.
+func WithRenewalGuard(ctx context.Context, check func() error) context.Context {
+	return context.WithValue(ctx, renewalGuardKey{}, check)
+}
+
+func CheckRenewalGuard(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if check, ok := ctx.Value(renewalGuardKey{}).(func() error); ok {
+		return check()
+	}
+	return nil
+}
+
+func WithRenewalCommit(ctx context.Context, commit func(string, func() error) error) context.Context {
+	return context.WithValue(ctx, renewalCommitKey{}, commit)
+}
+
+// The adapter keeps input admission closed until this returns. adopt only
+// persists/publishes the prepared binding; native creation and reads precede it.
+func CommitRenewal(ctx context.Context, session string, adopt func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if commit, ok := ctx.Value(renewalCommitKey{}).(func(string, func() error) error); ok {
+		return commit(session, adopt)
+	}
+	return adopt()
+}
+
 // ContextSeed is application-owned data appended at the first request boundary,
 // never policy or an instruction override. HandoffDigest permits conditional
 // consumption only after native acceptance has been durably recorded.

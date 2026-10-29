@@ -73,7 +73,7 @@ func (a *Application) DecideWorkerApproval(ctx context.Context, d api.Decision) 
 	if !offered {
 		return api.Approval{}, fmt.Errorf("choice is not offered by the original request")
 	}
-	err := a.Backend.Decide(ctx, d)
+	err := a.Backend.DecideWorkerApproval(ctx, d)
 	for _, v := range a.WorkerApprovals() {
 		if v.ID == d.ID {
 			return v, err

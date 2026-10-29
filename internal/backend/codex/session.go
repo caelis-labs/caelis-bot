@@ -59,6 +59,8 @@ type binding struct {
 	StopState        string                       `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
 	StopRuns         map[string]string            `json:"stopRuns,omitempty"`
 
+	DeferredToolRenewals []toolRenewalRecord `json:"deferredToolRenewals,omitempty"`
+
 	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
 	CapacityStopThread   string `json:"capacityStopThread,omitempty"`
 	CapacityStopTurn     string `json:"capacityStopTurn,omitempty"`

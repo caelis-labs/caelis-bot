@@ -153,6 +153,17 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
 					result = host.CallTool(callCtx, call.Name, args)
 				}
+				if result.TurnComplete {
+					// Serialize only terminal publication with native user input.
+					// The tool and its memory reads ran outside this admission lock.
+					s.step.Lock()
+					defer s.step.Unlock()
+					if result.CheckTurnComplete != nil {
+						if err := result.CheckTurnComplete(); err != nil {
+							result = api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "User activity superseded this Dream; continue in the current conversation."}}}
+						}
+					}
+				}
 				blocks := result.Content
 				if contentV1 {
 					blocks = contentV1Blocks(result)

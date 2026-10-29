@@ -140,7 +140,7 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	if originalCall == "" || s.state.RenewedBy != originalCall {
 		t.Fatal("new session not bound to original callback ID", originalCall, s.state.RenewedBy)
 	}
-	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_next", Text: "CASE_NEXT continue."}, nil); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := resident.SubmitSystem(ctx, api.SystemMessage{ID: "case_next", Source: api.SystemWorkerQuestion, Text: "CASE_NEXT original Worker question awaits a response."}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_NEXT")) != 0 })
@@ -150,5 +150,15 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	}
 	if len(s.state.PastSessions) == 0 || s.state.PastSessions[len(s.state.PastSessions)-1] != old {
 		t.Fatal("old Core Session identity not retained")
+	}
+
+	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_later", Text: "CASE_LATER keep the original limits."}, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_LATER")) != 0 && s.Snapshot().CanSend })
+	later, _ := json.Marshal(model.seen("CASE_LATER")[0])
+	if strings.Count(string(later), "[Private Bot handoff:") != 1 || strings.Count(string(later), "[Bot context:") != 1 || resident.PrepareHandoffContext().HandoffDigest != "" {
+		t.Fatal("native Core reinjected or lost the accepted seed")
 	}
 }

@@ -59,18 +59,22 @@ func TestRemoteRecoveryFenceRefusesBeforeDispatchAndDiscardsStagedInput(t *testi
 
 func TestRemoteInputUsesResidentAdmissionAndPreservesDesktopDraft(t *testing.T) {
 	consumed := 0
-	calls := 0
+	calls, active := 0, 0
 	s := NewService(snapshotEngine{}, func([]string) ([]api.InputFile, error) { t.Fatal("remote accessed desktop selection"); return nil, nil }, func([]string) error { consumed++; return nil }, nil, nil)
+	s.SetUserActivityObserver(func() func() { active++; return func() { active-- } })
 	s.SaveDraft(api.Draft{Text: "unfinished desktop draft"})
 	s.SetUserSubmitter(func(_ context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 		calls++
+		if active != 1 {
+			t.Fatal("remote input missed human priority")
+		}
 		if in.Text != "phone input" || len(files) != 1 {
 			t.Fatal("remote submission changed")
 		}
 		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
 	})
 	receipt, e := SubmitRemote(t.Context(), s, api.Submission{ID: "phone-1", Text: "phone input"}, []api.InputFile{{Name: "photo.jpg", Path: "native-owned-path"}})
-	if e != nil || receipt.Outcome != "accepted" || calls != 1 || consumed != 0 || s.Draft().Text != "unfinished desktop draft" || s.pendingDraft != nil {
+	if e != nil || receipt.Outcome != "accepted" || calls != 1 || active != 0 || consumed != 0 || s.Draft().Text != "unfinished desktop draft" || s.pendingDraft != nil {
 		t.Fatal("second client altered composer or bypassed resident")
 	}
 	s.restarting = true
