@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
