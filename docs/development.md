@@ -301,6 +301,11 @@ CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis
 it neither imports Core internals nor reads daily model credentials. It includes native tools, resources,
 workers, hot configuration, environment, skills, Dream, Guardian callback/native continuation, exact identity,
 restart replay and a real timeout. Missing external binary skips these tests in ordinary `make check`.
+For `TestNativeHostIntegration` failures, set `CAELIS_BOT_TEST_EVIDENCE_DIR` to a directory on the same
+filesystem as the temporary test root to retain the stopped synthetic Host Store, original Bot operation
+journal and logs. The failure output includes plugin request paths and original operation outcomes;
+retain `unknown` receipts and reconcile them instead of replaying mutations.
+
 Installed Codex progressive-skill/context fixtures are under `internal/backend/codex/*live*test.go`; inspect their
 explicit environment opt-ins. Synthetic provider results prove transport/behavior, not real model judgment.
 

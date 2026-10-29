@@ -201,6 +201,7 @@ func TestNativeHostIntegration(t *testing.T) {
 	if rootErr != nil {
 		t.Fatal(rootErr)
 	}
+	t.Cleanup(func() { preserveNativeHostFailure(t, root) })
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
 	if e := os.Mkdir(filepath.Join(root, "home"), 0700); e != nil {
 		t.Fatal(e)
@@ -437,9 +438,23 @@ func TestNativeHostIntegration(t *testing.T) {
 				}
 			}
 			selection := manager.Selection()
-			return s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
+			err := s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
 				return apply(ctx, selection)
 			})
+			if err != nil {
+				var remote *remoteError
+				if errors.As(err, &remote) {
+					t.Logf("synthetic plugin %s: path=%s status=%d code=%s detail=%q", action, remote.path, remote.Status, remote.Code, remote.detail)
+				}
+				s.mu.Lock()
+				for id, record := range s.state.Typed {
+					if strings.HasPrefix(id, "plugin-") {
+						t.Logf("original plugin operation=%s path=%s outcome=%s", id, record.Path, record.Outcome)
+					}
+				}
+				s.mu.Unlock()
+			}
+			return err
 		}
 		if err = mutatePlugin("install"); err != nil {
 			t.Fatal(err)
