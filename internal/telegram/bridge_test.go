@@ -1755,13 +1755,15 @@ func TestDesktopSameNamedAttachmentsKeepSeparateBytesAndCleanup(t *testing.T) {
 
 type blockedDocumentClient struct {
 	*fakeClient
-	started, finished chan struct{}
+	started, cancelled, release, finished chan struct{}
 }
 
 func (f *blockedDocumentClient) Document(ctx context.Context, _ int64, _ string) error {
 	close(f.started)
 	defer close(f.finished)
 	<-ctx.Done()
+	close(f.cancelled)
+	<-f.release
 	return ctx.Err()
 }
 
@@ -1780,7 +1782,10 @@ func TestBlockedUploadDoesNotBlockControlsAndCloseJoinsWorkers(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "upload.txt")
 	os.WriteFile(source, []byte("fixture"), 0600)
 	b.Accepted(api.Submission{ID: "desktop-upload"}, []api.InputFile{{Name: "upload.txt", Path: source}}, api.Receipt{Outcome: "accepted"})
-	blocked := &blockedDocumentClient{f, make(chan struct{}), make(chan struct{})}
+	blocked := &blockedDocumentClient{fakeClient: f, started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{})}
+	// Release the fixture even if an earlier assertion aborts the test.
+	releaseUpload := sync.OnceFunc(func() { close(blocked.release) })
+	t.Cleanup(releaseUpload)
 	b.launch(blocked)
 	select {
 	case <-blocked.started:
@@ -1805,6 +1810,13 @@ func TestBlockedUploadDoesNotBlockControlsAndCloseJoinsWorkers(t *testing.T) {
 		t.Fatal("slow upload blocked approval")
 	}
 	awaitBridge(t, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.answers >= 1 && f.sends >= 1 })
+	// Drain control receipts before measuring cancellation. Native dispatch and
+	// its Telegram receipt have separate completion boundaries.
+	awaitBridge(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.state.Ingress) == 0 && b.state.Inputs["telegram:123:1"] == "handled" && b.state.Inputs["approval-decision:pending"] == "handled"
+	})
 	select {
 	case <-blocked.finished:
 		t.Fatal("upload finished before controls were handled")
@@ -1813,19 +1825,36 @@ func TestBlockedUploadDoesNotBlockControlsAndCloseJoinsWorkers(t *testing.T) {
 	done := make(chan struct{})
 	go func() { b.Close(); close(done) }()
 	select {
-	case <-done:
+	case <-blocked.cancelled:
 	case <-time.After(time.Second):
-		t.Fatal("Close did not cancel and join workers")
+		t.Fatal("Close did not cancel the blocked upload")
+	}
+	select {
+	case <-done:
+		t.Fatal("Close returned before the cancelled upload exited")
+	default:
+	}
+	releaseUpload()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		// This includes durable receipt writes and staged-file cleanup. Their
+		// OS latency is independent of the cancellation/join contract above.
+		t.Fatal("Close did not finish draining workers and storage")
 	}
 	select {
 	case <-blocked.finished:
 	default:
 		t.Fatal("Close returned while upload was still running")
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.state.Offset != 4 || b.state.Inputs["telegram:123:1"] != "handled" || b.state.Messages["upload:desktop-upload:0"].IDs[0] != -1 {
-		t.Fatal("control offset or uncertain upload receipt lost")
+	reopened, err := Open(filepath.Dir(b.path), b.host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	upload := reopened.state.Messages["upload:desktop-upload:0"]
+	if reopened.state.Offset != 4 || reopened.state.Inputs["telegram:123:1"] != "handled" || len(upload.IDs) != 1 || upload.IDs[0] != -1 || len(reopened.state.PendingFiles) != 0 {
+		t.Fatal("durable control offset or uncertain upload receipt lost")
 	}
 }
 
