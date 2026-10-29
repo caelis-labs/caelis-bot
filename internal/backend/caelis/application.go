@@ -306,7 +306,8 @@ func (s *Session) SubmitSystem(ctx context.Context, message api.SystemMessage) (
 		}
 		return api.Receipt{ID: message.ID, Outcome: productOutcome(wire.Outcome(original.Outcome))}, nil
 	}
-	if in.Scheduled {
+	// Scheduled is presentation only. Only arrangements use existing grants.
+	if message.Source == api.SystemReminder || message.Source == api.SystemCallback {
 		return s.submitScheduledSystem(ctx, in, message.Grants)
 	}
 	return s.submit(ctx, in, nil, "external_material")

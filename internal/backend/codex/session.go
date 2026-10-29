@@ -18,12 +18,14 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
+	"github.com/caelis-labs/caelis-bot/internal/backend/continuity"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type binding struct {
+	Continuity     continuity.State  `json:"continuity,omitempty"`
 	AsyncAdmission asyncAdmission    `json:"asyncAdmission,omitempty"`
 	ToolLayout     int               `json:"toolLayout,omitempty"`
 	Artifacts      map[string]string `json:"artifacts,omitempty"`
@@ -1046,7 +1048,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.mu.Lock()
-	if in.SystemOwner != "" && in.SystemOwner != s.state.RuntimeOwner {
+	if in.SystemOwner != "" && in.SystemOwner != opaque("codex", s.binding.ThreadID) {
 		s.mu.Unlock()
 		return api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: true}, nil
 	}

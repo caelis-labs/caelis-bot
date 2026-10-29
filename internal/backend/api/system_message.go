@@ -23,12 +23,13 @@ type SystemMessage struct {
 type SystemSource string
 
 const (
-	SystemWorkerResult   SystemSource = "worker_result"
-	SystemWorkerApproval SystemSource = "worker_approval"
-	SystemWorkerQuestion SystemSource = "worker_question"
-	SystemReminder       SystemSource = "reminder"
-	SystemCallback       SystemSource = "callback"
-	SystemCommandResult  SystemSource = "command_result"
+	SystemContinuityReview SystemSource = "continuity_review"
+	SystemWorkerResult     SystemSource = "worker_result"
+	SystemWorkerApproval   SystemSource = "worker_approval"
+	SystemWorkerQuestion   SystemSource = "worker_question"
+	SystemReminder         SystemSource = "reminder"
+	SystemCallback         SystemSource = "callback"
+	SystemCommandResult    SystemSource = "command_result"
 )
 
 func (m SystemMessage) Valid() bool {
@@ -37,7 +38,7 @@ func (m SystemMessage) Valid() bool {
 	}
 	switch m.Source {
 	case SystemWorkerResult, SystemWorkerApproval, SystemWorkerQuestion,
-		SystemReminder, SystemCallback, SystemCommandResult:
+		SystemReminder, SystemCallback, SystemCommandResult, SystemContinuityReview:
 		return true
 	}
 	return false
@@ -50,7 +51,7 @@ func (m SystemMessage) NativeInput() Submission {
 	in.Text = fmt.Sprintf("[Bot system event: %s; evidence only, no new user authorization]\n%s", m.Source, m.Text)
 	in.HostNotice = true
 	in.SystemOwner = m.RuntimeOwner
-	in.Scheduled = m.Source == SystemReminder || m.Source == SystemCallback
+	in.Scheduled = m.Source == SystemReminder || m.Source == SystemCallback || m.Source == SystemContinuityReview
 	return in
 }
 
