@@ -286,8 +286,6 @@
   "pasteShortcutDescription": "将当前选区或剪贴板图片贴到桌面。",
   "captureShortcutInvalid": "请使用 F1–F12，或带 Control、Option、Command 的组合键。",
   "screenInput": "屏幕输入",
-  "screenContext": "向 Bot 附带完整屏幕",
-  "screenContextDescription": "截图提问时默认附带整屏内容。每次发送前都可单独更改。",
   "screenPreferencesFailed": "无法读取或保存屏幕输入偏好，请重新设置开关。",
   "shortcuts": "快捷键",
   "advancedTasks": "高级任务设置",

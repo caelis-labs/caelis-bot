@@ -4,10 +4,7 @@
 .screen-selection{display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in}
 .screen-selection img{display:block;width:100%;height:auto;max-height:280px;object-fit:contain}
 .screen-source{padding:9px 12px;color:var(--muted);font-size:12px}
-.screen-context{display:flex;align-items:center;gap:8px;max-width:100%;padding:0;border:0;background:transparent;color:var(--muted);font-size:12px;cursor:zoom-in}
-.screen-context img{width:54px;height:36px;object-fit:contain;border:1px solid var(--line);border-radius:5px}
 .screen-image-placeholder,.screen-missing{display:block;padding:18px;color:var(--muted);font-size:12px}
-.screen-context .screen-image-placeholder{max-width:110px;padding:4px}
 .screen-note{margin:0!important;padding:10px 15px;border-radius:16px 16px 5px 16px;background:var(--wash);white-space:pre-wrap;overflow-wrap:anywhere}
 .screen-viewer{color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:12px;max-width:94vw;max-height:92vh;overflow:auto}
 .screen-viewer::backdrop{background:#0009}
@@ -16,4 +13,4 @@
 .screen-viewer-toolbar button{padding:7px;border:0;background:transparent;border-radius:7px}
 .screen-viewer-toolbar button:hover{background:var(--wash)}
 .screen-full-image{display:block;max-width:88vw;max-height:78vh;object-fit:contain}
-.screen-selection:focus-visible,.screen-context:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.screen-selection:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}

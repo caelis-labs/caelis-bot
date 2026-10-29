@@ -6,7 +6,6 @@ import (
 	"errors"
 	"image"
 	"image/color"
-	"image/jpeg"
 	"image/png"
 	"math"
 	"os"
@@ -517,7 +516,7 @@ func TestWindowsCaptureCancelledBeforeWindowAdmissionReleasesItsSlot(t *testing.
 	}
 }
 
-func TestWindowsCaptureRedactionContextAndReceiptGate(t *testing.T) {
+func TestWindowsCaptureSelectionOnlyAndReceiptGate(t *testing.T) {
 	s := newService(&memoryStore{value: defaults()})
 	root := filepath.Join(t.TempDir(), "Captures")
 	if e := s.configureCapture(root); e != nil {
@@ -545,26 +544,16 @@ func TestWindowsCaptureRedactionContextAndReceiptGate(t *testing.T) {
 	native.capture.drafts[id] = d
 	// Stop only dispatch in this fixture, retaining the exact preflight bytes.
 	s.stopped = true
-	export := WindowsCaptureExport{ID: id, Selection: screeninput.Rect{X: 12, Y: 12, Width: 24, Height: 24}, PNG: base64.StdEncoding.EncodeToString(b.Bytes()), Context: true, Action: "send"}
+	export := WindowsCaptureExport{ID: id, Selection: screeninput.Rect{X: 12, Y: 12, Width: 24, Height: 24}, PNG: base64.StdEncoding.EncodeToString(b.Bytes()), Action: "send"}
 	if e := s.ExportWindowsCapture(export); e != nil {
 		t.Fatal(e)
 	}
-	file, e := os.Open(filepath.Join(root, id, "context.jpg"))
-	if e != nil {
-		t.Fatal(e)
+	if _, e := os.Stat(filepath.Join(root, id, "context.jpg")); !os.IsNotExist(e) {
+		t.Fatal("full-screen attachment exported", e)
 	}
-	context, e := jpeg.Decode(file)
-	file.Close()
-	if e != nil {
-		t.Fatal(e)
-	}
-	r, g, bl, _ := context.At(24, 24).RGBA()
-	if r > 5000 || g > 5000 || bl > 5000 {
-		t.Fatal("original selected pixels leaked through redacted context")
-	}
-	r, _, _, _ = context.At(2, 2).RGBA()
-	if r < 50000 {
-		t.Fatal("context outside selection changed")
+	data, e := os.ReadFile(filepath.Join(root, id, "selection.png"))
+	if e != nil || !bytes.Equal(data, b.Bytes()) {
+		t.Fatal("annotated selection changed", e)
 	}
 	if e = s.ExportWindowsCapture(export); e == nil {
 		t.Fatal("unresolved capture was exported again")
@@ -619,7 +608,7 @@ func TestWindowsCaptureSaveAndPinEditKeepFlattenedPixels(t *testing.T) {
 	if _, _, err = native.capture.editPin("capture-save"); err != nil {
 		t.Fatal(err)
 	}
-	if d.pixels != pixels || d.document.Outcome != "draft" || d.document.ContextAvailable || d.snapshot.Source != "clipboard" {
+	if d.pixels != pixels || d.document.Outcome != "draft" || d.document.Screen || d.snapshot.Source != "clipboard" {
 		t.Fatal("pin edit restored source pixels or context")
 	}
 	d.document.Outcome = "unknown"

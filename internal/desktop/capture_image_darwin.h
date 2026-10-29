@@ -13,7 +13,6 @@
 @property NSString *capturedAt;
 @property NSString *source;
 @property NSString *note;
-@property BOOL includeBackground;
 @property NSString *identifier;
 @property NSString *outcome;
 - (instancetype)init;
@@ -21,7 +20,7 @@
 - (void)undo;
 - (void)redo;
 - (void)drawMarks;
-- (NSBitmapImageRep *)render:(BOOL)background maximumEdge:(CGFloat)edge;
+- (NSBitmapImageRep *)renderWithMaximumEdge:(CGFloat)edge;
 - (BOOL)noteWithinLimit;
 - (NSDictionary *)writeToRoot:(NSString *)root error:(NSError **)error;
 @end

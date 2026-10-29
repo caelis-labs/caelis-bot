@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/draw"
-	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -27,25 +25,23 @@ import (
 )
 
 type WindowsCaptureDocument struct {
-	ID               string           `json:"id"`
-	Image            string           `json:"image"`
-	Width            int              `json:"width"`
-	Height           int              `json:"height"`
-	Window           screeninput.Rect `json:"window"`
-	Context          bool             `json:"context"`
-	ContextAvailable bool             `json:"contextAvailable"`
-	Outcome          string           `json:"outcome"`
-	ImageCapability  string           `json:"imageCapability"`
-	Message          string           `json:"message"`
-	Presentation     uint64           `json:"presentation"`
-	Diagnostics      bool             `json:"diagnostics"`
+	ID              string           `json:"id"`
+	Image           string           `json:"image"`
+	Width           int              `json:"width"`
+	Height          int              `json:"height"`
+	Window          screeninput.Rect `json:"window"`
+	Screen          bool             `json:"screen"`
+	Outcome         string           `json:"outcome"`
+	ImageCapability string           `json:"imageCapability"`
+	Message         string           `json:"message"`
+	Presentation    uint64           `json:"presentation"`
+	Diagnostics     bool             `json:"diagnostics"`
 }
 type WindowsCaptureExport struct {
 	ID        string           `json:"id"`
 	Selection screeninput.Rect `json:"selection"`
 	PNG       string           `json:"png"`
 	Note      string           `json:"note"`
-	Context   bool             `json:"context"`
 	Action    string           `json:"action"`
 }
 type windowsCaptureDraft struct {
@@ -67,27 +63,21 @@ type windowsCaptureAcquisition struct {
 	screen, cancelled bool
 }
 type windowsCapture struct {
-	mu                sync.Mutex
-	driver            *windowsDriver
-	drafts            map[string]*windowsCaptureDraft
-	imageState        string
-	enabled           bool
-	includeBackground bool
-	acquisition       *windowsCaptureAcquisition
-	editorID          string
-	pinsHidden        bool
-	saveImage         func(*application.WebviewWindow, []byte) error
-	warmWindows       []windowsCaptureWarmWindow
-	prewarming        bool
+	mu          sync.Mutex
+	driver      *windowsDriver
+	drafts      map[string]*windowsCaptureDraft
+	imageState  string
+	enabled     bool
+	acquisition *windowsCaptureAcquisition
+	editorID    string
+	pinsHidden  bool
+	saveImage   func(*application.WebviewWindow, []byte) error
+	warmWindows []windowsCaptureWarmWindow
+	prewarming  bool
 }
 
 func (d *windowsDriver) registerCaptureShortcut(s Shortcut, k int) error {
 	return d.registerHotkey(k+3, s)
-}
-func (d *windowsDriver) capturePreferences(v bool) {
-	d.capture.mu.Lock()
-	d.capture.includeBackground = v
-	d.capture.mu.Unlock()
 }
 func (d *windowsDriver) captureEnabled(v bool) {
 	d.capture.mu.Lock()
@@ -277,7 +267,6 @@ func (c *windowsCapture) command(kind int) {
 	}
 	acquisition := &windowsCaptureAcquisition{screen: kind == 0}
 	c.acquisition = acquisition
-	context := c.includeBackground
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
@@ -309,7 +298,6 @@ func (c *windowsCapture) command(kind int) {
 			draft.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
 		}
 		draft.snapshot.Source = "clipboard"
-		context = false
 	} else {
 		// Identify the user's foreground window before presenting the overlay.
 		hwnd, _, _ := winUser.NewProc("GetForegroundWindow").Call()
@@ -392,8 +380,7 @@ func (c *windowsCapture) command(kind int) {
 		}
 		draft.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
 	}
-	draft.document.Context = context
-	draft.document.ContextAvailable = draft.snapshot.Source == "screen"
+	draft.document.Screen = draft.snapshot.Source == "screen"
 	draft.document.Outcome = "draft"
 	if kind == 1 {
 		draft.document.Outcome = "pinned"
@@ -815,25 +802,7 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 	}
 	snapshot := d.snapshot
 	snapshot.Note = v.Note
-	snapshot.Selection = v.Selection
-	snapshot.Background = v.Context && snapshot.Source == "screen" && v.Action == "send"
-	snapshot.BackgroundWidth = d.pixels.Bounds().Dx()
-	snapshot.BackgroundHeight = d.pixels.Bounds().Dy()
 	if e = os.WriteFile(filepath.Join(dir, "selection.png"), data, 0600); e != nil {
-		return e
-	}
-	if snapshot.Background {
-		background := image.NewNRGBA(d.pixels.Bounds())
-		draw.Draw(background, background.Bounds(), d.pixels, d.pixels.Bounds().Min, draw.Src)
-		draw.Draw(background, r, selection, selection.Bounds().Min, draw.Src)
-		var out bytes.Buffer
-		if e = jpeg.Encode(&out, background, &jpeg.Options{Quality: 85}); e != nil || out.Len() > 8<<20 {
-			return errors.New("capture context too large")
-		}
-		if e = os.WriteFile(filepath.Join(dir, "context.jpg"), out.Bytes(), 0600); e != nil {
-			return e
-		}
-	} else if e = os.Remove(filepath.Join(dir, "context.jpg")); e != nil && !os.IsNotExist(e) {
 		return e
 	}
 	if e = localstate.Write(filepath.Join(dir, "capture.json"), snapshot); e != nil {
@@ -861,8 +830,7 @@ func (s *Service) ExportWindowsCapture(v WindowsCaptureExport) error {
 	d.document.Image = "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 	d.document.Width = r.Dx()
 	d.document.Height = r.Dy()
-	d.document.Context = false
-	d.document.ContextAvailable = false
+	d.document.Screen = false
 	d.document.Window = screeninput.Rect{}
 	d.pixels = selection
 	d.preview = nil

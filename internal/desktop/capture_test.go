@@ -254,7 +254,7 @@ func TestCaptureLegacyPreferenceRetainsEnablement(t *testing.T) {
 	if err := restored.configureCapture(s.capture.root); err != nil {
 		t.Fatal(err)
 	}
-	if !restored.CapturePreferences().Enabled || restored.CapturePreferences().IncludeBackground {
+	if !restored.CapturePreferences().Enabled {
 		t.Fatal("legacy preference changed", restored.CapturePreferences())
 	}
 }
@@ -481,34 +481,32 @@ func TestDiscardInvalidUnsubmittedCapture(t *testing.T) {
 	}
 }
 
-func TestCaptureContextPreferencePersistsAndFailsClosed(t *testing.T) {
+func TestCaptureIgnoresRetiredPreferencesAndFailsClosed(t *testing.T) {
 	s, _, _ := captureFixture(t)
-	if !s.CapturePreferences().IncludeBackground {
-		t.Fatal("context should default on")
-	}
-	if _, err := s.SaveCapturePreferences(CapturePreferences{}); err != nil {
-		t.Fatal(err)
-	}
-	restored := newService(&memoryStore{value: defaults()})
-	if err := restored.configureCapture(s.capture.root); err != nil {
-		t.Fatal(err)
-	}
-	if restored.CapturePreferences().IncludeBackground {
-		t.Fatal("preference lost on restart")
-	}
-	blocker := filepath.Join(t.TempDir(), "file")
-	os.WriteFile(blocker, nil, 0600)
-	restored.capture.preferenceFile = filepath.Join(blocker, "setting")
-	if _, err := restored.SaveCapturePreferences(CapturePreferences{IncludeBackground: true}); err == nil || restored.CapturePreferences().IncludeBackground {
-		t.Fatal("failed persistence enabled background")
+	for _, old := range []string{`{"includeBackground":true}`, `{"enabled":false,"includeBackground":true}`} {
+		if err := os.WriteFile(s.capture.preferenceFile, []byte(old), 0600); err != nil {
+			t.Fatal(err)
+		}
+		restored := newService(&memoryStore{value: defaults()})
+		if err := restored.configureCapture(s.capture.root); err != nil {
+			t.Fatal(err)
+		}
+		preferences := restored.CapturePreferences()
+		if preferences.Enabled == strings.Contains(old, `"enabled":false`) {
+			t.Fatal("feature gate changed", preferences)
+		}
+		data, _ := json.Marshal(preferences)
+		if strings.Contains(string(data), "includeBackground") {
+			t.Fatal("retired preference exposed", string(data))
+		}
 	}
 	if err := os.WriteFile(s.capture.preferenceFile, []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := restored.configureCapture(s.capture.root); err != nil {
+	if err := s.configureCapture(s.capture.root); err != nil {
 		t.Fatal(err)
 	}
-	if v := restored.CapturePreferences(); v.IncludeBackground || v.Notice == "" {
+	if v := s.CapturePreferences(); v.Enabled || v.Notice == "" {
 		t.Fatal("unreadable preference did not fail closed", v)
 	}
 }

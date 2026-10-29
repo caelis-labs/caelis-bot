@@ -30,13 +30,13 @@ export function captureCommandKey(e:{key:string;code:string;keyCode:number;isCom
  return e.key;
 }
 // Rectangles here are CSS viewport pixels, after the image-to-canvas transform.
-// Match the native Mac panel: align to the selection's left edge, prefer below,
+// Match the native Mac panel: align to the selection's right edge, prefer below,
 // then above, and keep the complete card reachable on a small display.
 export function captureToolbarPosition(selection:CaptureRect,viewport:{width:number;height:number},card:{width:number;height:number}):Point {
  const edge=8,gap=10;
  const limit=(n:number,size:number,total:number)=>Math.max(edge,Math.min(n,Math.max(edge,total-size-edge)));
- const below=selection.y+selection.height+gap;
- return{x:limit(selection.x,card.width,viewport.width),y:limit(below+card.height<=viewport.height-edge?below:selection.y-card.height-gap,card.height,viewport.height)};
+ const below=selection.y+selection.height+gap,above=selection.y-card.height-gap;
+ return{x:limit(selection.x+selection.width-card.width,card.width,viewport.width),y:limit(below+card.height>viewport.height-edge&&above>=edge?above:below,card.height,viewport.height)};
 }
 export const emptyHistory=():CaptureHistory=>({marks:[],redo:[]});
 export function addCaptureMark(h:CaptureHistory,m:CaptureMark):CaptureHistory{return{marks:[...h.marks,m],redo:[]};}

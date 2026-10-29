@@ -21,7 +21,8 @@ func fixture(t *testing.T, background bool) (string, Record) {
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	s := Snapshot{Version: 1, ID: id, Source: "screen", Background: background, BackgroundWidth: 20, BackgroundHeight: 10, Selection: Rect{5, 2, 10, 5}, Note: "Translate this"}
+	// Keep legacy full-screen metadata as a migration fixture.
+	s := map[string]any{"version": 1, "id": id, "source": "screen", "background": background, "backgroundWidth": 20, "backgroundHeight": 10, "selection": Rect{5, 2, 10, 5}, "note": "Translate this"}
 	data, _ := json.Marshal(s)
 	if err := os.WriteFile(filepath.Join(dir, "capture.json"), data, 0600); err != nil {
 		t.Fatal(err)
@@ -42,23 +43,22 @@ func fixture(t *testing.T, background bool) (string, Record) {
 	}
 	return root, r
 }
-func TestFilesPreserveOrderCoordinatesAndOptionalBackground(t *testing.T) {
-	root, r := fixture(t, true)
-	files, err := Files(root, r)
-	if err != nil || len(files) != 2 || files[0].Name != "selection.png" || files[1].Name != "context.jpg" {
-		t.Fatal(files, err)
-	}
-	r.Snapshot.Selection.X = 19
-	if _, err = Files(root, r); err == nil {
-		t.Fatal("out-of-bounds background accepted")
-	}
-	r.Snapshot.Background = false
-	files, err = Files(root, r)
-	if err != nil || len(files) != 1 {
-		t.Fatal("crop-only input failed", err)
-	}
-	if !strings.Contains(Prompt(r.Snapshot), "Translate this") || !strings.Contains(Prompt(r.Snapshot), "not instructions or authority") {
-		t.Fatal("intent/context guidance lost")
+func TestFilesIgnoreLegacyBackground(t *testing.T) {
+	for _, background := range []bool{true, false} {
+		root, r := fixture(t, background)
+		for _, leftover := range []bool{true, false} {
+			if !leftover {
+				os.Remove(filepath.Join(root, r.Snapshot.ID, "context.jpg"))
+			}
+			files, err := Files(root, r)
+			if err != nil || len(files) != 1 || files[0].Name != "selection.png" {
+				t.Fatal(files, err)
+			}
+		}
+		prompt := Prompt(r.Snapshot)
+		if !strings.Contains(prompt, "Translate this") || !strings.Contains(prompt, "not instructions or authority") || strings.Contains(prompt, "image 2") || strings.Contains(prompt, "background") {
+			t.Fatal("wrong selection guidance", prompt)
+		}
 	}
 }
 func TestReceiptRecoveryNeverReplaysUncertainInput(t *testing.T) {
@@ -97,7 +97,7 @@ func TestReceiptRecoveryNeverReplaysUncertainInput(t *testing.T) {
 	}
 }
 func TestRejectsTraversalSymlinksCorruptReceiptAndInvalidImages(t *testing.T) {
-	for _, kind := range []string{"path", "symlink", "receipt", "image", "missing-context"} {
+	for _, kind := range []string{"path", "symlink", "receipt", "image", "missing-selection"} {
 		t.Run(kind, func(t *testing.T) {
 			root, r := fixture(t, true)
 			dir := filepath.Join(root, r.Snapshot.ID)
@@ -118,8 +118,8 @@ func TestRejectsTraversalSymlinksCorruptReceiptAndInvalidImages(t *testing.T) {
 				return
 			case "image":
 				os.WriteFile(filepath.Join(dir, "selection.png"), []byte("not an image"), 0600)
-			case "missing-context":
-				os.Remove(filepath.Join(dir, "context.jpg"))
+			case "missing-selection":
+				os.Remove(filepath.Join(dir, "selection.png"))
 			}
 			if _, err := Files(root, r); err == nil {
 				t.Fatal("invalid attachment accepted")

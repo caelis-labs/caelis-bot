@@ -98,7 +98,8 @@ func (m *Media) Images(request string) []api.ScreenImage {
 	if err != nil {
 		return nil
 	}
-	return r.Images
+	// Older records may retain a second image for storage maintenance only.
+	return r.Images[:1]
 }
 
 // Save is completed before dispatch; failure must leave the input unsent.
@@ -106,7 +107,7 @@ func (m *Media) Save(request string, files []api.InputFile) error {
 	if m == nil {
 		return errors.New("screen media storage unavailable")
 	}
-	if !identifier.MatchString(request) || len(files) < 1 || len(files) > 2 {
+	if !identifier.MatchString(request) || len(files) != 1 {
 		return errors.New("invalid screen media input")
 	}
 	m.mu.Lock()
@@ -158,11 +159,7 @@ func (m *Media) Save(request string, files []api.InputFile) error {
 		if err := os.WriteFile(filepath.Join(dir, name+".thumb"), preview.Bytes(), 0600); err != nil {
 			return err
 		}
-		role := "selection"
-		if i == 1 {
-			role = "context"
-		}
-		record.Images = append(record.Images, api.ScreenImage{ID: fmt.Sprintf("%s-%d", key, i), Role: role, Width: cfg.Width, Height: cfg.Height})
+		record.Images = append(record.Images, api.ScreenImage{ID: fmt.Sprintf("%s-%d", key, i), Role: "selection", Width: cfg.Width, Height: cfg.Height})
 		record.MIMEs = append(record.MIMEs, "image/"+kind)
 	}
 	if err := localstate.Write(filepath.Join(dir, "media.json"), record); err != nil {

@@ -20,7 +20,7 @@ import {desktop} from './desktop';
 import {useI18n} from './i18n';
 import {addCaptureMark,captureCommandKey,captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,moveCaptureSelection,paintCaptureMark,redoCaptureMark,undoCaptureMark} from './capture-editor';
 import type {CaptureHistory,CaptureMark,CaptureRect,Point} from './capture-editor';
-type Document={id:string;image:string;width:number;height:number;window:CaptureRect;context:boolean;contextAvailable:boolean;outcome:string;imageCapability:string;message:string;presentation:number;diagnostics?:boolean};
+type Document={id:string;image:string;width:number;height:number;window:CaptureRect;screen:boolean;outcome:string;imageCapability:string;message:string;presentation:number;diagnostics?:boolean};
 const clamp=(n:number,max:number)=>Math.max(0,Math.min(n,max));
 function CaptureButton({label,children,...props}:ComponentProps<'button'>&{label:string}) {
  return <button type="button" className="capture-icon-button" title={label} aria-label={label} {...props}>{children}</button>;
@@ -42,7 +42,7 @@ export function WindowsCapture(){
 function WindowsCaptureEditor({id}:{id:string}){
  const {t}=useI18n();
  const [doc,setDoc]=useState<Document|null>(null),[selection,setSelection]=useState<CaptureRect|null>(null),[history,setHistory]=useState<CaptureHistory>(emptyHistory);
- const [kind,setKind]=useState('select'),[note,setNote]=useState(''),[context,setContext]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [kind,setKind]=useState('select'),[note,setNote]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [text,setText]=useState(''),[ink,setInk]=useState('#e63854'),[width,setWidth]=useState(3),[pointer,setPointer]=useState<Point|null>(null);
  const workspace=useRef<HTMLElement>(null),canvas=useRef<HTMLCanvasElement>(null),magnifier=useRef<HTMLCanvasElement>(null),source=useRef<HTMLImageElement|null>(null),drag=useRef<CaptureMark|null>(null);
  const initialized=useRef(false),performing=useRef(false),acknowledged=useRef(0);
@@ -75,7 +75,7 @@ function WindowsCaptureEditor({id}:{id:string}){
  },[showToolbar,selection,doc?.width,doc?.height,doc?.outcome]);
  const refresh=async()=>{
   const d=await desktop<Document>('WindowsCaptureDocument',id);setDoc(d);
-  if(!initialized.current){setContext(d.context);setSelection({x:0,y:0,width:d.width,height:d.height});setConfirmed(d.outcome!=='draft');initialized.current=true;}
+  if(!initialized.current){setSelection({x:0,y:0,width:d.width,height:d.height});setConfirmed(d.outcome!=='draft');initialized.current=true;}
   if(source.current?.src!==new URL(d.image,location.href).href){setImageLoaded(false);const im=new Image();im.onload=()=>{source.current=im;setImageLoaded(true);if(d.diagnostics)void desktop('WindowsCaptureInput',id,'image_decoded').catch(()=>{});};im.onerror=()=>setError(t('native.capture.windowsImageFailed'));im.src=d.image;}
  };
  useEffect(()=>{
@@ -133,7 +133,7 @@ function WindowsCaptureEditor({id}:{id:string}){
   performing.current=true;setBusy(true);setError('');
   try{
    if(doc.outcome==='pinned'){
-    await desktop('ExportWindowsCapture',{id,selection,png:'',note:'',context:false,action});return;
+    await desktop('ExportWindowsCapture',{id,selection,png:'',note:'',action});return;
    }
    // Mosaic reads absolute image pixels. Flatten at source coordinates before
    // cropping so its sampling and redaction match the preview at every offset.
@@ -141,7 +141,7 @@ function WindowsCaptureEditor({id}:{id:string}){
    const ctx=flattened.getContext('2d')!;ctx.drawImage(source.current!,0,0);paintSelection(ctx,selection);
    const crop=document.createElement('canvas');crop.width=selection.width;crop.height=selection.height;
    crop.getContext('2d')!.drawImage(flattened,selection.x,selection.y,selection.width,selection.height,0,0,selection.width,selection.height);
-   await desktop('ExportWindowsCapture',{id,selection,png:crop.toDataURL('image/png').split(',')[1],note,context,action});
+   await desktop('ExportWindowsCapture',{id,selection,png:crop.toDataURL('image/png').split(',')[1],note,action});
    if(action==='send')await refresh();
   }catch{
    setError(t(action==='save'?'native.capture.saveFailed':action==='send'?'native.capture.unknown':'native.capture.windowsActionUnconfirmed'));
@@ -167,7 +167,7 @@ function WindowsCaptureEditor({id}:{id:string}){
   const pin=()=>{if(doc?.outcome==='draft')void perform('pin');};
   window.addEventListener('capture-pin',pin);
   return()=>window.removeEventListener('capture-pin',pin);
- },[doc,selection,history,note,context,busy]);
+ },[doc,selection,history,note,busy]);
  useEffect(()=>{
   const key=(e:KeyboardEvent)=>{
    const editing=e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLSelectElement||(e.target instanceof HTMLElement&&e.target.isContentEditable);
@@ -198,10 +198,10 @@ function WindowsCaptureEditor({id}:{id:string}){
     e.preventDefault();const step=e.shiftKey?10:1;setSelection(moveCaptureSelection(selection,e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0,doc.width,doc.height));
    }
   };window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);
- },[doc,selection,history,note,context,busy]);
+ },[doc,selection,history,note,busy]);
  if(!doc)return error?<main className="capture-workspace"><p role="status">{error}</p></main>:null;
  const label=(key:Parameters<typeof t>[0])=>t(key).replace('⇧⌘','Ctrl+Shift+').replace('⌘','Ctrl+');
- const selectionHint=t(doc.contextAvailable?'native.capture.windowsSelect':'native.capture.windowsSelectImage');
+ const selectionHint=t(doc.screen?'native.capture.windowsSelect':'native.capture.windowsSelectImage');
  if(doc.outcome==='pinned')return <main ref={workspace} tabIndex={-1} className="capture-pin" style={{'--custom-contextmenu':id} as CSSProperties}
   onDoubleClick={()=>void desktop('CloseWindowsCapture',id)}
   onWheel={event=>{if(!busy&&event.deltaY)void desktop('ResizeWindowsPin',id,event.deltaY<0?1.08:1/1.08);}}>
@@ -228,9 +228,9 @@ function WindowsCaptureEditor({id}:{id:string}){
   <div className="capture-composer"><input data-capture-note="true" aria-label={t('native.capture.note')} placeholder={t('native.capture.note')} value={note} disabled={locked} onChange={e=>setNote(e.target.value)}/>
    <button className="capture-ask" disabled={locked||doc.imageCapability!=='supported'} title={doc.imageCapability==='supported'?t('native.capture.windowsAsk'):t('native.capture.imageUnknown')} onClick={()=>void perform('send')}><SparkleIcon aria-hidden="true"/>{t('native.capture.askButton')}</button>
   </div>
-  <div className="capture-scope"><label><input type="checkbox" checked={context} disabled={locked||!doc.contextAvailable} onChange={e=>setContext(e.target.checked)}/>{t('native.capture.includeBackground')}</label><span className="capture-dimensions">{selection.width} × {selection.height}</span>
+  <div className="capture-scope"><span className="capture-dimensions">{selection.width} × {selection.height}</span>
    <CaptureButton label={t('native.capture.windowsWindow')} disabled={!doc.window.width||locked} onClick={()=>select(doc.window)}><BrowserIcon/></CaptureButton>
-   <CaptureButton label={t(doc.contextAvailable?'native.capture.windowsDisplay':'native.capture.windowsImage')} disabled={locked} onClick={()=>select({x:0,y:0,width:doc.width,height:doc.height})}><MonitorIcon/></CaptureButton>
+   <CaptureButton label={t(doc.screen?'native.capture.windowsDisplay':'native.capture.windowsImage')} disabled={locked} onClick={()=>select({x:0,y:0,width:doc.width,height:doc.height})}><MonitorIcon/></CaptureButton>
   </div>
   {(error||doc.message||doc.outcome==='unknown')&&<p className="capture-notice" role="status">{error||doc.message||t('native.capture.unknown')}</p>}
  </div>}

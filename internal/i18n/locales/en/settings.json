@@ -287,8 +287,6 @@
   "pasteShortcutDescription": "Pin the selected capture or an image from the clipboard.",
   "captureShortcutInvalid": "Use F1–F12, or a key with Control, Option or Command.",
   "screenInput": "Screen input",
-  "screenContext": "Include the complete screen for Bot",
-  "screenContextDescription": "Include the rest of the screen by default when asking about a capture. You can change this before each send.",
   "screenPreferencesFailed": "Could not read or save screen preferences. Try setting the switch again.",
   "shortcuts": "Keyboard shortcuts",
   "advancedTasks": "Advanced task settings",

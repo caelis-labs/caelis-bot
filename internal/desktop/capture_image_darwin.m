@@ -29,7 +29,7 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
         _marks=[NSMutableArray new];_redoMarks=[NSMutableArray new];_windows=@[];
         _source=@"screen";_note=@"";_applicationName=@"";_windowTitle=@"";
         _capturedAt=[[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-        _includeBackground=YES;_pixelScale=1;_outcome=@"draft";
+        _pixelScale=1;_outcome=@"draft";
     }
     return self;
 }
@@ -88,8 +88,8 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
         }
     }
 }
-- (NSBitmapImageRep *)render:(BOOL)background maximumEdge:(CGFloat)edge {
-    NSRect region=background?NSMakeRect(0,0,self.canvasSize.width,self.canvasSize.height):self.selection;
+- (NSBitmapImageRep *)renderWithMaximumEdge:(CGFloat)edge {
+    NSRect region=self.selection;
     if(region.size.width<=0 || region.size.height<=0)return nil;
     CGFloat scale=self.pixelScale;
     if(edge>0)scale=MIN(scale,edge/MAX(region.size.width,region.size.height));
@@ -103,10 +103,6 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
     NSGraphicsContext.currentContext=[NSGraphicsContext graphicsContextWithCGContext:cg flipped:YES];
     [self.image drawInRect:NSMakeRect(0,0,self.canvasSize.width,self.canvasSize.height) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1 respectFlipped:YES hints:nil];
     [self drawMarks];
-    if(background) {
-        [NSColor.systemRedColor setStroke];NSBezierPath *outline=[NSBezierPath bezierPathWithRect:NSInsetRect(self.selection,-2,-2)];
-        outline.lineWidth=2/scale;[outline stroke];
-    }
     NSGraphicsContext.currentContext=old;
     return rep;
 }
@@ -125,26 +121,16 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
     CGFloat edge=MAX(self.selection.size.width,self.selection.size.height)*self.pixelScale;
     NSData *crop=nil;
     for(int i=0;i<12;i++) {
-        crop=[[self render:NO maximumEdge:edge] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        crop=[[self renderWithMaximumEdge:edge] representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
         if(crop.length<=8*1024*1024)break;
         edge*=0.8;
     }
     if(!crop || crop.length>8*1024*1024)return nil;
     if(![crop writeToFile:[dir stringByAppendingPathComponent:@"selection.png"] options:NSDataWritingAtomic error:error])return nil;
-    NSMutableDictionary *meta=[@{@"version":@1,@"id":self.identifier,@"capturedAt":self.capturedAt,@"application":boundedUTF8(self.applicationName,512),@"windowTitle":boundedUTF8(self.windowTitle,2048),@"source":self.source,@"note":self.note?:@"",@"background":@NO,@"backgroundWidth":@0,@"backgroundHeight":@0,@"selection":@{@"x":@0,@"y":@0,@"width":@0,@"height":@0}} mutableCopy];
-    if(self.includeBackground && [self.source isEqual:@"screen"]) {
-        NSBitmapImageRep *rep=[self render:YES maximumEdge:2400];
-        NSData *data=[rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@0.85}];
-        if(!data || data.length>8*1024*1024 || ![data writeToFile:[dir stringByAppendingPathComponent:@"context.jpg"] options:NSDataWritingAtomic error:error])return nil;
-        double sx=(double)rep.pixelsWide/self.canvasSize.width,sy=(double)rep.pixelsHigh/self.canvasSize.height;
-        NSInteger x=floor(self.selection.origin.x*sx),y=floor(self.selection.origin.y*sy);
-        NSInteger right=MIN(rep.pixelsWide,ceil(NSMaxX(self.selection)*sx)),bottom=MIN(rep.pixelsHigh,ceil(NSMaxY(self.selection)*sy));
-        meta[@"background"]=@YES;meta[@"backgroundWidth"]=@(rep.pixelsWide);meta[@"backgroundHeight"]=@(rep.pixelsHigh);
-        meta[@"selection"]=@{@"x":@(x),@"y":@(y),@"width":@(right-x),@"height":@(bottom-y)};
-    }
+    NSDictionary *meta=@{@"version":@1,@"id":self.identifier,@"capturedAt":self.capturedAt,@"application":boundedUTF8(self.applicationName,512),@"windowTitle":boundedUTF8(self.windowTitle,2048),@"source":self.source,@"note":self.note?:@""};
     NSData *json=[NSJSONSerialization dataWithJSONObject:meta options:0 error:error];
     if(!json || ![json writeToFile:[dir stringByAppendingPathComponent:@"capture.json"] options:NSDataWritingAtomic error:error])return nil;
-    for(NSString *file in @[@"selection.png",@"context.jpg",@"capture.json"]) {
+    for(NSString *file in @[@"selection.png",@"capture.json"]) {
         [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions:@0600} ofItemAtPath:[dir stringByAppendingPathComponent:file] error:nil];
     }
     return meta;

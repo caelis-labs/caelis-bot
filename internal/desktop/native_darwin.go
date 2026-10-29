@@ -139,18 +139,10 @@ func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Serv
 		C.bot_bind_capture(d.pointer, d.capture)
 	})
 	d.language(s.LanguagePreferences().Locale)
-	d.capturePreferences(s.CapturePreferences().IncludeBackground)
 	d.captureEnabled(s.CapturePreferences().Enabled)
 	return d
 }
 
-func (d *macDriver) capturePreferences(include bool) {
-	value := C.int(0)
-	if include {
-		value = 1
-	}
-	application.InvokeSync(func() { C.bot_capture_preferences(d.capture, value) })
-}
 func (d *macDriver) captureEnabled(enabled bool) {
 	value := C.int(0)
 	if enabled {

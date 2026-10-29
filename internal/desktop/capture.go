@@ -49,7 +49,7 @@ func (s *Service) configureCaptureBackend(back *backend.Service) {
 func (s *Service) configureCapture(root string) error {
 	s.capture.root = root
 	s.capture.preferenceFile = filepath.Join(filepath.Dir(root), "screen-input.json")
-	s.capture.preferences = CapturePreferences{Enabled: true, IncludeBackground: true}
+	s.capture.preferences = CapturePreferences{Enabled: true}
 	if data, err := os.ReadFile(s.capture.preferenceFile); err == nil {
 		if json.Unmarshal(data, &s.capture.preferences) != nil {
 			s.capture.preferences = CapturePreferences{Notice: "unreadable"}
@@ -74,12 +74,10 @@ func (s *Service) configureCapture(root string) error {
 }
 
 type CapturePreferences struct {
-	Enabled           bool   `json:"enabled"`
-	IncludeBackground bool   `json:"includeBackground"`
-	Notice            string `json:"notice"`
+	Enabled bool   `json:"enabled"`
+	Notice  string `json:"notice"`
 }
-type capturePreferencesDriver interface {
-	capturePreferences(bool)
+type captureImageDriver interface {
 	copyCaptureImage([]byte) bool
 }
 type captureEnabledDriver interface{ captureEnabled(bool) }
@@ -88,20 +86,6 @@ func (s *Service) CapturePreferences() CapturePreferences {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.capture.preferences
-}
-func (s *Service) SaveCapturePreferences(v CapturePreferences) (CapturePreferences, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v.Notice = ""
-	v.Enabled = s.capture.preferences.Enabled // Context cannot change the feature gate.
-	if err := localstate.Write(s.capture.preferenceFile, v); err != nil {
-		return s.capture.preferences, err
-	}
-	s.capture.preferences = v
-	if d, ok := s.native.(capturePreferencesDriver); ok && !s.stopped {
-		d.capturePreferences(v.IncludeBackground)
-	}
-	return v, nil
 }
 
 // SetCaptureEnabled owns the complete manual capture/pin tool. It does not change
@@ -188,7 +172,7 @@ func (s *Service) CopyScreenImage(id string) error {
 		return errors.New("screen image unavailable")
 	}
 	s.mu.Lock()
-	d, ok := s.native.(capturePreferencesDriver)
+	d, ok := s.native.(captureImageDriver)
 	active := !s.stopped
 	s.mu.Unlock()
 	if ok && active && d.copyCaptureImage(data) {

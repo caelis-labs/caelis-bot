@@ -35,7 +35,7 @@ func TestMediaSurvivesExportCleanupAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	images := m.Images("screen-persist")
-	if len(images) != 2 || images[0].Role != "selection" || images[1].Role != "context" {
+	if len(images) != 1 || images[0].Role != "selection" {
 		t.Fatal(images)
 	}
 	data, mime, err := m.Bytes(images[0].ID, false)
@@ -61,7 +61,7 @@ func TestMediaAtomicFailureAndRootConfinement(t *testing.T) {
 	root, r := fixture(t, false)
 	files, _ := Files(root, r)
 	m, _ := OpenMedia(t.TempDir())
-	bad := append(append([]api.InputFile{}, files...), api.InputFile{Path: filepath.Join(root, "missing")})
+	bad := []api.InputFile{{Path: filepath.Join(root, "missing")}}
 	if err := m.Save("screen-failed", bad); err == nil || len(m.Images("screen-failed")) != 0 {
 		t.Fatal("partial save became visible")
 	}
@@ -114,5 +114,45 @@ func TestMediaCleanupOnlyExpiresOwnedRecords(t *testing.T) {
 	}
 	if len(m.Images("screen-old")) != 0 || len(m.Images("screen-new")) != 1 {
 		t.Fatal("cleanup lost current media")
+	}
+}
+
+func TestMediaHidesLegacyFullScreenAttachment(t *testing.T) {
+	root, r := fixture(t, true)
+	files, err := Files(root, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := OpenMedia(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save("screen-legacy", files); err != nil {
+		t.Fatal(err)
+	}
+	key := mediaKey("screen-legacy")
+	record, err := m.record(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Images = append(record.Images, api.ScreenImage{ID: key + "-1", Role: "context", Width: 20, Height: 10})
+	record.MIMEs = append(record.MIMEs, "image/jpeg")
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.root, key, "media.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	images := m.Images("screen-legacy")
+	if len(images) != 1 || images[0].Role != "selection" {
+		t.Fatal(images)
+	}
+	// A second image cannot re-enter storage via a new submission either.
+	if err := m.Save("screen-new", append(files, files[0])); err == nil {
+		t.Fatal("full-screen attachment accepted")
+	}
+	if _, err := m.record(key); err != nil {
+		t.Fatal("legacy record is no longer available for cleanup", err)
 	}
 }
