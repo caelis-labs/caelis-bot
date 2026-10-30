@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0](https://github.com/caelis-labs/caelis-bot/compare/v0.20.0...v0.21.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* This Bot rejects Core without runtime-agent-team-v1, including an incompatible busy Host awaiting idle replacement. Older Bot versions that compare reviewer-state with their historical reviewer can reject the new Core. Upgrade compatible Bot and Runtime together; old reviewer records remain evidence rather than configuration authority.
+
+### Features
+
+* **bot:** invite optional memory review from accumulated observations ([#261](https://github.com/caelis-labs/caelis-bot/issues/261)) ([4d77cf0](https://github.com/caelis-labs/caelis-bot/commit/4d77cf0f8b7e018297122319d51238a017c62561))
+* use Runtime Agent Team and require its capability ([#263](https://github.com/caelis-labs/caelis-bot/issues/263)) ([8828535](https://github.com/caelis-labs/caelis-bot/commit/882853513875316dc6abd242ea7a32ae397c88fd))
+
+
+### Bug Fixes
+
+* **capture:** 右下角选区面板与单截图发送 ([#257](https://github.com/caelis-labs/caelis-bot/issues/257)) ([5625f26](https://github.com/caelis-labs/caelis-bot/commit/5625f26ab1ece3ff96d7a78265062a855b492802))
+
 ## [0.20.0](https://github.com/caelis-labs/caelis-bot/compare/v0.19.2...v0.20.0) (2026-10-29)
 
 ### Features
