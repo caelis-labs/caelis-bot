@@ -2,9 +2,10 @@
 
 This change replaces the continuity portion of draft #255 (`b779063b`), originally
 based on unified delivery #258 and now incorporating main
-`882853513875316dc6abd242ea7a32ae397c88fd` (#263, Core v0.75.0). It does not
-implement soft-cue sampling/thresholds or investigate the separate historical
-plugin HTTP 500 and Telegram timeout. Those remain separately owned.
+`4d77cf0f8b7e018297122319d51238a017c62561` (merged #261), retaining #263's
+Core v0.75.0/fe8fdbd0 pin and Guardian/cancellation boundaries. Invitation policy
+belongs to #261; this change adds its integration coverage without redefining it.
+The historical plugin HTTP 500 and Telegram timeout remain separately owned.
 
 ## Migration and simplification
 
@@ -148,3 +149,22 @@ could not establish this temporal distinction. Core terminal callbacks still
 provide their native same-Turn terminal contract. These fixtures prescribe model
 responses and do not establish autonomous model judgment or note completeness.
 No additional Bot-facing workflow is needed for these adapter/Host repairs.
+
+## Combination with merged invitations
+
+The final baseline includes #261. `TestNativeCombinedReview` runs both adapters
+through the real resident SubmitSystem entry, installed memory-reference read,
+and scripted quiet deferral or Dream. Deferral keeps the native Session and
+persisted cooldown. Dream preserves supplied task/authorization/review-path facts
+in the first new Worker approval/question input; the seed is consumed once.
+`TestCombinedPreparedReviewRespectsHandoffAdmission` ensures an old prepared
+invitation cannot consume a new binding's first handoff seed. These regression
+fixtures are included here now that #261 is on main.
+
+The pre-merge combination was `73735d172b2747068b530c7019b8900149e6f12d`.
+After merging #261's squash into this branch and adding the same tests, the full
+source tree matched that combination (`d4b41f1a8786661fe1cc7ae2b275e0ec8f9c93a7`)
+before this documentation update. Local check/smoke/ad-hoc build, targeted race,
+original answer-save recovery and native synthetic integration passed. Final
+head CI and merge evidence are recorded in the PR. This does not claim live-model
+health judgment, memory quality, native GUI acceptance, or a published artifact.
