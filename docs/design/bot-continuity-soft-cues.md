@@ -1,8 +1,8 @@
 # Lightweight memory-review invitations
 
-Based on main `16dd63547a934cacf4e44e415a4375c03026cec6` and #258 system delivery.
+Based on main `882853513875316dc6abd242ea7a32ae397c88fd` and #258 system delivery.
 Replaces #256's stacked, multi-window implementation. Dream handoff stability
-belongs to #255; this producer never calls Dream or creates a native session.
+belongs to #262; this producer never calls Dream or creates a native session.
 The sole model workflow is [bot-core memory guidance](../../internal/botskills/skills/bot-core/references/memory.md).
 
 ## Signals actually available
@@ -66,6 +66,10 @@ keeps its original message across restart and only reconciles that receipt.
 Definitive Deferred non-dispatch can retry that same ID; stale or changed-binding
 candidates may be retired only after this proof. User ingress, pending handoff,
 busy turns, approvals and pause keep the existing admission rules.
+Before attempting delivery, an expired or changed completed head limits the
+unified entry to reconciliation. An unavailable delivery log cannot prove
+non-dispatch and leaves the original candidate intact. A producer save failure
+disables this optional feature until restart/readback; ordinary chat continues.
 
 `continuity_review` is an independent hidden system input. It uses the existing
 `Scheduled` **presentation-only** flag for quiet final responses. Caelis routes it

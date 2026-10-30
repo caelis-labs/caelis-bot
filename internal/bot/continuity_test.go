@@ -239,3 +239,67 @@ func TestContinuityMissingAgeRemainsUnavailable(t *testing.T) {
 		}
 	}
 }
+
+func TestContinuityPreparedInvitationCannotOutliveItsCompletedHead(t *testing.T) {
+	for _, change := range []string{"expired", "active", "stopped", "new-completion"} {
+		t.Run(change, func(t *testing.T) {
+			r, f, now := reviewTestRuntime(t, "codex")
+			if err := r.Tick(t.Context()); err != nil || r.review.state.Pending == nil {
+				t.Fatal("candidate not prepared", err)
+			}
+			switch change {
+			case "expired":
+				*now = now.Add(2 * time.Minute)
+			case "active":
+				f.current.Idle, f.current.Status = false, "active"
+			case "stopped":
+				f.current.Status = "interrupted"
+			case "new-completion":
+				nextReviewTurn(f, *now)
+			}
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.inputs) != 0 || r.review.state.Pending != nil {
+				t.Fatal("stale candidate dispatched or retained")
+			}
+		})
+	}
+}
+
+func TestContinuityUnknownSurvivesUnreadableDeliveryLedger(t *testing.T) {
+	r, f, now := reviewTestRuntime(t, "codex")
+	f.outcome = "unknown"
+	reviewTicks(t, r)
+	original := *r.review.state.Pending
+	if err := os.WriteFile(r.deliveries.path, []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewForRuntime(r.path, "codex", nil)
+	if err != nil || reopened.deliveryErr == nil {
+		t.Fatal("fixture did not preserve unreadable ledger", err)
+	}
+	*now = now.Add(time.Hour)
+	reopened.engine, reopened.now = f, func() time.Time { return *now }
+	reviewTicks(t, reopened)
+	if reopened.review.state.Pending == nil || !reflect.DeepEqual(*reopened.review.state.Pending, original) || len(f.inputs) != 1 {
+		t.Fatal("unreadable delivery ledger erased or replayed unknown")
+	}
+}
+
+func TestContinuitySaveFailureDisablesOnlyOptionalReview(t *testing.T) {
+	r, f, _ := reviewTestRuntime(t, "codex")
+	r.review.path = t.TempDir()
+	if err := r.Tick(t.Context()); err == nil {
+		t.Fatal("expected original save failure")
+	}
+	// Restoring storage must not silently resume a producer with uncertain writes.
+	r.review.path = filepath.Join(filepath.Dir(r.path), "continuity-codex.json")
+	reviewTicks(t, r)
+	if len(f.inputs) != 0 || r.review.err == nil {
+		t.Fatal("failed optional producer kept writing/dispatching")
+	}
+	if receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "user", Text: "Continue"}, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal("review fault blocked user input", receipt, err)
+	}
+}

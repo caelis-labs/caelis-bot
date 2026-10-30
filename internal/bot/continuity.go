@@ -52,6 +52,7 @@ func openReview(root, provider string) *reviewController {
 
 func (r *reviewController) save(next reviewState) error {
 	if err := localstate.Write(r.path, next); err != nil {
+		r.err = err // Freeze this optional producer until restart/readback.
 		return err
 	}
 	r.state = next
@@ -74,7 +75,7 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 		}
 		return nil
 	}
-	if r.paused || r.engine == nil {
+	if r.paused || r.engine == nil || r.deliveryErr != nil {
 		return nil
 	}
 	observer, ok := r.engine.(continuity.Observer)
@@ -91,14 +92,24 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 		return nil
 	}
 	if next.Pending != nil {
+		stale := next.Session != o.Session || o.Turns != next.Evaluated ||
+			!current.Observed || !current.Idle || current.Status != "completed" ||
+			current.Session != o.Session || current.Turn != o.Turn || now.Sub(next.LastNow) > time.Minute
+		deliveryContext := ctx
+		if stale {
+			// The unified entry reconciles original receipts before checking
+			// cancellation. Expired candidates may only reconcile, never dispatch.
+			var cancel context.CancelFunc
+			deliveryContext, cancel = context.WithCancel(ctx)
+			cancel()
+		}
 		// SubmitSystem reconciles its durable original receipt before admission.
 		// Unknown never crosses the native submission boundary twice.
-		receipt, err := r.submitSystemLocked(ctx, *next.Pending)
+		receipt, err := r.submitSystemLocked(deliveryContext, *next.Pending)
 		if receipt.Deferred && receipt.ID == next.Pending.ID {
 			// Definitive non-dispatch is the only permission to retire a stale
 			// candidate. Never discard an unknown operation on binding change.
-			if next.Session != o.Session || now.Sub(next.LastNow) > time.Minute ||
-				o.Turns > next.Evaluated && continuity.Confidence(o, next.BaseTurns, next.BaseCompactions, now).Total() < continuity.Threshold {
+			if stale {
 				next.Pending = nil
 				if next.Session == o.Session {
 					next.Evaluated = o.Turns
