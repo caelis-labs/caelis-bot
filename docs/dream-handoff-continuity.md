@@ -112,3 +112,39 @@ Core change is introduced. File validation is point-in-time: a later external
 edit is read again at seed preparation, and a read failure blocks that input; it
 cannot undo an already committed native binding. Legacy retired-scheduler receipt
 migration remains compatibility code, not a new automatic Dream trigger.
+
+## Review follow-up: terminal receipts and original create cleanup
+
+Caelis `Calls` now fences new resident input from the first saved successful
+terminal callback receipt until its original Turn is observed terminal. Receipt
+publication and input admission share `step`; the cached presentation is fenced
+before persistence can wait. `/result` acceptance, a lost response, and the
+presence of input in history do not prove that Turn has consumed steering.
+Recovery reuses identical result bytes. Unaccepted corrections keep their original
+submission ID; native Stop remains available. No extra terminal-state journal is
+introduced. Real Core synthetic tests inject failure both before acceptance and
+after acceptance; deterministic fixtures also cover restart and repeated receipt.
+
+The Host always asks the adapter to settle the original CallID, including a
+superseded handoff. Each adapter consults its existing create receipt before
+checking the current Turn. Known unused Codex destinations move to
+`DeferredToolRenewals`; Caelis keeps its existing deferred operation record.
+An unknown create keeps its original native receipt and archives the Host summary
+as `unknown_fallback`, preserving ordinary old-session work. An unrelated later
+Dream that cannot start because that receipt is unresolved is definitively
+rejected, not mislabelled as another unknown create. A committed binding restores
+its matching handoff. Other save/read errors do not let the Host discard pending
+cleanup. No original create or accepted user input is replayed.
+
+Codex has no public create lookup when the original thread/start response contains
+no new thread ID. That uncertainty stays retained and prevents another renewal;
+it does not block ordinary tools/chat. Caelis can read back its original operation.
+These are different native capabilities, not an excuse to infer a missing ID.
+
+The Codex native fixture now distinguishes an already-admitted sibling tool from
+a tool admitted after handoff capture. Both provider orderings are exercised;
+new calls after durable handoff are refused. The earlier zero-sibling assertion
+could not establish this temporal distinction. Core terminal callbacks still
+provide their native same-Turn terminal contract. These fixtures prescribe model
+responses and do not establish autonomous model judgment or note completeness.
+No additional Bot-facing workflow is needed for these adapter/Host repairs.
