@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -298,6 +299,17 @@ func TestTerminalToolUnknownCreateKeepsOriginalAttemptAcrossRestart(t *testing.T
 	}
 	if _, err := s.RenewAfterTool(t.Context(), original); err != api.ErrConversationRenewalUnknown || starts != 1 {
 		t.Fatal("unknown create replayed native thread/start", err, starts)
+	}
+	s.mu.Lock()
+	s.lastTurn = "later-human-turn"
+	s.mu.Unlock()
+	if _, err := s.RenewAfterTool(t.Context(), original); err != api.ErrConversationRenewalUnknown || starts != 1 {
+		t.Fatal("new Turn discarded the original unknown receipt", err, starts)
+	}
+	later := original
+	later.CallID, later.Turn = "new-distinct-call", "later-human-turn"
+	if _, err := s.RenewAfterTool(t.Context(), later); !errors.Is(err, api.ErrConversationRenewalRejected) || starts != 1 {
+		t.Fatal("unattempted later renewal became unknown or replayed original", err, starts)
 	}
 	restored := NewSession(s.opts)
 	if restored.binding.ThreadID != original.Session || restored.binding.ToolRenewal == nil || restored.binding.ToolRenewal.CallID != original.CallID || !restored.binding.ToolRenewal.Attempted || restored.binding.ToolRenewal.NewThread != "" {

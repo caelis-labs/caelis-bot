@@ -274,3 +274,53 @@ func TestRestartReconcilesCommittedNativeBindingBeforeFirstInput(t *testing.T) {
 		})
 	}
 }
+
+type receiptRenewalEngine struct {
+	legacyDreamEngine
+	calls  int
+	result error
+}
+
+func (e *receiptRenewalEngine) RenewAfterTool(_ context.Context, call api.ToolInvocation) (string, error) {
+	e.calls++
+	if call.CallID != "original" || call.Session != "old" {
+		return "", errors.New("original receipt changed")
+	}
+	return "", e.result
+}
+func TestSupersededHandoffWaitsForAdapterReceiptBeforeClearing(t *testing.T) {
+	for _, result := range []error{api.ErrConversationRenewalDeferred, api.ErrConversationRenewalUnknown, errors.New("binding save failed")} {
+		t.Run(result.Error(), func(t *testing.T) {
+			r, _, _ := fixture(t)
+			if err := r.openHandoff(); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.handoff.saveTurn("original", "old", "original-turn", "Task, original authorization and unread review scope."); err != nil {
+				t.Fatal(err)
+			}
+			e := &receiptRenewalEngine{legacyDreamEngine: legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, state: api.ConversationState{Session: "old", Turn: "human-new-turn", Status: "completed", Observed: true, Idle: true}}, result: result}
+			r.engine = e
+			input := api.Submission{ID: "correction-original", Text: "Keep the review, revoke deployment."}
+			if receipt, err := r.SubmitUser(t.Context(), input, nil); err != nil || receipt.Outcome != "accepted" {
+				t.Fatal(receipt, err)
+			}
+			if e.calls != 1 || len(e.submissions) != 1 || e.submissions[0].ID != input.ID {
+				t.Fatal("host skipped native original receipt or replayed user", e.calls, e.submissions)
+			}
+			restored, err := openHandoff(r.handoff.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result == api.ErrConversationRenewalDeferred || result == api.ErrConversationRenewalUnknown {
+				if restored.pending().CallID != "" {
+					t.Fatal("retained native receipt still fences unrelated tools")
+				}
+				if result == api.ErrConversationRenewalUnknown && (len(restored.pending().Receipts) != 1 || restored.pending().Receipts[0].Outcome != "unknown_fallback" || restored.pending().Receipts[0].CallID != "original") {
+					t.Fatal("original unknown summary lost")
+				}
+			} else if restored.pending().CallID != "original" || !restored.pending().Superseded {
+				t.Fatal("unsettled receipt lost across restart", restored.pending())
+			}
+		})
+	}
+}

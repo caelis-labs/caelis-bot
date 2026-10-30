@@ -134,7 +134,7 @@ func TestUserCorrectionSupersedesPendingDreamWithoutReplay(t *testing.T) {
 	if err := r.handoff.saveTurn("original-call", "old-session", "terminal-turn", "Identity; original task and receipt."); err != nil {
 		t.Fatal(err)
 	}
-	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, state: api.ConversationState{Session: "old-session", Turn: "terminal-turn", Status: "running", Observed: true}}
+	e := &guardedDreamEngine{legacyDreamEngine: legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, state: api.ConversationState{Session: "old-session", Turn: "terminal-turn", Status: "running", Observed: true}}}
 	r.engine = e
 	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "human-correction", Text: "Keep the original task; wait for my review."}, nil)
 	if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || r.handoff.pending().CallID != "" {

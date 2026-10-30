@@ -175,6 +175,27 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		s.mu.Unlock()
 		return nil
 	}
+	op := "dream-renew-" + digest([]byte(id))
+	if toolTurn != "" {
+		op = "tool-renew-" + digest([]byte(id))
+	}
+	if pending, exists := s.state.Operations[op]; toolTurn != "" && exists {
+		// Original create receipts precede current-Turn admission. Recovery
+		// reads the same operation; it cannot dispatch another create.
+		if pending.Outcome == "unknown" {
+			s.mu.Unlock()
+			if err := s.recoverOperations(ctx); err != nil {
+				return err
+			}
+			s.mu.Lock()
+			pending = s.state.Operations[op]
+		}
+		current := s.conversationLocked()
+		if pending.RenewalDeferred || pending.Outcome == "unknown" || current.Session != source || current.Turn != toolTurn {
+			s.mu.Unlock()
+			return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
+		}
+	}
 	current := s.conversationLocked()
 	j := s.state.Operations[id]
 	boundTurn := j.TurnID
@@ -196,14 +217,10 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
-	op := "dream-renew-" + digest([]byte(id))
-	if toolTurn != "" {
-		op = "tool-renew-" + digest([]byte(id))
-	}
 	for original, operation := range s.state.Operations {
 		if original != op && operation.deferredRenewal(original) && operation.Outcome == "unknown" {
 			s.mu.Unlock()
-			return errors.New("original context creation is unresolved; retain its receipt")
+			return errors.Join(api.ErrConversationRenewalRejected, errors.New("original context creation is unresolved; retain its receipt"))
 		}
 	}
 	pending, exists := s.state.Operations[op]
@@ -329,10 +346,7 @@ func (s *Session) recordDeferredRenewal(op string, err error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	j := s.state.Operations[op]
-	if j.RenewalDeferred {
-		return api.ErrConversationRenewalDeferred
-	}
-	if !errors.Is(err, api.ErrConversationRenewalDeferred) || j.Path != "/sessions" {
+	if j.Path != "/sessions" || !j.RenewalDeferred && !errors.Is(err, api.ErrConversationRenewalDeferred) {
 		return err
 	}
 	j.RenewalDeferred = true
@@ -344,7 +358,10 @@ func (s *Session) recordDeferredRenewal(op string, err error) error {
 	if j.Outcome == "unknown" {
 		return api.ErrConversationRenewalUnknown
 	}
-	return err
+	if j.Outcome == "rejected" || j.Outcome == "conflicted" {
+		return api.ErrConversationRenewalRejected
+	}
+	return api.ErrConversationRenewalDeferred
 }
 
 func (s *Session) deferRenewal(op string) error {

@@ -2,6 +2,7 @@ package codex
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -69,6 +70,70 @@ func TestRenewalDeferralRetainsSourceAndUnusedNativeReceipt(t *testing.T) {
 			call.CallID = "later-distinct-dream"
 			if sid, err := s.RenewAfterTool(ctx, call); err != nil || sid != "next-native" || starts.Load() != 2 {
 				t.Fatal("original receipt blocked a later explicit Dream", sid, err, starts.Load())
+			}
+		})
+	}
+}
+
+// Fail only the final binding commit, after thread/start and its original ID
+// have been saved. A new human Turn must not skip cleanup of that known create.
+func TestOriginalRenewalSettlesBeforeNewTurnAdmission(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		t.Run(fmt.Sprint("restart=", restart), func(t *testing.T) {
+			s, f := sessionPair(t, "normal")
+			s.mu.Lock()
+			s.lastTurn = "terminal"
+			s.run = ""
+			s.runs["terminal"] = "interrupted"
+			s.state.CanSend = true
+			s.mu.Unlock()
+			var starts atomic.Int32
+			f.mu.Lock()
+			f.handle = func(m wireMessage) (any, bool) {
+				if m.Method == "thread/start" {
+					n := starts.Add(1)
+					return map[string]any{"thread": nativeThread{ID: fmt.Sprint("created-", n)}, "model": "native-default"}, true
+				}
+				return nil, false
+			}
+			f.mu.Unlock()
+			path := s.opts.StateFile
+			invalid := t.TempDir()
+			ctx := api.WithRenewalCommit(t.Context(), func(_ string, adopt func() error) error {
+				s.opts.StateFile = invalid
+				defer func() { s.opts.StateFile = path }()
+				return adopt()
+			})
+			original := api.ToolInvocation{Provider: "codex", CallID: "A", Session: "thread-native", Turn: "terminal"}
+			if _, err := s.RenewAfterTool(ctx, original); err == nil {
+				t.Fatal("binding failure was not injected")
+			}
+			if s.binding.ThreadID != original.Session || s.binding.ToolRenewal == nil || s.binding.ToolRenewal.NewThread != "created-1" {
+				t.Fatal("lost original create", s.binding)
+			}
+			if restart {
+				restored := NewSession(s.opts)
+				// Reuse the native connection, as Connect would, without starting a second runtime.
+				s.mu.Lock()
+				s.binding = restored.binding
+				s.mu.Unlock()
+			}
+			s.mu.Lock()
+			s.lastTurn = "human-new-turn"
+			s.runs[s.lastTurn] = "interrupted"
+			s.mu.Unlock()
+			if _, err := s.RenewAfterTool(t.Context(), original); !errors.Is(err, api.ErrConversationRenewalDeferred) {
+				t.Fatal("original known create not finalized", err)
+			}
+			restored := NewSession(s.opts)
+			if restored.binding.ToolRenewal != nil || len(restored.binding.DeferredToolRenewals) != 1 || restored.binding.DeferredToolRenewals[0].NewThread != "created-1" {
+				t.Fatal("residual renewal", restored.binding)
+			}
+			next := original
+			next.CallID = "B"
+			next.Turn = "human-new-turn"
+			if id, err := s.RenewAfterTool(t.Context(), next); err != nil || id != "created-2" || starts.Load() != 2 {
+				t.Fatal("next Dream blocked or original create replayed", id, err, starts.Load())
 			}
 		})
 	}

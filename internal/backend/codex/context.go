@@ -174,6 +174,22 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			return api.ErrConversationRenewalDeferred
 		}
 	}
+	// Reconcile the original create before current-Turn admission. Human input
+	// can change lastTurn after a binding save failure without settling it.
+	if pending := s.binding.ToolRenewal; toolTurn != "" && pending != nil {
+		if pending.CallID != id || pending.Source != source || pending.Turn != toolTurn {
+			s.mu.Unlock()
+			return errors.Join(api.ErrConversationRenewalRejected, errors.New("another original tool renewal remains unresolved"))
+		}
+		if pending.NewThread == "" {
+			s.mu.Unlock()
+			return api.ErrConversationRenewalUnknown
+		}
+		if s.binding.ThreadID != source || s.lastTurn != toolTurn || terminal(s.runs[toolTurn]) && s.runs[toolTurn] != "interrupted" {
+			s.mu.Unlock()
+			return s.recordDeferredRenewal(id, api.ErrConversationRenewalDeferred)
+		}
+	}
 	d, exists := s.binding.Dreams[id]
 	turn := s.binding.Scheduled[id]
 	if toolTurn != "" {
@@ -202,7 +218,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			attempted = *s.binding.ToolRenewal
 			if attempted.CallID != id || attempted.Source != source || attempted.Turn != turn {
 				s.mu.Unlock()
-				return errors.New("another original tool renewal remains unresolved")
+				return errors.Join(api.ErrConversationRenewalRejected, errors.New("another original tool renewal remains unresolved"))
 			}
 		} else {
 			freshAttempt = true

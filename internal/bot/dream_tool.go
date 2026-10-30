@@ -63,13 +63,6 @@ func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 	if pending.CallID == "" || pending.NewSession != "" || pending.Turn == "" {
 		return nil
 	}
-	if pending.Superseded {
-		if native, ok := r.engine.(api.ConversationRuntime); !ok || native.ConversationState().Session == pending.Source {
-			return r.handoff.record(pending.CallID, "", "fallback")
-		}
-		// A crash may leave the native binding committed and the host receipt
-		// unwritten. Reconcile that original ID before accepting first input.
-	}
 	renewer, ok := r.engine.(api.ToolContextRenewer)
 	if !ok {
 		return errors.New("native context renewal is unavailable")
@@ -83,6 +76,8 @@ func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 			return r.handoff.record(pending.CallID, "", "rejected")
 		}
 		if errors.Is(err, api.ErrConversationRenewalUnknown) {
+			// The adapter has retained the original unknown create receipt.
+			// Archive its summary without fencing unrelated old-session tools.
 			if saveErr := r.handoff.record(pending.CallID, "", "unknown_fallback"); saveErr != nil {
 				return saveErr
 			}

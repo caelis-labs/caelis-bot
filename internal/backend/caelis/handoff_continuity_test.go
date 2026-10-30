@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -230,5 +231,46 @@ func TestUnknownToolCreationKeepsOldChatWithoutReplayingOrAdoptingLateResult(t *
 	}
 	if j := s.state.Operations[op]; j.Outcome != "committed" || j.Resource != "unused-original-destination" || !j.RenewalDeferred || creates.Load() != 1 || s.state.Session.SessionId != "main" {
 		t.Fatal("late original receipt was lost, replayed or adopted", j)
+	}
+}
+
+func TestOriginalRenewalSettlesBeforeNewTurnAdmission(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		t.Run(fmt.Sprint("restart=", restart), func(t *testing.T) {
+			s, creates, call := continuityFixture(t, nil)
+			path, invalid := s.path, t.TempDir()
+			ctx := api.WithRenewalCommit(t.Context(), func(_ string, adopt func() error) error {
+				s.path = invalid
+				defer func() { s.path = path }()
+				return adopt()
+			})
+			if _, err := s.RenewAfterTool(ctx, call); err == nil {
+				t.Fatal("binding save failure not injected")
+			}
+			if restart {
+				restored := New(Options{Directory: filepath.Dir(s.path)})
+				restored.client, restored.connected = s.client, true
+				restored.state.Views[call.Session].CommandCaughtUp = true
+				s = restored
+			}
+			v := s.state.Views[call.Session]
+			v.State.Run.TurnId = pointer("human-new-turn")
+			v.Turns["human-new-turn"] = "completed"
+			if _, err := s.RenewAfterTool(t.Context(), call); !errors.Is(err, api.ErrConversationRenewalDeferred) {
+				t.Fatal("original known create not finalized", err)
+			}
+			restored := New(Options{Directory: filepath.Dir(s.path)})
+			op := "tool-renew-" + digest([]byte(call.CallID))
+			if receipt := restored.state.Operations[op]; receipt.Resource != "next" || !receipt.RenewalDeferred || creates.Load() != 1 {
+				t.Fatal("lost or replayed original create", receipt, creates.Load())
+			}
+			next := call
+			next.CallID = "B"
+			next.Turn = "human-new-turn"
+			s.state.Calls[next.CallID] = callRecord{Call: wire.SessionToolCall{Id: next.CallID, SessionId: next.Session, TurnId: next.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+			if id, err := s.RenewAfterTool(t.Context(), next); err != nil || id != "next" || creates.Load() != 2 {
+				t.Fatal("unused original blocked later Dream", id, err, creates.Load())
+			}
+		})
 	}
 }
