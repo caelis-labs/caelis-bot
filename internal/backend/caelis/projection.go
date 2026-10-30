@@ -659,6 +659,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if retiredRunHead(v, value(st.Run.TurnId)) {
 				return errors.New("恢复状态引用已被后续任务替代的 Turn")
 			}
+			s.retainTerminalCallTurns(v, v, sid)
 			retireRunHead(v, value(st.Run.TurnId))
 			observeStateHead(v, st.Run)
 			v.State = st
@@ -765,6 +766,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				}
 				staged.WorkerOutput.retainMissing(v.WorkerOutput)
 			}
+			s.retainTerminalCallTurns(staged, v, sid)
 			staged.HeadTarget = retainHeadTarget(staged.HeadTarget, v.HeadTarget)
 			observeStateHead(staged, bootstrap.Run)
 			staged.State = *bootstrap

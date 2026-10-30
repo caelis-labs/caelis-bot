@@ -168,3 +168,14 @@ before this documentation update. Local check/smoke/ad-hoc build, targeted race,
 original answer-save recovery and native synthetic integration passed. Final
 head CI and merge evidence are recorded in the PR. This does not claim live-model
 health judgment, memory quality, native GUI acceptance, or a published artifact.
+
+A final recovery audit reproduced loss of a confirmed callback Turn when native
+reconnect replaced the bounded transcript with a later Turn. Retain that exact
+finality in the existing Turn map only for existing terminal Calls, before
+replacing the current run head and transcript. A later Turn or delivered result
+alone remains insufficient. `TestTerminalReceiptKeepsObservedFinalityAcrossHistoryReplacement`
+uses real watch, restart and Submit paths to verify both confirmed sources
+(canonical Turn event/current run state), one original input POST, and continued
+fencing when finality was never confirmed. Original result bytes stay unchanged.
+This additional local fix follows the source-tree equivalence check above; the
+final head is revalidated with targeted race, native integration and CI.

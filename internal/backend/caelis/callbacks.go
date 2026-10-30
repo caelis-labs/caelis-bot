@@ -269,11 +269,41 @@ func (s *Session) terminalReceiptPendingLocked() bool {
 		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
 			continue
 		}
-		turn := record.Call.TurnId
-		if v != nil && (terminalDream(v.Turns[turn]) || value(v.State.Run.TurnId) == turn && !value(v.State.Run.Active) && terminalDream(value(v.State.Run.Status))) {
-			continue
+		if confirmedTerminalTurn(v, record.Call.TurnId) == "" {
+			return true
 		}
-		return true
 	}
 	return false
+}
+
+// A bounded reconnect transcript may omit a callback's already confirmed Turn.
+// Retain only that exact finality; a later head or a delivered result is not proof.
+func (s *Session) retainTerminalCallTurns(current, prior *view, sid string) {
+	for _, record := range s.state.Calls {
+		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
+			continue
+		}
+		turn := record.Call.TurnId
+		if status := confirmedTerminalTurn(prior, turn); status != "" {
+			if current.Turns == nil {
+				current.Turns = map[string]string{}
+			}
+			current.Turns[turn] = status
+		}
+	}
+}
+
+func confirmedTerminalTurn(v *view, turn string) string {
+	if v == nil {
+		return ""
+	}
+	if status := v.Turns[turn]; terminalDream(status) {
+		return status
+	}
+	if value(v.State.Run.TurnId) == turn && !value(v.State.Run.Active) {
+		if status := value(v.State.Run.Status); terminalDream(status) {
+			return status
+		}
+	}
+	return ""
 }
