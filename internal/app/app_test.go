@@ -530,3 +530,28 @@ func (e *testEngine) SystemReceipt(id string) api.Receipt {
 	}
 	return api.Receipt{ID: id, Outcome: "unknown"}
 }
+
+func TestRequiredNotebookReadFailureDoesNotBecomeEmptyContext(t *testing.T) {
+	e := newTestEngine()
+	a, root := fixtureApp(t, e, Host{})
+	defer a.Close()
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	binding := e.tools.Clone()
+	e.mu.Unlock()
+	path := filepath.Join(root, "Notebook", "MEMORY.md")
+	if err := os.WriteFile(path, []byte{0xff}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if seed, err := binding.PrepareContext(t.Context()); err == nil || seed.Text != "" || seed.HandoffDigest != "" {
+		t.Fatal("unreadable required memory became a usable empty seed", seed, err)
+	}
+	if err := os.WriteFile(path, []byte("Corrected identity and authorization limits."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if seed, err := binding.PrepareContext(t.Context()); err != nil || !strings.Contains(seed.Text, "Corrected identity") {
+		t.Fatal("repaired memory unavailable", err)
+	}
+}

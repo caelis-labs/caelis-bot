@@ -16,6 +16,9 @@ func (s *Session) CompleteToolTurn(ctx context.Context, invocation api.ToolInvoc
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
+	if err := api.CheckRenewalGuard(ctx); err != nil {
+		return err
+	}
 	ctx, cancel := s.operation(ctx, 15*time.Second)
 	defer cancel()
 	s.mu.Lock()

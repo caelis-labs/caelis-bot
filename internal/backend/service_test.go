@@ -389,9 +389,34 @@ func (e interruptOrderEngine) Interrupt(context.Context) error {
 }
 func TestUserStopCancelsNativeInputBeforeInterruptingRuntime(t *testing.T) {
 	stopped := false
+	active := 0
 	s := NewService(interruptOrderEngine{stopped: &stopped, t: t}, nil, nil, nil, nil)
-	s.SetInterruptObserver(func() { stopped = true })
+	s.SetUserActivityObserver(func() func() { active++; return func() { active-- } })
+	s.SetInterruptObserver(func() {
+		if active != 1 {
+			t.Fatal("stop did not reserve human priority before native work")
+		}
+		stopped = true
+	})
 	if err := s.Interrupt(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	if active != 0 {
+		t.Fatal("stop retained priority after completion")
+	}
+}
+
+func TestHumanPriorityPrecedesCommandHandling(t *testing.T) {
+	active := 0
+	s := NewService(&imReceiptEngine{}, nil, nil, nil, nil)
+	s.SetUserActivityObserver(func() func() { active++; return func() { active-- } })
+	s.SetCommandHandler(func(_ context.Context, in api.Submission) (api.Receipt, bool, error) {
+		if active != 1 {
+			t.Fatal("command reached its original owner before human admission")
+		}
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, true, nil
+	})
+	if receipt, err := s.Submit(t.Context(), api.Submission{ID: "original-correction", Text: "/cancel original"}); err != nil || receipt.Outcome != "accepted" || active != 0 {
+		t.Fatal(receipt, err, active)
 	}
 }

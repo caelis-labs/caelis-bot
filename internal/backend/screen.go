@@ -49,6 +49,7 @@ func (s *Service) ImageInput(ctx context.Context) (api.ImageInputCapability, err
 // SubmitScreen is wired only to the native capture owner; no renderer-supplied
 // path is accepted. It does not consume or replace the ordinary composer draft.
 func SubmitScreen(ctx context.Context, s *Service, input api.Submission, files []api.InputFile) (api.Receipt, error) {
+	defer s.beginUserActivity()()
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	r := api.Receipt{ID: input.ID, Outcome: "rejected"}

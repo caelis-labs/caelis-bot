@@ -486,6 +486,20 @@ func (a *Application) preparePersonalLocked() error {
 	return nil
 }
 
+func (a *Application) beginUserActivity() func() {
+	a.mu.Lock()
+	resident := a.companion
+	a.mu.Unlock()
+	if resident == nil {
+		return func() {}
+	}
+	done, err := resident.BeginUserActivity()
+	if err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
+	}
+	return done
+}
+
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
@@ -602,7 +616,7 @@ func (a *Application) startRuntime() error {
 						if a.host.ReportError != nil {
 							a.host.ReportError(err)
 						}
-						seed = api.ContextSeed{}
+						return api.ContextSeed{}, err
 					}
 				}
 				handoff := resident.PrepareHandoffContext()
@@ -678,6 +692,7 @@ func (a *Application) startRuntime() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
+	a.Backend.SetUserActivityObserver(a.beginUserActivity)
 	resident.Start(a.currentEngine())
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
 	if a.Telegram != nil {

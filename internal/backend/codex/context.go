@@ -168,6 +168,28 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		s.mu.Unlock()
 		return nil
 	}
+	for _, receipt := range s.binding.DeferredToolRenewals {
+		if receipt.CallID == id && receipt.Source == source && receipt.Turn == toolTurn {
+			s.mu.Unlock()
+			return api.ErrConversationRenewalDeferred
+		}
+	}
+	// Reconcile the original create before current-Turn admission. Human input
+	// can change lastTurn after a binding save failure without settling it.
+	if pending := s.binding.ToolRenewal; toolTurn != "" && pending != nil {
+		if pending.CallID != id || pending.Source != source || pending.Turn != toolTurn {
+			s.mu.Unlock()
+			return errors.Join(api.ErrConversationRenewalRejected, errors.New("another original tool renewal remains unresolved"))
+		}
+		if pending.NewThread == "" {
+			s.mu.Unlock()
+			return api.ErrConversationRenewalUnknown
+		}
+		if s.binding.ThreadID != source || s.lastTurn != toolTurn || terminal(s.runs[toolTurn]) && s.runs[toolTurn] != "interrupted" {
+			s.mu.Unlock()
+			return s.recordDeferredRenewal(id, api.ErrConversationRenewalDeferred)
+		}
+	}
 	d, exists := s.binding.Dreams[id]
 	turn := s.binding.Scheduled[id]
 	if toolTurn != "" {
@@ -183,6 +205,11 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
+	s.mu.Unlock()
+	if err := s.checkRenewalGuard(ctx, id); err != nil {
+		return err
+	}
+	s.mu.Lock()
 	c := s.client
 	var attempted toolRenewalRecord
 	freshAttempt := false
@@ -191,7 +218,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			attempted = *s.binding.ToolRenewal
 			if attempted.CallID != id || attempted.Source != source || attempted.Turn != turn {
 				s.mu.Unlock()
-				return errors.New("another original tool renewal remains unresolved")
+				return errors.Join(api.ErrConversationRenewalRejected, errors.New("another original tool renewal remains unresolved"))
 			}
 		} else {
 			freshAttempt = true
@@ -245,34 +272,70 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if response.Thread.ID == "" || response.Thread.ID == source {
 		return ErrProtocol
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend || (toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
-		return errors.New("原对话已有新活动，交接未切换")
-	}
-	old := s.binding
-	s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
-	if toolTurn != "" {
-		s.binding.ToolRenewal = nil // committed receipt is in Bot's private handoff store
-	}
-	if s.opts.BotTools != nil {
-		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
-	}
-	s.binding.PastThreads = append(append([]string{}, old.PastThreads...), source)
-	s.binding.Context, s.binding.Unsubmitted = contextseed.State{}, true
-	if err := s.save(); err != nil {
-		s.binding = old
+	if err := s.checkRenewalGuard(ctx, id); err != nil {
 		return err
 	}
-	// Usage totals and freshness belong to the native thread, not the retained
-	// chat history. Reset only after the new binding is durably authoritative.
-	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
-	s.usageReason = "new_session"
-	s.residentExecution = *response.execution()
-	s.lastTurn, s.run = "", ""
-	s.state.Phase, s.state.Message = "idle", ""
-	s.update()
-	return nil
+	s.mu.Lock()
+	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend || (toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
+		s.mu.Unlock()
+		return errors.New("原对话已有新活动，交接未切换")
+	}
+	err := api.CommitRenewal(ctx, response.Thread.ID, func() error {
+		old := s.binding
+		s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
+		if toolTurn != "" {
+			s.binding.ToolRenewal = nil // committed receipt is in Bot's private handoff store
+		}
+		if s.opts.BotTools != nil {
+			s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
+		}
+		s.binding.PastThreads = append(append([]string{}, old.PastThreads...), source)
+		s.binding.Context, s.binding.Unsubmitted = contextseed.State{}, true
+		if err := s.save(); err != nil {
+			s.binding = old
+			return err
+		}
+		// Usage totals and freshness belong to the native thread, not the retained
+		// chat history. Reset only after the new binding is durably authoritative.
+		s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
+		s.usageReason = "new_session"
+		s.residentExecution = *response.execution()
+		s.lastTurn, s.run = "", ""
+		s.state.Phase, s.state.Message = "idle", ""
+		s.update()
+		return nil
+	})
+	s.mu.Unlock()
+	return s.recordDeferredRenewal(id, err)
+}
+
+func (s *Session) checkRenewalGuard(ctx context.Context, id string) error {
+	return s.recordDeferredRenewal(id, api.CheckRenewalGuard(ctx))
+}
+
+func (s *Session) recordDeferredRenewal(id string, err error) error {
+	if !errors.Is(err, api.ErrConversationRenewalDeferred) {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.binding.ToolRenewal
+	if pending == nil || pending.CallID != id {
+		return err
+	}
+	if pending.NewThread == "" {
+		return api.ErrConversationRenewalUnknown
+	}
+	// A known, unused destination is retained in this native journal. It must
+	// neither be adopted after a correction nor block a later, distinct Dream.
+	old := s.binding.DeferredToolRenewals
+	s.binding.DeferredToolRenewals = append(append([]toolRenewalRecord{}, old...), *pending)
+	s.binding.ToolRenewal = nil
+	if saveErr := s.save(); saveErr != nil {
+		s.binding.ToolRenewal, s.binding.DeferredToolRenewals = pending, old
+		return saveErr
+	}
+	return err
 }
 
 var _ api.ConversationRuntime = (*Session)(nil)

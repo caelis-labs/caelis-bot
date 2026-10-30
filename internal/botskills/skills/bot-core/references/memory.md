@@ -78,10 +78,15 @@ still-open work against its original records. Supply a complete `handoff` of at
 most 16 KiB with identity and standing constraints, current goals, unfinished
 original task handles, pending decisions, authorization limits and revocations,
 uncertain operations and original receipts, retained resources and next actions.
+For an ongoing review, include the artifact or note paths, what was actually
+reviewed, the unread scope and the next checkpoint. Let Workers continue; recover
+their current status and pending interactions from the original records.
 Keep completed results brief; omit transcripts, tool schemas and secrets.
 
-Finish necessary file writes and delivery before the call. Dream ends the owning
-turn; do not place other effects alongside it or depend on another step in that
-turn. Preserve original work and receipts if handoff fails, and follow
+Finish necessary file writes and delivery before the call. An accepted Dream
+ends the owning turn; do not place other effects alongside it or depend on another
+step in that turn. If a user correction supersedes Dream and the tool returns a
+nonterminal refusal, continue with that correction in the current conversation.
+Preserve original work and receipts if handoff fails, and follow
 [Recovery](recovery.md). A handoff does not answer pending questions, expand
 permission or authorize replay of uncertain effects.

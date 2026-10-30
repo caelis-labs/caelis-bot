@@ -153,6 +153,17 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
 					result = host.CallTool(callCtx, call.Name, args)
 				}
+				if result.TurnComplete {
+					// Serialize only terminal publication with native user input.
+					// The tool and its memory reads ran outside this admission lock.
+					s.step.Lock()
+					defer s.step.Unlock()
+					if result.CheckTurnComplete != nil {
+						if err := result.CheckTurnComplete(); err != nil {
+							result = api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "User activity superseded this Dream; continue in the current conversation."}}}
+						}
+					}
+				}
 				blocks := result.Content
 				if contentV1 {
 					blocks = contentV1Blocks(result)
@@ -240,5 +251,59 @@ func (s *Session) saveCall(id string, r callRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Calls[id] = r
+	if r.Receipt != nil && value(r.Receipt.TurnComplete) {
+		s.bumpLocked() // publish the admission fence before potentially slow persistence
+	}
 	return s.saveLocked()
+}
+
+// A saved terminal result is immutable, including after an unknown /result
+// response. Core ends the Turn before consuming queued steering. Keep native
+// input admission closed until that exact Turn is observed terminal, not merely
+// until /result succeeds. Calls and canonical Turn state already persist this
+// fence; Stop remains the independent native cancellation path.
+func (s *Session) terminalReceiptPendingLocked() bool {
+	sid := s.state.Session.SessionId
+	v := s.state.Views[sid]
+	for _, record := range s.state.Calls {
+		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
+			continue
+		}
+		if confirmedTerminalTurn(v, record.Call.TurnId) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// A bounded reconnect transcript may omit a callback's already confirmed Turn.
+// Retain only that exact finality; a later head or a delivered result is not proof.
+func (s *Session) retainTerminalCallTurns(current, prior *view, sid string) {
+	for _, record := range s.state.Calls {
+		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
+			continue
+		}
+		turn := record.Call.TurnId
+		if status := confirmedTerminalTurn(prior, turn); status != "" {
+			if current.Turns == nil {
+				current.Turns = map[string]string{}
+			}
+			current.Turns[turn] = status
+		}
+	}
+}
+
+func confirmedTerminalTurn(v *view, turn string) string {
+	if v == nil {
+		return ""
+	}
+	if status := v.Turns[turn]; terminalDream(status) {
+		return status
+	}
+	if value(v.State.Run.TurnId) == turn && !value(v.State.Run.Active) {
+		if status := value(v.State.Run.Status); terminalDream(status) {
+			return status
+		}
+	}
+	return ""
 }

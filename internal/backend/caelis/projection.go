@@ -237,14 +237,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		unknown = true
 	}
 	for id, j := range s.state.Operations {
-		workerOperation := false
-		for _, worker := range s.state.Workers {
-			if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(j.Path, "/sessions/"+idPath(sid)+"/") {
-				workerOperation = true
-				break
-			}
-		}
-		if j.Outcome == "unknown" && id != s.sendingScheduled && !workerOperation {
+		if j.Outcome == "unknown" && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) {
 			if s.dispatching[id] {
 				dispatching = true
 			} else {
@@ -260,9 +253,10 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if unknown && s.connected {
 		out.Phase = "unknown"
 	}
-	out.CanSend = s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
+	terminalReceipt := s.terminalReceiptPendingLocked()
+	out.CanSend = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
-	out.CanSteer = s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
+	out.CanSteer = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	if v != nil {
 		var past []api.Item
 		for _, sid := range s.state.PastSessions {
@@ -665,6 +659,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if retiredRunHead(v, value(st.Run.TurnId)) {
 				return errors.New("恢复状态引用已被后续任务替代的 Turn")
 			}
+			s.retainTerminalCallTurns(v, v, sid)
 			retireRunHead(v, value(st.Run.TurnId))
 			observeStateHead(v, st.Run)
 			v.State = st
@@ -771,6 +766,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				}
 				staged.WorkerOutput.retainMissing(v.WorkerOutput)
 			}
+			s.retainTerminalCallTurns(staged, v, sid)
 			staged.HeadTarget = retainHeadTarget(staged.HeadTarget, v.HeadTarget)
 			observeStateHead(staged, bootstrap.Run)
 			staged.State = *bootstrap

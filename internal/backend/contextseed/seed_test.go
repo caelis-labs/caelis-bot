@@ -51,3 +51,35 @@ func TestUnknownAndCleanupRecoveryNeverConsumeEarly(t *testing.T) {
 		t.Fatal("repeated session injection")
 	}
 }
+
+func TestUnreadableSeedDoesNotMarkNewContextInjected(t *testing.T) {
+	readable := false
+	reads := 0
+	c := &api.ToolConnection{PrepareContext: func(context.Context) (api.ContextSeed, error) {
+		reads++
+		if !readable {
+			return api.ContextSeed{}, errors.New("required memory unavailable")
+		}
+		return api.ContextSeed{Text: "identity; task-original; pending question; revoked scope; receipt-original", HandoffDigest: "original"}, nil
+	}}
+	s := State{}
+	if text, err := s.Prepare(t.Context(), c, "original-input"); err == nil || text != "" || s.Pending != nil || s.Injected {
+		t.Fatal("failed seed was frozen or consumed", s)
+	}
+	readable = true
+	text, err := s.Prepare(t.Context(), c, "original-input")
+	if err != nil || text == "" {
+		t.Fatal(err)
+	}
+	readable = false
+	if retry, err := s.Prepare(t.Context(), c, "original-input"); err != nil || retry != text || reads != 2 {
+		t.Fatal("unknown original input reread changed memory", err, reads)
+	}
+	s.Resolve("original-input", "accepted")
+	if err := s.Cleanup(c); err != nil {
+		t.Fatal(err)
+	}
+	if text, err := s.Prepare(t.Context(), c, "later-input"); text != "" || err != nil || reads != 2 {
+		t.Fatal("accepted seed was injected twice", err, reads)
+	}
+}

@@ -12,6 +12,7 @@ import (
 // composer. Files are supplied by a native owner, never by a renderer. A second
 // client must not consume or clear the desktop's unfinished draft.
 func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	defer s.beginUserActivity()()
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}
