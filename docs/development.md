@@ -12,6 +12,20 @@ platform checks. Launch through `script/build_and_run-windows.ps1` with an isola
 [Windows releases](windows-release.md). Mac `make check/smoke/build` remain required
 on a Mac; Darwin CGO-free cross-compilation does not replace AppKit acceptance.
 
+Windows checks retain the original suite's result and collect opt-in traces from
+workerpeer, app and botmemory; they never replay a failed test for the artifact.
+App/memory use a bounded flight recorder with a snapshot before the existing
+180-second package deadline and another on normal return. These traces add
+measurement overhead, may omit older events, and cannot identify a Windows
+filesystem driver or prove a timed-out write's eventual outcome. Artifacts include
+source/tree identities, syscall/synchronization times and storage call stacks.
+`localstate.WriteError` preserves `errors.Is/As`, the observed I/O stage and total
+wait time without printing paths or document contents. Memory index failures keep
+the original retry-with-same-request user message and expose this wrapped cause.
+The 2-second admission/write wait, durable sync, writer ownership and receipt
+reconciliation rules are unchanged. Preserve original logs when the historical
+failure lacked these diagnostics; a later passing run does not explain it.
+
 Build from this public repository with pinned `toolchain.json`, `go.mod`, npm lockfiles and protocol manifests.
 No private asset checkout or sibling Core imports. `script/env.sh` selects Node 24, local caches, GOWORK=off
 and the macOS deployment target without changing the user's shell. Ordinary builds do not regenerate schemas.
