@@ -20,19 +20,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
-func TestDreamMCPHelper(t *testing.T) {
-	if os.Getenv("CAELIS_BOT_MCP_HELPER") == "" {
-		t.Skip("only launched by the isolated app-server fixture")
-	}
-	if os.Getenv("FIXTURE_AUTH") != "synthetic-only" {
-		os.Exit(3)
-	}
-	if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
-		os.Exit(2)
-	}
-	os.Exit(0)
-}
-
 // This uses the installed app-server binary, a local model fixture and the
 // real Bot MCP bridge. No user account or external model is contacted.
 func TestNativeBotDreamRenewal(t *testing.T) {

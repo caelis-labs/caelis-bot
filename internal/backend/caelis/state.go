@@ -25,6 +25,7 @@ type pendingInput struct {
 }
 
 type journal struct {
+	SystemSource   api.SystemSource   `json:"systemSource,omitempty"`
 	StopTarget     *wire.TurnTarget   `json:"stopTarget,omitempty"`
 	Work           *workIntent        `json:"work,omitempty"`
 	OriginRequests []string           `json:"originRequests,omitempty"`

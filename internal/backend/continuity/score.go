@@ -1,50 +1,48 @@
 package continuity
 
-import (
-	"slices"
-	"time"
-)
+import "time"
 
 const Cooldown = 7 * 24 * time.Hour
-const Threshold = 3.0
 
-// Score is additive evidence for inviting a review, not a probability or a
-// health verdict. Age and turns together cannot reach Threshold.
-type Score struct{ Age, Turns, Compactions, Input float64 }
+// These are conservative invitation pacing/pattern choices, not calibrated
+// health limits. There is no token-scale score or inferred stale-content value.
+const (
+	minimumObservedSpan     = 14 * 24 * time.Hour
+	minimumWorkTurns        = 64
+	maintenanceLookback     = 8
+	minimumMaintenanceTurns = 3
+)
 
-func (s Score) Total() float64 { return s.Age + s.Turns + s.Compactions + s.Input }
-
-func Confidence(o Observation, sinceTurns, sinceCompactions uint64, now time.Time) Score {
-	s := Score{}
-	if !o.Since.IsZero() {
-		s.Age = min(1, max(0, now.Sub(o.Since).Hours()/(14*24)))
-	}
-	if o.Turns >= sinceTurns {
-		s.Turns = min(1, float64(o.Turns-sinceTurns)/64)
-	}
-	if o.Compactions >= sinceCompactions {
-		s.Compactions = min(2, float64(o.Compactions-sinceCompactions)/3)
-	}
-	if !o.InputKnown || o.InputCount < 1 || o.InputCount > len(o.Inputs) {
-		return s
-	}
-	values := o.Inputs[:o.InputCount]
-	// Below 32k supplies no elevated-input evidence; 64k supplies one point.
-	// Eight independent turn minima and a lower median damp a single large input.
-	level := median(values)
-	strength := min(1, max(0, float64(level-32_000)/32_000))
-	if len(values) == len(o.Inputs) {
-		earlier, recent := median(values[:4]), median(values[4:])
-		if earlier > 0 && recent > earlier {
-			growth := min(float64(recent-earlier)/float64(earlier), float64(recent-earlier)/16_000)
-			strength = max(strength, min(1, growth))
-		}
-	}
-	s.Input = strength * float64(len(values)) / float64(len(o.Inputs))
-	return s
+type Evidence struct {
+	WorkSpanKnown     bool
+	WorkSpan          bool
+	RecentMaintenance int
+	LatestMaintenance bool
 }
-func median(values []int64) int64 {
-	copy := slices.Clone(values)
-	slices.Sort(copy)
-	return copy[(len(copy)-1)/2]
+
+func (e Evidence) Invites() bool {
+	return e.WorkSpan && e.LatestMaintenance && e.RecentMaintenance >= minimumMaintenanceTurns
+}
+
+func Evaluate(o Observation, sinceTurns uint64, notBefore, now time.Time) Evidence {
+	e := Evidence{WorkSpanKnown: !o.Since.IsZero() && !o.Since.After(now)}
+	e.WorkSpan = e.WorkSpanKnown && now.Sub(o.Since) >= minimumObservedSpan && o.Turns >= sinceTurns && o.Turns-sinceTurns >= minimumWorkTurns
+	var previous uint64
+	for _, m := range o.Maintenance {
+		if m.Turn == 0 {
+			continue
+		}
+		if m.Turn <= previous || m.Turn > o.Turns || m.At.IsZero() || m.At.After(now) {
+			// Corrupt or incompatible persisted observations cannot invite a review.
+			e.RecentMaintenance, e.LatestMaintenance = 0, false
+			return e
+		}
+		previous = m.Turn
+		if m.Turn <= sinceTurns || o.Turns-m.Turn >= maintenanceLookback || m.At.Before(notBefore) {
+			continue
+		}
+		e.RecentMaintenance++
+		e.LatestMaintenance = m.Turn == o.Turns
+	}
+	return e
 }

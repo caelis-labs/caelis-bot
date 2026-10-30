@@ -94,7 +94,7 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 	if next.Pending != nil {
 		stale := next.Session != o.Session || o.Turns != next.Evaluated ||
 			!current.Observed || !current.Idle || current.Status != "completed" ||
-			current.Session != o.Session || current.Turn != o.Turn || now.Sub(next.LastNow) > time.Minute
+			current.Session != o.Session || current.Turn != o.Turn || now.Sub(next.LastNow) > time.Minute || !continuity.Evaluate(o, next.BaseTurns, next.NotBefore, now).Invites()
 		deliveryContext := ctx
 		if stale {
 			// The unified entry reconciles original receipts before checking
@@ -149,16 +149,17 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 	if o.CompletedAt.IsZero() || o.CompletedAt.After(now) || now.Sub(o.CompletedAt) > time.Minute || now.Before(next.NotBefore) {
 		return c.save(next)
 	}
-	score := continuity.Confidence(o, next.BaseTurns, next.BaseCompactions, now)
-	r.reviewDiagnostic("review_evaluated", "", fmt.Sprintf("age=%.2f turns=%.2f compactions=%.2f input=%.2f threshold=3 input_known=%t", score.Age, score.Turns, score.Compactions, score.Input, o.InputKnown))
-	if score.Total() < continuity.Threshold {
+	evidence := continuity.Evaluate(o, next.BaseTurns, next.NotBefore, now)
+	reason := fmt.Sprintf("work_span_known=%t work_span=%t recent_maintenance_turns=%d latest_maintenance=%t input_known=%t", evidence.WorkSpanKnown, evidence.WorkSpan, evidence.RecentMaintenance, evidence.LatestMaintenance, o.InputKnown)
+	r.reviewDiagnostic("review_evaluated", "", reason)
+	if !evidence.Invites() {
 		return c.save(next)
 	}
 	age := "unavailable"
 	if !o.Since.IsZero() && !o.Since.After(now) {
 		age = fmt.Sprintf("%d days", int(now.Sub(o.Since).Hours()/24))
 	}
-	text := fmt.Sprintf("Optional memory review. Observed session age lower bound: %s; since the last invitation: %d observed completed turns, %d observed successful compactions. Request input: %s. These are limited observations, not stale-content or billing evidence. Current user instructions take priority. Keep working or defer if context is useful. For review, read bot-core references/memory.md. Consolidation and choosing whether/when to call bot_dream are separate decisions. No maintenance announcement is needed; if there is nothing useful to deliver, return exactly %s.", age, max(o.Turns, next.BaseTurns)-next.BaseTurns, max(o.Compactions, next.BaseCompactions)-next.BaseCompactions, reviewInput(o), api.SilentReminder)
+	text := fmt.Sprintf("Optional memory review. Observed session age lower bound: %s; since the last invitation: %d observed completed turns, %d observed successful compactions. Request input: %s. Compaction was observed in multiple recent business turns, including the latest. A successful compact may leave the session healthy. These are limited observations, not stale-content or billing evidence. Current user instructions take priority. Keep working or defer if context is useful. For review, read bot-core references/memory.md. Consolidation and choosing whether/when to call bot_dream are separate decisions. No maintenance announcement is needed; if there is nothing useful to deliver, return exactly %s.", age, max(o.Turns, next.BaseTurns)-next.BaseTurns, max(o.Compactions, next.BaseCompactions)-next.BaseCompactions, reviewInput(o), api.SilentReminder)
 	next.Pending = &api.SystemMessage{ID: "continuity-" + rand.Text(), Source: api.SystemContinuityReview, Text: text, RuntimeOwner: r.engine.Snapshot().RuntimeOwner}
 	if next.Pending.RuntimeOwner == "" {
 		next.Pending = nil
@@ -167,7 +168,7 @@ func (r *Runtime) ReviewContinuity(ctx context.Context) error {
 	if err := c.save(next); err != nil {
 		return err
 	}
-	r.reviewDiagnostic("invitation_ready", next.Pending.ID, fmt.Sprintf("age=%.2f turns=%.2f compactions=%.2f input=%.2f threshold=3 input_known=%t", score.Age, score.Turns, score.Compactions, score.Input, o.InputKnown))
+	r.reviewDiagnostic("invitation_ready", next.Pending.ID, reason)
 	// The following Tick uses the same frozen identity, giving queued human
 	// input another admission opportunity without holding an adapter lock.
 	return nil

@@ -8,7 +8,14 @@ import "time"
 // advances the observation; history and reconnect cannot manufacture activity.
 type Observer interface{ ContinuityObservation() Observation }
 
+type MaintenanceTurn struct {
+	Turn uint64    `json:"turn"`
+	At   time.Time `json:"at"`
+}
+
 type Observation struct {
+	Maintenance [8]MaintenanceTurn `json:"maintenance"` // one per completed business turn
+
 	Session       string    `json:"session"`
 	Since         time.Time `json:"since"` // first live observation, an age lower bound
 	Turn          string    `json:"turn"`
@@ -23,12 +30,13 @@ type Observation struct {
 
 type State struct {
 	Observation
-	Active       string `json:"-"`
-	Input        int64  `json:"-"`
-	Compacted    bool   `json:"-"`
-	CompactID    string `json:"-"`
-	CompactCount uint64 `json:"-"`
-	Total        int64  `json:"-"` // native usage deduplication within this live turn
+	Active              string `json:"-"`
+	ActiveConfiguration string `json:"-"`
+	Input               int64  `json:"-"`
+	Compacted           bool   `json:"-"`
+	CompactID           string `json:"-"`
+	CompactCount        uint64 `json:"-"`
+	Total               int64  `json:"-"` // native usage deduplication within this live turn
 }
 
 func (s *State) Start(session, turn string, now time.Time) {
@@ -41,18 +49,15 @@ func (s *State) Start(session, turn string, now time.Time) {
 	if s.Active == turn || s.Turn == turn {
 		return
 	}
-	s.Active, s.Input, s.Compacted, s.CompactID, s.Total, s.CompactCount = turn, 0, false, "", 0, 0
+	s.Active, s.ActiveConfiguration, s.Input, s.Compacted, s.CompactID, s.Total, s.CompactCount = turn, "", 0, false, "", 0, 0
 }
 
 func (s *State) Sample(turn, configuration string, input int64) {
 	if s.Active != turn || turn == "" || configuration == "" || input <= 0 || s.Compacted {
 		return
 	}
-	if s.InputCount < 0 || s.InputCount > len(s.Inputs) {
-		s.Inputs, s.InputCount, s.InputKnown = [8]int64{}, 0, false
-	}
-	if s.Configuration != configuration {
-		s.Configuration, s.Inputs, s.InputCount, s.Input = configuration, [8]int64{}, 0, 0
+	if s.ActiveConfiguration != configuration {
+		s.ActiveConfiguration, s.Input = configuration, 0
 	}
 	if s.Input == 0 || input < s.Input {
 		s.Input = input
@@ -77,6 +82,13 @@ func (s *State) Finish(turn string, completed bool, now time.Time) bool {
 	}
 	s.Turn, s.CompletedAt, s.Turns = turn, now, s.Turns+1
 	s.Compactions += s.CompactCount
+	if s.Compacted {
+		copy(s.Maintenance[:], s.Maintenance[1:])
+		s.Maintenance[len(s.Maintenance)-1] = MaintenanceTurn{Turn: s.Turns, At: now}
+	}
+	if s.InputCount < 0 || s.InputCount > len(s.Inputs) || s.ActiveConfiguration != "" && s.Configuration != s.ActiveConfiguration {
+		s.Configuration, s.Inputs, s.InputCount = s.ActiveConfiguration, [8]int64{}, 0
+	}
 	s.InputKnown = s.Input > 0 && !s.Compacted
 	if s.InputKnown {
 		if s.InputCount == len(s.Inputs) {

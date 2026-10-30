@@ -32,6 +32,7 @@ func reviewTestRuntime(t *testing.T, provider string) (*Runtime, *reviewFixture,
 	r.now = func() time.Time { return now }
 	f := &reviewFixture{systemDeliveryFixture: &systemDeliveryFixture{ready: true, outcome: "accepted", receipts: map[string]api.Receipt{}}, current: api.ConversationState{Session: "resident", Turn: "turn-64", Status: "completed", Observed: true, Idle: true}}
 	f.observation = continuity.Observation{Session: "resident", Turn: "turn-64", Since: now.Add(-14 * 24 * time.Hour), CompletedAt: now, Turns: 64, Compactions: 3}
+	markReviewMaintenance(f, now)
 	r.engine = f
 	return r, f, &now
 }
@@ -48,6 +49,12 @@ func nextReviewTurn(f *reviewFixture, now time.Time) {
 	f.observation.Turn = fmt.Sprintf("turn-%d", f.observation.Turns)
 	f.observation.CompletedAt = now
 	f.current.Turn = f.observation.Turn
+}
+
+func markReviewMaintenance(f *reviewFixture, now time.Time) {
+	for i := range 3 {
+		f.observation.Maintenance[i] = continuity.MaintenanceTurn{Turn: f.observation.Turns - 2 + uint64(i), At: now}
+	}
 }
 
 func TestContinuityInvitationUsesSystemReceiptAndAllowsDeferral(t *testing.T) {
@@ -84,6 +91,13 @@ func TestContinuityInvitationUsesSystemReceiptAndAllowsDeferral(t *testing.T) {
 				t.Fatal("idle elapsed time created a model turn")
 			}
 			nextReviewTurn(f, *now)
+			reviewTicks(t, r)
+			if len(f.inputs) != 1 {
+				t.Fatal("cooldown maintenance reused on first later turn")
+			}
+			nextReviewTurn(f, *now)
+			nextReviewTurn(f, *now)
+			markReviewMaintenance(f, *now)
 			reviewTicks(t, r)
 			if len(f.inputs) != 2 || f.inputs[1].ID == original {
 				t.Fatal("new accumulated evidence after cooldown missing")
@@ -154,6 +168,7 @@ func TestContinuityDoesNotWakeFromAgeHistoryFailureOrRollback(t *testing.T) {
 			switch scenario {
 			case "healthy":
 				f.observation.Compactions = 0
+				f.observation.Maintenance = [8]continuity.MaintenanceTurn{}
 			case "stale":
 				f.observation.CompletedAt = now.Add(-time.Hour)
 			case "failed":
@@ -219,6 +234,7 @@ func TestContinuityDefinitiveRejectionConsumesCooldownAndCredits(t *testing.T) {
 	f.observation.Turns += 62
 	f.observation.Compactions += 3
 	nextReviewTurn(f, *now)
+	markReviewMaintenance(f, *now)
 	reviewTicks(t, r)
 	if len(f.inputs) != 2 || f.inputs[1].ID == original {
 		t.Fatal("fresh evidence did not earn a fresh invitation")
@@ -232,9 +248,9 @@ func TestContinuityMissingAgeRemainsUnavailable(t *testing.T) {
 		if future {
 			f.observation.Since = now.Add(time.Hour)
 		}
-		f.observation.Compactions = 6 // other observed evidence can earn an invitation
+		f.observation.Compactions = 6 // missing age cannot satisfy the work-span pacing gate
 		reviewTicks(t, r)
-		if len(f.inputs) != 1 || !strings.Contains(f.inputs[0].Text, "age lower bound: unavailable;") {
+		if len(f.inputs) != 0 {
 			t.Fatal("missing time was rendered as an invented age", f.inputs)
 		}
 	}

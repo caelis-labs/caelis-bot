@@ -83,8 +83,9 @@ type toolRenewalRecord struct {
 	Attempted                       bool
 }
 type pendingSubmission struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
+	SystemSource api.SystemSource `json:"systemSource,omitempty"`
+	ID           string           `json:"id"`
+	TurnID       string           `json:"turnId"`
 }
 type lostOwnerRecord struct {
 	Endpoint       string                `json:"endpoint"`
@@ -1121,7 +1122,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.binding.Unsubmitted = false
-	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run, SystemSource: in.SystemSource}
 	if report {
 		if s.binding.HostReports == nil {
 			s.binding.HostReports = map[string]bool{}

@@ -73,6 +73,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j := s.state.Operations[op]
 		j.Dream = scheduled[0].Dream
 		j.HostNotice = scheduled[0].HostNotice
+		j.SystemSource = scheduled[0].SystemSource
 		if j.Scheduled && !j.Dream {
 			j.OriginRequests = slices.Clone(scheduled[0].OriginRequests)
 			j.OriginOwner = (inputScope{InstanceID: s.state.InstanceID, SessionID: s.state.Session.SessionId}).owner()

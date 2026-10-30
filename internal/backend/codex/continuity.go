@@ -60,11 +60,11 @@ func (s *Session) observeContinuity(event Notification) {
 			c.Start(n.Thread, n.Turn.ID, now)
 		}
 	case "turn/completed":
-		for _, report := range s.binding.HostReportTurns {
-			if report.Thread == n.Thread && report.Turn == n.Turn.ID {
+		if !s.continuityBusinessTurn(n.Turn.ID) {
+			if c.Active == n.Turn.ID {
 				c.Active = ""
-				return
 			}
+			return
 		}
 		if c.Finish(n.Turn.ID, n.Turn.Status == "completed", now) {
 			_ = s.save()
@@ -91,4 +91,23 @@ func (s *Session) observeContinuity(event Notification) {
 			c.Sample(n.TurnID, "codex:full_input:"+model+":"+s.binding.RuntimeVersion, n.Usage.Last.Input)
 		}
 	}
+}
+
+func (s *Session) continuityBusinessTurn(turn string) bool {
+	for _, report := range s.binding.HostReportTurns {
+		if report.Thread == s.binding.ThreadID && report.Turn == turn {
+			return report.SystemSource.BusinessWake()
+		}
+	}
+	for _, scheduled := range s.binding.Scheduled {
+		if scheduled == turn {
+			return false
+		}
+	}
+	// A completion can beat the prompt receipt/correlation. Do not guess that
+	// an as-yet unbound host input is human work, especially our own invitation.
+	if p := s.binding.Pending; p != nil && s.binding.HostReports[p.ID] {
+		return false
+	}
+	return true
 }

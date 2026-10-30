@@ -20,6 +20,19 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
+func TestDreamMCPHelper(t *testing.T) {
+	if os.Getenv("CAELIS_BOT_MCP_HELPER") == "" {
+		t.Skip("only launched by the isolated app-server fixture")
+	}
+	if os.Getenv("FIXTURE_AUTH") != "synthetic-only" {
+		os.Exit(3)
+	}
+	if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
 // Actual App Server, Worker, task producer and resident adapter; only model
 // responses are synthetic. No live account or idle model invocation.
 func TestNativeUnifiedSystemDelivery(t *testing.T) {
@@ -72,13 +85,29 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	s := NewSession(SessionOptions{Binary: binary, Directory: root, WorkRoot: filepath.Join(root, "Tasks"), StateFile: filepath.Join(root, "binding.json")})
-	defer s.Close(context.Background())
-	if err := s.Connect(ctx); err != nil {
-		t.Fatal(err)
-	}
 	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "codex", nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := bot.Serve(resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := bridge.Config(executable)
+	tools.Args = []string{"-test.run=^TestDreamMCPHelper$"}
+	tools.Env["CAELIS_BOT_MCP_HELPER"] = "1"
+	tools.Env["FIXTURE_AUTH"] = "synthetic-only"
+	s := NewSession(SessionOptions{Binary: binary, Directory: root, WorkRoot: filepath.Join(root, "Tasks"), StateFile: filepath.Join(root, "binding.json")})
+	defer s.Close(context.Background())
+	if err := s.ConfigureBotTools(tools); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 	resident.Start(s)
@@ -159,13 +188,18 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 			t.Fatal("system input leaked into chat", item.ID)
 		}
 	}
+	observedBusiness := s.ContinuityObservation()
+	t.Logf("native business turns=%d input_samples=%d latest_input_known=%t", observedBusiness.Turns, observedBusiness.InputCount, observedBusiness.InputKnown)
+	if observedBusiness.Turns != 6 {
+		t.Fatalf("native business provenance/reviewer exclusion: turns=%d want=6", observedBusiness.Turns)
+	}
 	// Policy time/activity are synthetic; delivery below uses the actual
 	// resident SubmitSystem port and native Runtime. No Dream is invoked.
 	originalSession := s.ConversationState()
 	stamp := time.Now()
 	s.mu.Lock()
 	previousReports := len(s.binding.HostReportTurns)
-	s.binding.Continuity.Observation = continuity.Observation{Session: originalSession.Session, Turn: originalSession.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 64, Compactions: 3}
+	s.binding.Continuity.Observation = continuity.Observation{Session: originalSession.Session, Turn: originalSession.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 64, Compactions: 3, Maintenance: [8]continuity.MaintenanceTurn{{Turn: 62, At: stamp}, {Turn: 63, At: stamp}, {Turn: 64, At: stamp}}}
 	s.mu.Unlock()
 	previous = s.Snapshot().Revision
 	for range 2 {
@@ -181,6 +215,9 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 		t.Fatalf("policy did not deliver one original notice: reports=%d previous=%d current=%+v", reportCount, previousReports, s.ConversationState())
 	}
 	wait(previous)
+	if s.ContinuityObservation().Turns != 64 {
+		t.Fatal("invitation scored its own completion")
+	}
 	if s.ConversationState().Session != originalSession.Session {
 		t.Fatal("invitation replaced native session")
 	}

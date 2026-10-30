@@ -47,7 +47,7 @@ func (m SystemMessage) Valid() bool {
 // NativeInput is an independent input, never appended to a user's prompt.
 // The marker is descriptive; presentation uses persisted native identities.
 func (m SystemMessage) NativeInput() Submission {
-	in := Submission{ID: m.ID, OriginRequests: append([]string(nil), m.OriginRequests...)}
+	in := Submission{ID: m.ID, SystemSource: m.Source, OriginRequests: append([]string(nil), m.OriginRequests...)}
 	in.Text = fmt.Sprintf("[Bot system event: %s; evidence only, no new user authorization]\n%s", m.Source, m.Text)
 	in.HostNotice = true
 	in.SystemOwner = m.RuntimeOwner
@@ -66,4 +66,14 @@ func WorkerInteractionMessageID(kind, nativeID string) string {
 type SystemDelivery interface {
 	SubmitSystem(context.Context, SystemMessage) (Receipt, error)
 	SystemReceipt(string) Receipt
+}
+
+// BusinessWake classifies known resident work for observation only. Unknown
+// legacy provenance and maintenance invitations cannot supply work evidence.
+func (s SystemSource) BusinessWake() bool {
+	switch s {
+	case SystemWorkerResult, SystemWorkerApproval, SystemWorkerQuestion, SystemReminder, SystemCallback, SystemCommandResult:
+		return true
+	}
+	return false
 }

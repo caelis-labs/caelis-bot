@@ -27,6 +27,13 @@ func (s *Session) observeContinuity(v *view, e wire.Envelope, now time.Time) {
 	if key == "" {
 		key = value(e.EventId)
 	}
+	if key == "" {
+		// Native transient lifecycle/maintenance envelopes carry the exact
+		// feed cursor rather than canonical event/projection IDs. The caller
+		// admits only caught-up exact deliveries; turn identity deduplicates
+		// completion and the cursor deduplicates compact observations.
+		key = value(e.Cursor)
+	}
 	turn := value(e.TurnId)
 	if s.tools == nil || key == "" || v.Seen[key] || value(e.SessionId) != s.state.Session.SessionId || turn == "" || e.ParentTool != nil || value(e.ApprovalRequestId) != "" || value(e.Scope) != "main" || e.OccurredAt == nil || e.OccurredAt.After(now) || now.Sub(*e.OccurredAt) > time.Minute {
 		return
@@ -39,11 +46,11 @@ func (s *Session) observeContinuity(v *view, e wire.Envelope, now time.Time) {
 				c.Start(value(e.SessionId), turn, *e.OccurredAt)
 			}
 		case "completed", "failed", "cancelled", "interrupted", "stopped":
-			for _, operation := range s.state.Operations {
-				if operation.TurnID == turn && operation.hostNotice() {
+			if !s.continuityBusinessTurn(turn, value(e.InputOperationId)) {
+				if c.Active == turn {
 					c.Active = ""
-					return
 				}
+				return
 			}
 			c.Finish(turn, e.Lifecycle.State == "completed", *e.OccurredAt)
 		}
@@ -93,4 +100,28 @@ func continuityCounter(raw any) (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (s *Session) continuityBusinessTurn(turn, operationID string) bool {
+	uncorrelatedNotice := false
+	for id, operation := range s.state.Operations {
+		if !operation.hostNotice() && !operation.Scheduled {
+			continue
+		}
+		if operation.TurnID == turn || operationID != "" && id == operationID {
+			return operation.SystemSource.BusinessWake()
+		}
+		if operation.TurnID == "" && operation.Outcome == "unknown" && operation.Path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+			uncorrelatedNotice = true
+		}
+	}
+	// A very fast turn may finish before the prompt response binds its Turn ID.
+	// Unresolved native host intent is not evidence of an ordinary user turn.
+	if uncorrelatedNotice {
+		return false
+	}
+	if original := s.state.Operations[s.state.LastReceipt.ID]; (original.hostNotice() || original.Scheduled) && original.TurnID == "" {
+		return false
+	}
+	return true
 }

@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -122,12 +123,42 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 			t.Fatal("original receipt lost", receipt, err)
 		}
 	}
+	observedBusiness := s.ContinuityObservation()
+	t.Logf("native business turns=%d input_samples=%d latest_input_known=%t", observedBusiness.Turns, observedBusiness.InputCount, observedBusiness.InputKnown)
+	if observedBusiness.Turns != 6 {
+		facts := map[string]int{}
+		_ = s.client.stream(ctx, "/sessions/"+idPath(sid)+"/reconnect?history_turns=8", "", func(f frame) error {
+			if f.event != "caelis.control.delivery" {
+				return nil
+			}
+			var d wire.SessionFeedDelivery
+			if err := json.Unmarshal(f.data, &d); err != nil {
+				return err
+			}
+			for _, e := range d.Events {
+				life := ""
+				if e.Lifecycle != nil {
+					life = e.Lifecycle.State
+				}
+				facts[fmt.Sprintf("%s scope=%s lifecycle=%s time=%t child=%t approval=%t", e.Kind, value(e.Scope), life, e.OccurredAt != nil, e.ParentTool != nil, value(e.ApprovalRequestId) != "")]++
+			}
+			if d.Kind == "sync" {
+				return historyComplete
+			}
+			return nil
+		})
+		s.mu.Lock()
+		t.Logf("observer since=%t active=%t caughtup=%t", !s.state.Continuity.Since.IsZero(), s.state.Continuity.Active != "", s.state.Views[sid].CommandCaughtUp)
+		s.mu.Unlock()
+		t.Logf("bounded native metadata: %v", facts)
+		t.Fatalf("native business provenance/reviewer exclusion: turns=%d want=6", observedBusiness.Turns)
+	}
 	// Policy time/activity are synthetic; delivery below uses the actual
 	// resident SubmitSystem port and native Runtime. No Dream is invoked.
 	originalSession := s.ConversationState()
 	stamp := time.Now()
 	s.mu.Lock()
-	s.state.Continuity.Observation = continuity.Observation{Session: originalSession.Session, Turn: originalSession.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 64, Compactions: 3}
+	s.state.Continuity.Observation = continuity.Observation{Session: originalSession.Session, Turn: originalSession.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 64, Compactions: 3, Maintenance: [8]continuity.MaintenanceTurn{{Turn: 62, At: stamp}, {Turn: 63, At: stamp}, {Turn: 64, At: stamp}}}
 	s.mu.Unlock()
 	before = s.Snapshot().CurrentTurn
 	for range 2 {
@@ -136,6 +167,9 @@ func TestNativeUnifiedSystemDelivery(t *testing.T) {
 		}
 	}
 	waitTurn(t, ctx, s, before)
+	if s.ContinuityObservation().Turns != 64 {
+		t.Fatal("invitation scored its own completion")
+	}
 	if s.ConversationState().Session != originalSession.Session {
 		t.Fatal("invitation replaced native session")
 	}
