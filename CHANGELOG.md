@@ -2,20 +2,26 @@
 
 ## [0.21.0](https://github.com/caelis-labs/caelis-bot/compare/v0.20.0...v0.21.0) (2026-10-30)
 
-
 ### ⚠ BREAKING CHANGES
 
-* This Bot rejects Core without runtime-agent-team-v1, including an incompatible busy Host awaiting idle replacement. Older Bot versions that compare reviewer-state with their historical reviewer can reject the new Core. Upgrade compatible Bot and Runtime together; old reviewer records remain evidence rather than configuration authority.
+* Bundle official Caelis Core **v0.75.0** (`fe8fdbd056ace719d7b3f302d8e78151c3764e97`) with protocol files from the same source. Bot requires `runtime-agent-team-v1` and rejects an incompatible Host, including a busy older Host awaiting idle replacement. Upgrade compatible Bot and Runtime together: older Bots can reject the new Runtime's reviewer state. Historical reviewer records remain evidence, not configuration authority. ([#263](https://github.com/caelis-labs/caelis-bot/pull/263))
 
 ### Features
 
-* **bot:** invite optional memory review from accumulated observations ([#261](https://github.com/caelis-labs/caelis-bot/issues/261)) ([4d77cf0](https://github.com/caelis-labs/caelis-bot/commit/4d77cf0f8b7e018297122319d51238a017c62561))
-* use Runtime Agent Team and require its capability ([#263](https://github.com/caelis-labs/caelis-bot/issues/263)) ([8828535](https://github.com/caelis-labs/caelis-bot/commit/882853513875316dc6abd242ea7a32ae397c88fd))
+* Use the Runtime's global Agent Team for Guardian and internal helpers while keeping the primary Bot and Worker models independently selectable. Preserve existing sessions, work and receipts. ([#263](https://github.com/caelis-labs/caelis-bot/pull/263))
+* Offer low-frequency, optional memory-review invitations after accumulated work and recent repeated compaction. The Bot may defer; an invitation does not force Dream, delete context or diagnose an unhealthy session. Missing metrics remain unavailable. ([#261](https://github.com/caelis-labs/caelis-bot/pull/261))
 
+### Bug fixes
 
-### Bug Fixes
+* Unify Worker reports, approvals, questions, reminders and callback delivery through the resident system-input path. Preserve original event identities and accepted/rejected/unknown receipts; internal events do not appear as user messages or grant new user authorization. ([#258](https://github.com/caelis-labs/caelis-bot/pull/258))
+* Make Dream handoff available before the new session accepts its first input. Preserve user corrections and Stop priority, reconcile original renewal receipts before another Dream, and retain terminal-result fences across reconnects without replaying accepted inputs. Workers can continue running during handoff. ([#262](https://github.com/caelis-labs/caelis-bot/pull/262))
+* Keep the capture selection panel at the lower right and send only the selected screenshot, without an additional full-screen image. ([#257](https://github.com/caelis-labs/caelis-bot/pull/257))
 
-* **capture:** 右下角选区面板与单截图发送 ([#257](https://github.com/caelis-labs/caelis-bot/issues/257)) ([5625f26](https://github.com/caelis-labs/caelis-bot/commit/5625f26ab1ece3ff96d7a78265062a855b492802))
+### Maintenance and verification
+
+* Refine the personal-assistant skill and its task-specific references. Distinguish Notebook core memory and notes from Runtime memory, and retain original business records as task and approval authority. ([#254](https://github.com/caelis-labs/caelis-bot/pull/254))
+* Preserve sanitized storage-error causes and native failure evidence; verify cancellation, original receipts and bounded storage recovery independently. These changes do not establish the root cause of every historical HTTP 500 or Windows storage timeout. ([#260](https://github.com/caelis-labs/caelis-bot/pull/260), [#263](https://github.com/caelis-labs/caelis-bot/pull/263), [#262](https://github.com/caelis-labs/caelis-bot/pull/262))
+* Memory review and Dream continuity have deterministic regression and real-runtime synthetic-protocol coverage. Autonomous model decisions and the semantic quality of retained or reorganized memory have not been independently validated.
 
 ## [0.20.0](https://github.com/caelis-labs/caelis-bot/compare/v0.19.2...v0.20.0) (2026-10-29)
 
