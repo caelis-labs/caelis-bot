@@ -18,12 +18,14 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
+	"github.com/caelis-labs/caelis-bot/internal/backend/continuity"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type binding struct {
+	Continuity     continuity.State  `json:"continuity,omitempty"`
 	AsyncAdmission asyncAdmission    `json:"asyncAdmission,omitempty"`
 	ToolLayout     int               `json:"toolLayout,omitempty"`
 	Artifacts      map[string]string `json:"artifacts,omitempty"`
@@ -81,8 +83,9 @@ type toolRenewalRecord struct {
 	Attempted                       bool
 }
 type pendingSubmission struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
+	SystemSource api.SystemSource `json:"systemSource,omitempty"`
+	ID           string           `json:"id"`
+	TurnID       string           `json:"turnId"`
 }
 type lostOwnerRecord struct {
 	Endpoint       string                `json:"endpoint"`
@@ -1046,7 +1049,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.mu.Lock()
-	if in.SystemOwner != "" && in.SystemOwner != s.state.RuntimeOwner {
+	if in.SystemOwner != "" && in.SystemOwner != opaque("codex", s.binding.ThreadID) {
 		s.mu.Unlock()
 		return api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: true}, nil
 	}
@@ -1119,7 +1122,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.binding.Unsubmitted = false
-	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run, SystemSource: in.SystemSource}
 	if report {
 		if s.binding.HostReports == nil {
 			s.binding.HostReports = map[string]bool{}

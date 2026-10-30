@@ -744,6 +744,13 @@ Worker-default changes are live and have no task-state fence; existing tasks kee
 A read-only check or selecting a settings tab does not change the execution owner. Model/effort/tier changes
 may apply to the next native request; directories, sandbox and inheritance are create-time configuration.
 
+Continuity invitations are another system producer. After a fresh resident turn
+completes, bounded observations feed an additive review score; age and turn count
+alone cannot trigger it. The producer keeps a frozen original message, while
+`SubmitSystem`/`SystemReceipt` retain sole delivery authority. An accepted
+invitation has a seven-day cooldown and requires fresh activity to re-arm. It
+never calls Dream. See [signals, defaults and verification](design/bot-continuity-soft-cues.md).
+
 System producers share `api.SystemMessage`, resident `SubmitSystem` admission and
 per-ID `SystemReceipt` reads. Task/approval/question/schedule/event records own
 business state; the delivery log owns only original transport identities/outcomes.

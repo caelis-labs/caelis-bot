@@ -1,6 +1,8 @@
 # Bot continuity: memory review and meaningful session renewal
 
-Status: phase-two proposal, not implemented. Review phase one before implementation.
+Status: historical phase-two proposal. Its numerical trigger and transport proposal
+are superseded by [lightweight review invitations](bot-continuity-soft-cues.md).
+The handoff stability work is tracked independently in #255.
 Use a soft cue to invite useful consolidation; it neither authorizes discarding
 context nor proves that renewal is appropriate. Keep a healthy Session. A large
 window does not make a persistently expensive, stale working set healthy.

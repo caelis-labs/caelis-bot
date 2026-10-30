@@ -9,9 +9,10 @@ import (
 // A report can start a new Turn without a visible user message. Keep its native
 // receipt binding even when recovery returns only an assistant summary.
 type hostReportTurn struct {
-	Thread string `json:"thread"`
-	Turn   string `json:"turn"`
-	Phase  string `json:"phase"`
+	SystemSource api.SystemSource `json:"systemSource,omitempty"`
+	Thread       string           `json:"thread"`
+	Turn         string           `json:"turn"`
+	Phase        string           `json:"phase"`
 }
 
 func (s *Session) rememberHostReportTurn(id, turn, phase string) {
@@ -25,7 +26,10 @@ func (s *Session) rememberHostReportTurn(id, turn, phase string) {
 	if terminal(old.Phase) && !terminal(phase) {
 		phase = old.Phase
 	}
-	next := hostReportTurn{Thread: s.binding.ThreadID, Turn: turn, Phase: phase}
+	next := hostReportTurn{Thread: s.binding.ThreadID, Turn: turn, Phase: phase, SystemSource: old.SystemSource}
+	if p := s.binding.Pending; p != nil && p.ID == id && !exists {
+		next.SystemSource = p.SystemSource
+	}
 	if old == next {
 		return
 	}

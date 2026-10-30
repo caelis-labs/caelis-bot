@@ -439,6 +439,7 @@ func existingArtifactFile(path string) (string, bool) {
 	return base, err == nil && info.Mode().IsRegular()
 }
 func (s *Session) applyEvent(event Notification) {
+	s.observeContinuity(event)
 	if len(event.RequestID) > 0 {
 		s.addPrompt(event)
 		return
