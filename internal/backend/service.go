@@ -3,6 +3,7 @@ package backend
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/url"
@@ -25,6 +26,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	processEpoch                string // Immutable for this Service lifetime.
 	workerInteractionMu         sync.RWMutex
 	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
@@ -101,7 +103,7 @@ type recoveryFlight struct {
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string) error, openURL, reveal func(string) error) *Service {
-	return &Service{engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
+	return &Service{processEpoch: rand.Text(), engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
 }
 
 // currentEngine keeps read-only UI polling race-free while the resident owner
@@ -284,6 +286,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
+	v.ProcessEpoch = s.processEpoch
 	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalState() ([]api.Approval, uint64)
 	}); ok {
@@ -415,7 +418,7 @@ func (s *Service) PetSnapshot() api.Snapshot {
 	// key before the current-turn filter can fence an invisible older result.
 	return s.presentation(snapshot)
 }
-func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate {
+func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch string) api.ChatUpdate {
 	s.mu.Lock()
 	status := s.botStatus
 	localRevision := s.presentationRevision
@@ -427,7 +430,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	if status != nil {
 		currentStatus = status()
 	}
-	if source, ok := s.currentEngine().(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
+	if source, ok := s.currentEngine().(api.RevisionSource); ok && processEpoch == s.processEpoch && !needsReconcile && revision != 0 && currentStatus == botStatus {
 		combined := source.Revision() + localRevision
 		if questionRevision != nil {
 			combined += questionRevision()
@@ -452,7 +455,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	v := s.Snapshot()
 	// An unresolved original receipt can require a read even when no visible
 	// state changed. That read must not cause a React update.
-	if revision != 0 && v.Revision == revision && v.BotStatus == botStatus {
+	if processEpoch == s.processEpoch && revision != 0 && v.Revision == revision && v.BotStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	items := make([]api.Item, 0)

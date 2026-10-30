@@ -16,6 +16,29 @@ test('closing and reopening creates a fresh baseline and rejects hidden-surface 
  state.reset();assert.equal(state.revision,0);assert.equal(state.accept(closing,30),false);
  assert.equal(state.accept(state.request(),25),true);
 });
+test('a retained observer accepts lower and equal revisions from a replacement service',()=>{
+ const order=new ConversationOrder();
+ assert.equal(order.accept(order.request(),120,'before-restart'),true);
+ assert.equal(order.accept(order.request(),8,'after-restart'),true);
+ assert.equal(order.revision,8);
+ assert.equal(order.processEpoch,'after-restart');
+ assert.equal(order.accept(order.request(),7,'after-restart'),false);
+ assert.equal(order.accept(order.request(),9,'after-restart'),true);
+ assert.equal(order.accept(order.request(),9,'another-restart'),true);
+});
+test('changing service epoch rejects all old in-flight reads without weakening request order',()=>{
+ const order=new ConversationOrder();order.accept(order.request(),120,'old');
+ const latePoll=order.request(),restart=order.request(),lateRefresh=order.request();
+ assert.equal(order.accept(restart,8,'new'),true);
+ assert.equal(order.accept(latePoll,121,'old'),false);
+ assert.equal(order.accept(lateRefresh,122,'old'),false);
+ const older=order.request(),newer=order.request();
+ assert.equal(order.accept(newer,9,'new'),true);
+ assert.equal(order.accept(older,8,'third'),false,'a stale request cannot change epoch');
+ assert.equal(order.processEpoch,'new');
+ order.reset();assert.equal(order.processEpoch,'');
+ assert.equal(order.accept(newer,10,'third'),false,'hidden-surface reads cannot change epoch');
+});
 test('polling and direct acceptance consume the draft once, including delayed completion',async()=>{
  const state=new SubmissionProgress();let resolve,count=0;
  const read=()=>{count++;return new Promise(r=>resolve=r);};

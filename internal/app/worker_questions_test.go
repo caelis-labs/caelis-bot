@@ -36,7 +36,7 @@ func TestWorkerAsyncQuestionReachesGuardianAndAnswersOriginalWork(t *testing.T) 
 	if len(questions) != 1 || questions[0].ID != "Q1" || questions[0].TaskID != work.ID || questions[0].Options[1] != "乙" || len(e.reports) != 1 || !strings.Contains(e.reports[0].Text, "Q1") {
 		t.Fatalf("Worker question did not reach Bot once: %+v reports=%+v", questions, e.reports)
 	}
-	for _, v := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
+	for _, v := range a.Backend.ChatSnapshot(0, "", "").Snapshot.Items {
 		if v.ID == item.ID || strings.Contains(v.Text, "[Q1]") {
 			t.Fatal("raw Worker question bypassed Bot into user chat", v)
 		}
@@ -49,7 +49,7 @@ func TestWorkerAsyncQuestionReachesGuardianAndAnswersOriginalWork(t *testing.T) 
 	if !strings.Contains(duplicate, "已提交") || owner.sends != 1 {
 		t.Fatal("duplicate Worker answer dispatched", duplicate, owner.sends)
 	}
-	for _, v := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
+	for _, v := range a.Backend.ChatSnapshot(0, "", "").Snapshot.Items {
 		if v.ID == item.ID || strings.Contains(v.Text, "[Q1]") {
 			t.Fatal("answered Worker question leaked into user chat", v)
 		}
@@ -141,7 +141,7 @@ func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 	if err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	snapshot := a.Backend.ChatSnapshot(0, "").Snapshot
+	snapshot := a.Backend.ChatSnapshot(0, "", "").Snapshot
 	var card api.QuestionCard
 	for _, i := range snapshot.Items {
 		if i.ID == item.ID {
@@ -152,7 +152,7 @@ func TestPresentedWorkerQuestionUsesOneDurableStateInChat(t *testing.T) {
 		t.Fatal(card)
 	}
 	_ = a.Backend.DismissQuestion(t.Context(), card.ShortID, card.Binding, "dismiss-original")
-	updated := a.Backend.ChatSnapshot(snapshot.Revision, snapshot.BotStatus)
+	updated := a.Backend.ChatSnapshot(snapshot.Revision, snapshot.BotStatus, snapshot.ProcessEpoch)
 	if !updated.Changed {
 		t.Fatal("lifecycle revision did not invalidate cache")
 	}

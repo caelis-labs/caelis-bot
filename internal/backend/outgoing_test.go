@@ -396,7 +396,7 @@ func TestOutgoingVisibleBeforeReceiptAndReconcilesByNativeIdentity(t *testing.T)
 				_, _ = s.Submit(t.Context(), api.Submission{ID: "new-request", Text: "same"})
 			}()
 			<-e.entered
-			v := s.ChatSnapshot(1, "").Snapshot
+			v := s.ChatSnapshot(1, "", s.processEpoch).Snapshot
 			if len(v.Items) != 2 || v.Items[1].RequestID != "new-request" || v.Items[1].Status != "sending" || v.Items[1].Text != "same\nattached.txt" {
 				t.Fatalf("input missing before receipt: %+v", v.Items)
 			}

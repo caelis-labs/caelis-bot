@@ -15,7 +15,7 @@ func TestActivitySurvivesPreviewFilteringAndParallelCompletion(t *testing.T) {
 		{ID: "search", TurnKey: "current", Kind: "activity", Status: "completed", Activity: &api.Activity{Kind: "web"}},
 	}}}
 	s := NewService(e, nil, nil, nil, nil)
-	for _, v := range []api.Snapshot{s.PetSnapshot(), s.ChatSnapshot(0, "").Snapshot} {
+	for _, v := range []api.Snapshot{s.PetSnapshot(), s.ChatSnapshot(0, "", "").Snapshot} {
 		if v.Activity == nil || v.Activity.Kind != "read" {
 			t.Fatalf("lost active parallel tool: %+v", v.Activity)
 		}
@@ -55,7 +55,7 @@ func TestAutomaticReviewStaysInAdapterWhileRealOutcomeAndApprovalRemainVisible(t
 		Approvals: []api.Approval{{ID: "human", Status: "pending", Choices: []api.Choice{{ID: "allow"}, {ID: "deny"}}}},
 	}}
 	s := NewService(e, nil, nil, nil, nil)
-	for _, view := range []api.Snapshot{s.Snapshot(), s.PetSnapshot(), s.ChatSnapshot(0, "").Snapshot} {
+	for _, view := range []api.Snapshot{s.Snapshot(), s.PetSnapshot(), s.ChatSnapshot(0, "", "").Snapshot} {
 		if len(view.Reviews) != 0 || view.Message == "" || len(view.Approvals) != 1 || len(view.Approvals[0].Choices) != 2 {
 			t.Fatalf("review leaked or outcome/approval hidden: %+v", view)
 		}

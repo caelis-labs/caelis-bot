@@ -176,10 +176,10 @@ export function useConversation(active: boolean, pet=false, chat=false) {
   if(!observing.current)return;
   const ticket=order.current.request(),expectedRevision=order.current.revision;
   let next:Snapshot|null;
-  if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',expectedRevision,botStatus.current);next=update.changed?update.snapshot:null;}
+  if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',expectedRevision,botStatus.current,order.current.processEpoch);next=update.changed?update.snapshot:null;}
   else next=await backend<Snapshot>(pet?'PetSnapshot':'Snapshot');
   if(!next){order.current.accept(ticket,expectedRevision);return;}
-  if(observing.current&&order.current.accept(ticket,next.revision)){
+  if(observing.current&&order.current.accept(ticket,next.revision,next.processEpoch)){
    botStatus.current=next.botStatus;
    observation.current={snapshot:next,liveReplies:liveReplyIDs(observation.current.snapshot,next,observation.current.liveReplies,pet)};
    setConversation(observation.current);
@@ -192,7 +192,9 @@ export function useConversation(active: boolean, pet=false, chat=false) {
   botStatus.current='';
   let stopped=false,timer=0;
   const poll=async()=>{try{await refresh();}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
-  void poll();return()=>{stopped=true;clearTimeout(timer);order.current.reset();};
+  const reset=()=>{order.current.reset();botStatus.current='';void refresh().catch(()=>{});};
+  window.addEventListener('conversation-reset',reset);
+  void poll();return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('conversation-reset',reset);order.current.reset();};
  },[active,pet,chat,refresh]);
  return {...conversation,refresh};
 }

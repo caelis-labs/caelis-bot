@@ -535,6 +535,7 @@ export interface SetupState {
   accountType: string;
 }
 export interface Snapshot {
+  processEpoch?: string;
   introductionPending?: boolean;
   maintenance?: string;
   scheduled: boolean;

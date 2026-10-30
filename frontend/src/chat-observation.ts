@@ -1,14 +1,19 @@
-// A snapshot revision covers backend events, but outbox and status changes can
-// share that revision. Fence both request order and the visible-surface lifetime.
+// Revisions are ordered only within one service epoch. Outbox and status changes
+// can share a revision; also fence request order and the visible-surface lifetime.
 export class ConversationOrder {
  private generation = 0;
  private sequence = 0;
  private acceptedSequence = 0;
  revision = 0;
- reset() { this.generation++; this.acceptedSequence = 0; this.revision = 0; }
+ processEpoch = '';
+ reset() { this.generation++; this.acceptedSequence = 0; this.revision = 0; this.processEpoch = ''; }
  request() { return {generation:this.generation, sequence:++this.sequence}; }
- accept(ticket: ReturnType<ConversationOrder['request']>, revision: number) {
-  if (ticket.generation !== this.generation || ticket.sequence < this.acceptedSequence || revision < this.revision) return false;
+ accept(ticket: ReturnType<ConversationOrder['request']>, revision: number, processEpoch = this.processEpoch) {
+  if (ticket.generation !== this.generation || ticket.sequence < this.acceptedSequence) return false;
+  // Fence every in-flight read from the previous epoch, including requests that
+  // started later but may still return a response from the outgoing service.
+  if (processEpoch !== this.processEpoch) { this.reset(); this.processEpoch = processEpoch; }
+  if (revision < this.revision) return false;
   this.acceptedSequence = ticket.sequence;
   this.revision = revision;
   return true;

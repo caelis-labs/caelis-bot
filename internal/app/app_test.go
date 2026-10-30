@@ -43,7 +43,7 @@ func TestControlConversationUsesLocalIMAndMasksMarkedSecret(t *testing.T) {
 			t.Fatalf("local IM control projection: %q", visible)
 		}
 	}
-	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "").Snapshot.Items }, first.ID, in.ID))
+	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "", "").Snapshot.Items }, first.ID, in.ID))
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -124,7 +124,7 @@ func TestProductFinishClosesQuestionAndPersistsAcrossRestart(t *testing.T) {
 		t.Fatal(receipt, err)
 	}
 	found := false
-	for _, item := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
+	for _, item := range a.Backend.ChatSnapshot(0, "", "").Snapshot.Items {
 		for _, card := range item.QuestionCards {
 			if card.ShortID == current.ID && card.State == "" {
 				found = true

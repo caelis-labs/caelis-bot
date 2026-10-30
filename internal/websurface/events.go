@@ -14,11 +14,11 @@ func (s *Server) observe() {
 	ticker := time.NewTicker(350 * time.Millisecond)
 	defer ticker.Stop()
 	var revision uint64
-	var status string
+	var status, processEpoch string
 	for {
-		update := s.services.Backend.ChatSnapshot(revision, status)
+		update := s.services.Backend.ChatSnapshot(revision, status, processEpoch)
 		if update.Changed {
-			revision, status = update.Snapshot.Revision, update.Snapshot.BotStatus
+			revision, status, processEpoch = update.Snapshot.Revision, update.Snapshot.BotStatus, update.Snapshot.ProcessEpoch
 			data, err := json.Marshal(update)
 			if err == nil {
 				s.eventMu.Lock()
