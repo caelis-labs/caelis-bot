@@ -1,5 +1,5 @@
-// Process the original full-suite workerpeer trace. No test rerun, product
-// instrumentation, network fetch, deadline change or durability relaxation.
+// Process original-suite traces, including app/memory flight snapshots. No
+// second test invocation, network fetch, deadline change or durability relaxation.
 import {spawnSync} from 'node:child_process';
 import {mkdirSync,writeFileSync,readFileSync,openSync,closeSync,existsSync} from 'node:fs';
 import {resolve,basename} from 'node:path';
@@ -8,8 +8,8 @@ const tracePath=resolve(process.argv[2]||resolve(root,'.cache/windows-state-io/o
 const dir=resolve(root,'.cache/windows-state-io',basename(tracePath,'.trace'));
 mkdirSync(dir,{recursive:true});
 const run=args=>spawnSync('go',args,{cwd:root,encoding:'utf8',maxBuffer:16<<20});
-const meta={sha:spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout?.trim(),sourceTree:spawnSync('git',['rev-parse','HEAD^{tree}'],{cwd:root,encoding:'utf8'}).stdout?.trim(),head:process.env.CI_SOURCE_HEAD||null,worktreeDirty:!!spawnSync('git',['status','--porcelain','--untracked-files=normal'],{cwd:root,encoding:'utf8'}).stdout?.trim(),platform:process.platform,go:run(['version']).stdout?.trim(),evidence:'original full-suite workerpeer TestMain trace; no second test invocation',limits:'syscall/sync wall times and stacks; not Windows error/ACL/driver attribution or proof of writer completion after trace ends'};
-if(!existsSync(tracePath)){writeFileSync(resolve(dir,'metadata.json'),JSON.stringify({...meta,unavailable:'package did not produce trace'},null,2));throw new Error('Original workerpeer trace unavailable; preserve preceding suite result')}
+const meta={sha:spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout?.trim(),sourceTree:spawnSync('git',['rev-parse','HEAD^{tree}'],{cwd:root,encoding:'utf8'}).stdout?.trim(),head:process.env.CI_SOURCE_HEAD||null,worktreeDirty:!!spawnSync('git',['status','--porcelain','--untracked-files=normal'],{cwd:root,encoding:'utf8'}).stdout?.trim(),platform:process.platform,go:run(['version']).stdout?.trim(),evidence:'original full-suite TestMain trace: '+basename(tracePath)+'; no second test invocation',limits:'syscall/sync wall times and stacks; not Windows error/ACL/driver attribution or proof of writer completion after trace ends'};
+if(!existsSync(tracePath)){writeFileSync(resolve(dir,'metadata.json'),JSON.stringify({...meta,unavailable:'package did not produce trace'},null,2));throw new Error('Original package trace unavailable; preserve preceding suite result')}
 const tools={};let diagnosticFailed=false;
 for(const name of ['trace','pprof']){
  const override=process.env[name==='trace'?'GO_TRACE_TOOL':'GO_PPROF_TOOL'];
@@ -26,9 +26,9 @@ function tool(name,args,output){const fd=openSync(resolve(dir,output),'w');const
 for(const type of ['syscall','sync']){
  if(tool('trace',['-pprof='+type,tracePath],type+'.pprof')===0){
   tool('pprof',['-top','-nodecount=30',resolve(dir,type+'.pprof')],type+'-top.txt');
-  tool('pprof',['-traces','-focus=localstate',resolve(dir,type+'.pprof')],'localstate-'+type+'.txt');
+  tool('pprof',['-traces','-focus=localstate|botmemory|memory/internal/appliance',resolve(dir,type+'.pprof')],'storage-'+type+'.txt');
   console.log('STATE_IO_DIAGNOSTIC original-suite '+type+' aggregate:\n'+readFileSync(resolve(dir,type+'-top.txt'),'utf8'));
-  console.log('STATE_IO_DIAGNOSTIC original-suite localstate '+type+' stacks/times:\n'+readFileSync(resolve(dir,'localstate-'+type+'.txt'),'utf8'));
+  console.log('STATE_IO_DIAGNOSTIC full storage '+type+' stacks/times retained in '+resolve(dir,'storage-'+type+'.txt'));
  }
 }
 tool('trace',['-d=parsed',tracePath],'runtime-parsed.txt');

@@ -23,6 +23,10 @@ try {
   # Bound package concurrency on hosted Windows runners. The timeout applies to
   # an entire package (hundreds of native-process tests), not a request deadline.
   New-Item -ItemType Directory -Force -Path .cache/windows-state-io | Out-Null
+  $taskPreviousStateTrace = $env:CAELIS_BOT_TEST_STATE_IO_TRACE
+  $taskStateTraceDir = Join-Path $taskBotRoot ('.cache/windows-state-io/' + [Guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $taskStateTraceDir | Out-Null
+  $env:CAELIS_BOT_TEST_STATE_IO_TRACE = $taskStateTraceDir
   $taskPreviousIOTrace = $env:CAELIS_BOT_TEST_WORKERPEER_TRACE
   $taskIOTrace = Join-Path $taskBotRoot ('.cache/windows-state-io/' + [Guid]::NewGuid().ToString('N') + '.trace')
   $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskIOTrace
@@ -55,12 +59,19 @@ try {
       catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
     }
   } catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
-  finally { $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskPreviousIOTrace }
+  finally {
+    $env:CAELIS_BOT_TEST_WORKERPEER_TRACE = $taskPreviousIOTrace
+    $env:CAELIS_BOT_TEST_STATE_IO_TRACE = $taskPreviousStateTrace
+  }
   # Decode the original invocation's trace; no second test attempt. A diagnostic
   # result must never replace the full suite's original error.
   $taskDiagnosticError = $null
   try { Invoke-BotCommand node script/diagnose-windows-state-io.mjs $taskIOTrace }
   catch { $taskDiagnosticError = $_ }
+  foreach ($taskStateTrace in @(Get-ChildItem -Path $taskStateTraceDir -Filter '*.trace')) {
+    try { Invoke-BotCommand node script/diagnose-windows-state-io.mjs $taskStateTrace.FullName }
+    catch { if (-not $taskDiagnosticError) { $taskDiagnosticError = $_ } }
+  }
   if ($taskFullSuiteError) { throw $taskFullSuiteError }
   if ($taskDiagnosticError) { Write-Host "State I/O diagnostic unavailable; original suite result retained: $taskDiagnosticError" }
   Invoke-BotCommand git diff --check

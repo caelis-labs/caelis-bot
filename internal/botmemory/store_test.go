@@ -2,6 +2,7 @@ package botmemory
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestEvidenceSharedAcrossProvidersAndForgettingSurvivesRetry(t *testing.T) {
 		t.Fatal("new runtime lost shared evidence", v, e)
 	}
 	if e = s.CorrectMemory(t.Context(), api.MemoryChange{RequestID: "correction-1", ID: r.ID, Text: "更喜欢安静的山间城市。"}); e != nil {
-		t.Fatal(e)
+		t.Fatalf("%v; index write diagnostic: %v", e, errors.Unwrap(e))
 	}
 	v, e = s.ReadMemory(t.Context(), "海边")
 	if e != nil || len(v.Evidence) != 0 {

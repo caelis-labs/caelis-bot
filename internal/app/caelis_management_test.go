@@ -65,7 +65,7 @@ func main() {
 				}
 				caps := []string{}
 				if _, err := os.Stat(marker); err == nil && mode != "incompatible" {
-					caps = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1"}
+					caps = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1", "runtime-agent-team-v1"}
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"instance_id": "fixture-instance", "store_id": "fixture-store", "protocol_version": 1, "api_version": "v1", "envelope_version": "caelis.control.envelope/v1", "capabilities": caps})
 			}))

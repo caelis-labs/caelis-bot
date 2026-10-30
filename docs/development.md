@@ -12,6 +12,20 @@ platform checks. Launch through `script/build_and_run-windows.ps1` with an isola
 [Windows releases](windows-release.md). Mac `make check/smoke/build` remain required
 on a Mac; Darwin CGO-free cross-compilation does not replace AppKit acceptance.
 
+Windows checks retain the original suite's result and collect opt-in traces from
+workerpeer, app and botmemory; they never replay a failed test for the artifact.
+App/memory use a bounded flight recorder with a snapshot before the existing
+180-second package deadline and another on normal return. These traces add
+measurement overhead, may omit older events, and cannot identify a Windows
+filesystem driver or prove a timed-out write's eventual outcome. Artifacts include
+source/tree identities, syscall/synchronization times and storage call stacks.
+`localstate.WriteError` preserves `errors.Is/As`, the observed I/O stage and total
+wait time without printing paths or document contents. Memory index failures keep
+the original retry-with-same-request user message and expose this wrapped cause.
+The 2-second admission/write wait, durable sync, writer ownership and receipt
+reconciliation rules are unchanged. Preserve original logs when the historical
+failure lacked these diagnostics; a later passing run does not explain it.
+
 Build from this public repository with pinned `toolchain.json`, `go.mod`, npm lockfiles and protocol manifests.
 No private asset checkout or sibling Core imports. `script/env.sh` selects Node 24, local caches, GOWORK=off
 and the macOS deployment target without changing the user's shell. Ordinary builds do not regenerate schemas.
@@ -305,6 +319,18 @@ For `TestNativeHostIntegration` failures, set `CAELIS_BOT_TEST_EVIDENCE_DIR` to 
 filesystem as the temporary test root to retain the stopped synthetic Host Store, original Bot operation
 journal and logs. The failure output includes plugin request paths and original operation outcomes;
 retain `unknown` receipts and reconcile them instead of replaying mutations.
+
+`TestBundledRuntimeVersionInterop` requires an explicitly selected released legacy
+CLI without `runtime-agent-team-v1` (`CAELIS_BOT_TEST_PREVIOUS_BINARY`) and a
+released bundled CLI with it (`CAELIS_BOT_TEST_BINARY`). Its old-protocol fixture
+first creates the original Session, operation journal and completed callback
+receipt. New Bot must reject the busy incompatible Host while the original task
+continues. After idle Host replacement it reconnects the same Session and receipts
+without replaying the callback. This release-artifact check remains opt-in; unit
+CI or a legacy-only probe is not evidence of the complete version matrix. Until
+Core is formally released, keep the companion PR Draft and both runtime/protocol
+pins unchanged; then update from official artifacts and rerun this matrix plus
+native Guardian acceptance before Ready.
 
 Installed Codex progressive-skill/context fixtures are under `internal/backend/codex/*live*test.go`; inspect their
 explicit environment opt-ins. Synthetic provider results prove transport/behavior, not real model judgment.
