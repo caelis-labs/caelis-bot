@@ -18,9 +18,12 @@ func TestWriteFailurePreservesCauseAndRedactsPrivatePath(t *testing.T) {
 	err := Write(filepath.Join(root, "child.json"), map[string]string{"secret": "never-in-diagnostics"})
 	var failure *WriteError
 	var pathError *os.PathError
-	if !errors.As(err, &failure) || failure.Stage != "directory" || failure.Elapsed <= 0 || !errors.As(err, &pathError) {
+	if !errors.As(err, &failure) || failure.Stage != "directory" || failure.Elapsed < 0 || !errors.As(err, &pathError) {
 		t.Fatalf("missing write cause or timing: %v", err)
 	}
+	// A completed sub-tick operation may have zero elapsed time on Windows.
+	// The held-admission case separately verifies the measured 2-second wait.
+	t.Logf("failure stage=%s elapsed_ns=%d path_error=%t", failure.Stage, failure.Elapsed.Nanoseconds(), errors.As(err, &pathError))
 	if strings.Contains(err.Error(), root) || strings.Contains(err.Error(), "never-in-diagnostics") {
 		t.Fatal("diagnostic disclosed private data")
 	}

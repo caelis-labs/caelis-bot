@@ -28,7 +28,7 @@ for(const type of ['syscall','sync']){
   tool('pprof',['-top','-nodecount=30',resolve(dir,type+'.pprof')],type+'-top.txt');
   tool('pprof',['-traces','-focus=localstate|botmemory|memory/internal/appliance',resolve(dir,type+'.pprof')],'storage-'+type+'.txt');
   console.log('STATE_IO_DIAGNOSTIC original-suite '+type+' aggregate:\n'+readFileSync(resolve(dir,type+'-top.txt'),'utf8'));
-  console.log('STATE_IO_DIAGNOSTIC original-suite storage '+type+' stacks/times:\n'+readFileSync(resolve(dir,'storage-'+type+'.txt'),'utf8'));
+  console.log('STATE_IO_DIAGNOSTIC full storage '+type+' stacks/times retained in '+resolve(dir,'storage-'+type+'.txt'));
  }
 }
 tool('trace',['-d=parsed',tracePath],'runtime-parsed.txt');

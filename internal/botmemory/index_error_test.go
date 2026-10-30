@@ -19,7 +19,7 @@ func TestIndexFailureRetainsCauseWithoutConfirmingReceipt(t *testing.T) {
 	s := &Store{dir: dir}
 	err := s.rememberIndex("original-receipt")
 	var writeError *localstate.WriteError
-	if !errors.As(err, &writeError) || writeError.Elapsed <= 0 {
+	if !errors.As(err, &writeError) || writeError.Elapsed < 0 {
 		t.Fatalf("underlying write cause was lost: %v", err)
 	}
 	if len(s.index.Receipts) != 0 {
