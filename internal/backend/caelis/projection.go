@@ -253,9 +253,10 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if unknown && s.connected {
 		out.Phase = "unknown"
 	}
-	out.CanSend = s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
+	terminalReceipt := s.terminalReceiptPendingLocked()
+	out.CanSend = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
-	out.CanSteer = s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
+	out.CanSteer = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	if v != nil {
 		var past []api.Item
 		for _, sid := range s.state.PastSessions {
