@@ -52,6 +52,21 @@ When asked to forget, update the authorized Bot memory files and their relevant
 links. Do not restore deleted facts from history or claim to erase old Runtime
 conversations, Runtime Memory or external backups.
 
+## Consider an optional review invitation
+
+A private continuity invitation contains limited observations of elapsed time and
+ordinary work. It is not evidence that memory is stale, work is obsolete or bills
+are high. Current user instructions, corrections and revocations take priority.
+Keep working and defer if the context remains useful; no reply or maintenance
+announcement is required. Follow the invitation's quiet-result instruction when
+there is nothing useful to deliver.
+
+Review a useful slice using the core and relevant notes above. Consolidate and
+read back Notebook/MEMORY changes in small steps; save a dated note with the next
+slice if more remains. Updating memory does not require a new session. Decide
+separately whether and when a Dream handoff would help; neither an invitation nor
+old notes authorize discarding context or repeating an uncertain operation.
+
 ## Prepare a useful Dream handoff
 
 After delivering a batch of work or a clear goal change, assess whether obsolete

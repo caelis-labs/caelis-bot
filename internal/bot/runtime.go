@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
@@ -66,6 +67,8 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	review          *reviewController // guarded by step
+	diagnostics     *diagnosticlog.Logger
 	deliveries      *systemDeliveryLog
 	deliveryErr     error
 	deliveryWarning sync.Once
@@ -164,6 +167,7 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 		return nil, e
 	}
 	r.deliveries, r.deliveryErr = openSystemDeliveries(filepath.Dir(path))
+	r.review = openReview(filepath.Dir(path), provider)
 	r.initEvents()
 	return r, nil
 }
@@ -373,6 +377,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	// Producers may do native reads; their delivery returns through SubmitSystem.
 	if err == nil && reports != nil {
 		err = reports.DeliverTaskReport(ctx)
+	}
+	if err == nil {
+		err = r.ReviewContinuity(ctx)
 	}
 	return err
 }

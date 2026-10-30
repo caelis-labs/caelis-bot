@@ -336,6 +336,8 @@ type Submission struct {
 	Scheduled bool `json:"-"`
 	// HostNotice hides host-authored evidence; it is never a permission grant.
 	HostNotice bool `json:"-"`
+	// SystemSource is producer provenance for observation, never authority.
+	SystemSource SystemSource `json:"-"`
 	// SystemOwner fences an independently produced native notice before dispatch.
 	SystemOwner string `json:"-"`
 	// OriginRequests is host-captured registration provenance, not a grant.

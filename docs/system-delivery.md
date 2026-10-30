@@ -1,7 +1,7 @@
 # Resident system delivery
 
 Worker results, approval/question notices, timed reminders, Callback results and
-late command results use `api.SystemMessage` and `Runtime.SubmitSystem`.
+late command results and optional continuity invitations use `api.SystemMessage` and `Runtime.SubmitSystem`.
 `SystemReceipt(originalID)` is their common delivery-proof read. Delivery is not
 execution success, permission, a new user instruction, or a replacement for the
 original record.
@@ -12,6 +12,7 @@ original record.
 | App Worker interaction reporters | `worker_approval`, `worker_question` | Existing hash of kind + original native request ID; native interaction owns decision/answer |
 | Resident reminder tick | `reminder` | Existing wake ID and saved schedule |
 | `eventplan` delivery callback | `callback` | Existing occurrence ID, saved arrangement, collector result and original grant |
+| Resident continuity review | `continuity_review` | Frozen invitation ID and original native owner; no Dream or task state |
 | Caelis command observer | `command_result` | Existing session + native call hash, command receipt and result evidence |
 
 ## Admission and receipts
@@ -73,9 +74,10 @@ identities hide internal inputs from user chat; text matching is not a provenanc
 A human message containing the same literal marker remains a human message.
 
 Codex uses its existing independent `turn/start` path and persisted host-input
-identities. This does not depend on developer-context support or the deferred soft-cue
-branch. Caelis uses `external_material` for notices and the existing
-`authorized_background` source plus original grant for scheduled input. No new
+identities. This does not depend on developer-context support. Caelis uses `external_material` for notices and the existing
+`authorized_background` source plus original grant for arrangements. Continuity
+invitations remain `external_material`; their `Scheduled` flag only reuses quiet
+presentation and grants no background authority. No new
 `application_summary` producer or Core change is introduced. Legacy journal decoding
 remains read-only compatibility; an uncertain old request is not rewritten with a marker.
 

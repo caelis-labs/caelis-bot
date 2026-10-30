@@ -32,11 +32,12 @@ type compactionHTTPCall struct {
 	Summary bool
 }
 type compactionHTTPModel struct {
-	mu             sync.Mutex
-	calls          []compactionHTTPCall
-	summaryStarted chan struct{}
-	summaryRelease <-chan struct{}
-	toolFirst      bool
+	quietContinuity bool
+	mu              sync.Mutex
+	calls           []compactionHTTPCall
+	summaryStarted  chan struct{}
+	summaryRelease  <-chan struct{}
+	toolFirst       bool
 }
 
 func (m *compactionHTTPModel) observed() []compactionHTTPCall {
@@ -71,6 +72,9 @@ func (m *compactionHTTPModel) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	reply := "SYNTHETIC_ACK: goal, NO_DEPLOY and pending checksum retained."
+	if m.quietContinuity && strings.Contains(string(raw), "Optional memory review.") {
+		reply = api.SilentReminder
+	}
 	if summary {
 		reply = syntheticHandoff
 	}

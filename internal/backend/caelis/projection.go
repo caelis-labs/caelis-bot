@@ -779,6 +779,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			for _, e := range d.Events {
 				s.logEnvelope(e)
 				if d.Source == wire.StreamSourceClassExact && v.CommandCaughtUp {
+					s.observeContinuity(v, e, time.Now().Round(0))
 					applyLiveUsage(v, e, time.Now().Round(0))
 				}
 				s.applyScheduledEnvelope(v, e, inputScope{InstanceID: instance, SessionID: sid})
