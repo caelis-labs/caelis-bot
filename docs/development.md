@@ -306,6 +306,18 @@ filesystem as the temporary test root to retain the stopped synthetic Host Store
 journal and logs. The failure output includes plugin request paths and original operation outcomes;
 retain `unknown` receipts and reconcile them instead of replaying mutations.
 
+`TestBundledRuntimeVersionInterop` requires an explicitly selected released legacy
+CLI without `runtime-agent-team-v1` (`CAELIS_BOT_TEST_PREVIOUS_BINARY`) and a
+released bundled CLI with it (`CAELIS_BOT_TEST_BINARY`). Its old-protocol fixture
+first creates the original Session, operation journal and completed callback
+receipt. New Bot must reject the busy incompatible Host while the original task
+continues. After idle Host replacement it reconnects the same Session and receipts
+without replaying the callback. This release-artifact check remains opt-in; unit
+CI or a legacy-only probe is not evidence of the complete version matrix. Until
+Core is formally released, keep the companion PR Draft and both runtime/protocol
+pins unchanged; then update from official artifacts and rerun this matrix plus
+native Guardian acceptance before Ready.
+
 Installed Codex progressive-skill/context fixtures are under `internal/backend/codex/*live*test.go`; inspect their
 explicit environment opt-ins. Synthetic provider results prove transport/behavior, not real model judgment.
 
