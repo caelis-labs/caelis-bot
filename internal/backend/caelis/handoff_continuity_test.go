@@ -28,6 +28,9 @@ func continuityFixture(t *testing.T, onCreate func(), extra ...http.HandlerFunc)
 				t.Error(err)
 			}
 			profile = *in.Profile
+			if profile.Reviewer != nil || profile.Permissions == nil || value(profile.Permissions.ApprovalMode) != "auto-review" {
+				t.Error("renewal replaced Runtime Guardian ownership")
+			}
 			if onCreate != nil {
 				onCreate()
 			}
@@ -35,7 +38,7 @@ func continuityFixture(t *testing.T, onCreate func(), extra ...http.HandlerFunc)
 		case "/sessions/next/profile":
 			writeFixture(w, wire.SessionBinding{SessionId: "next", PrincipalId: "owner", Profile: profile})
 		case "/sessions/next/reviewer-state":
-			writeFixture(w, wire.SessionReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: profile.Reviewer, Status: "ready"})
+			writeFixture(w, wire.SessionReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: &wire.SessionReviewer{Kind: "guardian", Model: "runtime/luna"}, Status: "ready"})
 		case "/sessions/next/state":
 			writeFixture(w, wire.SessionState{SessionId: "next"})
 		default:

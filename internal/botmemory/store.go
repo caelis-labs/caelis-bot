@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime/trace"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,7 @@ func privateDir(path string) error {
 	return os.Chmod(path, 0700)
 }
 func Open(ctx context.Context, dir, botID string) (s *Store, err error) {
+	defer trace.StartRegion(ctx, "botmemory.Open").End()
 	if botID == "" || !filepath.IsAbs(dir) {
 		return nil, errors.New("个人空间需要稳定 Bot 身份")
 	}
@@ -156,10 +158,20 @@ func (s *Store) rememberIndex(id string) error {
 	s.index.Receipts = append(s.index.Receipts, id)
 	if e := localstate.Write(filepath.Join(s.dir, "index.json"), s.index); e != nil {
 		s.index.Receipts = s.index.Receipts[:len(s.index.Receipts)-1]
-		return errors.New("记忆已保存，但目录未确认；请用相同请求标识重试")
+		return &indexWriteError{cause: e}
 	}
 	return nil
 }
+
+// Keep the user-facing partial-result message while retaining the local write
+// cause for diagnostics and errors.Is/As. A failed wait never confirms the index.
+type indexWriteError struct{ cause error }
+
+func (e *indexWriteError) Error() string {
+	return "记忆已保存，但目录未确认；请用相同请求标识重试"
+}
+
+func (e *indexWriteError) Unwrap() error { return e.cause }
 func receiptView(r *owner.Receipt) api.MemoryEntry {
 	source := "助手保存的线索"
 	if strings.HasPrefix(r.SourceContext.SourceType, "user") {

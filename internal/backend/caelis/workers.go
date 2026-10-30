@@ -493,9 +493,6 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if err := ctx.Err(); err != nil {
-			return projected, err
-		}
 		current, exists := s.state.Workers[id]
 		if !exists {
 			return api.Task{}, errors.New("original worker binding changed")
@@ -511,6 +508,13 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		}
 		if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil {
 			return s.workerViewLocked(current), errors.New("original worker binding changed during read")
+		}
+		// A successful HTTP response can race cancellation. Check before
+		// publishing a fresh idle/finish proof for this owner.
+		if err := ctx.Err(); err != nil {
+			current.Activity = ""
+			s.state.Workers[id] = current
+			return s.workerViewLocked(current), err
 		}
 		if s.workerViewLocked(current).Status != projected.Status || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
 			return s.workerViewLocked(current), api.ErrWorkObservationChanged

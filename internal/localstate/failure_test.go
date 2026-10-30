@@ -28,7 +28,7 @@ func TestWriteFailureIsSafeAndPreservesCause(t *testing.T) {
 	if strings.Contains(err.Error(), "private-") || strings.Contains(DescribeFailure(err).Reason(), "private-") {
 		t.Fatal("private error data leaked")
 	}
-	if got := DescribeFailure(err); got.Phase != "encode" || got.OSCode != uint64(syscall.EACCES) || got.Operation != "other" {
+	if got := DescribeFailure(err); got.Stage != "encode" || got.OSCode != uint64(syscall.EACCES) || got.Operation != "other" {
 		t.Fatal("missing safe failure evidence", got)
 	}
 }
@@ -45,7 +45,7 @@ func TestWriteFailureDistinguishesFilesystemFromAdmissionDeadline(t *testing.T) 
 	defer writers.Delete(path)
 	err := Write(path, map[string]bool{"test": true})
 	got := DescribeFailure(err)
-	if !errors.Is(err, context.DeadlineExceeded) || got.Kind != "deadline" || got.Phase != "writer_admission" || got.CompletionReady {
+	if !errors.Is(err, context.DeadlineExceeded) || got.Kind != "deadline" || got.Stage != "queue" {
 		t.Fatal("lost original bounded admission result", err, got)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

@@ -206,7 +206,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			if profile.Model == "" {
 				return errors.New("请先连接并选择一个 Caelis 模型")
 			}
-			s.configureReviewer(&profile)
+			s.configureApproval(&profile)
 			// Persist identity before dispatch, independently of Host generations.
 			if op == "" {
 				op = "create-" + rand.Text()

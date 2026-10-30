@@ -3,12 +3,14 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -150,6 +152,21 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		t.Fatalf("configure: %+v %v", result, err)
 	}
 	selector := fixtureModelSelector(t, ctx, host, "matrix")
+	opts := Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: selector, ApprovalMode: "workspace-write"}}
+	var effects atomic.Int32
+	tools := &acceptanceTools{defs: fixtureDefinitions("string"), call: func(context.Context, string, json.RawMessage) api.ToolResult {
+		effects.Add(1)
+		err := os.WriteFile(filepath.Join(root, "effect.txt"), []byte("BUNDLED_CALLBACK_EFFECT"), 0600)
+		return api.ToolResult{IsError: err != nil, Content: []map[string]string{{"type": "text", "text": "CALLBACK_COMPLETE"}}}
+	}}
+	connection := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup"}, Host: tools, NotebookDirectory: root, Instructions: "Version interoperation acceptance"}
+	model.set("CASE_BUNDLE_BEFORE", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "before"}}, modelStep{Reply: "BOT_BEFORE_COMPLETE"})
+	legacy := seedLegacyMatrixSession(t, ctx, host, discovery, opts, connection)
+	sid, storeID, principal := legacy.Session.SessionId, legacy.StoreID, legacy.PrincipalID
+	if effects.Load() != 1 {
+		t.Fatal("legacy fixture did not execute exactly one callback")
+	}
+
 	held, entered := make(chan struct{}), make(chan struct{}, 1)
 	model.set("CASE_OLD_BLOCK", modelStep{Block: held, Entered: entered, Reply: "OLD_COMPLETED"})
 	oldTask := exec.CommandContext(ctx, old, "-p", "CASE_OLD_BLOCK", "--store-dir", settings.CaelisStore, "--format", "json")
@@ -179,26 +196,18 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	if err != nil || found != wantHelper {
 		t.Fatalf("bundle selection: %s %v", found, err)
 	}
-	bot := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: selector, ApprovalMode: "workspace-write"}})
+	bot := New(opts)
 	defer bot.Close(context.Background())
-	var effects atomic.Int32
-	tools := &acceptanceTools{defs: fixtureDefinitions("string"), call: func(context.Context, string, json.RawMessage) api.ToolResult {
-		effects.Add(1)
-		err := os.WriteFile(filepath.Join(root, "effect.txt"), []byte("BUNDLED_CALLBACK_EFFECT"), 0600)
-		return api.ToolResult{IsError: err != nil, Content: []map[string]string{{"type": "text", "text": "CALLBACK_COMPLETE"}}}
-	}}
-	if err := bot.ConfigureBotTools(&api.ToolConnection{ApprovedTools: []string{"FixtureLookup"}, Host: tools, NotebookDirectory: root, Instructions: "Version interoperation acceptance"}); err != nil {
+	if err := bot.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
 	}
-	if err := bot.Connect(ctx); err != nil {
-		t.Fatal(err)
+	if err := bot.Connect(ctx); !errors.Is(err, errBotIncompatible) {
+		t.Fatalf("new Bot must reject incompatible busy Host: %v", err)
 	}
-	waitAcceptance(t, ctx, func() bool { return bot.Snapshot().CanSend })
-	bot.mu.Lock()
-	sid, storeID, principal := bot.state.Session.SessionId, bot.state.StoreID, bot.state.PrincipalID
-	bot.mu.Unlock()
-	model.set("CASE_BUNDLE_BEFORE", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "before"}}, modelStep{Reply: "BOT_BEFORE_COMPLETE"})
-	submitAcceptance(t, ctx, bot, "CASE_BUNDLE_BEFORE")
+	if bot.Snapshot().CanSend || effects.Load() != 1 {
+		t.Fatal("incompatible Host admitted Bot work or replayed a callback")
+	}
+	assertMatrixOriginalReceipts(t, ctx, host, bot, legacy)
 	// Keep one released Client process observing the original Session through
 	// replacement. A newly launched old CLI is a separate compatibility check.
 	observeOldClient := observeMatrixClient(t, ctx, host, old, root, settings.CaelisStore, sid)
@@ -213,14 +222,14 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		t.Fatal("original Session failed", err)
 	}
 	waitAcceptance(t, ctx, func() bool { d, _, e := Discover(settings); return e == nil && d.InstanceID != discovery.InstanceID })
-	waitAcceptance(t, ctx, func() bool {
-		bot.mu.Lock()
-		defer bot.mu.Unlock()
-		return bot.connected && bot.info.InstanceId != nil && *bot.info.InstanceId != discovery.InstanceID
-	})
 	if err := bot.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
+	waitAcceptance(t, ctx, func() bool { return bot.Snapshot().CanSend })
+	bot.mu.Lock()
+	currentHost := bot.client
+	bot.mu.Unlock()
+	assertMatrixOriginalReceipts(t, ctx, currentHost, bot, legacy)
 	bot.mu.Lock()
 	same := sid == bot.state.Session.SessionId && storeID == bot.state.StoreID && principal == bot.state.PrincipalID
 	bot.mu.Unlock()
@@ -240,5 +249,86 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	if output := cli(old, "-p", "CASE_GLOBAL_AFTER"); !strings.Contains(string(output), "GLOBAL_AFTER_COMPLETE") {
 		t.Fatal("older CLI did not complete against new Host")
 	}
-	t.Log("PASS: bundled CLI selected over global; old active Session preserved; automatic Host upgrade; original Bot identity and callback receipts preserved; old CLI completes against new Host")
+	t.Log("PASS: bundled CLI selected over global; incompatible busy Host safely rejected; old active Session completed; automatic idle Host upgrade; original Bot identity and callback receipts preserved; old CLI completes against new Host")
+}
+
+// This old-protocol fixture establishes retained work without calling the new
+// Bot handshake. It never weakens initialize or mutates the required capabilities.
+func seedLegacyMatrixSession(t *testing.T, ctx context.Context, host *client, d discovery, opts Options, tools *api.ToolConnection) binding {
+	t.Helper()
+	var info wire.ServerInfo
+	if err := host.json(ctx, "GET", "/initialize", nil, &info, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(info.Capabilities, "runtime-agent-team-v1") {
+		t.Fatal("previous Host already has Team capability; incompatible upgrade fixture is invalid")
+	}
+	legacy := New(opts)
+	if err := legacy.ConfigureBotTools(tools); err != nil {
+		t.Fatal(err)
+	}
+	legacy.client, legacy.info = host, info
+	legacy.state.StoreID, legacy.state.StoreDirectory = value(info.StoreId), opts.Settings.CaelisStore
+	legacy.state.Endpoint, legacy.state.InstanceID, legacy.state.PrincipalID = d.Endpoint, d.InstanceID, d.PrincipalID
+	legacy.state.CreateID = "matrix-legacy-create"
+	if err := legacy.ensureSession(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	op, input := "matrix-legacy-prompt", "CASE_BUNDLE_BEFORE"
+	result, err := legacy.command(ctx, op, "/sessions/"+idPath(legacy.state.Session.SessionId)+"/prompt", wire.PromptRequest{OperationId: &op, Input: &input, SourceKind: pointer("user")})
+	if err != nil || !succeeded(result.Outcome) {
+		t.Fatalf("legacy prompt: %v %v", result.Outcome, err)
+	}
+	waitAcceptance(t, ctx, func() bool {
+		if err := legacy.pollCalls(ctx, host, legacy.state.Session, d.PrincipalID); err != nil {
+			t.Fatal(err)
+		}
+		if len(legacy.state.Calls) != 1 {
+			return false
+		}
+		for _, call := range legacy.state.Calls {
+			if call.Phase != "completed" || call.Receipt == nil || call.Receipt.Outcome != "succeeded" {
+				return false
+			}
+		}
+		var state wire.SessionState
+		if err := host.json(ctx, "GET", "/sessions/"+idPath(legacy.state.Session.SessionId)+"/state", nil, &state, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		return !value(state.Run.Active)
+	})
+	return legacy.state
+}
+
+func assertMatrixOriginalReceipts(t *testing.T, ctx context.Context, host *client, bot *Session, legacy binding) {
+	t.Helper()
+	bot.mu.Lock()
+	same := bot.state.Session.SessionId == legacy.Session.SessionId && bot.state.Session.CreationDigest == legacy.Session.CreationDigest && bot.state.CreateID == legacy.CreateID
+	for id, old := range legacy.Operations {
+		current, ok := bot.state.Operations[id]
+		before, _ := json.Marshal(old.Body)
+		after, _ := json.Marshal(current.Body)
+		same = same && ok && old.Path == current.Path && old.Digest == current.Digest && string(before) == string(after) && old.Outcome == current.Outcome
+	}
+	for id, old := range legacy.Calls {
+		current, ok := bot.state.Calls[id]
+		before, _ := json.Marshal(old.Receipt)
+		after, _ := json.Marshal(current.Receipt)
+		same = same && ok && sameInvocation(old.Call, current.Call) && string(before) == string(after) && current.Phase == "completed"
+	}
+	bot.mu.Unlock()
+	if !same {
+		t.Fatal("upgrade changed original Session creation identity or callback receipt")
+	}
+	for id, old := range legacy.Calls {
+		var call wire.SessionToolCall
+		if err := host.json(ctx, "GET", "/sessions/"+idPath(legacy.Session.SessionId)+"/tool-calls/"+idPath(id), nil, &call, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := json.Marshal(old.Receipt)
+		after, _ := json.Marshal(call.Result)
+		if !sameInvocation(old.Call, call) || call.State != "completed" || string(before) != string(after) {
+			t.Fatal("native original callback identity or receipt was not preserved")
+		}
+	}
 }

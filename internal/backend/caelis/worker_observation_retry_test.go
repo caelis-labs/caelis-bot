@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestWorkerObservationRetriesOnlySameOwnerProjection(t *testing.T) {
-	for _, change := range []string{"once", "continuous", "binding", "receipt", "generation", "cancelled"} {
+	for _, change := range []string{"once", "continuous", "binding", "receipt", "generation", "cancelled", "cancelled_response"} {
 		t.Run(change, func(t *testing.T) {
 			var gets atomic.Int32
 			var s *Session
@@ -47,6 +48,9 @@ func TestWorkerObservationRetriesOnlySameOwnerProjection(t *testing.T) {
 				s.mu.Unlock()
 				writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("turn")}})
 			})
+			if change == "cancelled_response" {
+				s.client.http.Transport = workerCancelledResponseTransport{next: s.client.http.Transport, cancel: cancel}
+			}
 			s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work", PrincipalId: "owner"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted"}, PromptID: "original", Activity: "idle"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("turn")}}, Seen: map[string]bool{}}
 			got, err := s.ObserveWork(ctx, "task")
@@ -71,6 +75,28 @@ func TestWorkerObservationRetriesOnlySameOwnerProjection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A completed response can race cancellation and still decode successfully.
+// Make that ordering deterministic instead of depending on net/http scheduling.
+type workerCancelledResponseTransport struct {
+	next   http.RoundTripper
+	cancel context.CancelFunc
+}
+
+func (tr workerCancelledResponseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	response, err := tr.next.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	tr.cancel()
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	return response, nil
 }
 
 // Cancellation after a fully decoded response must still precede publication

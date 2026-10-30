@@ -6,46 +6,35 @@ import (
 	"fmt"
 	"os"
 	"syscall"
-	"time"
 )
 
-// Failure contains no paths, values, operation IDs or native error prose.
+// Failure projects WriteError for deduplicated diagnostics without paths,
+// values, operation IDs or native error prose. It is not another error wrapper.
 type Failure struct {
-	Kind, Phase, Operation string
+	Kind, Stage, Operation string
 	OSCode                 uint64
 	ElapsedMS              int64
-	CompletionReady        bool
 }
 
 func (f Failure) Reason() string {
-	return fmt.Sprintf("kind=%s phase=%s operation=%s os_code=%d", f.Kind, f.Phase, f.Operation, f.OSCode)
+	return fmt.Sprintf("kind=%s stage=%s operation=%s os_code=%d", f.Kind, f.Stage, f.Operation, f.OSCode)
 }
-
-type writeError struct {
-	cause           error
-	phase           string
-	elapsed         time.Duration
-	completionReady bool
-}
-
-func (e *writeError) Error() string { return "local state save failed: " + DescribeFailure(e).Reason() }
-func (e *writeError) Unwrap() error { return e.cause }
 
 func DescribeFailure(err error) Failure {
 	if err == nil {
 		return Failure{}
 	}
 	f := Failure{Kind: "other"}
-	var write *writeError
+	var write *WriteError
 	if errors.As(err, &write) {
-		f.Phase, f.ElapsedMS, f.CompletionReady = write.phase, write.elapsed.Milliseconds(), write.completionReady
+		f.Stage, f.ElapsedMS = write.Stage, write.Elapsed.Milliseconds()
 	}
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		f.Kind = "deadline"
 	case errors.Is(err, context.Canceled):
 		f.Kind = "cancelled"
-	case f.Phase == "encode":
+	case f.Stage == "encode":
 		f.Kind = "encoding"
 	}
 	var errno syscall.Errno

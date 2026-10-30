@@ -79,7 +79,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 					creates.Add(1)
 					var in wire.CreateSessionRequest
 					json.NewDecoder(r.Body).Decode(&in)
-					if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
+					if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer != nil || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
 						t.Error("handoff lost model, sandbox or Guardian assembly")
 					}
 					created = *in.Profile
@@ -87,7 +87,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 				case "/sessions/next/profile":
 					writeFixture(w, wire.SessionBinding{SessionId: "next", PrincipalId: "owner", Profile: created})
 				case "/sessions/next/reviewer-state":
-					writeFixture(w, wire.SessionReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
+					writeFixture(w, wire.SessionReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: &wire.SessionReviewer{Kind: "guardian", Model: "runtime/luna"}, Status: "ready"})
 				case "/sessions/next/state":
 					writeFixture(w, wire.SessionState{SessionId: "next"})
 				case "/sessions/next/background-grants":

@@ -2,7 +2,7 @@
 
 This change replaces the continuity portion of draft #255 (`b779063b`), originally
 based on unified delivery #258 and now incorporating main
-`16dd63547a934cacf4e44e415a4375c03026cec6` (#260). It does not
+`882853513875316dc6abd242ea7a32ae397c88fd` (#263, Core v0.75.0). It does not
 implement soft-cue sampling/thresholds or investigate the separate historical
 plugin HTTP 500 and Telegram timeout. Those remain separately owned.
 
@@ -68,7 +68,7 @@ Deterministic tests exercise production entry points and native protocol fixture
 | Failure/restart | Required-memory failure/change/deletion, durable supersession, unknown native create, failed host receipt writes, crash after binding commit, and first-input seed acceptance/unknown paths. |
 | Agent versus human Worker actions | App approval/question paths preserve native ownership; human actions invalidate old handoff, Agent responses do not. |
 
-Native synthetic acceptance uses installed Codex and cached Caelis 0.74, isolated
+Native synthetic acceptance uses installed Codex and the pinned Caelis v0.75.0, isolated
 stores, real MCP/callback protocols and local synthetic model endpoints. Both
 Dream tests make a Worker approval/question the new session's first input and
 check that the next user input does not reinject memory/handoff. Both existing
@@ -80,12 +80,17 @@ The first Linux CI run exposed a pre-existing cancellation gap in Caelis
 idle/finish proof after cancellation. A deterministic response-close cancellation
 test reproduces it on the unchanged function. A separate follow-up commit checks
 cancellation under the publication lock; it does not alter task ownership or
-replay policy. The failed run and red/green evidence remain in the PR record.
+replay policy. Main #263 now owns that fence; this branch keeps its invalidation
+of stale idle evidence and both deterministic cancellation orderings. Renewal
+also retains main's `configureApproval`, global Team/Guardian and capability gate.
+The failed run and red/green evidence remain in the PR record.
 
 The Windows receipt-lifecycle failure did not retain its underlying save error;
 its historical filesystem error or deadline cannot be inferred from a later pass.
 The original save boundary now records deduplicated, path-free error category,
-write phase, OS code and elapsed time while preserving the original error cause.
+write stage, OS code and elapsed time while preserving the original error cause.
+Main #263's `WriteError` is the sole error wrapper; the text-channel diagnostic
+projects that chain instead of adding a second write wrapper or completion flag.
 The two-second write wait and unknown-result policy are unchanged. Deterministic
 post-answer deadline and filesystem failures verify restart recovery through the
 original receipt, never another answer. The 257-answer lifecycle test now verifies

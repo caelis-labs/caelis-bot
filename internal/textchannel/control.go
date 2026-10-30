@@ -255,7 +255,7 @@ func (s *Store) save() error {
 	if err := localstate.Write(s.path, s.state); err != nil {
 		failure := localstate.DescribeFailure(err)
 		if s.lastSaveError == nil || localstate.DescribeFailure(s.lastSaveError).Reason() != failure.Reason() {
-			slog.Warn("Text channel state save failed", "reason", failure.Reason(), "elapsed_ms", failure.ElapsedMS, "completion_ready", failure.CompletionReady)
+			slog.Warn("Text channel state save failed", "reason", failure.Reason(), "elapsed_ms", failure.ElapsedMS)
 		}
 		s.lastSaveError = err
 		s.state = previous

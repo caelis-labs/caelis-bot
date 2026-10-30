@@ -159,6 +159,8 @@ func TestHumanIngressAfterLastReadCannotBeOvertakenByNativeAdoption(t *testing.T
 			go func() { renewed <- resident.RenewPendingToolHandoff(ctx) }()
 			select {
 			case <-wrapped.checked:
+			case err := <-renewed:
+				t.Fatalf("renewal returned before the final guard: %v", err)
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
