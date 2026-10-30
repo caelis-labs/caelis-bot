@@ -37,7 +37,7 @@ type journal struct {
 	Scheduled      bool               `json:"scheduled,omitempty"`
 	Digest         string             `json:"digest"`
 	Path           string             `json:"path"`
-	Body           json.RawMessage    `json:"body"`
+	Body           json.RawMessage    `json:"body,omitempty"`
 	Outcome        string             `json:"outcome"`
 	Resource       string             `json:"resource,omitempty"`
 	Source         wire.SessionSource `json:"source"`
@@ -173,6 +173,14 @@ func loadBinding(path string) (binding, error) {
 	}
 	if json.Unmarshal(upgraded, &b) != nil || b.Version != 2 || b.Operations == nil || b.Views == nil || b.Calls == nil {
 		return b, errors.New("Caelis 连接记录无法识别，请保留文件")
+	}
+	// Older settled records encoded an absent raw body as JSON null. Preserve
+	// their original outcome/digest; null is absence, not an input to reconcile.
+	for id, operation := range b.Operations {
+		if bytes.Equal(bytes.TrimSpace(operation.Body), []byte("null")) {
+			operation.Body = nil
+			b.Operations[id] = operation
+		}
 	}
 	if b.ProjectionVersion > currentProjectionVersion || b.ProjectionVersion < 0 {
 		return b, errors.New("Caelis 消息投影版本无法识别，请保留文件")
