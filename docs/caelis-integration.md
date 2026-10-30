@@ -259,14 +259,28 @@ Unknown operations are read through `/operations/{operation_id}` and never redis
 
 ## 上层装配
 
-新建 Bot Runtime 显式选择 `permissions.approval_mode: auto-review` 和
-`reviewer: {kind: guardian, model: <configured model>}`；默认固定初始 Bot 模型，
-原生装配可通过 `Options.ReviewerModel` 指定另一个已配置模型。后续主模型变更不替换 reviewer。
-`workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留；没有用 full-access/never 代替审查。
+新建 Bot Session 只选择 `permissions.approval_mode: auto-review`，不再写入
+`reviewer` 模型，也不提供 `Options.ReviewerModel`。Bot 主模型与 Worker 工作模型
+可以各自选择；breeze/orbit/zenith/tool-search/guardian 的模型、effort、speed
+统一来自该 Runtime 的 Agent Team，与 TUI Team 的 bind/reset 等价。
+`workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留。
 
-连接通过 `session-guardian-review-v1` 协商，读取对应 Session 的 `reviewer-state`，核对
-Session、模式、reviewer 与 ready 状态；unavailable 明确报错，不转为人工或免审批。
-ready 只表示本地装配就绪，不保证下一次模型调用成功。
+连接必须协商 `session-guardian-review-v1` 和 `runtime-agent-team-v1`，在任何创建
+或恢复执行之前拒绝不支持统一 Team 的 Core。`reviewer-state` 核对 Session、模式、
+当前 Guardian 的 ready 状态；不再要求它等于旧 profile 的 reviewer。unavailable
+仍报错，不转为人工或免审批；ready 不保证下一次模型调用成功。
+
+支持新能力的 Core 将所有历史有效 reviewer 覆盖视为创建证据，不再参与选择，
+包括 Bot 自动生成的 MiMo 和旧 Application 显式覆盖。普通升级恢复原绑定即可
+使用全局 Team；不改旧请求字节、会话/任务/审批 ID，不需要改数据库、重建会话或
+等待 Dream。既有 manual 权限边界保持不变。Team 修改影响后续调用；进行中的
+审查和模型调用保留已确定参数，不重新裁定已有批准，也不重放原工具动作。
+
+版本依赖：本变更要求包含 `runtime-agent-team-v1` 的 Core。当前发布资源仍固定
+v0.74.0，它不提供该能力；本依赖 PR 在 Core 发布后必须一起更新并校验 Runtime
+与 protocol 的同源 release pin 才能合并/分发。不能伪造未发布版本或用第二套
+配置兼容旧 Core。开发验收使用该 Core PR 的精确提交构建独立二进制，正式实例
+不替换。Guardian 空评估恢复另案处理，本变更不增加重试。
 
 旧版 Bot 的 manual 是代码固定值，没有用户可选的 manual 模式。已存在或创建结果未决的
 Runtime 不热修改；版本升级和普通重启均先恢复原绑定及原收据，不自动发起整理或切换。
@@ -334,7 +348,7 @@ The exact delivered Core schema and generated wire must be pinned together after
 Both the installed executable and the running Host must expose the required capabilities;
 a release number alone cannot prove compatibility. Core stays generic; Bot supplies the profile.
 
-The isolated external Host suite passes explicit reviewer assembly/readiness, independent sandbox, callback
+The isolated external Host suite passes Runtime Team selection/readiness, independent sandbox, callback
 review before claim, native command/file allow/deny, invalid replies/cancellation/real 90-second timeout with
 no side effects, idempotent results, and restart replay without re-execution. Live review, callback and canonical
 replay agree on immutable item identity, including repeated provider call IDs in a Turn. Clearing Bot's derived

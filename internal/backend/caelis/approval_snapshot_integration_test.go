@@ -19,29 +19,7 @@ import (
 // the public state before delivering any review event to a fresh Bot projection.
 func workerApprovalSnapshotAcceptance(t *testing.T, ctx context.Context, s *Session, host *client, model *acceptanceModel, mainModel, reviewerModel, effectDir string, review func(string, <-chan struct{})) {
 	t.Helper()
-	op := "native-worker-guardian-binding"
-	var status wire.StatusSnapshot
-	if err := host.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	var catalog wire.AgentBindingStatus
-	if err := host.json(ctx, "POST", "/agents/binding-status", struct{}{}, &catalog, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	var binding wire.AgentBinding
-	for _, profile := range catalog.Targets {
-		if value(profile.Id) == reviewerModel || value(profile.DisplayName) == "custom/reviewer-model" {
-			binding = wire.AgentBinding{Handle: pointer("guardian"), ProfileId: profile.Id, Effort: profile.Effort.DefaultEffort}
-		}
-	}
-	if binding.ProfileId == nil || value(binding.Effort) == "" {
-		t.Fatalf("fixture Guardian profile missing: selector=%q targets=%+v", reviewerModel, catalog.Targets)
-	}
-	var result wire.CommandResult
-	if err := host.json(ctx, "POST", "/agents/bind", wire.BindAgentBindingRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Binding: binding}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
-		raw, _ := json.Marshal(result)
-		t.Fatal("native Host Guardian binding", string(raw), err)
-	}
+	bindFixtureGuardian(t, ctx, host, reviewerModel, "native-worker-guardian-binding")
 	gate := make(chan struct{})
 	var once sync.Once
 	release := func() { once.Do(func() { close(gate) }) }
@@ -124,4 +102,44 @@ func workerApprovalSnapshotAcceptance(t *testing.T, ctx context.Context, s *Sess
 		t.Fatalf("native Guardian effect was not exactly once: %q %v", data, err)
 	}
 	t.Log("ordinary Native Worker: Guardian released the original request, effect=ONCE")
+}
+
+func bindFixtureGuardian(t *testing.T, ctx context.Context, host *client, reviewerModel, op string) string {
+	t.Helper()
+	var status wire.StatusSnapshot
+	if err := host.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	var catalog wire.AgentBindingStatus
+	if err := host.json(ctx, "POST", "/agents/binding-status", struct{}{}, &catalog, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := rawCatalog(ctx, host, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	display := ""
+	for _, row := range rows {
+		if row.Value == reviewerModel {
+			display = value(row.Display)
+		}
+	}
+	canonical := ""
+	var binding wire.AgentBinding
+	for _, profile := range catalog.Targets {
+		provider, _ := profile.Backend["provider"].(map[string]any)
+		if value(profile.Id) == reviewerModel || provider["model_config_id"] == reviewerModel || (display != "" && value(profile.DisplayName) == display) {
+			canonical, _ = provider["model_config_id"].(string)
+			binding = wire.AgentBinding{Handle: pointer("guardian"), ProfileId: profile.Id, Effort: profile.Effort.DefaultEffort}
+		}
+	}
+	if binding.ProfileId == nil || value(binding.Effort) == "" {
+		t.Fatalf("fixture Guardian profile missing: selector=%q targets=%+v", reviewerModel, catalog.Targets)
+	}
+	var result wire.CommandResult
+	if err := host.json(ctx, "POST", "/agents/bind", wire.BindAgentBindingRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Binding: binding}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
+		raw, _ := json.Marshal(result)
+		t.Fatal("native Host Guardian binding", string(raw), err)
+	}
+	return canonical
 }

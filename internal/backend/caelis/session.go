@@ -35,8 +35,6 @@ type Options struct {
 	ToolsOnly bool
 	// RequireApproval keeps isolated manual acceptance explicit. Product defaults to Guardian.
 	RequireApproval bool
-	// ReviewerModel is an optional assembly override; otherwise pin the initial main model.
-	ReviewerModel string
 }
 type Session struct {
 	cached                atomic.Pointer[api.Snapshot]
@@ -56,7 +54,6 @@ type Session struct {
 	workExecution         api.WorkExecutionSettings
 	executionMode         string
 	requireApproval       bool
-	reviewerModel         string
 	tools                 *api.ToolConnection
 	catalog               map[string]api.ApplicationTools
 	catalogs              map[string]map[string]api.ApplicationTools
@@ -99,7 +96,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	s := &Session{workSourceIdentity: opts.WorkSourceIdentity, requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
+	s := &Session{workSourceIdentity: opts.WorkSourceIdentity, requireApproval: opts.RequireApproval, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
 	s.bumpLocked()
 	return s
 }
@@ -229,7 +226,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	return d, strings.TrimSpace(string(b)), nil
 }
 
-var required = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1"}
+var required = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1", "runtime-agent-team-v1"}
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {

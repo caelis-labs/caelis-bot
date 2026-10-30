@@ -46,11 +46,15 @@ func TestGuardianHostIntegration(t *testing.T) {
 	decision := `{"option_id":"allow_once"}`
 	var block <-chan struct{}
 	var reviewRequests []map[string]any
+	var providerModels []any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
-		if body["model"] != "reviewer-model" {
+		mu.Lock()
+		providerModels = append(providerModels, body["model"])
+		mu.Unlock()
+		if body["model"] != "codex/gpt-6-luna" {
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			main.serve(w, r)
 			return
@@ -106,7 +110,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer host.http.CloseIdleConnections()
-	for _, name := range []string{"gpt-4.1", "reviewer-model"} {
+	for _, name := range []string{"mimo-v2.6-flash", "deepseek-v4-flash", "codex/gpt-6-luna"} {
 		var state wire.StatusSnapshot
 		if err = host.json(ctx, "GET", "/status", nil, &state, "", ""); err != nil {
 			t.Fatal(err)
@@ -118,8 +122,11 @@ func TestGuardianHostIntegration(t *testing.T) {
 			t.Fatal("model configuration", err)
 		}
 	}
-	mainSelector := fixtureModelSelector(t, ctx, host, "gpt-4.1")
-	reviewerSelector := fixtureModelSelector(t, ctx, host, "reviewer-model")
+	mainSelector := fixtureModelSelector(t, ctx, host, "mimo-v2.6-flash")
+	workerSelector := fixtureModelSelector(t, ctx, host, "deepseek-v4-flash")
+	reviewerSelector := fixtureModelSelector(t, ctx, host, "codex/gpt-6-luna")
+	reviewerSelector = bindFixtureGuardian(t, ctx, host, reviewerSelector, "main-guardian-binding")
+	t.Logf("synthetic main=%s Worker=%s Runtime Guardian=%s", mainSelector, workerSelector, reviewerSelector)
 	notebook := filepath.Join(root, "Notebook")
 	if err = os.Mkdir(notebook, 0700); err != nil {
 		t.Fatal(err)
@@ -131,7 +138,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}}
 	var s *Session
 	open := func() {
-		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, ReviewerModel: reviewerSelector})
+		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}})
 		if err = s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +150,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
 	original := s.state.Session.SessionId
-	if p := s.state.Session.Profile; p.Reviewer == nil || p.Reviewer.Model != reviewerSelector || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
+	if p := s.state.Session.Profile; p.Reviewer != nil || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
 		t.Fatal("Guardian/sandbox not assembled")
 	}
 	reviewFor := func(status, action string) bool {
@@ -179,6 +186,10 @@ func TestGuardianHostIntegration(t *testing.T) {
 				return fact
 			}
 		}
+		mu.Lock()
+		t.Logf("provider models=%v", providerModels)
+		mu.Unlock()
+		t.Logf("review facts=%+v / %+v", s.state.Views[original].Reviews, s.state.Views[original].LiveReviews)
 		t.Fatal("review missing", status, action)
 		return reviewFact{}
 	}
@@ -352,13 +363,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	if !t.Run("G05_restart_replay_and_pinned_reviewer", func(t *testing.T) {
-		// A main-model settings change does not reselect the reviewer.
+	if !t.Run("G05_restart_replay_and_runtime_team", func(t *testing.T) {
+		// The independent main model changes; Team Guardian remains Luna.
 		config, e := s.Configuration(ctx)
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.UpdateConfiguration(ctx, "review-hot-model", string(config.Revision), map[string]any{"model": mainSelector}); e != nil {
+		if _, e = s.UpdateConfiguration(ctx, "review-hot-model", string(config.Revision), map[string]any{"model": workerSelector}); e != nil {
 			t.Fatal(e)
 		}
 		if e = s.Close(ctx); e != nil {
@@ -487,7 +498,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 		defer vault.Close()
 		config := &api.ToolConnection{Host: tools, NotebookDirectory: vault.Path(), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}
-		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, RequireApproval: true, ReviewerModel: reviewerSelector}
+		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, RequireApproval: true}
 		legacy := New(opts)
 		if e = legacy.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
@@ -648,7 +659,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		s.mu.Lock()
 		currentHost := s.client
 		s.mu.Unlock()
-		workerApprovalSnapshotAcceptance(t, ctx, s, currentHost, main, mainSelector, reviewerSelector, effectDir, configureReview)
+		workerApprovalSnapshotAcceptance(t, ctx, s, currentHost, main, workerSelector, reviewerSelector, effectDir, configureReview)
 	}) {
 		return
 	}
