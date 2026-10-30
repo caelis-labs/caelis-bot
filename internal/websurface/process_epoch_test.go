@@ -13,6 +13,67 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+func TestLegacyChatSnapshotRequestReturnsCurrentSnapshotOverHTTP(t *testing.T) {
+	s := testServer(t)
+	c := pairClient(t, s)
+	h := httptest.NewServer(s)
+	defer h.Close()
+	for _, body := range []string{`{"args":[1,""]}`, `{"args":[120,""]}`} {
+		t.Run(body, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			request, err := http.NewRequestWithContext(ctx, http.MethodPost, h.URL+"/api/v1/conversation/chat-snapshot", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Host = strings.TrimPrefix(testOrigin, "http://")
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", testOrigin)
+			request.Header.Set("X-Caelis-Request", "1")
+			request.Header.Set("X-CSRF-Token", c.csrf)
+			request.AddCookie(c.cookie)
+			response, err := h.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("legacy chat snapshot status = %d, want 200", response.StatusCode)
+			}
+			var envelope struct {
+				Value api.ChatUpdate `json:"value"`
+			}
+			if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+				t.Fatal(err)
+			}
+			update := envelope.Value
+			current := s.services.Backend.Snapshot()
+			if !update.Changed || update.Snapshot.ProcessEpoch == "" || update.Snapshot.ProcessEpoch != current.ProcessEpoch || update.Snapshot.Revision != current.Revision || update.Snapshot.Connection != "ready" || !update.Snapshot.CanSend {
+				t.Fatalf("legacy request did not return a usable current snapshot: %+v", update)
+			}
+		})
+	}
+}
+
+func TestLegacyChatSnapshotCompatibilityPreservesArgumentValidation(t *testing.T) {
+	s := testServer(t)
+	c := pairClient(t, s)
+	for _, test := range []struct {
+		path string
+		args []any
+	}{
+		{"chat-snapshot", []any{1}},
+		{"chat-snapshot", []any{1, "", "epoch", "extra"}},
+		{"chat-snapshot", []any{"invalid revision", ""}},
+		{"snapshot", []any{1, ""}},
+	} {
+		response := c.request("/api/v1/conversation/"+test.path, map[string]any{"args": test.args})
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s accepted invalid args %v: status %d", test.path, test.args, response.Code)
+		}
+	}
+}
+
 func TestHTTPAndEventSnapshotsShareProcessEpoch(t *testing.T) {
 	s := testServer(t)
 	c := pairClient(t, s)
