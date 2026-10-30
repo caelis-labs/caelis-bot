@@ -88,7 +88,7 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
 共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
-当前内置基线为正式 Core v0.74.0，来源 `f69c186659efcf4c1b58ba73d390b69a4c3a06d1`。
+当前内置基线为正式 Core v0.75.0，来源 `fe8fdbd056ace719d7b3f302d8e78151c3764e97`。
 macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制摘要统一记录在
 `resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 包含独立 async/idle、
 cache presence/TTL 和 JobID 契约，与已验证 #170 候选字节相同；wire 仅适配本地包名。
@@ -110,13 +110,15 @@ Bot 没有直接 Core Go module 依赖，也不引入私有 SDK。
 
 ```sh
 source script/env.sh
-CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.73.3 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.74.0 \
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.74.0 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.75.0 \
 go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
 
-该测试从临时 App bundle 运行真实 Bot adapter：验证内置 CLI 优先于全局旧版、旧 Session
-执行期间可互操作、结束后自动换代、Bot 自动恢复原身份及回执、旧全局 CLI 可继续执行。
+该测试先用旧版公共协议建立真实 Session、原始任务和 callback 回执，再从临时 App bundle
+运行新 Bot adapter。旧 Host 忙碌时，新 Bot 因缺少统一 Team 能力安全拒绝；原任务继续。
+任务结束后 Core 自动换代，新 Bot 恢复同一 Session、创建与操作回执，不重放原 callback；
+随后验证新请求及旧全局 CLI 的执行。测试不通过绕过 capability gate 建立旧 fixture。
 使用隔离 Store 和合成模型；真实供应商模型和原生 GUI 仍单独验收。
 
 ## 共享模型与 Team 设置
@@ -259,14 +261,29 @@ Unknown operations are read through `/operations/{operation_id}` and never redis
 
 ## 上层装配
 
-新建 Bot Runtime 显式选择 `permissions.approval_mode: auto-review` 和
-`reviewer: {kind: guardian, model: <configured model>}`；默认固定初始 Bot 模型，
-原生装配可通过 `Options.ReviewerModel` 指定另一个已配置模型。后续主模型变更不替换 reviewer。
-`workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留；没有用 full-access/never 代替审查。
+新建 Bot Session 只选择 `permissions.approval_mode: auto-review`，不再写入
+`reviewer` 模型，也不提供 `Options.ReviewerModel`。Bot 主模型与 Worker 工作模型
+可以各自选择；breeze/orbit/zenith/tool-search/guardian 的模型、effort、speed
+统一来自该 Runtime 的 Agent Team，与 TUI Team 的 bind/reset 等价。
+`workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留。
 
-连接通过 `session-guardian-review-v1` 协商，读取对应 Session 的 `reviewer-state`，核对
-Session、模式、reviewer 与 ready 状态；unavailable 明确报错，不转为人工或免审批。
-ready 只表示本地装配就绪，不保证下一次模型调用成功。
+连接必须协商 `session-guardian-review-v1` 和 `runtime-agent-team-v1`，在任何创建
+或恢复执行之前拒绝不支持统一 Team 的 Core。`reviewer-state` 核对 Session、模式、
+当前 Guardian 的 ready 状态；不再要求它等于旧 profile 的 reviewer。unavailable
+仍报错，不转为人工或免审批；ready 不保证下一次模型调用成功。
+
+支持新能力的 Core 将所有历史有效 reviewer 覆盖视为创建证据，不再参与选择，
+包括 Bot 自动生成的 MiMo 和旧 Application 显式覆盖。普通升级恢复原绑定即可
+使用全局 Team；不改旧请求字节、会话/任务/审批 ID，不需要改数据库、重建会话或
+等待 Dream。既有 manual 权限边界保持不变。Team 修改影响后续调用；进行中的
+审查和模型调用保留已确定参数，不重新裁定已有批准，也不重放原工具动作。
+
+BREAKING CHANGE：内置 Runtime 与公开 protocol 同源固定正式 Core v0.75.0。
+新 Bot 要求 `runtime-agent-team-v1`，拒绝旧 Core，包括仍有任务的旧 Host；它不会
+为了连接而中止原任务或绕过能力门槛。旧 Bot 若精确比较历史 reviewer 与当前
+reviewer-state，也可能拒绝新 Core。升级时使用匹配的 Bot/Core 版本。
+原生隔离验收必须使用已核验的正式归档，不用候选构建代替发行字节；正式实例不替换。
+Guardian 空评估恢复另案处理，本变更不增加重试。
 
 旧版 Bot 的 manual 是代码固定值，没有用户可选的 manual 模式。已存在或创建结果未决的
 Runtime 不热修改；版本升级和普通重启均先恢复原绑定及原收据，不自动发起整理或切换。
@@ -324,7 +341,7 @@ and a subsequent genuine manual request. Guardian acceptance case
 `StartWork`, holds a synthetic provider decision, and consumes state plus two real
 reconnect bootstrap frames before delivering review events to fresh projections.
 It then checks the original native effect occurs exactly once. Run this release
-gate with `CAELIS_BOT_TEST_BINARY` pointing to the candidate executable; it is
+gate with `CAELIS_BOT_TEST_BINARY` pointing to the verified released executable; it is
 expected to fail on Core 0.74.0. These are real local Host/process and synthetic
 provider tests, not paid-provider judgment or native GUI acceptance.
 
@@ -334,7 +351,7 @@ The exact delivered Core schema and generated wire must be pinned together after
 Both the installed executable and the running Host must expose the required capabilities;
 a release number alone cannot prove compatibility. Core stays generic; Bot supplies the profile.
 
-The isolated external Host suite passes explicit reviewer assembly/readiness, independent sandbox, callback
+The isolated external Host suite passes Runtime Team selection/readiness, independent sandbox, callback
 review before claim, native command/file allow/deny, invalid replies/cancellation/real 90-second timeout with
 no side effects, idempotent results, and restart replay without re-execution. Live review, callback and canonical
 replay agree on immutable item identity, including repeated provider call IDs in a Turn. Clearing Bot's derived
@@ -382,9 +399,9 @@ Session 和回执，不重新派发旧请求。
 Session 后允许公共强制停机，覆盖缺少原子接口以及旧接口将后台 Task 计入 busy 的情况。
 新版本保持原子准入保护；Bot 不复制该兼容判断。过渡代码的退役边界在 Core 文档中定义。
 
-### Core v0.74.0 发行验证边界
+### Core v0.74.0 的既有验证边界
 
-协议与内置 CLI 均固定正式 `v0.74.0` / `f69c186659efcf4c1b58ba73d390b69a4c3a06d1`，包含 #170、#173 和 #174。原候选联调证据仍与发行字节验证分开保存。
+以下为正式 `v0.74.0` / `f69c186659efcf4c1b58ba73d390b69a4c3a06d1` 的既有验收范围，包含 #170、#173 和 #174，不替代 v0.75.0 的本次 Team 与升级制品验收。原候选联调证据与发行字节验证分开保存。
 
 Core Host 空闲协调器等待 60 秒；180 秒是 Store opportunity 有效期，2 秒是 checkpoint grant，有不同用途。Bot 不另建 idle 计时器、Store 写入或调度权威。开关独立且默认关闭，保持原生配置 revision、operation receipt、权限和 Session 协议。后台模型请求可有 JobID 而没有 TurnID；不能用后台请求替换前台身份或更新其新鲜 usage。缓存 read/write presence 与 5m/1h 明细独立保留，TTL 明细不能再加入总计。
 

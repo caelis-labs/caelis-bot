@@ -9,16 +9,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-// Configure newly created profiles only. Legacy Bot profiles had no user-selectable
-// reviewer: manual was hardcoded. A normal Dream handoff adopts the new product
-// default without mutating the old Session, replaying work, or relaxing its sandbox.
-func (s *Session) configureReviewer(profile *wire.SessionProfile) {
-	if s.requireApproval || profile.Reviewer != nil {
+// New profiles select approval policy only. The Runtime owns every Team model;
+// legacy reviewer bytes stay on existing bindings solely as creation evidence.
+func (s *Session) configureApproval(profile *wire.SessionProfile) {
+	if s.requireApproval {
 		return
-	}
-	model := s.reviewerModel
-	if model == "" {
-		model = profile.Model
 	}
 	permissions := wire.SessionPermissions{}
 	if profile.Permissions != nil {
@@ -29,7 +24,7 @@ func (s *Session) configureReviewer(profile *wire.SessionProfile) {
 	}
 	permissions.ApprovalMode = pointer("auto-review")
 	profile.Permissions = &permissions
-	profile.Reviewer = &wire.SessionReviewer{Kind: "guardian", Model: model}
+	profile.Reviewer = nil
 }
 
 func (s *Session) checkReviewer(ctx context.Context, b wire.SessionBinding) error {
@@ -50,7 +45,7 @@ func (s *Session) checkReviewer(ctx context.Context, b wire.SessionBinding) erro
 			return nil
 		}
 	case "auto-review":
-		if b.Profile.Reviewer == nil || state.Reviewer == nil || *state.Reviewer != *b.Profile.Reviewer {
+		if state.Reviewer == nil || state.Reviewer.Kind != "guardian" || state.Reviewer.Model == "" {
 			return errors.New("Caelis Guardian 配置与当前对话不匹配")
 		}
 		if state.Status == "ready" {

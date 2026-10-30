@@ -220,7 +220,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			profile.Version = s.profile.Version
 			profile.ExecutionConfig = clone(s.profile.ExecutionConfig)
 		}
-		s.configureReviewer(&profile)
+		s.configureApproval(&profile)
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile})
 	} else if pending.Outcome == "unknown" {
