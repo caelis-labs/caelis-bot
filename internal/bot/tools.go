@@ -213,8 +213,12 @@ func Serve(r *Runtime) (*Bridge, error) {
 						err := r.completeCodexDream(stopCtx, invocation)
 						cancel()
 						if err != nil {
-							out = compactError("handoff_pending", err)
-							out.StructuredContent["outcome"] = "unknown"
+							if errors.Is(err, api.ErrConversationRenewalDeferred) {
+								out = compactError("handoff_superseded", errors.New("User activity superseded this Dream; continue in the current conversation"))
+							} else {
+								out = compactError("handoff_pending", err)
+								out.StructuredContent["outcome"] = "unknown"
+							}
 							out.StructuredContent["callId"] = invocation.CallID
 						}
 					}

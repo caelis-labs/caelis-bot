@@ -102,6 +102,11 @@ type Runtime struct {
 	action         func(string) error
 	done           chan struct{}
 	cancel         context.CancelFunc
+
+	continuity      sync.Mutex            // human ingress and final binding adoption; no native reads
+	userGeneration  uint64                // guarded by continuity
+	registeringUser int                   // guarded by continuity
+	lastHumanTurn   api.ConversationState // guarded by continuity
 }
 
 func (r *Runtime) ConfigureWorkerInteractions(port api.WorkerInteractionPort) {
@@ -384,6 +389,9 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 		return nil
 	}
 	if r.engine == nil {
+		return nil
+	}
+	if r.userWaiting.Load() != 0 {
 		return nil
 	}
 	if r.handoff != nil {

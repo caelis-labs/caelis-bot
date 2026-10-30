@@ -23,6 +23,11 @@ import (
 // This uses the installed app-server binary, a local model fixture and the
 // real Bot MCP bridge. No user account or external model is contacted.
 func TestNativeBotDreamRenewal(t *testing.T) {
+	for _, gestureFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint("gesture-first=", gestureFirst), func(t *testing.T) { nativeBotDreamRenewal(t, gestureFirst) })
+	}
+}
+func nativeBotDreamRenewal(t *testing.T, gestureFirst bool) {
 	binary := os.Getenv("CAELIS_BOT_TEST_CODEX")
 	if binary == "" {
 		t.Skip("set CAELIS_BOT_TEST_CODEX to the installed CLI")
@@ -35,7 +40,7 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 	t.Setenv("CODEX_HOME", home)
 	var mu sync.Mutex
 	var bodies []string
-	var siblingEffects atomic.Int32
+	var siblingEffects, siblingBeforeHandoff atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(req.Body, 4<<20))
 		mu.Lock()
@@ -60,6 +65,9 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 		if n == 1 {
 			output = append(output, map[string]any{"id": "dream-sibling-item", "type": "function_call", "namespace": "mcp__caelis_personal", "name": "bot_gesture", "call_id": "provider-sibling-call", "arguments": `{"action":"attention"}`})
 		}
+		if n == 1 && gestureFirst {
+			output[0], output[1] = output[1], output[0]
+		}
 		for i, entry := range output {
 			emit(map[string]any{"type": "response.output_item.done", "output_index": i, "item": entry})
 		}
@@ -75,7 +83,13 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vault.Close()
-	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "codex", func(string) error { siblingEffects.Add(1); return nil })
+	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "codex", func(string) error {
+		if _, err := os.Stat(filepath.Join(root, "handoff-codex.json")); os.IsNotExist(err) {
+			siblingBeforeHandoff.Add(1)
+		}
+		siblingEffects.Add(1)
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,8 +109,15 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 	config.Args = []string{"-test.run=^TestDreamMCPHelper$"}
 	config.Env["CAELIS_BOT_MCP_HELPER"] = "1"
 	config.Env["FIXTURE_AUTH"] = "synthetic-only"
-	config.PrepareContext = func(context.Context) (api.ContextSeed, error) {
-		return resident.PrepareHandoffContext(), nil
+	config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
+		seed, err := vault.PrepareContext(ctx)
+		if err != nil {
+			return api.ContextSeed{}, err
+		}
+		handoff := resident.PrepareHandoffContext()
+		seed.Text += handoff.Text
+		seed.HandoffDigest = handoff.HandoffDigest
+		return seed, nil
 	}
 	config.ConsumeContext = resident.ConsumeHandoffContext
 	config.FinishTurn = func() {
@@ -143,10 +164,17 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 	if firstCount != 1 {
 		t.Fatalf("old Turn continued to another model step: %d", firstCount)
 	}
-	if siblingEffects.Load() != 0 {
+	t.Logf("native sibling effects=%d before durable handoff=%d", siblingEffects.Load(), siblingBeforeHandoff.Load())
+	if siblingEffects.Load() != siblingBeforeHandoff.Load() {
 		t.Fatalf("same-batch later Bot effect ran after terminal tool: %d", siblingEffects.Load())
 	}
-	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "second-input", Text: "Continue the original task."}, nil); err != nil || receipt.Outcome != "accepted" {
+	// Provider output order does not establish cross-service admission order.
+	// Already admitted work may precede Dream; no new effect may cross its fence.
+	before := siblingEffects.Load()
+	if out := resident.CallTool(ctx, "bot_gesture", json.RawMessage(`{"action":"attention"}`)); !out.IsError || siblingEffects.Load() != before {
+		t.Fatal("tool admitted after durable handoff", out)
+	}
+	if receipt, err := resident.SubmitSystem(ctx, api.SystemMessage{ID: "second-input", Source: api.SystemWorkerApproval, Text: "An original Worker approval is pending; inspect its original record."}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	for {
@@ -167,6 +195,17 @@ func TestNativeBotDreamRenewal(t *testing.T) {
 	}
 	if renewed == old || s.BotPluginGeneration() == oldGeneration || len(s.binding.PastThreads) == 0 || s.binding.PastThreads[len(s.binding.PastThreads)-1] != old {
 		t.Fatal("native thread history or renewal receipt missing")
+	}
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
+	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "third-input", Text: "Keep the same task and its original limits."}, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
+	mu.Lock()
+	got := append([]string(nil), bodies...)
+	mu.Unlock()
+	if len(got) != 3 || strings.Count(got[2], "[Private Bot handoff:") != 1 || strings.Count(got[2], "[Bot context:") != 1 || resident.PrepareHandoffContext().HandoffDigest != "" {
+		t.Fatalf("native Codex seed: requests=%d handoff=%d core=%d consumed=%t", len(got), strings.Count(got[len(got)-1], "[Private Bot handoff:"), strings.Count(got[len(got)-1], "[Bot context:"), resident.PrepareHandoffContext().HandoffDigest == "")
 	}
 	servers := s.connectionParams()["config"].(map[string]any)
 	for _, name := range []string{"caelis_context", "caelis_personal"} {

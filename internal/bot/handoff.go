@@ -17,14 +17,16 @@ import (
 // The handoff is application-private data. It is never a Notebook path or a
 // model-supplied file name. The adapter owns the native new-session receipt.
 type handoffState struct {
-	Version    int              `json:"version"`
-	CallID     string           `json:"callId,omitempty"`
-	Source     string           `json:"source,omitempty"`
-	Turn       string           `json:"turn,omitempty"`
-	Text       string           `json:"text,omitempty"`
-	Digest     string           `json:"digest,omitempty"`
-	NewSession string           `json:"newSession,omitempty"`
-	Receipts   []handoffReceipt `json:"receipts,omitempty"`
+	Version      int              `json:"version"`
+	CallID       string           `json:"callId,omitempty"`
+	Source       string           `json:"source,omitempty"`
+	Turn         string           `json:"turn,omitempty"`
+	Text         string           `json:"text,omitempty"`
+	Digest       string           `json:"digest,omitempty"`
+	NewSession   string           `json:"newSession,omitempty"`
+	Superseded   bool             `json:"superseded,omitempty"`
+	MemoryDigest string           `json:"memoryDigest,omitempty"`
+	Receipts     []handoffReceipt `json:"receipts,omitempty"`
 }
 
 type handoffReceipt struct {
@@ -61,6 +63,10 @@ func (h *handoffStore) save(callID, source, text string) error {
 }
 
 func (h *handoffStore) saveTurn(callID, source, turn, text string) error {
+	return h.saveTurnWithMemory(callID, source, turn, text, "")
+}
+
+func (h *handoffStore) saveTurnWithMemory(callID, source, turn, text, memoryDigest string) error {
 	text = strings.TrimSpace(text)
 	if callID == "" || source == "" || text == "" || len(text) > 16<<10 {
 		return errors.New("handoff requires an original call, source session and bounded summary")
@@ -68,7 +74,7 @@ func (h *handoffStore) saveTurn(callID, source, turn, text string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.state.CallID != "" {
-		if h.state.CallID == callID && h.state.Source == source && h.state.Turn == turn && h.state.Text == text {
+		if h.state.CallID == callID && h.state.Source == source && h.state.Turn == turn && h.state.Text == text && h.state.MemoryDigest == memoryDigest {
 			return nil
 		}
 		return errors.New("earlier handoff remains pending; reconcile its original receipt")
@@ -78,7 +84,7 @@ func (h *handoffStore) saveTurn(callID, source, turn, text string) error {
 			return errors.New("original handoff call already has a terminal receipt")
 		}
 	}
-	next := handoffState{Version: 1, CallID: callID, Source: source, Turn: turn, Text: text, Digest: handoffDigest(text), Receipts: h.state.Receipts}
+	next := handoffState{Version: 1, CallID: callID, Source: source, Turn: turn, Text: text, Digest: handoffDigest(text), MemoryDigest: memoryDigest, Receipts: h.state.Receipts}
 	if err := localstate.Write(h.path, next); err != nil {
 		return err
 	}
@@ -90,6 +96,18 @@ func (h *handoffStore) pending() handoffState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.state
+}
+
+// Human ingress invalidates only an uncommitted handoff. Worker reports and
+// event arrivals stay in their own durable queues and never call this method.
+func (h *handoffStore) supersede() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.state.CallID == "" || h.state.NewSession != "" || h.state.Superseded {
+		return nil
+	}
+	h.state.Superseded = true // Keep this process fenced even if persistence fails.
+	return localstate.Write(h.path, h.state)
 }
 
 func (h *handoffStore) record(callID, newSession, outcome string) error {
@@ -120,6 +138,7 @@ func (h *handoffStore) record(callID, newSession, outcome string) error {
 	}
 	if outcome == "rejected" || outcome == "fallback" || outcome == "unknown_fallback" {
 		next.CallID, next.Source, next.Turn, next.Text, next.Digest, next.NewSession = "", "", "", "", "", ""
+		next.MemoryDigest, next.Superseded = "", false
 	}
 	if err := localstate.Write(h.path, next); err != nil {
 		// Native acceptance or old-context fallback must not leave this

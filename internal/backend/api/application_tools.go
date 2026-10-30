@@ -25,6 +25,9 @@ type ToolResult struct {
 	StructuredContent map[string]any      `json:"structuredContent,omitzero"`
 	// TurnComplete is an adapter disposition, never a model-visible instruction.
 	TurnComplete bool `json:"-"`
+	// Recheck after taking native input admission, before first publishing a
+	// terminal result. Persisted result retries retain their original bytes.
+	CheckTurnComplete func() error `json:"-"`
 }
 
 // ToolInvocation binds a Bot tool to the adapter's original native call and

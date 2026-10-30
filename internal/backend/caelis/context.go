@@ -50,8 +50,8 @@ func (s *Session) conversationLocked() api.ConversationState {
 				out.Idle = false
 			}
 		}
-		for _, operation := range s.state.Operations {
-			if operation.Outcome == "unknown" {
+		for id, operation := range s.state.Operations {
+			if operation.Outcome == "unknown" && !operation.deferredRenewal(id) {
 				out.Idle = false
 			}
 		}
@@ -175,6 +175,27 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		s.mu.Unlock()
 		return nil
 	}
+	op := "dream-renew-" + digest([]byte(id))
+	if toolTurn != "" {
+		op = "tool-renew-" + digest([]byte(id))
+	}
+	if pending, exists := s.state.Operations[op]; toolTurn != "" && exists {
+		// Original create receipts precede current-Turn admission. Recovery
+		// reads the same operation; it cannot dispatch another create.
+		if pending.Outcome == "unknown" {
+			s.mu.Unlock()
+			if err := s.recoverOperations(ctx); err != nil {
+				return err
+			}
+			s.mu.Lock()
+			pending = s.state.Operations[op]
+		}
+		current := s.conversationLocked()
+		if pending.RenewalDeferred || pending.Outcome == "unknown" || current.Session != source || current.Turn != toolTurn {
+			s.mu.Unlock()
+			return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
+		}
+	}
 	current := s.conversationLocked()
 	j := s.state.Operations[id]
 	boundTurn := j.TurnID
@@ -196,17 +217,23 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
-	op := "dream-renew-" + digest([]byte(id))
-	if toolTurn != "" {
-		op = "tool-renew-" + digest([]byte(id))
+	for original, operation := range s.state.Operations {
+		if original != op && operation.deferredRenewal(original) && operation.Outcome == "unknown" {
+			s.mu.Unlock()
+			return errors.Join(api.ErrConversationRenewalRejected, errors.New("original context creation is unresolved; retain its receipt"))
+		}
 	}
 	pending, exists := s.state.Operations[op]
 	c, principal := s.client, s.state.PrincipalID
 	grants := clone(s.state.Grants)
+	ready := s.renewalIdleLocked(source, op)
 	s.mu.Unlock()
+	if err := s.checkRenewalGuard(ctx, op); err != nil {
+		return err
+	}
 	var renewalErr error
 	if !exists {
-		if !current.Idle {
+		if !ready {
 			return errors.New("对话暂不能交接")
 		}
 		config, err := s.configuration(ctx, source)
@@ -239,6 +266,12 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return api.ErrConversationRenewalRejected
 	}
 	s.mu.Unlock()
+	if toolTurn != "" && pending.Path == "/sessions" && pending.Outcome == "unknown" {
+		if err := s.deferRenewal(op); err != nil {
+			return err
+		}
+		return api.ErrConversationRenewalUnknown
+	}
 	if renewalErr != nil {
 		return renewalErr
 	}
@@ -263,6 +296,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if state.SessionId != sid || value(state.Run.Active) {
 		return errors.New("新上下文状态不匹配")
 	}
+	if err := s.checkRenewalGuard(ctx, op); err != nil {
+		return err
+	}
 	// Reattach the same existing authorization to the new internal session.
 	for key, old := range grants {
 		if old.Grant.Revoked {
@@ -274,25 +310,93 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		grants[key] = grantRecord{Grant: g, Fingerprint: old.Fingerprint}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current = s.conversationLocked()
-	if !current.Observed || current.Session != source || current.Turn != boundTurn || current.Status != "completed" || !current.Idle {
-		return errors.New("原对话已有新活动，交接未切换")
-	}
-	old := s.state
-	s.state.Session, s.state.RenewedBy, s.state.Grants = next, id, grants
-	s.state.Context = contextseed.State{}
-	s.state.PastSessions = append(append([]string{}, old.PastSessions...), source)
-	s.state.Views[sid] = &view{State: state, Items: []api.Item{}, Seen: map[string]bool{}}
-	if err := s.saveLocked(); err != nil {
-		delete(s.state.Views, sid)
-		s.state = old
+	if err := s.checkRenewalGuard(ctx, op); err != nil {
 		return err
 	}
-	s.ensureStreamLocked(sid)
+	s.mu.Lock()
+	current = s.conversationLocked()
+	if !current.Observed || current.Session != source || current.Turn != boundTurn || current.Status != "completed" || !s.renewalIdleLocked(source, op) {
+		s.mu.Unlock()
+		return errors.New("原对话已有新活动，交接未切换")
+	}
+	err := api.CommitRenewal(ctx, sid, func() error {
+		old := s.state
+		s.state.Session, s.state.RenewedBy, s.state.Grants = next, id, grants
+		s.state.Context = contextseed.State{}
+		s.state.PastSessions = append(append([]string{}, old.PastSessions...), source)
+		s.state.Views[sid] = &view{State: state, Items: []api.Item{}, Seen: map[string]bool{}}
+		if err := s.saveLocked(); err != nil {
+			delete(s.state.Views, sid)
+			s.state = old
+			return err
+		}
+		s.ensureStreamLocked(sid)
+		s.bumpLocked()
+		return nil
+	})
+	s.mu.Unlock()
+	return s.recordDeferredRenewal(op, err)
+}
+
+func (s *Session) checkRenewalGuard(ctx context.Context, op string) error {
+	return s.recordDeferredRenewal(op, api.CheckRenewalGuard(ctx))
+}
+
+func (s *Session) recordDeferredRenewal(op string, err error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.state.Operations[op]
+	if j.Path != "/sessions" || !j.RenewalDeferred && !errors.Is(err, api.ErrConversationRenewalDeferred) {
+		return err
+	}
+	j.RenewalDeferred = true
+	s.state.Operations[op] = j
+	if saveErr := s.saveLocked(); saveErr != nil {
+		return saveErr
+	}
+	s.bumpLocked()
+	if j.Outcome == "unknown" {
+		return api.ErrConversationRenewalUnknown
+	}
+	if j.Outcome == "rejected" || j.Outcome == "conflicted" {
+		return api.ErrConversationRenewalRejected
+	}
+	return api.ErrConversationRenewalDeferred
+}
+
+func (s *Session) deferRenewal(op string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.state.Operations[op]
+	j.RenewalDeferred = true
+	s.state.Operations[op] = j
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
 	s.bumpLocked()
 	return nil
+}
+
+// Renewal changes only the resident binding. Durable Worker requests and
+// reports keep their owners; their activity is not a global-quiescence gate.
+func (s *Session) renewalIdleLocked(source, renewal string) bool {
+	v := s.state.Views[source]
+	if v == nil || value(v.State.Run.Active) || v.State.Approval.Active != nil {
+		return false
+	}
+	for id, operation := range s.state.Operations {
+		if operation.Outcome == "unknown" && id != renewal && !s.workerOperationLocked(operation) {
+			return false
+		}
+	}
+	// Native commands yielded by the resident still require their original
+	// completion observation before its terminal handoff can be committed.
+	for _, followup := range s.state.CommandFollowups {
+		if !followup.Done {
+			return false
+		}
+	}
+	return true
 }
 
 var _ api.ConversationRuntime = (*Session)(nil)

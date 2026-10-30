@@ -14,6 +14,7 @@ import (
 )
 
 type screenEngine struct {
+	beforeImage func()
 	api.Engine
 	snapshot    api.Snapshot
 	state       string
@@ -25,6 +26,9 @@ type screenEngine struct {
 
 func (e *screenEngine) Snapshot() api.Snapshot { return e.snapshot }
 func (e *screenEngine) ImageInput(context.Context) (api.ImageInputCapability, error) {
+	if e.beforeImage != nil {
+		e.beforeImage()
+	}
 	return api.ImageInputCapability{State: e.state}, nil
 }
 func (e *screenEngine) Submit(_ context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
@@ -39,7 +43,14 @@ func TestSubmitScreenGatesCurrentModelAndPreservesComposer(t *testing.T) {
 			t.Run(state+"/"+outcome, func(t *testing.T) {
 				e := &screenEngine{state: state, outcome: outcome}
 				consumed := false
+				active := 0
 				s := NewService(e, nil, func([]string) error { consumed = true; return nil }, nil, nil)
+				s.SetUserActivityObserver(func() func() { active++; return func() { active-- } })
+				e.beforeImage = func() {
+					if active != 1 {
+						t.Fatal("screen preflight preceded human priority")
+					}
+				}
 				draft, err := s.SaveDraft(api.Draft{Text: "unfinished ordinary prompt", ReferenceIDs: []string{"ref-one"}})
 				if err != nil {
 					t.Fatal(err)
@@ -52,7 +63,7 @@ func TestSubmitScreenGatesCurrentModelAndPreservesComposer(t *testing.T) {
 				} else if err != nil || receipt.Outcome != outcome || e.submissions != 1 || !e.input.ScreenInput || len(e.input.FileIDs) > 0 || len(e.input.ReferenceIDs) > 0 || len(e.files) != 1 {
 					t.Fatal("screen route failed", receipt, err)
 				}
-				if s.Draft().Text != draft.Text || s.Draft().Revision != draft.Revision || consumed || s.pendingDraft != nil {
+				if active != 0 || s.Draft().Text != draft.Text || s.Draft().Revision != draft.Revision || consumed || s.pendingDraft != nil {
 					t.Fatal("capture consumed ordinary draft")
 				}
 			})

@@ -86,6 +86,9 @@ func (a *Application) AnswerWorkerQuestion(ctx context.Context, shortID, value, 
 }
 
 func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.Inbound, workID, owner, itemID, modelInput string) (api.Receipt, error) {
+	if in.Channel != "bot" {
+		defer a.beginUserActivity()()
+	}
 	for _, state := range a.workerStates() {
 		if state.Task.ID != workID || state.Runtime != owner {
 			continue

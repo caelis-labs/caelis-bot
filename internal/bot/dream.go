@@ -99,8 +99,8 @@ func (r *Runtime) reconcileLegacyDream() error {
 // completed handoff can rotate on this input; rejection falls back to the old
 // session, while an unknown creation stays on its original receipt.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
-	r.userWaiting.Add(1)
-	defer r.userWaiting.Add(-1)
+	done, _ := r.BeginUserActivity()
+	defer done()
 	r.step.Lock()
 	defer r.step.Unlock()
 	if r.remoteRecoveryPending(in) {
@@ -129,21 +129,15 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		pending := r.handoff.pending()
 		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
 			if err := r.renewToolHandoff(ctx); err != nil {
-				if unresolved := r.handoff.pending(); unresolved.CallID != "" {
-					if native, ok := r.engine.(api.ConversationRuntime); ok {
-						current := native.ConversationState()
-						if !current.Observed || current.Session == unresolved.Source && current.Turn == unresolved.Turn && !terminalConversationStatus(current.Status) {
-							rejected.Message = "原轮次仍在结束，消息未提交，请重试"
-							return reject()
-						}
-					}
-				}
-				// Preserve the original invocation and summary in its private
-				// receipt. A failed create must not make the bound Bot unusable.
-				if fallbackErr := r.handoff.record(pending.CallID, "", "fallback"); fallbackErr != nil && r.handoff.pending().CallID != "" {
-					rejected.Message = "交接状态尚未保存，消息未发送，请重试"
+				native, ok := r.engine.(api.ConversationRuntime)
+				if !ok || native.ConversationState().Session != pending.Source {
+					rejected.Deferred = true
+					rejected.Message = "交接状态尚未确认，消息未提交，请重试"
 					return reject()
 				}
+				// Keep the original handoff until its adapter receipt is settled.
+				// The old binding remains usable; native admission decides whether
+				// a correction can steer or must wait for terminal confirmation.
 			}
 		}
 	}

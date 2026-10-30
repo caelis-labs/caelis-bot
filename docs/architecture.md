@@ -872,6 +872,26 @@ matching private digest. Normal inbound messages, task feedback, MCP connection
 configuration and auth stay with the Bot; old model history and ToolSearch results
 stay with the old Session. An unknown creation is reconciled under its original ID.
 
+Human ingress (including Stop and human decisions) reserves priority before file
+preparation or native admission. A superseded Dream returns a nonterminal result;
+both adapters recheck that result under their native input admission before
+terminating the owning Turn. The host reads required memory and the adapter
+creates the native destination outside the short host commit gate. The final
+human-priority check, adoption of the prepared binding and publication of its
+handoff share that gate, while native input admission remains closed. The first
+input can therefore be a Worker approval/question or another `SubmitSystem`
+message without consuming a MEMORY-only seed. Once accepted, its matching digest
+is consumed once even if the renewal caller has not returned yet.
+
+Normal Worker observations and Agent decisions do not reserve human priority.
+Workers keep their original task/approval/question owners through a renewal;
+resident pending authority and uncertain effects still fence it. A superseded
+native create retains its original receipt without adopting the destination or
+replaying the create. Unreadable or changed required memory defers adoption and
+keeps the old binding. Notebook reads also fail closed during first-input seed
+preparation. Handoff prose carries task/review pointers and authorization limits,
+never a new business-state or permission authority.
+
 Legacy `dream-*.json` receipts are read without dispatching another maintenance
 turn. A matching completed `HANDOFF.md` may migrate once into the private record;
 the Notebook file remains untouched. Rejected renewal continues the old binding.
