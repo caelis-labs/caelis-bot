@@ -94,6 +94,10 @@ func (s *Server) register(a action) {
 			fail(w, 400, "invalid_request")
 			return
 		}
+		// Retained pre-upgrade pages omit the service epoch on this read only.
+		if a.Path == "/api/v1/conversation/chat-snapshot" && len(in.Args) == 2 {
+			in.Args = append(in.Args, json.RawMessage(`""`))
+		}
 		if a.Composer {
 			s.composerMu.Lock()
 			defer s.composerMu.Unlock()

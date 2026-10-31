@@ -115,7 +115,7 @@ caelisbot serve --require-pairing --listen 127.0.0.1:9317 --origin https://your-
 | 网络 API | `internal/websurface/routes.go` 固定路径、签名和能力 allowlist；没有任意 Wails RPC、shell 或 Core API 代理 |
 | 密钥 | 写入既有配置 owner；只持久化 ingress 参数摘要，原参数不入 Web 操作账本；会话 token 只保存哈希 |
 | 写入不确定 | 每次操作携带 ingress ID；先落盘再调用既有方法。相同 ID+参数回读原结果，pending 不重放。原 Submit/审批/问题 request ID 原样传递 |
-| SSE | 一份有界最新投影供多 tab；重连先 reset 再全量快照，保留原业务 ID，不声称是 durable event log。断流不取消任务 |
+| SSE | 一份有界最新投影供多 tab；快照携带 Service 生命周期内不变的 `processEpoch`，revision 只在同一世代内比较，HTTP/缓存的“未变化”判断也必须匹配世代。重连先 reset 再全量快照；reset 同时清缓存和观察层水位并使旧读取失效，已挂载聊天保留确认内容直至新快照到达。保留原业务 ID，不声称是 durable event log。断流不取消任务 |
 | 多 tab | 一个全局草稿，显式接管输入；服务端 30 秒租约 + epoch 校验，10 秒续约。所有 tab 可读；审批仍由原 owner 校验，重复/过期不能复活 |
 | 附件 | 最多 8 个、每个 20 MiB；从上传字节创建私有文件、原不透明 ID 入现有附件/发送回执；接受或移除后按原 owned-file 生命周期清理 |
 | 下载 | 原 backend ArtifactResolver 校验归属，拒绝符号链接/非普通文件；下载强制附件，不接受任意主机路径；单文件 256 MiB 上限 |

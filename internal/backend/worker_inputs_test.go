@@ -98,7 +98,7 @@ func TestWorkerInputsDesktopSubmissionSnapshotsBeforeDispatchAndKeepsVisibleText
 	if err != nil || !handled || v.Name != file.Name || !bytes.Equal(v.Data, original) {
 		t.Fatal("consuming the draft lost the retained upload", v, handled, err)
 	}
-	for _, item := range s.ChatSnapshot(0, "").Snapshot.Items {
+	for _, item := range s.ChatSnapshot(0, "", "").Snapshot.Items {
 		if strings.Contains(item.Text, "bot_uploaded_files") || strings.Contains(item.Text, "upload-file:") || strings.Contains(item.Text, file.Path) || strings.Contains(item.Text, "<reference>") {
 			t.Fatal("host-only upload context entered visible chat", item.Text)
 		}

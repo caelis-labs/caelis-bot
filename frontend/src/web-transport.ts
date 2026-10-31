@@ -93,7 +93,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const transport:ProductTransport=async<T>(service:string,method:string,args:unknown[])=>{
   const key=service+'.'+method;
   if(service==='backend'){
-   if(method==='ChatSnapshot'&&cached){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1];return (same?{changed:false}:cached) as T;}
+   if(method==='ChatSnapshot'&&cached){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1]&&cached.snapshot.processEpoch===args[2];return (same?{changed:false}:cached) as T;}
    if(method==='OpenMessageLink'){openURL(String(args[0]));return undefined as T;}
    if(method==='OpenApprovalURL'){openURL(await call<string>('backend.ApprovalURL',[args[0]]));return undefined as T;}
   }
@@ -144,7 +144,7 @@ export function createWebTransport(bootstrap:WebBootstrap){
  };
  return {transport,navigation,restoreNavigation,request,fixture:bootstrap.version.startsWith('FIXTURE'),
   async claim(takeOver=false){const result=await request('/api/v1/composer/claim',{takeOver});epoch=result.epoch;return result.editing as boolean;},
-  start(){stream=new EventSource('/api/v1/events');stream.addEventListener('reset',()=>{cached=undefined});stream.addEventListener('snapshot',event=>{cached=JSON.parse((event as MessageEvent).data)});stream.onerror=()=>{cached=undefined};},
+  start(){stream=new EventSource('/api/v1/events');stream.addEventListener('reset',()=>{cached=undefined;window.dispatchEvent(new Event('conversation-reset'));});stream.addEventListener('snapshot',event=>{cached=JSON.parse((event as MessageEvent).data)});stream.onerror=()=>{cached=undefined};},
   close(){stream?.close();document.removeEventListener('paste',onPaste,true);window.removeEventListener('popstate',restoreNavigation);window.removeEventListener('hashchange',restoreNavigation);},
   async taskList(){return (await request('/api/v1/tasks/list',{args:[]})).value;},
   async taskConversation(id:string){return (await request('/api/v1/tasks/conversation',{args:[id]})).value;},

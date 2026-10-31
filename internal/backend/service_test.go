@@ -68,7 +68,7 @@ func TestDesktopChatShowsOnlyProjectedArtifactToolAndDoesNotDuplicateIt(t *testi
 	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
 	defer s.chat.Close()
 	s.ObserveChat(e.value)
-	got := s.ChatSnapshot(0, "").Snapshot.Items
+	got := s.ChatSnapshot(0, "", "").Snapshot.Items
 	if len(got) != 1 || got[0].ID != "tool" || got[0].Details != "" || len(got[0].Artifacts) != 1 || got[0].Artifacts[0] != artifact {
 		t.Fatalf("desktop artifact projection: %+v", got)
 	}
@@ -116,7 +116,7 @@ func TestDesktopQuotedDraftReachesModelWithoutChangingVisibleBody(t *testing.T) 
 	if got := e.submitted.ModelInputText(); got != "<reference>\n原文 &lt;reference&gt; 😀\n</reference>\n\n本次正文" {
 		t.Fatalf("native model input = %q", got)
 	}
-	items := s.ChatSnapshot(0, "").Snapshot.Items
+	items := s.ChatSnapshot(0, "", "").Snapshot.Items
 	if len(items) != 1 || items[0].Text != "本次正文" || items[0].RequestID != input.ID || items[0].Quoted == nil || items[0].Quoted.Text != quote.Text {
 		t.Fatalf("visible transcript = %+v", items)
 	}
@@ -130,13 +130,13 @@ func TestLocalIMReadDoesNotImportNativeHistoryAndRecordsAcceptedInput(t *testing
 	s := NewService(e, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil)
 	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
 	defer s.chat.Close()
-	if got := s.ChatSnapshot(0, "").Snapshot.Items; len(got) != 0 {
+	if got := s.ChatSnapshot(0, "", "").Snapshot.Items; len(got) != 0 {
 		t.Fatalf("read imported Runtime history: %+v", got)
 	}
 	if receipt, err := s.Submit(t.Context(), api.Submission{ID: "original", Text: "user text"}); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	got := s.ChatSnapshot(0, "").Snapshot.Items
+	got := s.ChatSnapshot(0, "", "").Snapshot.Items
 	if len(got) != 1 || got[0].RequestID != "original" || got[0].Text != "user text" || got[0].Status != "accepted" {
 		t.Fatalf("accepted input waited for Runtime echo: %+v", got)
 	}
@@ -160,7 +160,7 @@ func TestUserSnapshotsKeepBotApprovalsButHideWorkerGuardianRequests(t *testing.T
 		t.Fatalf("unreported Worker approval lost its direct user card: %+v", got)
 	}
 	s.SetGuardianNoticeAccepted(func(id string) bool { return id == "worker" })
-	for _, snapshot := range []api.Snapshot{s.Snapshot(), s.ChatSnapshot(0, "").Snapshot, s.PetSnapshot()} {
+	for _, snapshot := range []api.Snapshot{s.Snapshot(), s.ChatSnapshot(0, "", "").Snapshot, s.PetSnapshot()} {
 		if len(snapshot.Approvals) != 2 || snapshot.Approvals[0].ID != "bot" || snapshot.Approvals[1].ID != "unknown-owner" {
 			t.Fatalf("approval owner projection changed: %+v", snapshot.Approvals)
 		}
@@ -185,12 +185,12 @@ func TestControlReceiptAppearsInDesktopChatWithoutReplacingNativeItems(t *testin
 	s := NewService(snapshotEngine{value: api.Snapshot{Items: []api.Item{{ID: "reply", Kind: "assistant", Text: "work result", SeenAt: 1}}}}, nil, nil, nil, nil)
 	var notices []api.Item
 	s.SetControlNotices(func() ([]api.Item, uint64) { return notices, uint64(len(notices)) })
-	first := s.ChatSnapshot(0, "")
+	first := s.ChatSnapshot(0, "", "")
 	if !first.Changed || len(first.Snapshot.Items) != 1 {
 		t.Fatal(first)
 	}
 	notices = []api.Item{{ID: "control:1", Kind: "controlNotice", Text: "决定已提交", Status: "completed", SeenAt: 2}}
-	next := s.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus)
+	next := s.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus, first.Snapshot.ProcessEpoch)
 	if !next.Changed || len(next.Snapshot.Items) != 2 || next.Snapshot.Items[0].Text != "work result" || next.Snapshot.Items[1].Text != "决定已提交" {
 		t.Fatal(next)
 	}
@@ -212,7 +212,7 @@ func TestDesktopChatInterleavesReceiptsAndMovesUntimedLegacyReceiptsBeforeNewRep
 			{ID: "middle", Kind: "controlNotice", Text: "decision accepted", SeenAt: 200},
 		}, 2
 	})
-	got := s.ChatSnapshot(0, "").Snapshot.Items
+	got := s.ChatSnapshot(0, "", "").Snapshot.Items
 	if len(got) != 4 || got[0].ID != "legacy" || got[1].ID != "first" || got[2].ID != "middle" || got[3].ID != "last" {
 		t.Fatalf("desktop transcript order: %+v", got)
 	}

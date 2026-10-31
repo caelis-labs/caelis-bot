@@ -286,7 +286,7 @@ func TestMissingUserCLILeavesShellHistoryAndSettingsAvailable(t *testing.T) {
 		t.Fatal("shell lost selected connection")
 	}
 	a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "offline-note", Kind: "assistant", Text: "saved locally", Status: "completed"}}})
-	if len(a.Backend.ChatSnapshot(0, "").Snapshot.Items) == 0 {
+	if len(a.Backend.ChatSnapshot(0, "", "").Snapshot.Items) == 0 {
 		t.Fatal("local history unavailable without CLI")
 	}
 	if _, err = os.Stat(missing); !errors.Is(err, os.ErrNotExist) {

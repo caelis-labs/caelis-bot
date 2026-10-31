@@ -241,17 +241,17 @@ func TestRetainedApprovalChangesReachChatWithoutResidentRevision(t *testing.T) {
 	a, _ := fixtureApp(t, current, Host{})
 	old := &workerApprovalEngine{testEngine: newTestEngine()}
 	a.localWork.owners["codex"] = old
-	first := a.Backend.ChatSnapshot(0, "")
+	first := a.Backend.ChatSnapshot(0, "", "")
 	old.snapshot.Approvals = []api.Approval{{ID: "retained", Owner: "task", Status: "pending"}}
-	next := a.Backend.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus)
+	next := a.Backend.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus, first.Snapshot.ProcessEpoch)
 	if !next.Changed || len(next.Snapshot.Approvals) != 1 {
 		t.Fatal("retained approval did not wake chat", next)
 	}
-	if a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus).Changed {
+	if a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus, next.Snapshot.ProcessEpoch).Changed {
 		t.Fatal("unchanged retained approvals keep waking chat")
 	}
 	old.snapshot.Approvals = nil
-	if !a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus).Changed {
+	if !a.Backend.ChatSnapshot(next.Snapshot.Revision, next.Snapshot.BotStatus, next.Snapshot.ProcessEpoch).Changed {
 		t.Fatal("resolved retained approval remained visible")
 	}
 }

@@ -102,7 +102,7 @@ func TestWorkerAnswerClassifiesCurrentRequestWithoutReplayingUnknown(t *testing.
 			if len(owner.requestIDs) != 1 || owner.requestIDs[0] != fmt.Sprintf("worker-answer-%x", sum[:]) {
 				t.Fatal("original answer ID changed or prompt replayed")
 			}
-			for _, row := range a.Backend.ChatSnapshot(0, "").Snapshot.Items {
+			for _, row := range a.Backend.ChatSnapshot(0, "", "").Snapshot.Items {
 				if row.Kind == "user" && strings.Contains(row.Text, "敏感字段") {
 					t.Fatal("ordinary async answer mislabeled secret")
 				}
@@ -133,7 +133,7 @@ func TestAsyncInputAndUnknownFieldHaveAccurateDurableDisplay(t *testing.T) {
 			t.Fatal("ordinary/unknown answer display classification failed")
 		}
 	}
-	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "").Snapshot.Items }, ordinary.ID, missing.ID))
+	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "", "").Snapshot.Items }, ordinary.ID, missing.ID))
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}

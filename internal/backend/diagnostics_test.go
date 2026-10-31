@@ -40,16 +40,16 @@ func (e *revisionEngine) Snapshot() api.Snapshot { e.calls++; return e.value }
 func TestUnchangedChatPollDoesNotSerializeHistory(t *testing.T) {
 	e := &revisionEngine{revision: 7, snapshotEngine: snapshotEngine{value: api.Snapshot{Revision: 7, Items: []api.Item{{Kind: "user", Text: "hello"}, {Kind: "activity", Details: "tool output"}}}}}
 	s := NewService(e, nil, nil, nil, nil)
-	first := s.ChatSnapshot(0, "")
+	first := s.ChatSnapshot(0, "", "")
 	if !first.Changed || len(first.Snapshot.Items) != 1 {
 		t.Fatal("chat projection includes tools")
 	}
-	if s.ChatSnapshot(7, "").Changed || e.calls != 1 {
+	if s.ChatSnapshot(7, "", first.Snapshot.ProcessEpoch).Changed || e.calls != 1 {
 		t.Fatal("unchanged poll fetched all history")
 	}
 	s.SetBotStatus(func() string { return "提醒正在排队" })
-	update := s.ChatSnapshot(7, "")
-	if !update.Changed || update.Snapshot.Message != "提醒正在排队" || s.ChatSnapshot(7, "提醒正在排队").Changed {
+	update := s.ChatSnapshot(7, "", first.Snapshot.ProcessEpoch)
+	if !update.Changed || update.Snapshot.Message != "提醒正在排队" || s.ChatSnapshot(7, "提醒正在排队", update.Snapshot.ProcessEpoch).Changed {
 		t.Fatal("schedule status changes were hidden by history polling")
 	}
 }
@@ -59,45 +59,45 @@ func TestConfiguredChatPollTracksIndependentVersionsWithoutProjectingIdleHistory
 	s := NewService(e, nil, nil, nil, nil)
 	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
 	defer s.chat.Close()
-	first := s.ChatSnapshot(0, "").Snapshot
-	if update := s.ChatSnapshot(first.Revision, first.BotStatus); update.Changed || e.calls != 1 {
+	first := s.ChatSnapshot(0, "", "").Snapshot
+	if update := s.ChatSnapshot(first.Revision, first.BotStatus, first.ProcessEpoch); update.Changed || e.calls != 1 {
 		t.Fatalf("idle configured chat projected history: changed=%v calls=%d", update.Changed, e.calls)
 	}
 	// The local log can advance after the engine becomes idle (for example,
 	// asynchronous startup loading or an explicit earlier-page load).
 	s.chat.Observe([]api.Item{{ID: "local", Kind: "assistant", Text: "synthetic", Status: "completed"}})
-	local := s.ChatSnapshot(first.Revision, first.BotStatus)
+	local := s.ChatSnapshot(first.Revision, first.BotStatus, first.ProcessEpoch)
 	if !local.Changed || len(local.Snapshot.Items) != 1 || local.Snapshot.Items[0].ID != "local" {
 		t.Fatal("independent chatlog update was hidden")
 	}
-	if s.ChatSnapshot(local.Snapshot.Revision, local.Snapshot.BotStatus).Changed {
+	if s.ChatSnapshot(local.Snapshot.Revision, local.Snapshot.BotStatus, local.Snapshot.ProcessEpoch).Changed {
 		t.Fatal("unchanged chatlog still projected")
 	}
 	// Runtime approval and receipt changes remain engine-owned.
 	e.revision++
 	e.value.Revision++
 	e.value.Approvals = []api.Approval{{ID: "approval", Status: "pending"}}
-	engine := s.ChatSnapshot(local.Snapshot.Revision, local.Snapshot.BotStatus)
+	engine := s.ChatSnapshot(local.Snapshot.Revision, local.Snapshot.BotStatus, local.Snapshot.ProcessEpoch)
 	if !engine.Changed || len(engine.Snapshot.Approvals) != 1 {
 		t.Fatal("engine approval update was hidden")
 	}
 	s.RequireSetup(true)
-	setup := s.ChatSnapshot(engine.Snapshot.Revision, engine.Snapshot.BotStatus)
+	setup := s.ChatSnapshot(engine.Snapshot.Revision, engine.Snapshot.BotStatus, engine.Snapshot.ProcessEpoch)
 	if !setup.Changed || setup.Snapshot.ConnectionIssue != "setup_required" {
 		t.Fatal("local connection presentation update was hidden")
 	}
 	if !s.stageOutgoing(api.Submission{ID: "original", Text: "synthetic", ScreenInput: true}, nil) {
 		t.Fatal("could not stage original outgoing request")
 	}
-	outgoing := s.ChatSnapshot(setup.Snapshot.Revision, setup.Snapshot.BotStatus)
+	outgoing := s.ChatSnapshot(setup.Snapshot.Revision, setup.Snapshot.BotStatus, setup.Snapshot.ProcessEpoch)
 	if !outgoing.Changed || len(outgoing.Snapshot.Items) != 2 || outgoing.Snapshot.Items[1].RequestID != "original" {
 		t.Fatal("local outgoing update was hidden", outgoing.Snapshot.Items)
 	}
-	if s.ChatSnapshot(outgoing.Snapshot.Revision, outgoing.Snapshot.BotStatus).Changed {
+	if s.ChatSnapshot(outgoing.Snapshot.Revision, outgoing.Snapshot.BotStatus, outgoing.Snapshot.ProcessEpoch).Changed {
 		t.Fatal("stable outgoing request still projected")
 	}
 	s.finishOutgoing("original", api.Receipt{ID: "original", Outcome: "unknown"})
-	unknown := s.ChatSnapshot(outgoing.Snapshot.Revision, outgoing.Snapshot.BotStatus)
+	unknown := s.ChatSnapshot(outgoing.Snapshot.Revision, outgoing.Snapshot.BotStatus, outgoing.Snapshot.ProcessEpoch)
 	if !unknown.Changed || unknown.Snapshot.Items[1].Status != "unknown" {
 		t.Fatal("original unknown receipt was hidden")
 	}
@@ -114,12 +114,12 @@ func TestChatPollDoesNotAcknowledgeLocalChangeDuringProjection(t *testing.T) {
 		}
 		return ""
 	})
-	_ = s.ChatSnapshot(0, "")
-	stale := s.ChatSnapshot(0, "").Snapshot
+	_ = s.ChatSnapshot(0, "", "")
+	stale := s.ChatSnapshot(0, "", "").Snapshot
 	if len(stale.Items) != 0 {
 		t.Fatal("fixture did not stage the outgoing request after projection")
 	}
-	changed := s.ChatSnapshot(stale.Revision, stale.BotStatus)
+	changed := s.ChatSnapshot(stale.Revision, stale.BotStatus, stale.ProcessEpoch)
 	if !changed.Changed || len(changed.Snapshot.Items) != 1 || changed.Snapshot.Items[0].RequestID != "during-projection" {
 		t.Fatal("concurrent local update was acknowledged with an older projection")
 	}
