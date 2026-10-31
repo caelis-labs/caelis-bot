@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/caelis-labs/caelis-bot/compare/v0.21.0...v0.21.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **web:** show replies after service restart ([#265](https://github.com/caelis-labs/caelis-bot/issues/265)) ([1997e79](https://github.com/caelis-labs/caelis-bot/commit/1997e7908adc10c7e76b9017d311d146399b7dbb))
+
 ## [0.21.0](https://github.com/caelis-labs/caelis-bot/compare/v0.20.0...v0.21.0) (2026-10-30)
 
 ### ⚠ BREAKING CHANGES
