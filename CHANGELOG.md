@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.0](https://github.com/caelis-labs/caelis-bot/compare/v0.21.0...v0.22.0) (2026-11-01)
+
+
+### Features
+
+* **runtime:** use fixed Desktop World from Core 0.76 ([#269](https://github.com/caelis-labs/caelis-bot/issues/269)) ([199a54c](https://github.com/caelis-labs/caelis-bot/commit/199a54c6f41dca4a2bfe5e12615c2f5619bbe842))
+
+
+### Bug Fixes
+
+* show replies across in-process Runtime replacement ([#268](https://github.com/caelis-labs/caelis-bot/issues/268)) ([5a2af2d](https://github.com/caelis-labs/caelis-bot/commit/5a2af2d4ae16cdc2c8a298cd1a8fc2518a5d0f78))
+* **web:** show replies after service restart ([#265](https://github.com/caelis-labs/caelis-bot/issues/265)) ([1997e79](https://github.com/caelis-labs/caelis-bot/commit/1997e7908adc10c7e76b9017d311d146399b7dbb))
+
 ## [0.21.0](https://github.com/caelis-labs/caelis-bot/compare/v0.20.0...v0.21.0) (2026-10-30)
 
 ### ⚠ BREAKING CHANGES
