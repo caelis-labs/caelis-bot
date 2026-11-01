@@ -121,7 +121,7 @@ func verifyExecutionConfiguration(t *testing.T, ctx context.Context, s *Session,
 		if err = os.Mkdir(other, 0700); err != nil {
 			t.Fatal(err)
 		}
-		profile := config.Profile
+		profile := *config.Profile
 		profile.Workspace = &wire.SessionWorkspace{Cwd: &other}
 		profile.ExecutionConfig = &wire.ExecutionConfig{Environment: tc.environment, Shell: &wire.ShellConfig{Login: pointer(false)}}
 		op = "environment-session-" + tc.name

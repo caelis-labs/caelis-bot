@@ -581,11 +581,6 @@ func (a *Application) startRuntime() error {
 	configuredPluginRevision := uint64(0)
 	bridge, err := bot.Serve(resident)
 	if err == nil {
-		if a.plugins != nil {
-			err = a.plugins.AcquireDesktopOwner()
-		}
-	}
-	if err == nil {
 		var executable string
 		executable, err = os.Executable()
 		if err == nil {
@@ -674,9 +669,6 @@ func (a *Application) startRuntime() error {
 		}
 	}
 	if err != nil {
-		if a.plugins != nil {
-			a.plugins.CloseDesktopOwner()
-		}
 		if bridge != nil {
 			bridge.Close()
 		}
@@ -896,9 +888,6 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
-		if a.plugins != nil {
-			a.plugins.CloseDesktopOwner()
-		}
 		if a.Telegram != nil {
 			if updating {
 				a.closeErr = errors.Join(a.closeErr, a.Telegram.CloseForUpdate())

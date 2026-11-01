@@ -64,7 +64,7 @@ func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 		return false
 	}
 	actual := s.state.Configurations[sid]
-	if actual.Revision == "" || len(actual.Profile.McpServers) != len(s.profile.McpServers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
+	if actual.Revision == "" || actual.Profile == nil || len(actual.Profile.McpServers) != len(s.profile.McpServers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
 		return true
 	}
 	for i, server := range actual.Profile.McpServers {

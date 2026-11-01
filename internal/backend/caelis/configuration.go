@@ -129,12 +129,12 @@ func (s *Session) configuration(ctx context.Context, sid string) (wire.SessionCo
 	return v, s.acceptConfiguration(sid, v)
 }
 func (s *Session) acceptConfiguration(sid string, v wire.SessionConfiguration) error {
-	if v.SessionId != sid || v.Revision == "" {
+	if v.SessionId != sid || v.Revision == "" || v.Profile == nil {
 		return errors.New("Caelis 配置回执不匹配")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if old := s.state.Configurations[sid]; old.Profile.Model != v.Profile.Model {
+	if old := s.state.Configurations[sid]; old.Profile == nil || old.Profile.Model != v.Profile.Model {
 		if view := s.state.Views[sid]; view != nil {
 			view.Usage, view.UsageTurn, view.ModelTurn = api.ContextUsage{}, "", ""
 		}
@@ -174,7 +174,7 @@ func (s *Session) updateConfiguration(ctx context.Context, sid, op, revision str
 	if e != nil {
 		return v, e
 	}
-	if v.SessionId != sid || v.Revision == "" {
+	if v.SessionId != sid || v.Revision == "" || v.Profile == nil {
 		return v, errors.New("Caelis 配置更新回执不匹配")
 	}
 	// Operation receipts are immutable historical values. A replay must not roll
@@ -213,7 +213,7 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		s.mu.Lock()
 		sid := s.state.Session.SessionId
 		s.mu.Unlock()
-		if v.SessionId != sid || v.Revision == "" {
+		if v.SessionId != sid || v.Revision == "" || v.Profile == nil {
 			return errors.New("Caelis 配置恢复回执不匹配")
 		}
 		if _, e := s.configuration(ctx, v.SessionId); e != nil {

@@ -31,7 +31,7 @@ func TestScreenCapabilityNegotiationAndCurrentModel(t *testing.T) {
 		t.Fatal("old Host must remain usable without probing", c, err)
 	}
 	s.info.Capabilities = append(s.info.Capabilities, modelCapabilities)
-	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: wire.SessionProfile{Model: "stale/vision"}}
+	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: &wire.SessionProfile{Model: "stale/vision"}}
 	for _, tc := range []struct {
 		model int32
 		state string

@@ -16,7 +16,7 @@ import (
 
 func TestConfigurationLostResponseKeepsExactReceiptAndExplicitClear(t *testing.T) {
 	var posts atomic.Int32
-	receipt := wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: wire.SessionProfile{Instructions: ""}}
+	receipt := wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: &wire.SessionProfile{Instructions: ""}}
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			posts.Add(1)
@@ -247,7 +247,7 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	})
 	s.workExecution = api.WorkExecutionSettings{Model: "fixture-model", Effort: "high", ServiceTier: "priority"}
 	s.state.PrincipalID = "owner"
-	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: wire.SessionProfile{Model: "bot-luna", Execution: "workspace-write"}}
+	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: &wire.SessionProfile{Model: "bot-luna", Execution: "workspace-write"}}
 	ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: "user", OperationId: "authorized-user"}})
 	_, _ = s.StartWork(ctx, api.WorkStart{ID: "job", TaskStart: api.TaskStart{RequestID: "request", Title: "Fixture", Prompt: "synthetic"}, Workspace: t.TempDir()})
 	for range 2 {

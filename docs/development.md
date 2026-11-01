@@ -56,7 +56,7 @@ depth/high-water, four event-kind counters, reconnect attempts and both
 fixtures do not measure the live Bot's producer burst, FD pressure, or a native
 slow persistence path. A passing fixture or `make smoke` is not evidence that
 the daily Bot instance was replaced or recovered.
-First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
+First builds fetch pinned Sparkle and Caelis Runtime artifacts; versions/hashes remain source-controlled.
 
 Shared Runtime startup recovery (#152) has Linux/macOS Unix socket and local
 HTTP/CLI contracts in `shared_recovery_test.go`, plus coordinator and CLI tests
@@ -69,38 +69,12 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-Desktop World is pinned to [v0.1.3](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.3).
-`resources/desktop-world/release.json` separately pins the slim Plugin archive,
-standalone provenance, slim runtime, worker, BUILD and license inventory.
-The pin uses CUA 0.38.0 source `85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19`.
-Both platform staging entrypoints read this pin; the Plugin installer does not
-fetch a separate DTW or CUA runtime. Reuse `.cache/desktop-world-runtime/<version>`
-for repeat builds rather than downloading the standalone distribution as well.
-Staging verifies the archive before extracting only ordinary relative files and
-directories, then checks every file against SHA256SUMS and the pinned native
-binary hashes. The archive is never executed. Validation failure retains the
-previous package. No DTW build toolchain or global installation is needed.
-
-For release upgrade acceptance, stage and inventory the previous and new public
-Plugin packages in separate temporary directories. Set
-`CAELIS_BOT_TEST_DTW_UPGRADE_OLD` and `CAELIS_BOT_TEST_DTW_UPGRADE_NEW` to those
-`Plugins` directories and run `go test -v ./internal/plugins -run
-'^TestReleasedDesktopWorldUpgrade$'`. It uses temporary stores, verifies both
-immutable generations, preserves enabled/disabled preferences, checks the new
-Skill and MCP selection, and reads the installed adapter version on the matching
-OS. It does not start GUI actions or use a user profile.
-
-On macOS, staging verifies Developer ID signatures and the pinned team on the
-slim runtime and worker before Bot signs its own nested payload. Upstream
-notarization does not qualify the resulting Bot application: public Bot releases
-still require their own immutable signing, notarization, stapling and Gatekeeper
-gates. Windows uses the same archive verifier, remains unsigned upstream, and
-requires the x64 VC runtime. Upstream Windows DPI, modal-provider and uncertain
-focus limits are tracked in [DTW #36](https://github.com/caelis-labs/desktop-world/issues/36).
-Historical evidence remains tied to its original version; it does not qualify
-the v0.1.3 artifact. The pinned v0.1.3 Plugin assets are published on GitHub;
-this pin does not claim DTW R2 distribution or Windows native GUI acceptance.
-
+Desktop World is supplied by the formally pinned Caelis Runtime, not by a
+separate Bot archive or installer. Codex does not load DTW through Bot. Core owns
+its package/provenance, native Session/Worker assembly and desktop policy; Bot
+checks the Runtime and protocol pins together. Keep Core's released-artifact and
+real-task evidence separate from Bot adapter acceptance. Existing legacy Bot
+plugin data is preserved without being selected or removed.
 
 ## Native development
 
@@ -134,7 +108,7 @@ The local development and installable release bundle identifiers and default dat
    `.development-signing-identity`。worktree 内的显式选择优先；删除主 checkout
    的选择后即回到 ad-hoc。不会因为钥匙串中存在证书而自动选择它。
 3. 用 `bash script/build_and_run.sh --verify` 构建并启动。构建会验证该身份类型、
-   签署内部 Sparkle、Desktop World 适配器、私有 CUA worker 及应用、核验 Apple 签名链和应用标识。
+   签署内部 Sparkle、Caelis Runtime 及应用，核验 Apple 签名链和应用标识。
    身份失效/缺少私钥时停止，不静默退回 ad-hoc 或发行证书。
 
 单次覆盖用 `BOT_DEVELOPMENT_IDENTITY=<指纹>`；显式 `-` 表示 ad-hoc。
@@ -150,31 +124,11 @@ Developer ID / 公证流程完成。
 `--recall` 仅唤回已有应用，不刷新进程权限。普通用户可从 Bot 菜单退出后再打开。
 不要为解决“开关已开”而自动 reset 系统授权。
 
-Desktop World 实机验收使用已签名 Dev 包、隔离的 `CAELIS_BOT_DATA_DIR`
-及明确的 `CODEX_HOME` 或独立 Caelis Store；从 `script/build_and_run.sh`
-启动后在插件设置中检查版本、开关、Skill 和 Runtime 的唯一 `exec`。
-真实模型调用仍走 Runtime 原有审批，再对明确的临时 GUI 目标做一次读取、
-操作和读回。核对 Bot 的辅助功能/屏幕录制归属及私有 worker 退出。
-旧 `bot_desktop_*` 与 `--desktop-capture-smoke` 已退役；不要用直接运行
-`dtw`、fixture 模型或系统权限开关状态替代这项验收。
-
-`TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
-设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
-`CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
-`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 v0.1.3 版本目录；分别给 Codex
-测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
-`CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
-验证 Skill、单 `exec` 和停用撤销。隔离插件目录必须有实际持锁的 Bot owner；
-在 App 外运行的 Manager 不会发现内置包，不能仅凭 AcquireDesktopOwner 返回 nil
-就认定 owner 已建立。默认不执行 GUI 操作。Codex 测试可显式设置
-`CAELIS_BOT_TEST_DTW_FIXTURE` 为 Desktop World 的一次性 scene fixture 目录，
-在活动、未遮挡的桌面上验证 PNG 图片描述、一次点击、独立计数读回和新观察。
-Codex 的检查 API 不返回 PNG 字节；实际图片 payload 由 Core loader/直接 MCP
-验收单独证明。这些本地合成模型测试不代表真实账号模型验收。
-
-稳定身份验证应比较两次不同代码的 `codesign -d -r-` designated requirement；
-它应保持相同且不依赖 cdhash。签名一致并不等于真实权限/窗口截图已验收，仍需
-在用户授权后的同一开发副本完成点击、最小化、恢复与卡片快照检查。
+`TestNativeRuntimeDesktopWorld` is the opt-in Bot adapter check against the
+formal Core binary (`CAELIS_BOT_TEST_BINARY`). It uses a private Store and a
+synthetic provider with real native MCP reads and approval projection. Core's
+independent real-agent task is reused for desktop execution evidence; this test
+does not repeat the DTW internal behavior matrix or claim live-model judgment.
 
 ## Verification matrix
 
@@ -341,7 +295,7 @@ Never copy daily credentials into logs or use a shared Store for destructive fix
 
 ## Platform limits
 
-See [current status](status.md) for the release/source distinction and outstanding coverage. Bot's macOS deployment target is 12.0; bundled Desktop World requires arm64 and macOS 14.0. Compilation does not qualify minimum-OS permissions, Intel, multi-display/DPI behavior or real-account model judgment. Linux support is remote/headless only.
+See [current status](status.md) for the release/source distinction and outstanding coverage. Bot's macOS deployment target is 12.0; Caelis computer use requires arm64 and macOS 14.2. Compilation does not qualify minimum-OS permissions, Intel, multi-display/DPI behavior or real-account model judgment. Linux support is remote/headless only.
 
 ## Interface languages
 

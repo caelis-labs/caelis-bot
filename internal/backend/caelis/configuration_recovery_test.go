@@ -45,14 +45,14 @@ func TestRebindOperationsAreScopedToSessionUnderSharedPrincipal(t *testing.T) {
 					return
 				}
 				receipts[op] = sid
-				configs[sid] = wire.SessionConfiguration{SessionId: sid, Revision: "2", Profile: profile}
+				configs[sid] = wire.SessionConfiguration{SessionId: sid, Revision: "2", Profile: &profile}
 				v := configs[sid]
 				writeFixture(w, wire.CommandResult{OperationId: op, Outcome: "committed", Configuration: &v})
 				return
 			}
 			v, ok := configs[sid]
 			if !ok {
-				v = wire.SessionConfiguration{SessionId: sid, Revision: "1", Profile: wire.SessionProfile{Execution: "workspace-write"}}
+				v = wire.SessionConfiguration{SessionId: sid, Revision: "1", Profile: &wire.SessionProfile{Execution: "workspace-write"}}
 			}
 			writeFixture(w, v)
 		default:
@@ -92,7 +92,7 @@ func TestIdleMaintenanceRecoversLostModelConfigurationAndReadback(t *testing.T) 
 	var committed atomic.Bool
 	var original atomic.Value
 	firstRead := make(chan struct{}, 1)
-	v := wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: wire.SessionProfile{Model: "new-model", SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}
+	v := wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: &wire.SessionProfile{Model: "new-model", SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
 		switch {
@@ -126,7 +126,7 @@ func TestIdleMaintenanceRecoversLostModelConfigurationAndReadback(t *testing.T) 
 			writeFixture(w, wire.CommandResult{OperationId: original.Load().(string), Outcome: "committed", Configuration: &v})
 		case p == "/sessions/main/configuration":
 			if !committed.Load() {
-				writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Model: "old-model"}})
+				writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: &wire.SessionProfile{Model: "old-model"}})
 				return
 			}
 			if readbackFailures.Add(1) == 1 {
@@ -147,7 +147,7 @@ func TestIdleMaintenanceRecoversLostModelConfigurationAndReadback(t *testing.T) 
 	s.state.StoreID = "store"
 	s.info.Capabilities = []string{atomicCapabilities}
 	s.tools = &api.ToolConnection{}
-	s.profile = v.Profile
+	s.profile = *v.Profile
 	if s.needsRefreshLocked() {
 		t.Fatal("fixture is not idle")
 	}
@@ -223,5 +223,19 @@ func TestConfigurationRecoveryBackoffDoesNotRepeatPendingReads(t *testing.T) {
 		if err := s.maintainConfigurations(t.Context()); err != nil || reads.Load() != int32(attempt+1) {
 			t.Fatal("maintenance retried before its deadline", err, reads.Load())
 		}
+	}
+}
+
+func TestResidentRejectsNativeWorkerConfigurationWithoutChangingBinding(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	original := wire.SessionConfiguration{SessionId: "resident", Revision: "7", Profile: &wire.SessionProfile{Model: "original-model"}}
+	s.state.Configurations["resident"] = original
+	wrong := wire.SessionConfiguration{SessionId: "resident", Revision: "8", Native: &wire.NativeSessionConfiguration{}}
+	if err := s.acceptConfiguration("resident", wrong); err == nil {
+		t.Fatal("resident adopted a native Worker configuration")
+	}
+	got := s.state.Configurations["resident"]
+	if got.Revision != original.Revision || got.Profile != original.Profile {
+		t.Fatal("rejected readback changed the original resident binding")
 	}
 }

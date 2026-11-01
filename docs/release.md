@@ -25,7 +25,7 @@ PR checks are selected from the actual diff, not labels or authors:
 
 The scope job always validates workflows with actionlint and tests the routing rules. Missing, failed, cancelled or unexpectedly skipped required jobs fail `product`. A dependency or script change hidden inside a release PR cannot use the version-only fast path.
 
-macOS product runs `make check` and asset smoke. Windows product runs native shared/platform contracts and the pinned Desktop World package check. Linux runs ownership/recovery race tests and builds both headless helper architectures. These jobs do not publish packages or perform real-account model acceptance.
+macOS product runs `make check` and asset smoke. Windows product runs native shared/platform contracts and the pinned Caelis Runtime package checks. Linux runs ownership/recovery race tests and builds both headless helper architectures. These jobs do not publish packages or perform real-account model acceptance.
 
 PRs do not run `macos-preview` or a Windows stable/preview packaging matrix. The Product checks manual trigger also runs source checks only. Package construction, signing and artifact upload belong to release workflows: macOS builds its stable DMG; Windows builds the one requested stable or preview channel. Preview packages are built when publishing a preview tag, not for an ordinary PR. Local packaging remains available with `make package` and the Windows packaging scripts.
 
@@ -206,7 +206,7 @@ User-facing download and installation steps are in [English installation](instal
 
 
 Release network recovery also covers safe Apple `info`/`log` reads, the pinned Apple
-intermediate download, pinned Caelis/Windows NSIS/SDK/Desktop World downloads, and GitHub release/API downloads via `release-network.mjs`.
+intermediate download, pinned Caelis/Windows NSIS/SDK downloads, and GitHub release/API downloads via `release-network.mjs`.
 Only recognized transient connection/timeout/service failures retry, within five
 attempts and a 180-second per-read timeout. Authentication, TLS, digest/signature,
 unknown errors and notary submission never enter that retry loop. GitHub upload

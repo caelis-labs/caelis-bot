@@ -229,9 +229,6 @@ func (a *Application) stopResidentRuntime() {
 	if bridge != nil {
 		bridge.Close()
 	}
-	if a.plugins != nil {
-		a.plugins.CloseDesktopOwner()
-	}
 	a.mu.Lock()
 	a.companion, a.bridge, a.tasks, a.started = nil, nil, nil, false
 	a.nativeSourcesReady, a.dreamReady = false, false

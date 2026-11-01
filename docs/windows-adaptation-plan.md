@@ -11,7 +11,7 @@ Windows shares Bot's product identity, application services, frontend, runtime a
 | Storage and IPC | Current-user private ACLs, atomic state replacement, local authenticated IPC, explicit rejection of foreign owners and redirected paths. |
 | Tasks | Original task/receipt bindings and typed terminal arguments; visible console ownership is checked before focus or close. Unknown ownership never falls back to window-title guessing. |
 | Capture | User-triggered capture, annotation and clipboard images. Draft/window identity survives unknown outcomes; no automatic image resend. |
-| Computer Use | Reviewed Desktop World Plugin with one `exec` tool, runtime approval, private worker lifetime and disable/exit fencing. |
+| Computer Use | Caelis Runtime fixed Desktop World capability through native app approval; no Bot package/proxy or Codex injection. |
 | Distribution | Unsigned NSIS Setup and ZIP, independent stable/preview publication and optional signed updates. MSIX remains a development fixture. |
 
 Windows 10 22H2 x64 is the compatibility target. Windows 11 is the native GUI validation environment. Server Desktop Experience, multiple monitors, DPI combinations and graphics-driver behavior require their own checks. Windows ARM64 and Linux GUI are outside this distribution scope.

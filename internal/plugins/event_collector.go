@@ -15,10 +15,6 @@ import (
 func (m *Manager) EventBindings() map[string]string {
 	out := map[string]string{}
 	for _, s := range m.Selection().Servers {
-		// Desktop input is not a background collector.
-		if s.PackageID == "desktop-world" {
-			continue
-		}
 		out[s.PackageID+"/"+s.Name] = filepath.Base(s.Root) + ":" + strconv.FormatUint(s.ConnectionRevision, 10)
 	}
 	return out
@@ -29,7 +25,7 @@ func (m *Manager) EventBindings() map[string]string {
 func (m *Manager) CollectEvent(ctx context.Context, server, binding, tool string, args map[string]any) (json.RawMessage, error) {
 	var selected SelectedServer
 	for _, s := range m.Selection().Servers {
-		if s.PackageID+"/"+s.Name == server && s.PackageID != "desktop-world" {
+		if s.PackageID+"/"+s.Name == server {
 			selected = s
 			break
 		}

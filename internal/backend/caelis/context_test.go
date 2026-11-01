@@ -74,7 +74,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 				case "/sessions/main/configuration":
-					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.SessionPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.SessionMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
+					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: &wire.SessionProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.SessionPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.SessionMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
 				case "/sessions":
 					creates.Add(1)
 					var in wire.CreateSessionRequest
@@ -153,7 +153,7 @@ func TestDreamRenewalRejectedAndUnknownRecovery(t *testing.T) {
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 				case "/sessions/main/configuration":
-					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Execution: "workspace-write"}})
+					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: &wire.SessionProfile{Execution: "workspace-write"}})
 				case "/sessions":
 					creates.Add(1)
 					if outcome == "unknown" || outcome == "recovered-rejected" {

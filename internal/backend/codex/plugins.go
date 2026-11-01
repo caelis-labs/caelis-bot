@@ -57,10 +57,8 @@ func codexPluginConfigs(selection plugins.Selection, binary string) (map[string]
 	for _, item := range selection.Servers {
 		name := plugins.RuntimeName(item.PackageID, item.Name)
 		s := item.Server
-		// The built-in desktop controller must always pass through Bot's
-		// generation fence. A retained native schema must never restart it
-		// after the user disables the plugin.
-		if item.PackageID == "desktop-world" || item.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
+		// Connections with credentials retain the Bot generation-fenced relay.
+		if item.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
 			if binary == "" {
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Bot executable unavailable"})
 				continue

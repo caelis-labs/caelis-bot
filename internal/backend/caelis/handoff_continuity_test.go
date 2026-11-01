@@ -21,7 +21,7 @@ func continuityFixture(t *testing.T, onCreate func(), extra ...http.HandlerFunc)
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/sessions/main/configuration":
-			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Execution: "workspace-write", Model: "original-model"}})
+			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: &wire.SessionProfile{Execution: "workspace-write", Model: "original-model"}})
 		case "/sessions":
 			creates.Add(1)
 			var in wire.CreateSessionRequest
@@ -177,7 +177,7 @@ func TestUnknownToolCreationKeepsOldChatWithoutReplayingOrAdoptingLateResult(t *
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/sessions/main/configuration":
-			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Execution: "workspace-write"}})
+			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: &wire.SessionProfile{Execution: "workspace-write"}})
 		case "/sessions":
 			creates.Add(1)
 			drop(w)

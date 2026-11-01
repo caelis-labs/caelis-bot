@@ -42,5 +42,4 @@ case "$BOT_VERIFY_MODE" in
 esac
 if [[ "$BOT_VERIFY_KIND" == app && -d "$BOT_VERIFY_PATH/Contents" ]]; then
   bash "$(dirname "$0")/verify-caelis-runtime.sh" "$BOT_VERIFY_PATH" "$BOT_VERIFY_MODE"
-  bash "$(dirname "$0")/verify-desktop-world.sh" "$BOT_VERIFY_PATH" "$BOT_VERIFY_MODE"
 fi

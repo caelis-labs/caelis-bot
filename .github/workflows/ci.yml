@@ -134,21 +134,6 @@ jobs:
           path: .cache/windows-state-io/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Verify pinned Windows Desktop World payload
-        shell: pwsh
-        run: |
-          $plugins = '.cache/ci-desktop-world/Plugins'
-          $package = Join-Path $plugins 'desktop-world'
-          & ./script/stage-desktop-world-windows.ps1 -Destination $package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $releasePin = Get-Content -Raw -LiteralPath 'resources/desktop-world/release.json' | ConvertFrom-Json
-          $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
-          if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
-              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne $releasePin.version.TrimStart('v')) {
-            throw 'Windows Desktop World plugin inventory mismatch'
-          }
-          node script/verify-desktop-world-version.mjs (Join-Path $package 'bin/dtw.exe')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:
