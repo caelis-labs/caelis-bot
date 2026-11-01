@@ -20,10 +20,10 @@ func TestProcessEpochIsStableAcrossServiceSnapshots(t *testing.T) {
 			}
 		}
 	}
-	// Replacing the Runtime inside the same Service does not replace its epoch.
+	// Replacing the Runtime starts a new revision lifetime.
 	s.setEngine(snapshotEngine{value: api.Snapshot{Revision: 1}})
-	if got := s.Snapshot().ProcessEpoch; got != epoch {
-		t.Fatalf("runtime replacement changed service epoch to %q", got)
+	if got := s.Snapshot().ProcessEpoch; got == epoch || got == "" {
+		t.Fatalf("runtime replacement reused service epoch %q", got)
 	}
 }
 
@@ -53,5 +53,74 @@ func TestReplacementServiceReturnsFullChatSnapshotAcrossEpochs(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRuntimeBindingReturnsLowerRevisionInNewEpoch(t *testing.T) {
+	s := NewService(snapshotEngine{value: api.Snapshot{Revision: 120}}, nil, nil, nil, nil)
+	old := s.Snapshot()
+	s.BindRuntime(RuntimeBinding{Engine: snapshotEngine{value: api.Snapshot{Revision: 8, Items: []api.Item{{ID: "new-reply", Kind: "assistant", Text: "new runtime"}}}}})
+	update := s.ChatSnapshot(old.Revision, old.BotStatus, old.ProcessEpoch)
+	if !update.Changed || update.Snapshot.ProcessEpoch == old.ProcessEpoch || update.Snapshot.Revision != 9 || len(update.Snapshot.Items) != 1 || update.Snapshot.Items[0].ID != "new-reply" {
+		t.Fatalf("runtime replacement suppressed or mixed snapshot: %+v", update)
+	}
+}
+
+type delayedObservationEngine struct {
+	snapshotEngine
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (e *delayedObservationEngine) Snapshot() api.Snapshot {
+	close(e.entered)
+	<-e.release
+	return e.value
+}
+func (e *delayedObservationEngine) RecentSnapshot() api.Snapshot   { return e.Snapshot() }
+func (e *delayedObservationEngine) ComposerSnapshot() api.Snapshot { return e.Snapshot() }
+func (e *delayedObservationEngine) Revision() uint64 {
+	close(e.entered)
+	<-e.release
+	return e.value.Revision
+}
+
+func TestRuntimeObservationCapturesEngineEpochAndRevisionTogether(t *testing.T) {
+	for _, surface := range []string{"snapshot", "pet", "composer", "chat", "unchanged"} {
+		t.Run(surface, func(t *testing.T) {
+			e := &delayedObservationEngine{snapshotEngine: snapshotEngine{value: api.Snapshot{Revision: 120}}, entered: make(chan struct{}), release: make(chan struct{})}
+			s := NewService(e, nil, nil, nil, nil)
+			oldEpoch := s.processEpoch
+			result := make(chan api.Snapshot, 1)
+			go func() {
+				switch surface {
+				case "pet":
+					result <- s.PetSnapshot()
+				case "composer":
+					result <- s.ComposerSnapshot()
+				case "chat":
+					result <- s.ChatSnapshot(0, "", "").Snapshot
+				case "unchanged":
+					result <- s.ChatSnapshot(120, "", oldEpoch).Snapshot
+				default:
+					result <- s.Snapshot()
+				}
+			}()
+			<-e.entered
+			s.BindRuntime(RuntimeBinding{Engine: snapshotEngine{value: api.Snapshot{Revision: 8}}})
+			current := s.Snapshot()
+			close(e.release)
+			late := <-result
+			if current.ProcessEpoch == oldEpoch || current.Revision != 9 {
+				t.Fatalf("invalid current observation: %+v", current)
+			}
+			if surface == "unchanged" {
+				if late.ProcessEpoch != current.ProcessEpoch || late.Revision != current.Revision {
+					t.Fatalf("stale revision check suppressed replacement: %+v", late)
+				}
+			} else if late.ProcessEpoch != oldEpoch || late.Revision != 120 {
+				t.Fatalf("old engine was stamped with replacement epoch/revision: %+v", late)
+			}
+		})
 	}
 }

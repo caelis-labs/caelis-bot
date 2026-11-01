@@ -8,7 +8,7 @@ import "context"
 const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
 
 type Snapshot struct {
-	// ProcessEpoch is an opaque Service-lifetime fence for snapshot revisions.
+	// ProcessEpoch is an opaque Runtime-binding fence for snapshot revisions.
 	ProcessEpoch        string `json:"processEpoch,omitempty"`
 	IntroductionPending bool   `json:"introductionPending,omitempty"`
 	// Maintenance is presentation-only, derived from a confirmed native Dream

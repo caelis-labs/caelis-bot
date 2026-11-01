@@ -134,7 +134,7 @@ func (s *Service) BindRuntime(b RuntimeBinding) {
 	s.bindRuntimeLocked(b)
 	s.mu.Unlock()
 	s.configurationMu.Unlock()
-	s.finishRuntimeBinding(b.Engine)
+	s.finishRuntimeBinding()
 }
 
 // RestoreRuntimeBinding reloads the old draft while SaveDraft is serialized by
@@ -162,7 +162,7 @@ func (s *Service) RestoreRuntimeBinding(b RuntimeBinding, targetDraftRevision ui
 	s.bindRuntimeLocked(b)
 	s.mu.Unlock()
 	s.configurationMu.Unlock()
-	s.finishRuntimeBinding(b.Engine)
+	s.finishRuntimeBinding()
 	return err
 }
 
@@ -177,9 +177,9 @@ func (s *Service) bindRuntimeLocked(b RuntimeBinding) {
 	s.outbox = nil
 	s.botStatus, s.submitUser = nil, nil
 	s.presentationRevision++
+	s.setEngine(b.Engine)
 }
-func (s *Service) finishRuntimeBinding(engine api.Engine) {
-	s.setEngine(engine)
+func (s *Service) finishRuntimeBinding() {
 	s.recoveryMu.Lock()
 	s.recoveryGeneration++
 	s.recoveryMu.Unlock()

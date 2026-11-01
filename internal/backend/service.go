@@ -26,7 +26,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
-	processEpoch                string // Immutable for this Service lifetime.
+	processEpoch                string // Protected with engine by engineMu; revisions belong to this binding.
 	workerInteractionMu         sync.RWMutex
 	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
@@ -117,7 +117,20 @@ func (s *Service) currentEngine() api.Engine {
 func (s *Service) setEngine(engine api.Engine) {
 	s.engineMu.Lock()
 	s.engine = engine
+	s.processEpoch = rand.Text()
 	s.engineMu.Unlock()
+}
+
+// Capture the revision owner before calling it. An outgoing read can finish
+// after replacement, but it must retain its outgoing epoch.
+func (s *Service) engineObservation() (api.Engine, string) {
+	s.engineMu.RLock()
+	defer s.engineMu.RUnlock()
+	return s.engine, s.processEpoch
+}
+func (s *Service) observationCurrent(epoch string) bool {
+	_, current := s.engineObservation()
+	return epoch == current
 }
 
 // Hide a Worker card only after the resident Bot's private notice was accepted.
@@ -233,16 +246,16 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 	return input, nil
 }
 func (s *Service) Snapshot() api.Snapshot {
-	v := s.currentEngine().Snapshot()
 	// Capture local versions before projection. If an independent change lands
 	// during projection, this result keeps the older revision and the next poll
 	// must observe the newer state instead of accepting a stale projection.
 	s.mu.Lock()
+	engine, epoch := s.engineObservation()
 	localRevision := s.presentationRevision
 	controlNotices := s.controlNotices
 	questionProjector, questionRevision := s.questionProjector, s.questionRevision
 	s.mu.Unlock()
-	v = s.decorate(v)
+	v := s.decorate(engine.Snapshot(), epoch)
 	if s.chat != nil {
 		chatRevision := s.chat.Revision()
 		items, earlier := s.chat.Snapshot()
@@ -285,8 +298,8 @@ func (s *Service) Snapshot() api.Snapshot {
 	s.projectIntroduction(&v)
 	return v
 }
-func (s *Service) decorate(v api.Snapshot) api.Snapshot {
-	v.ProcessEpoch = s.processEpoch
+func (s *Service) decorate(v api.Snapshot, epoch string) api.Snapshot {
+	v.ProcessEpoch = epoch
 	if owner, ok := s.workerInteractionOwner().(interface {
 		RetainedApprovalState() ([]api.Approval, uint64)
 	}); ok {
@@ -373,8 +386,9 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
 	var snapshot api.Snapshot
-	if recent, ok := s.currentEngine().(api.RecentSource); ok {
-		snapshot = s.decorate(recent.RecentSnapshot())
+	engine, epoch := s.engineObservation()
+	if recent, ok := engine.(api.RecentSource); ok {
+		snapshot = s.decorate(recent.RecentSnapshot(), epoch)
 	} else {
 		snapshot = s.Snapshot()
 	}
@@ -420,6 +434,7 @@ func (s *Service) PetSnapshot() api.Snapshot {
 }
 func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch string) api.ChatUpdate {
 	s.mu.Lock()
+	engine, epoch := s.engineObservation()
 	status := s.botStatus
 	localRevision := s.presentationRevision
 	controlNotices := s.controlNotices
@@ -430,7 +445,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 	if status != nil {
 		currentStatus = status()
 	}
-	if source, ok := s.currentEngine().(api.RevisionSource); ok && processEpoch == s.processEpoch && !needsReconcile && revision != 0 && currentStatus == botStatus {
+	if source, ok := engine.(api.RevisionSource); ok && processEpoch == epoch && !needsReconcile && revision != 0 && currentStatus == botStatus {
 		combined := source.Revision() + localRevision
 		if questionRevision != nil {
 			combined += questionRevision()
@@ -448,14 +463,14 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 			_, noticeRevision := controlNotices()
 			combined += noticeRevision
 		}
-		if combined == revision {
+		if combined == revision && s.observationCurrent(epoch) {
 			return api.ChatUpdate{}
 		}
 	}
 	v := s.Snapshot()
 	// An unresolved original receipt can require a read even when no visible
 	// state changed. That read must not cause a React update.
-	if processEpoch == s.processEpoch && revision != 0 && v.Revision == revision && v.BotStatus == botStatus {
+	if processEpoch == v.ProcessEpoch && revision != 0 && v.Revision == revision && v.BotStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	items := make([]api.Item, 0)
@@ -937,8 +952,9 @@ func (s *Service) Shutdown() error {
 }
 
 func (s *Service) ComposerSnapshot() api.Snapshot {
-	if source, ok := s.currentEngine().(api.ComposerSource); ok {
-		return s.decorate(source.ComposerSnapshot())
+	engine, epoch := s.engineObservation()
+	if source, ok := engine.(api.ComposerSource); ok {
+		return s.decorate(source.ComposerSnapshot(), epoch)
 	}
 	return s.Snapshot()
 }
