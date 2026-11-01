@@ -93,7 +93,9 @@ export function createWebTransport(bootstrap:WebBootstrap){
  const transport:ProductTransport=async<T>(service:string,method:string,args:unknown[])=>{
   const key=service+'.'+method;
   if(service==='backend'){
-   if(method==='ChatSnapshot'&&cached){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1]&&cached.snapshot.processEpoch===args[2];return (same?{changed:false}:cached) as T;}
+   // An opaque epoch from queued SSE data cannot establish a Runtime switch.
+   // Confirm foreign epochs through the existing uncached HTTP owner first.
+   if(method==='ChatSnapshot'&&cached&&(cached.snapshot.processEpoch??'')===(args[2]??'')){const same=cached.snapshot.revision===args[0]&&cached.snapshot.botStatus===args[1]&&cached.snapshot.processEpoch===args[2];return (same?{changed:false}:cached) as T;}
    if(method==='OpenMessageLink'){openURL(String(args[0]));return undefined as T;}
    if(method==='OpenApprovalURL'){openURL(await call<string>('backend.ApprovalURL',[args[0]]));return undefined as T;}
   }

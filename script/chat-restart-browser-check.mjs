@@ -52,6 +52,16 @@ export default async function verifyChatRestart(page){
  // A second process starts below the old high-water mark, then handles input.
  state={...state,revision:8,processEpoch:'lower-restart',items:[history,item('lower','Ready after restart')]};
  await emit();await page.getByText('Ready after restart',{exact:true}).waitFor();
+ // In-process Runtime replacement uses the same mounted observer. A delayed
+ // outgoing epoch can arrive through a fresh cached read after replacement.
+ const outgoing={...state,revision:121,items:[history,item('late','Stale outgoing Runtime reply')]};
+ state={...state,revision:2,processEpoch:'runtime-replacement',items:[history,item('replacement','Reply from replacement Runtime')]};
+ await emit();await page.getByText('Reply from replacement Runtime',{exact:true}).waitFor();
+ await page.evaluate(value=>window.fixtureStreams.at(-1).emit('snapshot',{changed:true,snapshot:value}),outgoing);
+ await page.waitForTimeout(650);
+ if(await page.getByText('Stale outgoing Runtime reply',{exact:true}).count())throw Error('Retired Runtime replaced the current snapshot');
+ await page.getByText('Reply from replacement Runtime',{exact:true}).waitFor();
+ await emit();
  // Switch from cached SSE delivery to HTTP observation after a transport failure.
  await page.evaluate(()=>window.fixtureStreams.at(-1).onerror?.());
  await page.getByRole('textbox').fill('First message after restart');
@@ -65,5 +75,5 @@ export default async function verifyChatRestart(page){
  if(!reads.some(args=>args[0]===0&&args[2]===''))throw Error('Reset did not clear the observation baseline');
  if(!await page.evaluate(()=>window.retainedEditor===document.querySelector('.composer-editor')))throw Error('Chat remounted during restart');
  if(errors.length)throw Error(errors.join('\n'));
- return {fixture:true,submits,equalRevision:true,lowerRevision:true,resetFallback:true,chatRetained:true};
+ return {fixture:true,submits,equalRevision:true,lowerRevision:true,resetFallback:true,chatRetained:true,runtimeReplacement:true,retiredEpochRejected:true};
 }

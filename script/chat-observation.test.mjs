@@ -39,6 +39,17 @@ test('changing service epoch rejects all old in-flight reads without weakening r
  order.reset();assert.equal(order.processEpoch,'');
  assert.equal(order.accept(newer,10,'third'),false,'hidden-surface reads cannot change epoch');
 });
+test('a delayed old epoch cannot return through a request made after Runtime replacement',()=>{
+ const order=new ConversationOrder();
+ assert.equal(order.accept(order.request(),120,'runtime-a'),true);
+ assert.equal(order.accept(order.request(),9,'runtime-b'),true);
+ assert.equal(order.accept(order.request(),121,'runtime-a'),false);
+ assert.equal(order.revision,9);
+ assert.equal(order.processEpoch,'runtime-b');
+ assert.equal(order.accept(order.request(),10,'runtime-b'),true);
+ assert.equal(order.accept(order.request(),1,'runtime-c'),true);
+ assert.equal(order.accept(order.request(),11,'runtime-b'),false);
+});
 test('polling and direct acceptance consume the draft once, including delayed completion',async()=>{
  const state=new SubmissionProgress();let resolve,count=0;
  const read=()=>{count++;return new Promise(r=>resolve=r);};

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -149,4 +150,31 @@ func TestHTTPAndEventSnapshotsShareProcessEpoch(t *testing.T) {
 		return
 	}
 	t.Fatalf("SSE ended without a snapshot: %v", scanner.Err())
+}
+
+type runtimeEpochEngine struct {
+	testEngine
+	revision uint64
+	text     string
+}
+
+func (e runtimeEpochEngine) Snapshot() api.Snapshot {
+	return api.Snapshot{Revision: e.revision, Connection: "ready", CanSend: true, Items: []api.Item{{ID: e.text, Kind: "assistant", Text: e.text}}}
+}
+func TestRuntimeBindingLowerRevisionReachesHTTPChat(t *testing.T) {
+	s := testServer(t, runtimeEpochEngine{revision: 120, text: "outgoing"})
+	c := pairClient(t, s)
+	previous := s.services.Backend.Snapshot()
+	s.services.Backend.BindRuntime(backend.RuntimeBinding{Engine: runtimeEpochEngine{revision: 8, text: "replacement"}})
+	response := c.request("/api/v1/conversation/chat-snapshot", map[string]any{"args": []any{previous.Revision, previous.BotStatus, previous.ProcessEpoch}})
+	var envelope struct {
+		Value api.ChatUpdate `json:"value"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &envelope) != nil {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	update := envelope.Value
+	if !update.Changed || update.Snapshot.ProcessEpoch == previous.ProcessEpoch || update.Snapshot.ProcessEpoch == "" || update.Snapshot.Revision != 9 || len(update.Snapshot.Items) != 1 || update.Snapshot.Items[0].Text != "replacement" {
+		t.Fatalf("Runtime replacement did not reach production HTTP projection: %+v", update)
+	}
 }
