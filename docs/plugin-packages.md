@@ -9,8 +9,8 @@ The format boundary was checked against the official [manifest](https://agent-pl
 | Manifest | Checks known field types and identity; reports unknown fields and ignores nonobject `extensions` |
 | Skills | Immediate `skills/<name>/SKILL.md` children; invalid Skills isolated; body loaded on demand by Codex/Core |
 | MCP | Per-server failure isolation, explicit unsupported transport/fields, package/data path expansion in args/env/cwd and containment for local command/cwd |
-| Installation | Built-in v0.1.3 appears first as Computer Use / 电脑操控, installed/enabled by default; disabled choice survives restart/upgrade; built-in cannot be uninstalled. Its package ID remains `desktop-world`. |
-| Runtime | One generation-scoped stdio bridge; disable/update stops an active child and fences old schemas; a macOS Bot main-process lock also stops a retained bridge after exit, without adding auto-approval |
+| Installation | Reviewed optional Bot packages; Caelis Runtime owns its fixed Desktop World capability outside this manager. |
+| Runtime | Credential relays retain per-RPC generation checks. Bot does not proxy DTW or inject it into Codex. |
 | Outside scope | Still unsupported. SSE MCP transport is reported unsupported; platform capabilities and real account consent require separate acceptance. |
 
 The production source remains the build-owned, SHA-256 reviewed catalog in `internal/plugins`. Adding a package requires a vetted inventory and a Bot release. Installation and activation are separate from reading a listing. The installer verifies every file, rejects unexpected paths and symlinks, and stages immutable package bytes before Runtime projection. On POSIX hosts, reviewed executable file modes are retained; nonexecutables cannot silently gain execute permission in the private installed copy.

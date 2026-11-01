@@ -26,5 +26,7 @@ for(const field of ['mcp_servers','skill_dirs','skill_roots']){
 }
 assert.equal(schemas.CreateSessionRequest.allOf[1].properties.profile.$ref,'#/components/schemas/SessionProfile');
 assert.equal(schemas.SessionConfiguration.properties.profile.$ref,'#/components/schemas/SessionProfile');
+assert.ok(!schemas.SessionConfiguration.required.includes('profile'),'Native Worker readback must not require a Profile');
+assert.ok(schemas.SessionConfiguration.properties.native,'Native Worker readback missing');
 assert.ok(readFileSync('protocol/caelis/LICENSE','utf8').length>100);
 console.log(`Caelis public protocol ${manifest.commit.slice(0,12)}.`);

@@ -53,12 +53,14 @@ func newAcceptanceModel() *acceptanceModel {
 	return &acceptanceModel{plans: map[string][]modelStep{}, counts: map[string]int{}, requests: map[string][]map[string]any{}}
 }
 func (m *acceptanceModel) serve(w http.ResponseWriter, r *http.Request) {
+	m.serveCase(w, r, "")
+}
+func (m *acceptanceModel) serveCase(w http.ResponseWriter, r *http.Request, key string) {
 	raw, _ := io.ReadAll(r.Body)
 	var body map[string]any
 	_ = json.Unmarshal(raw, &body)
 	cases := casePattern.FindAllString(string(raw), -1)
-	key := ""
-	if len(cases) > 0 {
+	if key == "" && len(cases) > 0 {
 		key = cases[len(cases)-1]
 	}
 	m.mu.Lock()

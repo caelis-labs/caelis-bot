@@ -92,24 +92,6 @@ test('ordinary and CI builds select a separate app; only explicit release select
  assert.notEqual(read({BOT_BUILD_CHANNEL:'typo'}).status,0);
 });
 
-test('Desktop World is mandatory for all app bundles', {skip: process.platform !== 'darwin'},()=>{
- const directory=mkdtempSync(join(tmpdir(),'bot-desktop-world-bundle-'));
- try {
-  const app=join(directory,'Fixture.app'), contents=join(app,'Contents');mkdirSync(contents,{recursive:true});
-  const plist=join(contents,'Info.plist');
-  writeFileSync(plist,'<?xml version="1.0"?><plist version="1.0"><dict/></plist>');
-  const verify=(...args)=>spawnSync('/bin/bash',[resolve('script/verify-desktop-world.sh'),app,'adhoc',...args],{encoding:'utf8',timeout:10000});
-  assert.notEqual(verify().status,0,'new builds require the payload');
-  assert.notEqual(verify('--allow-legacy').status,0,'removed legacy bypass must not skip verification');
-  mkdirSync(join(contents,'Resources/Plugins/desktop-world'),{recursive:true});
-  assert.notEqual(verify('--allow-legacy').status,0,'unmarked payload is invalid');
-  rmSync(join(contents,'Resources'),{recursive:true});
-  const pin=JSON.parse(readFileSync('resources/desktop-world/release.json','utf8'));
-  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c',`Add CaelisDesktopWorldVersion string ${pin.version}`,plist]).status,0);
-  assert.notEqual(verify('--allow-legacy').status,0,'declared but missing payload is corrupt');
- } finally {rmSync(directory,{recursive:true,force:true});}
-});
-
 test('native dependency gate permits build-time self IDs but rejects external loads and search paths', {skip: process.platform !== 'darwin'},()=>{
  const directory=mkdtempSync(join(tmpdir(),'bot native dependencies '));
  try {

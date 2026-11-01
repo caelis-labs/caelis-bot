@@ -83,11 +83,10 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 	// incoming JSON-RPC message against the committed plugin state and stop an
 	// already running child when its generation is disabled or superseded.
 	stillActive := func() bool {
-		return activeGeneration(m.root, packageID, rootName) &&
-			(packageID != "desktop-world" || desktopOwnerActive(m.root))
+		return activeGeneration(m.root, packageID, rootName)
 	}
 	if !stillActive() {
-		return errors.New("plugin service has no active Bot owner")
+		return errors.New("plugin service is no longer active")
 	}
 	guardedCtx, stop := context.WithCancel(ctx)
 	defer stop()

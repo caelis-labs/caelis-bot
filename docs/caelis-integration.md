@@ -9,10 +9,9 @@ profile 的会话共用命令、操作回执、审批与观察接口；没有 Ap
 Store 格式分别判断，不把发行版本号作为协议白名单。验证命令和证据范围见
 [开发与验证](development.md)；历史版本的结果不代替本次集成或发行制品验收。
 
-Desktop World v0.1.3 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
-Codex、Caelis；旧 Go host 和 `bot_desktop_*` 工具已退役。MCP 工具遵循各自
-Runtime 的原生审批，不进入 Bot 内置工具免审名单。Bot App 的系统权限与
-Runtime 工具审批是两层独立边界。
+Desktop World v0.2.3 由正式 Caelis Runtime v0.76.0 固定内置，resident 与普通
+managed Worker 沿原生装配、审批和执行使用。Bot 不持包、不代理，不增加开关或
+生命周期权威；Codex 不由 Bot 注入 DTW。
 
 ## 基线与发现
 
@@ -88,7 +87,7 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
 共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
-当前内置基线为正式 Core v0.75.0，来源 `fe8fdbd056ace719d7b3f302d8e78151c3764e97`。
+当前内置基线为正式 Core v0.76.0，来源 `a79b258f6e43943c039ea028c1ce7dc99c123308`。
 macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制摘要统一记录在
 `resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 包含独立 async/idle、
 cache presence/TTL 和 JobID 契约，与已验证 #170 候选字节相同；wire 仅适配本地包名。
@@ -111,7 +110,7 @@ Bot 没有直接 Core Go module 依赖，也不引入私有 SDK。
 ```sh
 source script/env.sh
 CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.74.0 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.75.0 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.76.0 \
 go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
 
@@ -301,10 +300,10 @@ Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局
 | `bot_gesture`；`bot_tasks` pin/stop | 直接执行 | 本地呈现或停止已拥有的工作；pin 不执行 Worker、不删除历史 |
 | `bot_delegate` prompt（可选原 task） | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大指令；提交身份由原生调用生成，Worker 保持原生 sandbox / reviewer |
 | `bot_schedule_update` save/remove/configure | 修改持续安排时审查 | 保留日历/事件的独立原生 grant、回执和撤销，不因合并而扩大权限 |
-| Desktop World 插件 MCP `exec` | Runtime 原生审批 | 启用插件后可发现；关闭后旧会话保留的 schema 也不能继续调用 |
+| Desktop World MCP `exec` | Runtime 原生 app 审批 | Caelis 固定能力，沿原始工具/参数/source 与原审批选项；无 Bot 开关或代理 |
 | 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |
 
-CUA 操作还要经过 Bot App 的 Accessibility / Screen Recording 系统授权；
+电脑操作还需 macOS 实际归属宿主的 Accessibility / Screen Recording 系统授权；
 上游私有 worker 保留原生目标、操作与结果边界。未知输入结果按原调用回执核对，
 不自动重放。系统授权不代替 Runtime 审批。
 

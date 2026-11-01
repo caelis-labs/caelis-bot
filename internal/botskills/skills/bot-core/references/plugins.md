@@ -17,19 +17,26 @@ ask for tokens in chat. For failed actions, retain the original receipt and use
 
 ## Computer interaction
 
-Confirm the built-in Desktop World plugin is enabled, read its `desktop-world`
-Skill and relevant browser/platform guidance, and discover the active MCP `exec`
-schema. Use its `cua` API and current discovery/`next_call` results. Omit `session`;
-the plugin owns one execution context per MCP process. Retain exact execution IDs
-and use the originating connection for status, results, images or cancellation.
-The retired `bot_desktop_*` tools are unavailable.
+Computer interaction requires the active Runtime's `desktop-world` Skill and
+native tools. Caelis supplies this capability; Codex does not receive DTW through
+Bot. If unavailable, explain the scope limit and continue other work. Do not
+install a desktop controller or switch Runtime to bypass the limitation.
 
-Read back the intended UI effect before claiming success. Plugin enablement,
-Runtime approval and OS permissions are separate. A cached schema does not prove
-a disabled plugin is usable. After `runtime_context_reset`, observe fresh handles;
-it does not renew grants or settle uncertain effects. Never replay an action to
-rebuild context or open another context to bypass pending execution.
+Read the current `desktop-world` Skill, then discover its `apps`, `api`, `exec`
+and `result` tools; clients may prefix their names. Use `apps` for stable platform
+app IDs and `api` for exact method schemas. Call `exec` with exactly `{app, source}`:
+one app and one async JavaScript function body. Preserve returned refs as opaque
+values and follow the active Skill's lifetime and platform limits.
 
-On Windows, inspect the original receipt and UI before retrying foreground errors;
-input may already have taken effect. Follow the plugin's DPI/modal restrictions.
-Do not guess pixels when screenshot and window geometry disagree.
+Retain each original execution receipt and read it through `result` on the same
+originating MCP connection. Cancellation or an unavailable/unknown result is not
+proof that input did not happen. Inspect the record's error and effect ledger
+even when status is `completed`. Never repeat `exec` to recover a receipt or
+bypass a pending decision. Verify the intended app effect before claiming success.
+Runtime app approval and OS permission are separate; do not infer either from a
+cached schema or generated prose.
+
+For delegated work, rely on that Worker's native discovery and approval flow.
+Keep its original task and receipts; do not copy credentials or inject a second
+plugin configuration into its prompt. The retired `bot_desktop_*` tools are
+unavailable.

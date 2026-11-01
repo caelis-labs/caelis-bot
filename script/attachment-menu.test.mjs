@@ -20,8 +20,8 @@ test('menu lists enabled packages and native plugins as packages, not their indi
 });
 
 test('Bot plugin display names follow the selected language without changing package IDs',()=>{
- const items=[{id:'desktop-world',title:'Computer Use',titleZh:'电脑操控',description:'Desktop access',installed:true,enabled:true,status:'enabled'}];
- assert.deepEqual(botMenuPlugins(items,'zh-CN').map(item=>[item.id,item.name]),[['bot-plugin:desktop-world','电脑操控']]);
+ const items=[{id:'fixture-plugin',title:'Computer Use',titleZh:'电脑操控',description:'Desktop access',installed:true,enabled:true,status:'enabled'}];
+ assert.deepEqual(botMenuPlugins(items,'zh-CN').map(item=>[item.id,item.name]),[['bot-plugin:fixture-plugin','电脑操控']]);
  assert.equal(botMenuPlugins(items,'en-US')[0].name,'Computer Use');
 });
 

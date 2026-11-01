@@ -30,12 +30,6 @@ func (s *Session) connectionParams() map[string]any {
 			config["mcp_servers.caelis_bot"] = toolConfig(s.opts.BotTools)
 		}
 		config["agents.enabled"] = false // Professional work goes through the owned task contract.
-		if s.opts.BotTools.Env["CAELIS_BOT_DESKTOP_WORLD"] == "1" {
-			// The resident has one desktop writer. Ordinary Codex sessions and
-			// worker configuration retain their native tool policies.
-			config["computer_use.default_app_access"] = "deny"
-			config["computer_use.macos.bundle_ids"] = map[string]any{}
-		}
 		// Mutable plugin MCP is loaded from the trusted Bot project config.
 		// Thread overrides survive app-server reload and cannot be revoked there.
 	}

@@ -32,7 +32,6 @@ try {
   if(Test-Path -LiteralPath $taskResource) {Remove-Item -LiteralPath $taskResource -Force}
 }
 Invoke-BotCommand python script/caelis-runtime.py stage-windows $taskDestination
-& "$PSScriptRoot/stage-desktop-world-windows.ps1" -Destination (Join-Path $taskDestination 'Plugins/desktop-world')
 foreach ($taskName in @('LICENSE','ASSET-LICENSE.md')) {
   Copy-Item -LiteralPath (Join-Path $taskBotRoot $taskName) -Destination (Join-Path $taskDestination 'Resources')
 }

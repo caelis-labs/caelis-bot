@@ -11,12 +11,12 @@ import (
 func TestSkillDiscoveryAcceptsWindowsMetadataWithoutRewritingReviewedBytes(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
 		root := t.TempDir()
-		dir := filepath.Join(root, "skills", "desktop-world")
+		dir := filepath.Join(root, "skills", "fixture-skill")
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
 		path := filepath.Join(dir, "SKILL.md")
-		original := []byte(strings.ReplaceAll("---\nname: desktop-world\ndescription: Fixture only\n---\n\nBody\n", "\n", newline))
+		original := []byte(strings.ReplaceAll("---\nname: fixture-skill\ndescription: Fixture only\n---\n\nBody\n", "\n", newline))
 		if err := os.WriteFile(path, original, 0600); err != nil {
 			t.Fatal(err)
 		}

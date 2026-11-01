@@ -101,7 +101,7 @@ func TestConversationWorkerUsesSelectedNativeModelInheritedEffort(t *testing.T) 
 					if effort != "" {
 						p = pointer(effort)
 					}
-					writeFixture(w, wire.SessionConfiguration{SessionId: "native-owned", Revision: "r1", Profile: wire.SessionProfile{Model: "selected", ReasoningEffort: p}})
+					writeFixture(w, wire.SessionConfiguration{SessionId: "native-owned", Revision: "r1", Profile: &wire.SessionProfile{Model: "selected", ReasoningEffort: p}})
 				case "/completion/slash-arguments":
 					writeFixture(w, []wire.SlashArgCandidate{{Value: "other", ModelSelection: &wire.ModelSelection{Current: pointer(true), Effort: "max", Efforts: []string{"max"}}}, {Value: "selected", ModelSelection: &wire.ModelSelection{Effort: "high", Efforts: []string{"none", "low", "high", "max"}}}})
 				default:

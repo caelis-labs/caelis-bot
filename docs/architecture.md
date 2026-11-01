@@ -9,7 +9,7 @@ limits live in [development](development.md). Source contracts remain authoritat
 ```text
 native desktop surfaces → internal/desktop assembly → internal/app → backend.Service → adapter → native Runtime
                         ├── bot / eventplan / tasks / notebook / botmemory
-                        └── plugins → built-in Desktop World MCP → private CUA worker
+                        └── plugins → reviewed optional MCP services
 renderer → typed product DTOs; no credentials, native IDs or local paths as authority
 ```
 
@@ -23,7 +23,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
 | `internal/machines` | Bot peer profiles, asynchronous connection intents, source identity, frozen task routing and cached observations |
-| `internal/plugins` | Reviewed portable packages, built-in Desktop World, immutable installation and runtime admission |
+| `internal/plugins` | Reviewed optional portable packages, immutable installation and runtime admission |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
 `app.Host` injects OS actions. Desktop does not import concrete adapters. Unknown providers fail explicitly.
@@ -791,8 +791,8 @@ built-in automatic approval list.
 
 The native resident catalog contains `bot_tasks`, `bot_delegate`, `bot_interactions`,
 `bot_schedule`, `bot_schedule_update`, `bot_event`, `bot_gesture` and `bot_dream`, subject to
-Runtime capabilities. Desktop World contributes one `exec` tool through its own
-MCP server when its built-in plugin is enabled. It is never included in the
+Runtime capabilities. Caelis Runtime supplies its fixed Desktop World MCP and
+Skill through its native Session assembly. These tools are never included in the
 built-in automatic approval list. Typed requests use application-owned schemas
 and native dispatch validation.
 
@@ -966,52 +966,26 @@ stream must not become an empty successful conversation.
 
 ## Desktop and presentation
 
-Desktop World v0.1.3 is an optional built-in Agent Plugins package, initially
-enabled. Bot verifies the pinned slim Plugin archive and BUILD provenance,
-extracts ordinary relative files without executing the download, and verifies the
-complete inventory, runtime, worker and licensing digests. The package
-(`bin/dtw`, `libexec/cua-driver`, `LICENSING/` and its Skill) is staged into the
-signed app, which installs an immutable
-reviewed copy on first launch or upgrade. A saved disabled choice survives the
-upgrade. Bot lists it first as Computer Use / 电脑操控 while retaining the
-`desktop-world` package ID. The reviewed icon extension is applied after upstream
-verification and included in Bot’s final sealed inventory. The existing
-PluginManager and both Runtime adapters project its Skill
-metadata and one stdio MCP server; Skill body and CUA API load on demand. Neither
-renderer nor model selects the native executable path. Disable and update revoke
-previous service generations, including processes retained by old Runtime
-sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
-catalog and approval list.
+Caelis Runtime v0.76.0 owns the fixed Desktop World v0.2.3 package, provenance,
+MCP and paired Skill. Resident Sessions and native managed Workers receive it
+through Core's normal assembly and existing app approval, Guardian, execution,
+receipt and recovery paths. Optional plugin selections, including empty lists,
+do not disable fixed Runtime capabilities. Bot does not add a DTW switch,
+installer, proxy, owner lease or plugin identity authority.
 
-The MCP `exec` tool and its private CUA worker are upstream release code. The
-v0.1.3 execution context is owned by the MCP process; callers omit a named
-`session` and recover receipts through that same originating connection. Bot's
-packaged guidance follows CUA 0.38.0 browser discovery and `next_call`, with
-approval owned by the Runtime. Idle `runtime_context_reset` requires fresh
-observation without renewing grants or replaying uncertain actions; there is no
-DTW absolute-age cutoff during continuous use. Bot's
-Skill follows upstream Windows DPI/modal-dialog limits and requires UI readback
-when an input error may follow an already applied action.
-The worker is spawned from the plugin process under Bot's app bundle, without an
-installed second app or Node runtime. The current Runtime chain starts the Bot
-MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
-signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
-the responsible path for the private Host, bridge, `dtw` and worker. This is
-an OS responsibility observation, not an inference from PPIDs or package metadata. The resident Bot holds a kernel file lock in its
-private plugin store; the bridge checks it before spawn and during execution,
-so a retained Runtime configuration cannot operate after normal or abrupt Bot
-exit. Bot's Accessibility and Screen Recording
-permissions, Runtime tool approval, CUA's own operation boundary, and native
-result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published v0.1.3 Mac binaries are Developer ID signed, with upstream notarization
-evidence. Bot verifies those signatures before re-signing both nested binaries with its
-selected app identity. The
-app seals the complete resulting inventory and independently passes its own
-notarization and Gatekeeper gates; upstream tickets do not qualify Bot.
-Windows package verification and cross-build are separate from Windows GUI
-acceptance. The pin, package and permissions evidence are in
-[development](development.md); portable format support is in
-[plugin-packages](plugin-packages.md).
+Codex Runtime does not receive DTW from Bot. The generic reviewed plugin manager
+and credential relays remain independent. Upgrades leave old Bot DTW package
+files and state records intact, but no longer advertise, select or launch them;
+independent Core registrations and files are outside Bot ownership. Core handles
+source conflicts within its own native assembly. Use the current Runtime's Skill
+and schemas, original receipts and OS permission decisions. A finished execution
+record can contain an error; never replay uncertain desktop effects.
+
+Bot pins the formal Runtime and public protocol to the same release source.
+Core's verified release and real-task evidence establish its embedded package;
+Bot acceptance checks only the changed adapter, resident/Worker access and
+original approval projection. They do not establish Windows DTW GUI, clean TCC
+or minimum-OS acceptance. See [plugin-packages](plugin-packages.md).
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. Chat and settings use

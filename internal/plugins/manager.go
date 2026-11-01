@@ -133,7 +133,6 @@ func (s Selection) Clone() Selection {
 type Manager struct {
 	mu            sync.Mutex
 	root          string
-	desktopOwner  *os.File
 	catalog       []Entry
 	display       map[string]displayMetadata
 	displayIssues map[string]bool
@@ -143,36 +142,6 @@ type Manager struct {
 	oauthFlows    map[string]*oauthFlow
 	oauthErrors   map[string]bool
 	oauthClient   *http.Client
-}
-
-// AcquireDesktopOwner holds a process lock for the resident Bot's lifetime.
-// A Runtime-retained MCP configuration cannot launch Desktop World after the
-// Bot main process exits, including an abrupt exit that skips normal cleanup.
-func (m *Manager) AcquireDesktopOwner() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.desktopOwner != nil {
-		return nil
-	}
-	if _, ok := m.entry("desktop-world"); !ok {
-		return nil
-	}
-	owner, err := lockDesktopOwner(m.root)
-	if err != nil {
-		return err
-	}
-	m.desktopOwner = owner
-	return nil
-}
-
-func (m *Manager) CloseDesktopOwner() {
-	m.mu.Lock()
-	owner := m.desktopOwner
-	m.desktopOwner = nil
-	m.mu.Unlock()
-	if owner != nil {
-		_ = owner.Close()
-	}
 }
 
 func Open(root string) (*Manager, error) {
@@ -190,12 +159,6 @@ func Open(root string) (*Manager, error) {
 		if err == nil {
 			sources[entry.ID] = files
 		}
-	}
-	if builtin, files, ok, err := desktopWorldBundle(); err != nil {
-		return nil, err
-	} else if ok {
-		c.Packages = append([]Entry{builtin}, c.Packages...)
-		sources[builtin.ID] = files
 	}
 	return openCatalog(root, c.Packages, sources)
 }

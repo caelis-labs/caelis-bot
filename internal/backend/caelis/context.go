@@ -240,7 +240,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		if err != nil {
 			return err
 		}
-		profile := config.Profile
+		profile := *config.Profile
 		if profile.Version != s.profile.Version {
 			// New product assembly adopts current host environment defaults; CWD,
 			// selected model and the independent sandbox scope remain preserved.
