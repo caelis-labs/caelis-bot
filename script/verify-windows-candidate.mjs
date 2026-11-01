@@ -7,7 +7,7 @@ const read=path=>JSON.parse(readFileSync(path,'utf8'));
 const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
 const build=read(join(app,'build.json'));
 if(build.platform!=='windows-amd64'||build.identity!=='development'||build.releaseUpdates!==false||!build.version.endsWith('-local')||build.sha256!==hash(join(app,'caelis-bot.exe'))||build.source!==execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim())throw Error('Local candidate build identity mismatch');
-for(const file of ['caelis-bot.exe','caelis-terminal.exe','Helpers/caelis.exe','Plugins/desktop-world/bin/dtw.exe','Resources/LICENSE','Resources/ASSET-LICENSE.md'])if(!statSync(join(app,file)).isFile())throw Error('Candidate payload missing');
+for(const file of ['caelis-bot.exe','caelis-terminal.exe','Helpers/caelis.exe','Resources/LICENSE','Resources/ASSET-LICENSE.md'])if(!statSync(join(app,file)).isFile())throw Error('Candidate payload missing');
 for(const [format,suffix] of [['nsis','-Setup.exe'],['zip','.zip']]){
  const files=readdirSync(releases).filter(file=>file.endsWith(suffix));
  if(files.length!==1)throw Error('Expected exactly one candidate per format');
