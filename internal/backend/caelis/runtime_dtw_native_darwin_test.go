@@ -128,17 +128,8 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	close(release)
 	released = true
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend && len(model.seen(key)) >= 4 })
-	found := false
-	for _, r := range model.seen(key) {
-		walkDTWJSON(r, func(v map[string]any) {
-			for _, x := range v {
-				if x == app {
-					found = true
-				}
-			}
-		})
-	}
-	if !found {
+	appsCall := dtwReturnedApp(model.seen(key), discoveredDTWTool(t, model, key, "apps"), app)
+	if appsCall == "" {
 		t.Fatal("probe app was not returned by native apps")
 	}
 	execKey := "CASE_DTW_RUNTIME_EXEC"
@@ -213,7 +204,7 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	if err = client.json(ctx, "GET", "/sessions/"+idPath(wsid)+"/configuration", nil, &wc, "", ""); err != nil || wc.Profile != nil || wc.Native == nil || wc.Native.Plugins != nil {
 		t.Fatal("Bot overrode native Worker configuration", err)
 	}
-	evidence := map[string]any{"resident_session": sid, "worker_session": wsid, "resident_call": dtwCompletedCall(model, execKey, "BOT_RUNTIME_RESIDENT"), "worker_call": dtwCompletedCall(model, workerKey, "BOT_RUNTIME_WORKER"), "resident_original_approval": before, "worker_guardian_decisions": len(model.seen("DTW_GUARDIAN")), "model_decisions": "synthetic", "mcp_os_reads": "real", "bot_dtw_injection": false}
+	evidence := map[string]any{"resident_session": sid, "worker_session": wsid, "resident_apps_call": appsCall, "resident_call": dtwCompletedCall(model, execKey, "BOT_RUNTIME_RESIDENT"), "worker_call": dtwCompletedCall(model, workerKey, "BOT_RUNTIME_WORKER"), "resident_original_approval": before, "worker_guardian_decisions": len(model.seen("DTW_GUARDIAN")), "model_decisions": "synthetic", "mcp_os_reads": "real", "bot_dtw_injection": false}
 	b, _ := json.MarshalIndent(evidence, "", "  ")
 	if err = os.WriteFile(filepath.Join(root, "adapter-summary.json"), b, 0600); err != nil {
 		t.Fatal(err)
