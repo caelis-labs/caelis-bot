@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/caelis-labs/caelis-bot/compare/v0.22.0...v0.22.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **runtime:** update Core to 0.77.1 and current desktop tools ([#271](https://github.com/caelis-labs/caelis-bot/issues/271)) ([36cb1f6](https://github.com/caelis-labs/caelis-bot/commit/36cb1f6b5a5817aeafe7ba7a065dedfa6652ecbf))
+
 ## [0.22.0](https://github.com/caelis-labs/caelis-bot/compare/v0.21.0...v0.22.0) (2026-11-01)
 
 
