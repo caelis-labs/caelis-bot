@@ -40,7 +40,7 @@ go test ./internal/app -run '^TestWindowsCaelisApplicationUpdatePreservesActiveW
 
 ## GitHub CI
 
-PR 的 scope job 始终执行 actionlint 和路由测试。按改动范围执行 Windows product、macOS product 和 Linux headless；Windows product 保留共享/平台测试与 DTW 固定包校验。普通 PR 不再重复运行 stable/preview 安装包矩阵，也不上传 preview 制品。
+PR 的 scope job 始终执行 actionlint 和路由测试。按改动范围执行 Windows product、macOS product 和 Linux headless；Windows product 保留共享/平台测试与 Core Runtime 固定包校验。普通 PR 不再重复运行 stable/preview 安装包矩阵，也不上传 preview 制品。
 
 Setup/ZIP 构建归属下述发布 workflow：每次只构建实际请求的 stable 或 preview 渠道。preview 仅在发布 preview tag 时运行。修改安装器时，本地按本文命令验证自选目录、更新和卸载；源码 CI 不等于精确安装包或 GUI 验收。
 

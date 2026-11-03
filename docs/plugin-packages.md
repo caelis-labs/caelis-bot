@@ -51,7 +51,5 @@ fall back to the plugin initial. Remote URLs and paths outside the package are
 not accepted. Browse and installed/detail views share this loader.
 
 Bundled service marks come from their publisher websites; each package records
-the source in `assets/SOURCE.md`. Desktop World's Bot presentation overlay uses
-the Caelis Bot avatar, applied after upstream verification and included in the
-final signed app's package inventory. It does not change runtime capabilities.
-No Bot skill update is needed: this is host presentation metadata only.
+the source in `assets/SOURCE.md`. Core-owned Desktop World has no Bot package
+presentation overlay or separate signed package inventory.

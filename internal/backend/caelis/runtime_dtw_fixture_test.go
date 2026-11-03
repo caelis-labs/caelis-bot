@@ -135,17 +135,17 @@ func dtwExactText(value any, text string) bool {
 	return found
 }
 
-func dtwCompletedExecution(model *acceptanceModel, key, marker string) string {
-	execution := ""
+func dtwCompletedCall(model *acceptanceModel, key, marker string) string {
+	call := ""
 	for _, request := range model.seen(key) {
 		walkDTWJSON(request, func(v map[string]any) {
-			id, _ := v["execution_id"].(string)
-			if id != "" && v["status"] == "completed" && dtwExactText(v, marker) {
-				execution = id
+			id, _ := v["call_id"].(string)
+			if v["type"] == "function_call_output" && id != "" && dtwExactText(v["output"], marker) {
+				call = id
 			}
 		})
 	}
-	return execution
+	return call
 }
 
 func dtwLastToolOutput(requests []map[string]any) any {

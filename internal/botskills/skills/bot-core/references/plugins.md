@@ -22,17 +22,19 @@ native tools. Caelis supplies this capability; Codex does not receive DTW throug
 Bot. If unavailable, explain the scope limit and continue other work. Do not
 install a desktop controller or switch Runtime to bypass the limitation.
 
-Read the current `desktop-world` Skill, then discover its `apps`, `api`, `exec`
-and `result` tools; clients may prefix their names. Use `apps` for stable platform
-app IDs and `api` for exact method schemas. Call `exec` with exactly `{app, source}`:
-one app and one async JavaScript function body. Preserve returned refs as opaque
-values and follow the active Skill's lifetime and platform limits.
+Read the current `desktop-world` Skill and its linked API documentation, then
+discover its `apps` and `exec` tools; clients may prefix their names. Use `apps`
+for stable platform app IDs. Call `exec` with exactly `{app, source}`: one app
+and one async JavaScript function body. Follow the active Skill's observation,
+targeting and platform limits. Old history does not make retired `api` or `result`
+tools available; discover the current package again after an upgrade.
 
-Retain each original execution receipt and read it through `result` on the same
-originating MCP connection. Cancellation or an unavailable/unknown result is not
-proof that input did not happen. Inspect the record's error and effect ledger
-even when status is `completed`. Never repeat `exec` to recover a receipt or
-bypass a pending decision. Verify the intended app effect before claiming success.
+Retain each original native call and its returned output. Use the Runtime's
+existing recovery for a lost or unknown response, and the active Skill's read-only
+observation before further input. Cancellation does not prove that input did not
+happen. A completed script or dispatched action is not proof of the intended app
+effect. Inspect errors and effects before claiming success. Never repeat `exec`
+to recover an output or bypass a pending decision.
 Runtime app approval and OS permission are separate; do not infer either from a
 cached schema or generated prose.
 
