@@ -135,17 +135,66 @@ func dtwExactText(value any, text string) bool {
 	return found
 }
 
-func dtwCompletedExecution(model *acceptanceModel, key, marker string) string {
-	execution := ""
+func dtwCompletedCall(model *acceptanceModel, key, marker string) string {
+	call := ""
 	for _, request := range model.seen(key) {
 		walkDTWJSON(request, func(v map[string]any) {
-			id, _ := v["execution_id"].(string)
-			if id != "" && v["status"] == "completed" && dtwExactText(v, marker) {
-				execution = id
+			id, _ := v["call_id"].(string)
+			if v["type"] == "function_call_output" && id != "" && dtwExactText(v["output"], marker) {
+				call = id
 			}
 		})
 	}
-	return execution
+	return call
+}
+
+// Only the Responses fixture's actual tool output can establish app discovery.
+// Do not search prompt/Skill text, call arguments or arbitrary nested strings.
+func dtwReturnedApp(requests []map[string]any, tool, app string) string {
+	if tool == "" || app == "" {
+		return ""
+	}
+	calls := map[string]bool{}
+	for _, request := range requests {
+		items, _ := request["input"].([]any)
+		for _, item := range items {
+			message, _ := item.(map[string]any)
+			id, _ := message["call_id"].(string)
+			if id == "" {
+				continue
+			}
+			switch message["type"] {
+			case "function_call":
+				var args struct {
+					ToolName  string `json:"tool_name"`
+					Arguments struct {
+						Query string `json:"query"`
+					} `json:"arguments"`
+				}
+				raw, _ := message["arguments"].(string)
+				calls[id] = message["name"] == "mcp_call" && json.Unmarshal([]byte(raw), &args) == nil && args.ToolName == tool && args.Arguments.Query == app
+			case "function_call_output":
+				if !calls[id] {
+					continue
+				}
+				var result struct {
+					Apps []struct {
+						App string `json:"app"`
+					} `json:"apps"`
+				}
+				output, _ := message["output"].(string)
+				if json.NewDecoder(strings.NewReader(output)).Decode(&result) != nil {
+					continue
+				}
+				for _, candidate := range result.Apps {
+					if candidate.App == app {
+						return id
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func dtwLastToolOutput(requests []map[string]any) any {

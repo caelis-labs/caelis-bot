@@ -76,6 +76,15 @@ checks the Runtime and protocol pins together. Keep Core's released-artifact and
 real-task evidence separate from Bot adapter acceptance. Existing legacy Bot
 plugin data is preserved without being selected or removed.
 
+The opt-in Mac `TestNativeRuntimeDesktopWorld` uses the formal pinned Core and
+an explicitly authorized isolated app (`CAELIS_BOT_TEST_DTW_APP`). It discovers
+and loads the current Skill, then exercises resident/ordinary Worker apps/exec,
+their independent app decisions and the original pending approval through
+Reconnect. Synthetic provider/Guardian decisions and real MCP/OS reads are
+separate evidence. It never assumes the retired api/result tools or an old
+execution-ID format. Set `CAELIS_BOT_TEST_EVIDENCE_DIR` to an existing private
+directory to retain original model requests and adapter receipts.
+
 ## Native development
 
 UI review uses `bash script/run-ui-review.sh` with an isolated cached profile.
