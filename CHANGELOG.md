@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.22.1](https://github.com/caelis-labs/caelis-bot/compare/v0.22.0...v0.22.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* Bundle official Caelis Core **v0.77.1** (`888079abf96269c67770792e5c0b46a7a58568c5`) and the public protocol from the same source. Core owns the complete built-in **Desktop World 0.3.4** capability for the resident Bot and managed Workers; Codex receives no DTW from Bot. ([#271](https://github.com/caelis-labs/caelis-bot/pull/271))
+* Update desktop guidance and adapter acceptance for the current `apps` / `exec({app, source})` contract and direct results. Rediscover after upgrades and retain native approval targets, original options and uncertain-operation receipts; do not replay effects to recover output. ([#271](https://github.com/caelis-labs/caelis-bot/pull/271))
+* Include Core's Windows stdio process-hiding fix and Runtime dependency updates, without adding a Bot plugin package, switch, proxy or permission owner. ([#271](https://github.com/caelis-labs/caelis-bot/pull/271))
+
+### Verification
+
+* Verify the actual Core 0.76→0.77.1 compatible busy-Host/idle upgrade and original resident/Worker/receipt recovery. Preserved MCP and OS reads are real; provider and Guardian decisions are synthetic, not a live-model or user GUI claim.
+* Bind app-discovery acceptance to the actual tool name, original call ID and returned `apps[].app`; reject query-only evidence. Synchronize the unavailable-Runtime fixture's pending→failed observation without weakening assertions or changing production timing. The original Windows CI failure remains preserved; the final exact-source native platform gates pass.
+
 ## [0.22.0](https://github.com/caelis-labs/caelis-bot/compare/v0.21.0...v0.22.0) (2026-11-01)
 
 
