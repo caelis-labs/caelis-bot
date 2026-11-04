@@ -22,8 +22,10 @@ Intel Mac and Windows ARM64 packages are not published by the current workflows.
 
 ## Desktop World
 
-The formal Caelis Runtime v0.76.0 supplies Desktop World v0.2.3 and its paired
-Skill. Bot owns no separate DTW archive/pin, installation, proxy or enable switch;
+The formal Caelis Runtime v0.77.1 supplies Desktop World v0.3.4 and its paired
+Skill as a fallback below explicit Session and enabled global DTW packages. Core
+selects one complete source; the builtin exposes apps/exec, with no api/result
+compatibility tools. Bot owns no separate DTW archive/pin, installation, proxy or enable switch;
 resident and native managed Workers use the Runtime's normal capability and app
 approval paths. Codex does not load DTW through Bot. Legacy Bot plugin files and
 independent Core installs are preserved.

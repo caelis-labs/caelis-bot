@@ -76,6 +76,15 @@ checks the Runtime and protocol pins together. Keep Core's released-artifact and
 real-task evidence separate from Bot adapter acceptance. Existing legacy Bot
 plugin data is preserved without being selected or removed.
 
+The opt-in Mac `TestNativeRuntimeDesktopWorld` uses the formal pinned Core and
+an explicitly authorized isolated app (`CAELIS_BOT_TEST_DTW_APP`). It discovers
+and loads the current Skill, then exercises resident/ordinary Worker apps/exec,
+their independent app decisions and the original pending approval through
+Reconnect. Synthetic provider/Guardian decisions and real MCP/OS reads are
+separate evidence. It never assumes the retired api/result tools or an old
+execution-ID format. Set `CAELIS_BOT_TEST_EVIDENCE_DIR` to an existing private
+directory to retain original model requests and adapter receipts.
+
 ## Native development
 
 UI review uses `bash script/run-ui-review.sh` with an isolated cached profile.
@@ -182,6 +191,18 @@ pointer/keyboard selection, search, dismissal and retained form/effort state.
 `BOT_INPUT_MENU_BASELINE=<commit>` serves those three UI sources from Git read-only
 for failure comparison. Synthetic composition events are not a real OS input method:
 record actual marked-text/candidate behavior separately when real IME input is available.
+
+Composer alignment and task-capsule checks use that same `/acceptance` fixture:
+run `playwright-cli run-code --filename=script/composer-caret-browser.cjs` and
+`playwright-cli run-code --filename=script/task-capsule-browser.cjs`. First create
+`output/playwright/composer-caret/` and `output/playwright/task-capsules/` for their
+screenshots. They cover light/dark, narrow/wide layouts, draft growth, attachments,
+composition guards and original task-ID opening, without submitting chat input.
+`script/composer-placeholder-browser.cjs` additionally compares visible/hidden
+caret screenshots to measure the empty caret even when its DOM Range has no rect.
+Create `output/playwright/composer-placeholder/` first. It covers click, keyboard
+focus and Range start, empty/BR/block shapes, LTR/RTL, a prior-inline negative
+control, and placeholder exclusion from selection, draft and composition.
 
 Completed-message rendering is covered by the same native input/menu preview's
 `streaming` case and `native-window-streaming.json`. The latter hides its own

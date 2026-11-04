@@ -966,11 +966,14 @@ stream must not become an empty successful conversation.
 
 ## Desktop and presentation
 
-Caelis Runtime v0.76.0 owns the fixed Desktop World v0.2.3 package, provenance,
+Caelis Runtime v0.77.1 owns the Desktop World v0.3.4 fallback package, provenance,
 MCP and paired Skill. Resident Sessions and native managed Workers receive it
 through Core's normal assembly and existing app approval, Guardian, execution,
-receipt and recovery paths. Optional plugin selections, including empty lists,
-do not disable fixed Runtime capabilities. Bot does not add a DTW switch,
+receipt and recovery paths. Core chooses one complete MCP/Skill source: explicit
+Session package, enabled global DTW, then builtin fallback. A broken selected
+package fails rather than mixing sources. Upgraded Sessions rediscover the current
+apps/exec tools; historical api/result calls remain history, with no compatibility
+executor or replay. Bot does not add a DTW switch,
 installer, proxy, owner lease or plugin identity authority.
 
 Codex Runtime does not receive DTW from Bot. The generic reviewed plugin manager

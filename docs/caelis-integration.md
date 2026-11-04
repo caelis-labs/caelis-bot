@@ -9,9 +9,12 @@ profile 的会话共用命令、操作回执、审批与观察接口；没有 Ap
 Store 格式分别判断，不把发行版本号作为协议白名单。验证命令和证据范围见
 [开发与验证](development.md)；历史版本的结果不代替本次集成或发行制品验收。
 
-Desktop World v0.2.3 由正式 Caelis Runtime v0.76.0 固定内置，resident 与普通
+Desktop World v0.3.4 由正式 Caelis Runtime v0.77.1 作为低优先级整包内置，resident 与普通
 managed Worker 沿原生装配、审批和执行使用。Bot 不持包、不代理，不增加开关或
-生命周期权威；Codex 不由 Bot 注入 DTW。
+生命周期权威；Codex 不由 Bot 注入 DTW。Core 选择显式 Session 包、已启用的全局 DTW、
+内置 fallback 中的一个完整 MCP+Skill 来源；选中包无效时明确失败，不混用来源。当前内置
+包只提供 `apps/exec`，没有 `api/result` 兼容执行器。升级后必须重新发现工具；原历史、
+原生回执和未知效果保留，不重放。
 
 ## 基线与发现
 
@@ -87,7 +90,7 @@ macOS App 在自己的 `Contents/Helpers/caelis` 内携带校验过的正式 Cae
 升级，不在签名包内执行 `caelis update`。协议 schema 与发布二进制分别固定版本和摘要。
 共享 Store 仍默认使用 `~/.caelis`，已有模型、认证和 Session 继续由 Core 持有。
 
-当前内置基线为正式 Core v0.76.0，来源 `a79b258f6e43943c039ea028c1ce7dc99c123308`。
+当前内置基线为正式 Core v0.77.1，来源 `888079abf96269c67770792e5c0b46a7a58568c5`。
 macOS arm64、Windows amd64、Linux amd64/arm64 的归档和必要的二进制摘要统一记录在
 `resources/caelis-runtime/release.json`。公开 OpenAPI 与 Bot 消费的 wire 包含独立 async/idle、
 cache presence/TTL 和 JobID 契约，与已验证 #170 候选字节相同；wire 仅适配本地包名。
@@ -105,14 +108,28 @@ Bot 没有直接 Core Go module 依赖，也不引入私有 SDK。
 内置 CLI 缺失或损坏时显示连接设置错误，App 保持可用，不悄悄改用另一个全局版本。
 更改 Runtime、程序路径或 Store 必须经过显式激活与原工作交接；不能只改文件来绕过未知回执。运行时切换使用 `internal/app/runtime_switch.go` 的应用内交接流程。
 
-隔离的真实版本互操作验证：
+保留旧的不兼容 Host 边界回归：
 
 ```sh
 source script/env.sh
 CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.74.0 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.76.0 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.77.1 \
 go test -race -v -count=1 -timeout 180s ./internal/backend/caelis -run '^TestBundledRuntimeVersionInterop$'
 ```
+
+当前兼容版本的 Mac 私有 Store 升级回归使用正式 0.76.0 和 0.77.1：
+
+```sh
+source script/env.sh
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-v0.76.0 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-v0.77.1 \
+go test -race -v -count=1 -timeout 230s ./internal/backend/caelis -run '^TestCompatibleRuntimeUpgrade$'
+```
+
+该检查通过 Bot 的公共服务管理入口提交候选，保持忙碌兼容 Host，等待 Core 在 idle 后
+换代；重新连接原 resident 和 managed Worker，核对原 operation 回执、callback 次数与
+原绑定，并在升级后的同 Session 新发现、调用 DTW。模型响应为合成，Host、存储、
+MCP 发现与调用为真实；不重放已有未知效果，也不操作用户正式 Store。
 
 该测试先用旧版公共协议建立真实 Session、原始任务和 callback 回执，再从临时 App bundle
 运行新 Bot adapter。旧 Host 忙碌时，新 Bot 因缺少统一 Team 能力安全拒绝；原任务继续。

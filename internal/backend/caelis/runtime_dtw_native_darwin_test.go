@@ -21,7 +21,11 @@ import (
 func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	bin := os.Getenv("CAELIS_BOT_TEST_BINARY")
 	if bin == "" {
-		t.Skip("set CAELIS_BOT_TEST_BINARY to formal Core 0.76.0")
+		t.Skip("set CAELIS_BOT_TEST_BINARY to the formal pinned Core")
+	}
+	app := os.Getenv("CAELIS_BOT_TEST_DTW_APP")
+	if app == "" {
+		t.Skip("set CAELIS_BOT_TEST_DTW_APP to an authorized isolated read-only app")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
 	defer cancel()
@@ -100,10 +104,10 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	}()
 	key := "CASE_DTW_RUNTIME_RESIDENT"
 	skill := ""
-	model.set(key, modelStep{Name: "tool_search", Args: map[string]any{"query": "Desktop World apps api exec result", "limit": 4}, Entered: entered, Block: release}, modelStep{Name: "Skill", BuildArgs: func() any { return map[string]any{"name": skill} }}, modelStep{Name: "mcp_call", BuildArgs: func() any {
-		return map[string]any{"tool_name": discoveredDTWTool(t, model, key, "apps"), "arguments": map[string]any{}}
+	model.set(key, modelStep{Name: "tool_search", Args: map[string]any{"query": "Desktop World apps exec", "limit": 2}, Entered: entered, Block: release}, modelStep{Name: "Skill", BuildArgs: func() any { return map[string]any{"name": skill} }}, modelStep{Name: "mcp_call", BuildArgs: func() any {
+		return map[string]any{"tool_name": discoveredDTWTool(t, model, key, "apps"), "arguments": map[string]any{"query": app}}
 	}})
-	if r, e := s.Submit(ctx, api.Submission{ID: "runtime-076-resident-original", Text: key}, nil); e != nil || r.Outcome != "accepted" {
+	if r, e := s.Submit(ctx, api.Submission{ID: "runtime-resident-original", Text: key}, nil); e != nil || r.Outcome != "accepted" {
 		t.Fatal("resident submit", e)
 	}
 	select {
@@ -124,24 +128,14 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	close(release)
 	released = true
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend && len(model.seen(key)) >= 4 })
-	app := "com.apple.finder"
-	found := false
-	for _, r := range model.seen(key) {
-		walkDTWJSON(r, func(v map[string]any) {
-			for _, x := range v {
-				if x == app {
-					found = true
-				}
-			}
-		})
-	}
-	if !found {
+	appsCall := dtwReturnedApp(model.seen(key), discoveredDTWTool(t, model, key, "apps"), app)
+	if appsCall == "" {
 		t.Fatal("probe app was not returned by native apps")
 	}
 	execKey := "CASE_DTW_RUNTIME_EXEC"
-	source := "const v=await app.windows(); return {probe:'BOT_076_RESIDENT',count:Array.isArray(v)?v.length:(v.windows||[]).length};"
-	setFixedDTWRead(t, model, execKey, app, source, "BOT_076_RESIDENT", nil, nil)
-	if _, err = s.Submit(ctx, api.Submission{ID: "runtime-076-read-original", Text: execKey}, nil); err != nil {
+	source := "const observation=await app.look(); return {probe:'BOT_RUNTIME_RESIDENT',observed:!!observation};"
+	setFixedDTWRead(t, model, execKey, app, source, nil, nil)
+	if _, err = s.Submit(ctx, api.Submission{ID: "runtime-read-original", Text: execKey}, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Approvals) == 1 })
@@ -156,7 +150,7 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	}
 	approveDTWApp(t, ctx, s, app, source)
 	waitAcceptance(t, ctx, func() bool {
-		return s.Snapshot().CanSend && dtwCompletedExecution(model, execKey, "BOT_076_RESIDENT") != ""
+		return s.Snapshot().CanSend && dtwCompletedCall(model, execKey, "BOT_RUNTIME_RESIDENT") != ""
 	})
 	var configured wire.SessionConfiguration
 	if err = client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/configuration", nil, &configured, "", ""); err != nil || configured.Profile == nil {
@@ -173,9 +167,9 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 			close(wrelease)
 		}
 	}()
-	wsource := "const v=await app.windows(); return {probe:'BOT_076_WORKER',count:Array.isArray(v)?v.length:(v.windows||[]).length};"
-	setFixedDTWRead(t, model, workerKey, app, wsource, "BOT_076_WORKER", went, wrelease)
-	owner, err := NewWorkOwner(Options{RequireApproval: true, Directory: filepath.Join(root, "worker-owner"), Settings: settings, WorkSourceIdentity: "bot-076-native-worker", WorkExecution: api.WorkExecutionSettings{Model: selector}})
+	wsource := "const observation=await app.look(); return {probe:'BOT_RUNTIME_WORKER',observed:!!observation};"
+	setFixedDTWRead(t, model, workerKey, app, wsource, went, wrelease)
+	owner, err := NewWorkOwner(Options{RequireApproval: true, Directory: filepath.Join(root, "worker-owner"), Settings: settings, WorkSourceIdentity: "bot-native-worker", WorkExecution: api.WorkExecutionSettings{Model: selector}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +181,7 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	if err = os.Mkdir(workspace, 0700); err != nil {
 		t.Fatal(err)
 	}
-	task, err := owner.StartWork(ctx, api.WorkStart{ID: "runtime-076-worker", Workspace: workspace, TaskStart: api.TaskStart{RequestID: "runtime-076-worker-original", Title: "Read-only Runtime capability", Prompt: workerKey}})
+	task, err := owner.StartWork(ctx, api.WorkStart{ID: "runtime-worker", Workspace: workspace, TaskStart: api.TaskStart{RequestID: "runtime-worker-original", Title: "Read-only Runtime capability", Prompt: workerKey}})
 	if err != nil {
 		t.Fatal("original Worker start", err)
 	}
@@ -203,14 +197,14 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	close(wrelease)
 	wreleased = true
 	waitAcceptance(t, ctx, func() bool { v, e := owner.ReadWork(ctx, task.ID); return e == nil && v.Status == "completed" })
-	if dtwCompletedExecution(model, workerKey, "BOT_076_WORKER") == "" || len(model.seen("DTW_GUARDIAN")) != 1 {
-		t.Fatal("Worker actual exec/result or separate Guardian app decision absent")
+	if dtwCompletedCall(model, workerKey, "BOT_RUNTIME_WORKER") == "" || len(model.seen("DTW_GUARDIAN")) != 1 {
+		t.Fatal("Worker actual exec output or separate Guardian app decision absent")
 	}
 	var wc wire.SessionConfiguration
 	if err = client.json(ctx, "GET", "/sessions/"+idPath(wsid)+"/configuration", nil, &wc, "", ""); err != nil || wc.Profile != nil || wc.Native == nil || wc.Native.Plugins != nil {
 		t.Fatal("Bot overrode native Worker configuration", err)
 	}
-	evidence := map[string]any{"resident_session": sid, "worker_session": wsid, "resident_execution": dtwCompletedExecution(model, execKey, "BOT_076_RESIDENT"), "worker_execution": dtwCompletedExecution(model, workerKey, "BOT_076_WORKER"), "resident_original_approval": before, "worker_guardian_decisions": len(model.seen("DTW_GUARDIAN")), "model_decisions": "synthetic", "mcp_os_reads": "real", "bot_dtw_injection": false}
+	evidence := map[string]any{"resident_session": sid, "worker_session": wsid, "resident_apps_call": appsCall, "resident_call": dtwCompletedCall(model, execKey, "BOT_RUNTIME_RESIDENT"), "worker_call": dtwCompletedCall(model, workerKey, "BOT_RUNTIME_WORKER"), "resident_original_approval": before, "worker_guardian_decisions": len(model.seen("DTW_GUARDIAN")), "model_decisions": "synthetic", "mcp_os_reads": "real", "bot_dtw_injection": false}
 	b, _ := json.MarshalIndent(evidence, "", "  ")
 	if err = os.WriteFile(filepath.Join(root, "adapter-summary.json"), b, 0600); err != nil {
 		t.Fatal(err)
@@ -224,11 +218,9 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	t.Log("formal Core builtin: resident + native Worker, own app decisions, original pending approval reconnect; evidence", root)
 }
 
-func setFixedDTWRead(t *testing.T, m *acceptanceModel, key, app, source, marker string, entered chan struct{}, block chan struct{}) {
-	m.set(key, modelStep{Name: "tool_search", Args: map[string]any{"query": "Desktop World apps api exec result", "limit": 4}, Entered: entered, Block: block}, modelStep{Name: "mcp_call", BuildArgs: func() any {
+func setFixedDTWRead(t *testing.T, m *acceptanceModel, key, app, source string, entered chan struct{}, block chan struct{}) {
+	m.set(key, modelStep{Name: "tool_search", Args: map[string]any{"query": "Desktop World apps exec", "limit": 2}, Entered: entered, Block: block}, modelStep{Name: "mcp_call", BuildArgs: func() any {
 		return map[string]any{"tool_name": discoveredDTWTool(t, m, key, "exec"), "arguments": map[string]any{"app": app, "source": source}}
-	}}, modelStep{Name: "mcp_call", BuildArgs: func() any {
-		return map[string]any{"tool_name": discoveredDTWTool(t, m, key, "result"), "arguments": map[string]any{"app": app, "execution_id": dtwCompletedExecution(m, key, marker)}}
 	}})
 }
 
@@ -240,7 +232,7 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 		}
 		fixed := 0
 		for _, p := range d.Plugins {
-			if value(p.Id) == "desktop-world" && value(p.Version) == "0.2.3" && p.Status == "builtin" {
+			if value(p.Id) == "desktop-world" && value(p.Version) == "0.3.4" && p.Status == "builtin" {
 				fixed++
 			}
 		}
@@ -249,7 +241,7 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 		}
 		for _, server := range d.Servers {
 			if server.Name == "desktop-world" {
-				return server.Status == "running" && (server.Stale == nil || !*server.Stale) && (server.Refreshing == nil || !*server.Refreshing) && (server.RefreshFailed == nil || !*server.RefreshFailed) && value(server.Warning) == "" && len(server.Tools) == 4
+				return server.Status == "running" && (server.Stale == nil || !*server.Stale) && (server.Refreshing == nil || !*server.Refreshing) && (server.RefreshFailed == nil || !*server.RefreshFailed) && value(server.Warning) == "" && len(server.Tools) == 2
 			}
 		}
 		return false

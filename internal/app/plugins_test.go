@@ -804,6 +804,11 @@ func TestPluginInstallPersistsWhileRuntimeIsUnavailable(t *testing.T) {
 	// A private package is manageable independently of the resident Runtime.
 	// A production Worker can be active while this application path runs.
 	a, root := fixtureApp(t, newTestEngine(), Host{})
+	// Hold projection until the pending snapshot is observed. Otherwise the
+	// missing Runtime adapter can fail before PluginAction returns its view.
+	a.pluginAdmission.Lock()
+	releaseProjection := sync.OnceFunc(a.pluginAdmission.Unlock)
+	t.Cleanup(releaseProjection)
 	a.mu.Lock()
 	a.started = true
 	a.mu.Unlock()
@@ -844,6 +849,7 @@ func TestPluginInstallPersistsWhileRuntimeIsUnavailable(t *testing.T) {
 	if result.SyncState != "pending" {
 		t.Fatal("Runtime projection state was omitted from the management result")
 	}
+	releaseProjection()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		view, err := a.PluginSnapshot(t.Context())

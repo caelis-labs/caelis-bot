@@ -268,8 +268,16 @@ summary { cursor:pointer; }
 .quote-preview pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:14px; line-height:1.7; }
 .quote-preview-close { position:sticky; top:0; float:right; display:grid; place-items:center; width:24px; height:24px; margin:-12px -15px 0 12px; border:0; border-radius:50%; background:var(--wash); }
 .quote-preview-close .symbol { width:12px; height:12px; }
-.task-message-action { border:0; padding:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
-.task-message-action:hover { text-decoration:underline; }
+.message.task-message { padding:0; border:0; background:transparent; box-shadow:none; }
+.task-message-action { display:inline-flex; align-items:center; gap:8px; max-width:100%; min-height:36px; border:1px solid var(--line); border-radius:999px; padding:7px 11px; background:var(--surface); color:var(--ink); font:inherit; font-size:13px; line-height:20px; text-align:left; cursor:pointer; }
+.task-message-action:hover { background:var(--wash); border-color:var(--muted); }
+.task-message-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.task-message-icon { display:grid; place-items:center; flex:none; width:16px; height:16px; border-radius:50%; background:var(--muted); color:var(--surface); font-size:11px; line-height:16px; }
+.task-message-icon>span { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.task-message-action[data-state="native.taskRunning"] .task-message-icon { background:var(--accent); }
+.task-message-action[data-state="native.taskApproval"] .task-message-icon { background:var(--caelis-warning); }
+.task-message-status { flex:none; color:var(--muted); font-size:11px; font-weight:400; white-space:nowrap; }
+.task-message-action .settings-chevron { flex:none; width:14px; height:14px; color:var(--muted); }
 .copy-text { display:grid; place-items:center; width:28px; height:28px; border:0; background:transparent; color:var(--muted); padding:0; border-radius:7px; }
 .copy-text:hover { color:var(--ink); background:var(--wash); }
 .message-link { display:inline; border:0; background:transparent; padding:0; color:var(--accent); text-align:inherit; font:inherit; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; }
