@@ -32,7 +32,8 @@ const placeholder=(el:HTMLElement)=>!['none','normal','""'].includes(getComputed
 const input=(el:HTMLElement)=>el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertCompositionText',isComposing:true}));
 const compose=(el:HTMLElement,type:string,data='')=>el.dispatchEvent(new CompositionEvent(type,{bubbles:true,data}));
 const key=(el:HTMLElement,key:string,keyCode=0,isComposing=false)=>{const e=new KeyboardEvent('keydown',{key,keyCode,isComposing,bubbles:true,cancelable:true});el.dispatchEvent(e);return e;};
-w.fixtureUIState=()=>({mutations,closed,view,preedit:document.querySelector('.composer-editor')?.textContent,placeholder:document.querySelector('.composer-editor')?placeholder(document.querySelector('.composer-editor')!):undefined,payloads:w.fixturePayloads});
+const composerGeometry=()=>{const editor=document.querySelector<HTMLElement>('.composer-editor');return editor?{rect:editor.getBoundingClientRect().toJSON(),html:editor.innerHTML,direction:getComputedStyle(editor).direction}:undefined;};
+w.fixtureUIState=()=>({editor:composerGeometry(),mutations,closed,view,preedit:document.querySelector('.composer-editor')?.textContent,placeholder:document.querySelector('.composer-editor')?placeholder(document.querySelector('.composer-editor')!):undefined,payloads:w.fixturePayloads});
 w.runCompositionRegression=async()=>{
  await wait(()=>document.querySelector<HTMLElement>('.composer-editor')?.contentEditable==='true');
  const el=document.querySelector<HTMLElement>('.composer-editor')!;

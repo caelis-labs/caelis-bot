@@ -198,6 +198,11 @@ run `playwright-cli run-code --filename=script/composer-caret-browser.cjs` and
 `output/playwright/composer-caret/` and `output/playwright/task-capsules/` for their
 screenshots. They cover light/dark, narrow/wide layouts, draft growth, attachments,
 composition guards and original task-ID opening, without submitting chat input.
+`script/composer-placeholder-browser.cjs` additionally compares visible/hidden
+caret screenshots to measure the empty caret even when its DOM Range has no rect.
+Create `output/playwright/composer-placeholder/` first. It covers click, keyboard
+focus and Range start, empty/BR/block shapes, LTR/RTL, a prior-inline negative
+control, and placeholder exclusion from selection, draft and composition.
 
 Completed-message rendering is covered by the same native input/menu preview's
 `streaming` case and `native-window-streaming.json`. The latter hides its own
