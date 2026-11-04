@@ -3,7 +3,7 @@ module github.com/caelis-labs/caelis-bot
 go 1.26.8
 
 require (
-	cel.dev/cel-go v0.32.0
+	cel.dev/cel-go v0.33.2
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/caelis-labs/memory v0.6.1
 	github.com/coder/websocket v1.8.15
@@ -11,11 +11,11 @@ require (
 	github.com/deploymenttheory/go-bindings-winrt v0.6.1
 	github.com/mymmrac/telego v1.12.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/wailsapp/wails/v3 v3.0.0-beta.34
-	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/net v0.61.0
+	github.com/wailsapp/wails/v3 v3.1.0-nightly.20261028
+	go.yaml.in/yaml/v3 v3.0.6
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
-	modernc.org/sqlite v1.61.0
+	modernc.org/sqlite v1.61.1
 )
 
 require (
@@ -44,7 +44,7 @@ require (
 	github.com/valyala/fasthttp v1.73.0 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/vcaesar/cedar v0.30.0 // indirect
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/oauth2 v0.37.0
