@@ -44,10 +44,21 @@ test('unreadable or newly added version metadata cannot take the fast path', () 
   assert.equal(classifyChanges(files, () => '{broken', () => '{broken').kind, 'shared');
 });
 
-test('only product documentation skips builds; Bot skills and runtime resources still build', () => {
+test('Markdown anywhere and product documentation skip builds; executable resources still build', () => {
   assert.equal(scope(['README.md', 'docs/architecture.md', 'docs/evidence/image.png']).kind, 'docs');
   assert.equal(scope([]).kind, 'full');
-  for (const paths of [['AGENTS.md'], ['internal/botskills/skills/caelis-bot-memory/SKILL.md'], ['resources/character-pack.json'], ['.github/workflows/ci.yml']]) assert.equal(scope(paths).kind, 'shared');
+  const markdown = ['AGENTS.md', 'internal/botskills/skills/bot-core/SKILL.md',
+    'internal/botskills/skills/bot-core/references/follow-ups.md', 'frontend/NOTES.MD', 'notes/设计.md'];
+  for (const path of markdown) assert.equal(scope([path]).kind, 'docs');
+  assert.equal(scope(markdown).kind, 'docs');
+  for (const path of ['resources/character-pack.json', '.github/workflows/ci.yml',
+    'internal/botskills/skills.go', 'internal/botskills/skills/bot-core/scripts/check.py',
+    'script/ci-scope.mjs', 'frontend/example.md.ts']) {
+    assert.equal(scope([...markdown, path]).kind, 'shared');
+  }
+  assert.equal(scope([...markdown, 'unknown-path']).kind, 'full');
+  assert.equal(scope([...markdown, 'internal/desktop/native_darwin.go']).kind, 'macos');
+  assert.equal(scope([...markdown, 'internal/desktop/native_windows.go']).kind, 'windows');
 });
 
 test('platform-only changes and accompanying docs select only their product checks', () => {
