@@ -192,6 +192,13 @@ pointer/keyboard selection, search, dismissal and retained form/effort state.
 for failure comparison. Synthetic composition events are not a real OS input method:
 record actual marked-text/candidate behavior separately when real IME input is available.
 
+Composer alignment and task-capsule checks use that same `/acceptance` fixture:
+run `playwright-cli run-code --filename=script/composer-caret-browser.cjs` and
+`playwright-cli run-code --filename=script/task-capsule-browser.cjs`. First create
+`output/playwright/composer-caret/` and `output/playwright/task-capsules/` for their
+screenshots. They cover light/dark, narrow/wide layouts, draft growth, attachments,
+composition guards and original task-ID opening, without submitting chat input.
+
 Completed-message rendering is covered by the same native input/menu preview's
 `streaming` case and `native-window-streaming.json`. The latter hides its own
 NSWindow, completes a synthetic reply while hidden, then restores the window;
