@@ -1,7 +1,16 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {windowsVersion} from './windows-version.mjs';
 import {releaseVersion} from './release-version.mjs';
+
+test('Windows Wails generation and packaging use the application library version',()=>{
+ const pins=JSON.parse(readFileSync(new URL('../toolchain.json',import.meta.url),'utf8'));
+ const goMod=readFileSync(new URL('../go.mod',import.meta.url),'utf8');
+ const libraryVersion=goMod.match(/^\s*github\.com\/wailsapp\/wails\/v3\s+(\S+)\s*$/m)?.[1];
+ assert.ok(libraryVersion,'go.mod must pin the Wails application library');
+ assert.equal(pins.wails,libraryVersion,'Windows build/package CLI must match the Wails library');
+});
 
 test('Windows preview qualification is independent from the accepted macOS stable tag',()=>{
  assert.equal(windowsVersion('0.14.0','preview','v0.14.0-windows.preview.3',3).version,'0.14.0-windows.preview.3');
