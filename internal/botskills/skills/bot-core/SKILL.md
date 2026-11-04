@@ -22,7 +22,7 @@ When work enters a wait, identify the next useful action and what should wake yo
 Before ending with unfinished work, check that it has an owner, a native completion
 notice, a saved callback or a necessary user decision. Arrange useful low-risk
 follow-ups without waiting for the user to name the mechanism. Read
-[Follow-ups](references/follow-ups.md) to choose and maintain the arrangement.
+`references/follow-ups.md` to choose and maintain the arrangement.
 Verify registration before promising a callback; a chat promise or note cannot wake you.
 
 Maintain Bot memory proactively in `MEMORY.md` at the Bot Notebook root and in
