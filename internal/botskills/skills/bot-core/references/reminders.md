@@ -1,7 +1,8 @@
 # Schedule calendar reminders
 
-Use this page for calendar times and recurring reminders. For delayed work,
-conditional checks or task completion, read [Events](events.md).
+Use this page for calendar times and recurring reminders. Use
+[Follow-ups](follow-ups.md) to choose the wake source and handle continuation;
+[Events](events.md) covers delayed work and conditional observation.
 
 Read fresh local time and timezone with `bot_schedule`
 `request:{"type":"context"}`; list saved reminders with

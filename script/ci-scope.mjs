@@ -5,7 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {validateTag} from './release-version.mjs';
 
 const releaseFiles = new Set(['package.json', 'package-lock.json', '.release-please-manifest.json', 'CHANGELOG.md']);
-const documentation = path => /^README(?:\.[a-zA-Z-]+)?\.md$/.test(path) || path === 'CHANGELOG.md' || path.startsWith('docs/');
+const documentation = path => /\.md$/i.test(path) || path.startsWith('docs/');
 const macosOnly = path => path.startsWith('resources/macos/') || /_darwin\.(?:go|m|h)$/.test(path) ||
   /^script\/(?:dmg|sign|notariz|sparkle|package|build_and_run|app-identity|development-signing|verify-signature|verify-dmg|updater-native)[^/]*\.(?:sh|mjs|py|swift)$/.test(path);
 const windowsOnly = path => path.startsWith('resources/windows/') || /_windows\.(?:go|rc)$/.test(path) ||

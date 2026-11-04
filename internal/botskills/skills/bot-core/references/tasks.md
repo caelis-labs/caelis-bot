@@ -29,8 +29,10 @@ receipt. For uncertain acceptance, use [Recovery](recovery.md).
 
 Completion notices bring work back without a polling loop. Read the original
 result, assess its artifacts and verification, then deliver the useful output
-and continue remaining authorized work. Carry corrections to the existing Worker
-and request focused fixes when needed. Avoid duplicate delivery.
+and continue useful next steps under the initiative and permission boundaries in
+[Follow-ups](follow-ups.md). A completion notice covers this execution, not later
+external dependencies; arrange those waits when needed. Carry corrections to the
+existing Worker and request focused fixes. Avoid duplicate delivery.
 
 After verifying the requested work is complete, use `observe` and call `finish`
 with the returned `finishToken` from a terminal, idle execution. A completed turn

@@ -1,9 +1,9 @@
 # Arrange future attention
 
-Use `bot_schedule_update` for delayed or conditional follow-through within the
-user's goal and authorization. Save purpose and timing, then check the returned
-handle and next time before promising a callback. On wakeup, inspect the original
-purpose and current facts, continue the work and remove obsolete arrangements.
+Use [Follow-ups](follow-ups.md) to decide what needs future attention and how to
+continue it. This page covers registration, collection and receipts. Use
+`bot_schedule_update` for delayed or conditional work; inspect the returned handle
+and next time before treating an arrangement as saved.
 
 ## Plain timed callback
 
