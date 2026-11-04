@@ -90,12 +90,9 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 			if oldFiles && len(item.Artifacts) > 0 {
 				body += "\n\n完整文件可在桌面同一 Bot 对话获取。"
 			}
-			if item.Task != nil && item.Task.Title != "" {
-				if item.Text == item.Task.Title {
-					body = "**" + item.Task.Title + "**" + strings.TrimPrefix(body, item.Text)
-				} else {
-					body = "**" + item.Task.Title + "**\n\n" + body
-				}
+			// iLink has only plain text, with no underline entity or safe markup.
+			if item.Task != nil && item.Task.Title != "" && item.Text != item.Task.Title {
+				body = item.Task.Title + "\n\n" + body
 			}
 			candidate := queuedDelivery{Key: key, Body: body, Priority: priority, Held: held}
 			if promoted {

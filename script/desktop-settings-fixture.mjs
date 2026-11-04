@@ -35,6 +35,7 @@ window.fixtureDraftFailure=false;window.fixtureUnknownSend=false;
 window.fixtureChatFailure=fail=>{window.fixtureDraftFailure=fail;window.dispatchEvent(new Event('files-changed'));};
 window.fixtureNavigate=next=>{section=next;window.dispatchEvent(new Event('settings-open'))};
 const snapshot={connection:'ready',phase:'idle',canSend:true,canInterrupt:false,canSteer:false,items:Array.from({length:24},(_,i)=>({id:'fixture-'+i,kind:i%2?'assistant':'user',text:'Synthetic retained conversation '+i+' — 用于核对滚动、草稿和附件保留。',status:'completed',artifacts:[]})),approvals:[],reviews:[],references:[],lastReceipt:{id:'',outcome:'',message:''},hasEarlier:false,message:'',revision:1};
+window.fixtureTaskData=tasks=>{snapshot.items=tasks.map(task=>({id:'task-start:'+task.id,kind:'assistant',text:task.title,status:'completed',task,artifacts:[]}));snapshot.revision++;};
 const native=action=>window.webkit?.messageHandlers.navigation.postMessage(action);
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);calls.push(method);
@@ -45,6 +46,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'AppVersion':return 'Synthetic Dev';
  case 'SystemPermissions':return {supported:true,appPath:'/Synthetic/Caelis Settings Preview.app',development:true,permissions:[{id:'accessibility',status:'authorized'},{id:'screenCapture',status:'notDetermined'},{id:'automation',status:'notDetermined',target:'Terminal'},{id:'notifications',status:'authorized'}]};
  case 'SurfaceReady':return;
+ case 'OpenTaskTerminal':return; // Record the original ID; no real task/window.
  case 'OpenSettings':native('settings');return;
  case 'OpenHistory':native('chat');return;
  case 'CloseSettings':case 'CloseHistory':native('hide');return;

@@ -10,7 +10,7 @@ import { useConnectionNotice } from './use-connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
-import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receipt, Snapshot, Submission, QuestionCard } from './backend/contract';
+import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receipt, Snapshot, Submission, QuestionCard, TaskPresentation } from './backend/contract';
 import { readComposer, writeComposer, composerSelection, insertComposerReference, insertComposerText, copyComposer, pasteComposer, deleteComposerReference, type ReferencePosition } from './composer-document';
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
@@ -30,7 +30,8 @@ import { ChatScroll } from './chat-scroll';
 import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, visibleDraftFiles, readDraftAndFiles, retryRead, sameComposerSnapshot } from './chat-observation';
 import { useI18n } from './i18n';
 import { decisionNotDispatched, approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
-import { CheckIcon, XIcon } from './SettingsIcons';
+import { CheckIcon, XIcon, SettingsChevron } from './SettingsIcons';
+import { workerTaskStatusKey } from './WorkerOutput';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
@@ -141,6 +142,16 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
 function ApprovalMessage({value,refresh}:{value:Approval;refresh:()=>void}) {
  return <article className="message-row assistant interaction-message"><BotAvatar clip="companion"/><div className="message assistant state-bubble approval-bubble"><Prompt value={value} refresh={refresh}/></div></article>;
 }
+function TaskMessageAction({task,text,report}:{task:TaskPresentation;text:string;report:(message:string)=>void}) {
+ const {t}=useI18n();
+ const id=task.id;if(!id)return null;
+ const state=workerTaskStatusKey(task.status),status=t(state),title=task.title||text;
+ return <button type="button" className="task-message-action" data-state={state} title={`${title} · ${status}`} aria-label={`${title} · ${status}`}
+  onClick={()=>void desktop('OpenTaskTerminal',id).catch(()=>report(t('chat.taskUnavailable')))}>
+  <span className="task-message-icon" aria-hidden="true">{state==='native.taskFinished'?<CheckIcon size={12} weight="bold"/>:state==='native.taskFailed'||state==='native.taskInterrupted'?<XIcon size={12} weight="bold"/>:state==='native.taskUnknown'?'?':<span/>}</span>
+  <span className="task-message-title">{title}</span><small className="task-message-status">{status}</small><SettingsChevron/>
+ </button>;
+}
 type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; refresh:()=>void; onQuestionAnswered:(card:QuestionCard)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
 const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, refresh, onQuestionAnswered, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
@@ -149,9 +160,9 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
   const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}${item.questionCards?.length?' question-message':''}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
-   <div className={`message ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
+   <div className={`message${item.task?.id?' task-message':''} ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&item.status==='inProgress'&&!incomplete}/> : <p>{item.text}</p>}
+    {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <TaskMessageAction task={item.task} text={item.text} report={report}/> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&item.status==='inProgress'&&!incomplete}/> : <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <ArtifactLink file={file} report={report} key={file.id}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}

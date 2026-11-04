@@ -149,6 +149,25 @@ func assistantOutboundMessages(body string) []outgoingText {
 	return messages
 }
 
+// Task titles are literal UI text. Reuse the existing chunks and UTF-16 entity
+// contract without interpreting Markdown or adding visible formatting markers.
+func taskOutboundMessages(body, title string) []outgoingText {
+	messages := assistantOutboundMessages(body)
+	start, offset := strings.Index(body, title), 0
+	for i := range messages {
+		part := &messages[i]
+		part.Markdown = ""
+		if title != "" && start >= 0 {
+			from, to := max(start, offset), min(start+len(title), offset+len(part.Text))
+			if from < to {
+				part.Entities = []telego.MessageEntity{{Type: telego.EntityTypeUnderline, Offset: utf16Length(body[offset:from]), Length: utf16Length(body[from:to])}}
+			}
+		}
+		offset += len(part.Text)
+	}
+	return messages
+}
+
 func asyncQuestionCard(body string) bool {
 	if !strings.HasPrefix(body, "[Q") {
 		return false

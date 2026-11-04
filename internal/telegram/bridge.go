@@ -1578,7 +1578,9 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 					rendered = true
 				}
 			}
-			if !rendered {
+			if !rendered && i.Task != nil && i.Task.ID != "" {
+				b.sendTaskText(ctx, c, itemKey(i), chat, i.Text, i.Task.Title)
+			} else if !rendered {
 				b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
 			}
 		}
@@ -1989,6 +1991,34 @@ func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat
 }
 func (b *Bridge) sendUserText(ctx context.Context, c client, key string, chat int64, body, title string) {
 	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), nil, nil)
+}
+
+// New task notices use native underline entities. Retained parts keep their
+// original formatter and delivery receipts, including unfinished multipart sends.
+func (b *Bridge) sendTaskText(ctx context.Context, c client, key string, chat int64, body, title string) {
+	messages := taskOutboundMessages(body, title)
+	legacy := assistantOutboundMessages(body)
+	b.mu.Lock()
+	record := b.state.Messages[key]
+	b.mu.Unlock()
+	knownFormatter := len(record.IDs) == 0
+	for part, prior := range legacy {
+		if part >= len(record.Hashes) {
+			break
+		}
+		if record.Hashes[part] == outgoingDigest(prior) {
+			messages, knownFormatter = legacy, true
+			break
+		}
+		if record.Hashes[part] == outgoingDigest(messages[part]) {
+			knownFormatter = true
+		}
+	}
+	// An older unknown projection cannot authorize a style-only edit or resend.
+	if !knownFormatter {
+		return
+	}
+	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
 }
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
