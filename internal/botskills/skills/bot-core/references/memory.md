@@ -45,8 +45,9 @@ Check current task, interaction and arrangement records before acting on a note.
 Link to durable artifacts rather than copying builds or checkouts into Notebook.
 For retained temporary resources, record path, reason, cleanup owner and next step;
 follow [Resources](resources.md) when their dependency ends. When attention must
-return later, use [Events](events.md) or [Reminders](reminders.md); a note alone
-cannot wake you.
+return later, use [Follow-ups](follow-ups.md); a note alone cannot wake you.
+Retain original arrangement handles with open work. After a session handoff, inspect
+those arrangements before resuming or scheduling, rather than duplicating them.
 
 When asked to forget, update the authorized Bot memory files and their relevant
 links. Do not restore deleted facts from history or claim to erase old Runtime
