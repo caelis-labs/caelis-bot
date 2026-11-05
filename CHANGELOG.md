@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.2](https://github.com/caelis-labs/caelis-bot/compare/v0.22.1...v0.22.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **ui:** align composer caret and distinguish task notices ([#273](https://github.com/caelis-labs/caelis-bot/issues/273)) ([69f92c0](https://github.com/caelis-labs/caelis-bot/commit/69f92c075348c547dcb131be0907e2054c3e4747))
+
 ## [0.22.1](https://github.com/caelis-labs/caelis-bot/compare/v0.22.0...v0.22.1) (2026-11-03)
 
 
