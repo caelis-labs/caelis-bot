@@ -977,7 +977,9 @@ executor or replay. Bot does not add a DTW switch,
 installer, proxy, owner lease or plugin identity authority.
 
 Codex Runtime does not receive DTW from Bot. The generic reviewed plugin manager
-and credential relays remain independent. Upgrades leave old Bot DTW package
+and credential relays remain independent. Plugin relay generation checks keep
+their 100 ms timer and a fresh state-file read before every RPC; only byte-identical
+state reuses its previous JSON decoding. Read/parse errors remain fail-closed. Upgrades leave old Bot DTW package
 files and state records intact, but no longer advertise, select or launch them;
 independent Core registrations and files are outside Bot ownership. Core handles
 source conflicts within its own native assembly. Use the current Runtime's Skill
@@ -1013,6 +1015,14 @@ paths and selection persistence stay with the host; previewing never sends a fil
 AppKit owns nonactivating panels, hit masks, drag,
 focus, Space/display changes and geometry; Three.js owns model/mixer/local poses and GPU resource disposal.
 Scaling updates geometry, projection, anchors and hit coverage coherently. Transparent clicks need real OS tests.
+The current-pose hit mask keeps its synchronous readback and native admission path.
+A renderer-owned separable radius-two dilation reuses buffers and skips base64
+conversion only when the freshly computed packed bytes are identical.
+Pet polling shares the chat revision/epoch unchanged guard and keeps observing
+while its bubble is hidden. Changed previews copy only recent native/IM items;
+unresolved draft receipts and outbox echoes still use the full native observation.
+The IM remains the source of completed visible text during native reconnection.
+
 The passive bubble owns an always-active AppKit tracking area and forwards enter/exit facts to the
 renderer without activating the app. WebKit's key-window hover delivery is not its native trigger.
 The renderer retains delayed collapse, bounded scrolling and explicit approval interaction.
