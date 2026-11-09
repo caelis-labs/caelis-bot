@@ -5,7 +5,7 @@ export async function nativeCall<T>(service:string,method:string,invoke:()=>Prom
  // Only native dialog paths wait for a person. Capture send/copy/pin retain
  // their effect deadline and must never be replayed after an unknown result.
  if(service==='desktop'&&(['PickFiles','PickRuntimeCLI','ImportContent','ExportDiagnostics','SaveArtifactAs'].includes(method)||captureSave)||service==='backend'&&method==='ApplySetup')return invoke();
- const reading=/Snapshot$|Preferences$|Status$/.test(method)||['Draft','DraftFiles','DraftImage','DraftImagePreview','HistoryVisible'].includes(method);
+ const reading=/Snapshot$|Preferences$|Status$/.test(method)||['PetSnapshotUpdate','Draft','DraftFiles','DraftImage','DraftImagePreview','HistoryVisible'].includes(method);
  let timer:ReturnType<typeof setTimeout>|undefined;
  try {
   return await Promise.race([
