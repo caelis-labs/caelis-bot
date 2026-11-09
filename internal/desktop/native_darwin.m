@@ -66,6 +66,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property BOOL menuTracking;
 @property NSMenu *trackingMenu;
 @property NSData *mask;
+@property(copy) NSString *tracePath;
 @property uintptr_t handle;
 @property id globalMonitor;
 @property id localMonitor;
@@ -123,6 +124,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @end
 
 @implementation BotHost
+- (instancetype)init {
+    self = [super init];
+    if (self) self.tracePath = NSProcessInfo.processInfo.environment[@"CAELIS_BOT_DESKTOP_TRACE"];
+    return self;
+}
 - (BOOL)pressing {
     return [self.inputView capturesPointer:NSEvent.mouseLocation atTime:NSProcessInfo.processInfo.systemUptime];
 }
@@ -320,7 +326,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ logger = os_log_create(NSBundle.mainBundle.bundleIdentifier.UTF8String ?: "dev.caelis.bot", "Desktop"); });
     if (![event hasPrefix:@"hit-"]) os_log_info(logger, "Surface event: %{public}@", event);
-    NSString *path = NSProcessInfo.processInfo.environment[@"CAELIS_BOT_DESKTOP_TRACE"];
+    NSString *path = self.tracePath;
     if (!path.length) return;
     NSRect r = self.pet.frame;
     NSMutableArray *screens = [NSMutableArray new];
