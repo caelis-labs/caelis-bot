@@ -78,25 +78,13 @@ func (s *Session) Revision() uint64 {
 
 // Native observers and pet polling do not need hydrated older messages.
 func (s *Session) RecentSnapshot() api.Snapshot {
-	v := s.Snapshot()
-	start := 0
-	for i := len(v.Items) - 1; i >= 0; i-- {
-		if v.Items[i].Kind == "user" || v.Items[i].Kind == "activation" {
-			start = i
-			break
-		}
+	var v api.Snapshot
+	if cached := s.cached.Load(); cached != nil {
+		v = *cached
+	} else {
+		v = s.Snapshot()
 	}
-	// Steering adds another user item in the same turn. Retain earlier tool
-	// owners until the service selects the current activity, then trim prose.
-	if v.CurrentTurn != "" {
-		for i := 0; i < start; i++ {
-			if v.Items[i].TurnKey == v.CurrentTurn {
-				start = i
-				break
-			}
-		}
-	}
-	v.Items = v.Items[start:]
+	v.Items = api.RecentItems(v.Items, v.CurrentTurn)
 	b, _ := json.Marshal(v)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)

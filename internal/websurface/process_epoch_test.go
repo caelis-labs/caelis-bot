@@ -116,6 +116,18 @@ func TestHTTPAndEventSnapshotsShareProcessEpoch(t *testing.T) {
 		t.Fatal("HTTP chat ignored matching epoch")
 	}
 
+	for _, epoch := range []string{"", "previous-process"} {
+		var update api.ChatUpdate
+		read("pet-snapshot-update", []any{pet.Revision, pet.BotStatus, epoch}, &update)
+		if !update.Changed || update.Snapshot.ProcessEpoch != pet.ProcessEpoch {
+			t.Fatal("pet update suppressed a foreign epoch", update)
+		}
+	}
+	read("pet-snapshot-update", []any{pet.Revision, pet.BotStatus, pet.ProcessEpoch}, &unchanged)
+	if unchanged.Changed {
+		t.Fatal("HTTP pet ignored matching epoch")
+	}
+
 	h := httptest.NewServer(s)
 	defer h.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

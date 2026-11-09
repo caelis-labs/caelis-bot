@@ -34,6 +34,7 @@ func (s *Server) registerActions() {
 		{Path: "/api/v1/conversation/approval-page-submit", Function: b.SubmitApprovalPage, Local: true},
 		{Path: "/api/v1/conversation/approval-page-operation", Function: b.ApprovalPageOperation, Read: true},
 		{Path: "/api/v1/conversation/pet-snapshot", Function: b.PetSnapshot, Read: true, Composer: false},
+		{Path: "/api/v1/conversation/pet-snapshot-update", Function: b.PetSnapshotUpdate, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/composer-snapshot", Function: b.ComposerSnapshot, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/chat-snapshot", Function: b.ChatSnapshot, Read: true, Composer: false},
 		{Path: "/api/v1/conversation/draft", Function: b.Draft, Read: true, Composer: false},

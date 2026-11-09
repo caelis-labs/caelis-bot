@@ -245,7 +245,9 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 	input.Text += hint
 	return input, nil
 }
-func (s *Service) Snapshot() api.Snapshot {
+func (s *Service) Snapshot() api.Snapshot { return s.snapshot(false) }
+
+func (s *Service) snapshot(recent bool) api.Snapshot {
 	// Capture local versions before projection. If an independent change lands
 	// during projection, this result keeps the older revision and the next poll
 	// must observe the newer state instead of accepting a stale projection.
@@ -254,11 +256,26 @@ func (s *Service) Snapshot() api.Snapshot {
 	localRevision := s.presentationRevision
 	controlNotices := s.controlNotices
 	questionProjector, questionRevision := s.questionProjector, s.questionRevision
+	// Original receipts/outbox echoes may precede the latest input boundary.
+	// Never let the presentation optimization hide evidence needed to settle them.
+	needsFull := s.draftSend != nil && s.draftSend.Outcome == "" || len(s.outbox) != 0
 	s.mu.Unlock()
-	v := s.decorate(engine.Snapshot(), epoch)
+	var native api.Snapshot
+	if source, ok := engine.(api.RecentSource); recent && ok && !needsFull {
+		native = source.RecentSnapshot()
+	} else {
+		native = engine.Snapshot()
+	}
+	v := s.decorate(native, epoch)
 	if s.chat != nil {
 		chatRevision := s.chat.Revision()
-		items, earlier := s.chat.Snapshot()
+		var items []api.Item
+		var earlier bool
+		if recent && !needsFull {
+			items, earlier = s.chat.RecentSnapshot(v.CurrentTurn)
+		} else {
+			items, earlier = s.chat.Snapshot()
+		}
 		for i := range items {
 			items[i] = s.presentChatItem(items[i])
 		}
@@ -385,13 +402,7 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // PetSnapshot bounds the default surface payload. History remains available on
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
-	var snapshot api.Snapshot
-	engine, epoch := s.engineObservation()
-	if recent, ok := engine.(api.RecentSource); ok {
-		snapshot = s.decorate(recent.RecentSnapshot(), epoch)
-	} else {
-		snapshot = s.Snapshot()
-	}
+	snapshot := s.snapshot(true)
 	items := make([]api.Item, 0, 3)
 	for _, item := range snapshot.Items {
 		if snapshot.CurrentTurn != "" && item.TurnKey != snapshot.CurrentTurn {
@@ -432,7 +443,7 @@ func (s *Service) PetSnapshot() api.Snapshot {
 	// key before the current-turn filter can fence an invisible older result.
 	return s.presentation(snapshot)
 }
-func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch string) api.ChatUpdate {
+func (s *Service) snapshotUnchanged(revision uint64, botStatus string, processEpoch string) bool {
 	s.mu.Lock()
 	engine, epoch := s.engineObservation()
 	status := s.botStatus
@@ -464,8 +475,15 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 			combined += noticeRevision
 		}
 		if combined == revision && s.observationCurrent(epoch) {
-			return api.ChatUpdate{}
+			return true
 		}
+	}
+	return false
+}
+
+func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch string) api.ChatUpdate {
+	if s.snapshotUnchanged(revision, botStatus, processEpoch) {
+		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
 	// An unresolved original receipt can require a read even when no visible

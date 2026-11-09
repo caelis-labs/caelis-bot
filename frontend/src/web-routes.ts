@@ -29,6 +29,7 @@ export const webRoutes:Record<string,{path:string;read:boolean}> = {
  // Original native adapter receipts handle this submission; arguments never persist.
  "backend.SubmitApprovalPage":{"path":"/api/v1/conversation/approval-page-submit","read":true},
  "backend.ApprovalPageOperation":{"path":"/api/v1/conversation/approval-page-operation","read":true},
+ "backend.PetSnapshotUpdate": {"path":"/api/v1/conversation/pet-snapshot-update","read":true},
  "backend.PetSnapshot": {
   "path": "/api/v1/conversation/pet-snapshot",
   "read": true

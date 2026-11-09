@@ -187,8 +187,8 @@ export function useConversation(active: boolean, pet=false, chat=false) {
   if(!observing.current)return;
   const ticket=order.current.request(),expectedRevision=order.current.revision;
   let next:Snapshot|null;
-  if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',expectedRevision,botStatus.current,order.current.processEpoch);next=update.changed?update.snapshot:null;}
-  else next=await backend<Snapshot>(pet?'PetSnapshot':'Snapshot');
+  if(chat||pet){const update=await backend<ChatUpdate>(pet?'PetSnapshotUpdate':'ChatSnapshot',expectedRevision,botStatus.current,order.current.processEpoch);next=update.changed?update.snapshot:null;}
+  else next=await backend<Snapshot>('Snapshot');
   if(!next){order.current.accept(ticket,expectedRevision);return;}
   if(observing.current&&order.current.accept(ticket,next.revision,next.processEpoch)){
    botStatus.current=next.botStatus;
