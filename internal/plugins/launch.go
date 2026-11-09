@@ -5,11 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -82,9 +80,8 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 	// Runtime sessions can retain old MCP schemas after a reload. Fence every
 	// incoming JSON-RPC message against the committed plugin state and stop an
 	// already running child when its generation is disabled or superseded.
-	stillActive := func() bool {
-		return activeGeneration(m.root, packageID, rootName)
-	}
+	generationCheck := generationCheck{path: filepath.Join(m.root, "state.json"), packageID: packageID, generation: rootName}
+	stillActive := generationCheck.active
 	if !stillActive() {
 		return errors.New("plugin service is no longer active")
 	}
@@ -193,19 +190,6 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 	}
 	cmd.Env = base
 	return cmd.Run()
-}
-
-func activeGeneration(storeRoot, packageID, generation string) bool {
-	body, err := os.ReadFile(filepath.Join(storeRoot, "state.json"))
-	if err != nil {
-		return false
-	}
-	var saved state
-	if json.Unmarshal(body, &saved) != nil {
-		return false
-	}
-	item, ok := saved.Installed[packageID]
-	return ok && item.Enabled && item.Root == generation
 }
 
 func replaceEnvironment(base []string, key, value string) []string {

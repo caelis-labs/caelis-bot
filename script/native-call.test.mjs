@@ -2,6 +2,22 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {nativeCall} from '../frontend/src/native-call.ts';
 
+for(const [method,deadline] of [['PetSnapshotUpdate',5_000],['Submit',40_000]]) {
+ test(`a never-returning ${method} expires once at ${deadline}ms without replay`,async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  let calls=0,outcome;
+  nativeCall('backend',method,()=>{calls++;return new Promise(()=>{});}).then(
+   ()=>{outcome='resolved';},error=>{outcome=error;},
+  );
+  t.mock.timers.tick(deadline-1);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(outcome,undefined);assert.equal(calls,1);
+  t.mock.timers.tick(1);await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(outcome instanceof Error);assert.match(outcome.message,/not been confirmed/);
+  t.mock.timers.tick(60_000);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(calls,1);
+ });
+}
+
 test('a human-driven picker survives the RPC deadline and returns its original selection once',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
  let finish,calls=0,settled=false;

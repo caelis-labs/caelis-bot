@@ -86,7 +86,7 @@ func (e *delayedObservationEngine) Revision() uint64 {
 }
 
 func TestRuntimeObservationCapturesEngineEpochAndRevisionTogether(t *testing.T) {
-	for _, surface := range []string{"snapshot", "pet", "composer", "chat", "unchanged"} {
+	for _, surface := range []string{"snapshot", "pet", "composer", "chat", "unchanged", "pet-unchanged"} {
 		t.Run(surface, func(t *testing.T) {
 			e := &delayedObservationEngine{snapshotEngine: snapshotEngine{value: api.Snapshot{Revision: 120}}, entered: make(chan struct{}), release: make(chan struct{})}
 			s := NewService(e, nil, nil, nil, nil)
@@ -100,6 +100,8 @@ func TestRuntimeObservationCapturesEngineEpochAndRevisionTogether(t *testing.T) 
 					result <- s.ComposerSnapshot()
 				case "chat":
 					result <- s.ChatSnapshot(0, "", "").Snapshot
+				case "pet-unchanged":
+					result <- s.PetSnapshotUpdate(120, "", oldEpoch).Snapshot
 				case "unchanged":
 					result <- s.ChatSnapshot(120, "", oldEpoch).Snapshot
 				default:
@@ -114,7 +116,7 @@ func TestRuntimeObservationCapturesEngineEpochAndRevisionTogether(t *testing.T) 
 			if current.ProcessEpoch == oldEpoch || current.Revision != 9 {
 				t.Fatalf("invalid current observation: %+v", current)
 			}
-			if surface == "unchanged" {
+			if surface == "unchanged" || surface == "pet-unchanged" {
 				if late.ProcessEpoch != current.ProcessEpoch || late.Revision != current.Revision {
 					t.Fatalf("stale revision check suppressed replacement: %+v", late)
 				}

@@ -21,13 +21,10 @@ func lockOAuth(root, id string) (func(), error) {
 		return nil, err
 	}
 	overlapped := windows.Overlapped{}
-	if err = windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlapped); err != nil {
-		f.Close()
-		return nil, err
-	}
 	return func() { _ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &overlapped); _ = f.Close() }, nil
 }
 
+// Returns a locked, freshly attested handle; closing it also releases the lock.
 // No delete sharing: a second process cannot replace the locked pathname and
 // impersonate a fresh owner. OPEN_REPARSE_POINT refuses redirected lock files.
 func windowsLockFile(root, name string, create bool) (*os.File, error) {
@@ -57,6 +54,12 @@ func windowsLockFile(root, name string, create bool) (*os.File, error) {
 	err = windows.GetFileInformationByHandle(h, &info)
 	if err == nil && (info.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY|windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 || info.NumberOfLinks != 1) {
 		err = errors.New("invalid lock object")
+	}
+	// ACL writers and readers must share the refresh lock. GetSecurityInfo
+	// can fail when another caller changes the descriptor concurrently.
+	if err == nil {
+		overlapped := windows.Overlapped{}
+		err = windows.LockFileEx(h, windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlapped)
 	}
 	if err == nil && create {
 		err = localstate.ProtectFile(path)
