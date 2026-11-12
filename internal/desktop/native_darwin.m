@@ -78,6 +78,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 
 @property BOOL visible;
 @property NSStatusItem *statusItem;
+@property NSMenu *statusMenu;
 @property NSDictionary<NSString *,NSString *> *language;
 @property double scale;
 @property double placementX;
@@ -284,6 +285,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [self publishContext]; [self trace:reason];
 }
 - (void)menuDidClose:(NSMenu *)menu {
+    // Restore left-click action routing even after an explicit dismissal.
+    if (self.statusItem.menu == menu) self.statusItem.menu = nil;
     if (self.trackingMenu != menu) return;
     self.trackingMenu=nil; self.menuTracking=NO; [self publishContext];
 }
@@ -511,7 +514,11 @@ void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t h
     host.statusItem.button.image = image;
     host.statusItem.button.toolTip = NSBundle.mainBundle.infoDictionary[@"CFBundleDisplayName"] ?: @"Caelis Bot";
     host.statusItem.button.accessibilityLabel = host.statusItem.button.toolTip;
-    host.statusItem.menu = [host applicationMenu];
+    // Attach the menu only for a right click; left clicks use the existing chat action.
+    host.statusMenu = [host applicationMenu];
+    host.statusItem.button.target = host;
+    host.statusItem.button.action = @selector(openChat:);
+    [host.statusItem.button sendActionOn:NSEventMaskLeftMouseUp];
     [host installPreviewMenu];
     // Wails beta.6 cannot create NSPanel. Keep its original hidden window and
     // protocol/webview ownership, and mount its content in a non-key NSPanel.
@@ -609,7 +616,14 @@ void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t h
     view.accessibilityLabel = renderOwner.title;
     NSEventMask mask = NSEventMaskMouseMoved|NSEventMaskLeftMouseDragged|NSEventMaskLeftMouseDown|NSEventMaskLeftMouseUp|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown;
     host.globalMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:mask handler:^(NSEvent *event) { [weak observeClick:event local:NO]; }];
-    host.localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) { [weak observeClick:event local:YES]; return event; }];
+    host.localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+        [weak observeClick:event local:YES];
+        // Use the originating event before AppKit enters native menu tracking.
+        if (event.type == NSEventTypeRightMouseDown && event.window == weak.statusItem.button.window) {
+            weak.statusItem.menu = weak.statusMenu;
+        }
+        return event;
+    }];
     host.contextTimer=[NSTimer timerWithTimeInterval:1.0/8 repeats:YES block:^(NSTimer *timer){[weak publishContext];}];
     [NSRunLoop.mainRunLoop addTimer:host.contextTimer forMode:NSRunLoopCommonModes];
     host.observers = [NSMutableArray new];
@@ -884,7 +898,7 @@ void bot_capture_enabled(void *pointer,int enabled) {
     host.captureEnabled=enabled!=0;
     host.capture.enabled=enabled!=0;
     // Update the installed menu, including an already tracking menu, immediately.
-    bot_capture_menu_enabled((__bridge void *)host.statusItem.menu, host.captureEnabled);
+    bot_capture_menu_enabled((__bridge void *)host.statusMenu, host.captureEnabled);
 }
 char *bot_preferred_languages(void) {
     @autoreleasepool {
@@ -904,7 +918,7 @@ void bot_language(void *pointer, char *json) {
     host.prop.title = [host text:@"propTitle"];
     host.inputView.accessibilityLabel = [host text:@"petLabel"];
     host.inputView.accessibilityHelp = [host text:@"petActionHint"];
-    host.statusItem.menu = [host applicationMenu];
+    host.statusMenu = [host applicationMenu];
 }
 
 void bot_task_snapshot(void *pointer,const char *identifier,const char *source) {

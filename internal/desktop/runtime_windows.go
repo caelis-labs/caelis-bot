@@ -195,7 +195,7 @@ func Run(assets fs.FS) error {
 	s.captureMenuChanged = func() { populate(s.LanguagePreferences()) }
 	populate(s.LanguagePreferences())
 	openMenu := func() { go func() { populate(s.LanguagePreferences()); tray.OpenMenu() }() }
-	tray.OnClick(openMenu)
+	tray.OnClick(func() { go s.OpenHistory() })
 	tray.OnRightClick(openMenu)
 	// Native HWNDs must exist before installing pointer handling; delayed
 	// creation also avoids reentrant pending WebView startup on Windows.
