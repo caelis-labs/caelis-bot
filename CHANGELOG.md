@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.22.2](https://github.com/caelis-labs/caelis-bot/compare/v0.22.1...v0.22.2) (2026-11-13)
+
+
+### Bug Fixes
+
+* **desktop:** open chat on tray left click ([#277](https://github.com/caelis-labs/caelis-bot/issues/277)) ([0d71e3c](https://github.com/caelis-labs/caelis-bot/commit/0d71e3c2ba0ac11e59c1cdda53086fb2a4164371))
+* **ui:** align composer caret and distinguish task notices ([#273](https://github.com/caelis-labs/caelis-bot/issues/273)) ([69f92c0](https://github.com/caelis-labs/caelis-bot/commit/69f92c075348c547dcb131be0907e2054c3e4747))
+* **windows:** bound trusted release feed pagination ([#283](https://github.com/caelis-labs/caelis-bot/issues/283)) ([73e8a70](https://github.com/caelis-labs/caelis-bot/commit/73e8a700080d48e2619a8e4888a084bdbdee4fb6))
+* **windows:** recover capture preparation without replaying effects ([#282](https://github.com/caelis-labs/caelis-bot/issues/282)) ([a970ff4](https://github.com/caelis-labs/caelis-bot/commit/a970ff4aef23d779c984030d7b9526776b8766bd))
+
+
+### Performance Improvements
+
+* reduce pet projection, mask and plugin decode work ([#276](https://github.com/caelis-labs/caelis-bot/issues/276)) ([eebadce](https://github.com/caelis-labs/caelis-bot/commit/eebadcedabd18cad7bb1a116af0abda78a6ade3b))
+
 ## [0.22.1](https://github.com/caelis-labs/caelis-bot/compare/v0.22.0...v0.22.1) (2026-11-03)
 
 
