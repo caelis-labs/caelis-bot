@@ -14,10 +14,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,82 @@ import (
 var publicKey string
 
 const Releases = "https://api.github.com/repos/caelis-labs/caelis-bot/releases?per_page=100"
+const maxReleasePages = 10
+const maxReleasePageBytes = 2 << 20
+
+// Never report "current" or offer a partial selection after a truncated scan.
+var ErrIncompleteFeed = errors.New("Windows update release feed is incomplete")
+
+func releasePageURL(raw string) (string, int, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "api.github.com" || u.User != nil || u.Fragment != "" || u.RawPath != "" || u.Opaque != "" ||
+		(u.Path != "/repos/caelis-labs/caelis-bot/releases" && u.Path != "/repositories/1376961363/releases") {
+		return "", 0, errors.New("untrusted release pagination")
+	}
+	// GitHub's Link uses this repository's immutable numeric ID. Canonicalize
+	// both permitted paths to the same named endpoint; never follow another repo.
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q["per_page"]) != 1 || q.Get("per_page") != "100" || len(q) > 2 {
+		return "", 0, errors.New("invalid release pagination parameters")
+	}
+	page := 1
+	if values, ok := q["page"]; ok {
+		if len(values) != 1 {
+			return "", 0, errors.New("invalid release page")
+		}
+		page, err = strconv.Atoi(values[0])
+		if err != nil || page < 1 || strconv.Itoa(page) != values[0] {
+			return "", 0, errors.New("invalid release page")
+		}
+	} else if len(q) != 1 {
+		return "", 0, errors.New("invalid release pagination parameters")
+	}
+	normalized := Releases
+	if page > 1 {
+		normalized += "&page=" + strconv.Itoa(page)
+	}
+	return normalized, page, nil
+}
+
+func nextReleasePage(header http.Header, current int) (string, error) {
+	links := strings.Join(header.Values("Link"), ",")
+	if len(links) > 8192 {
+		return "", errors.New("release pagination header too large")
+	}
+	var next string
+	more := false
+	for _, link := range strings.Split(links, ",") {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		end := strings.IndexByte(link, '>')
+		if !strings.HasPrefix(link, "<") || end < 1 {
+			return "", errors.New("invalid release pagination link")
+		}
+		_, params, err := mime.ParseMediaType("application/link" + link[end+1:])
+		if err != nil || params["rel"] == "" {
+			return "", errors.New("invalid release pagination relation")
+		}
+		target, page, err := releasePageURL(link[1:end])
+		if err != nil {
+			return "", err
+		}
+		more = more || page > current
+		for _, rel := range strings.Fields(params["rel"]) {
+			if rel == "next" {
+				if next != "" || page != current+1 {
+					return "", errors.New("cyclic or non-sequential release pagination")
+				}
+				next = target
+			}
+		}
+	}
+	if next == "" && more {
+		return "", fmt.Errorf("%w: missing next page", ErrIncompleteFeed)
+	}
+	return next, nil
+}
 
 type Artifact struct {
 	Format string `json:"format"`
@@ -117,92 +195,133 @@ func trustedURL(s string) bool {
 	return e == nil && u.Scheme == "https" && u.Host == "github.com" && strings.HasPrefix(u.Path, "/caelis-labs/caelis-bot/releases/download/") && u.RawQuery == "" && u.Fragment == "" && u.User == nil
 }
 func (c *Client) get(ctx context.Context, u string, limit int64) ([]byte, error) {
+	b, _, err := readResponse(ctx, c.HTTP, u, limit)
+	return b, err
+}
+func readResponse(ctx context.Context, client *http.Client, u string, limit int64) ([]byte, http.Header, error) {
 	req, e := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 	req.Header.Set("User-Agent", "Caelis-Bot-Windows-update")
 	req.Header.Set("Accept", "application/vnd.github+json")
-	r, e := c.HTTP.Do(req)
+	r, e := client.Do(req)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 	defer r.Body.Close()
 	if r.StatusCode != 200 {
-		return nil, fmt.Errorf("update HTTP %d", r.StatusCode)
+		return nil, nil, fmt.Errorf("update HTTP %d", r.StatusCode)
 	}
 	b, e := io.ReadAll(io.LimitReader(r.Body, limit+1))
-	if e != nil || int64(len(b)) > limit {
-		return nil, errors.New("update response too large")
+	if e != nil {
+		return nil, nil, e
 	}
-	return b, nil
+	if int64(len(b)) > limit {
+		return nil, nil, errors.New("update response too large")
+	}
+	return b, r.Header, nil
 }
 func DownloadURL(m Manifest, file string) string {
 	return "https://github.com/caelis-labs/caelis-bot/releases/download/" + m.Tag + "/" + file
 }
 func (c *Client) Check(ctx context.Context, current, channel, format string) (*Offer, error) {
-	data, e := c.get(ctx, c.Feed, 2<<20)
+	next, first, e := releasePageURL(c.Feed)
 	if e != nil {
 		return nil, e
 	}
-	var releases []struct {
-		Tag        string `json:"tag_name"`
-		Draft      bool   `json:"draft"`
-		Prerelease bool   `json:"prerelease"`
-		Assets     []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+	if first != 1 {
+		return nil, fmt.Errorf("%w: scan must start at page one", ErrIncompleteFeed)
 	}
-	if json.Unmarshal(data, &releases) != nil {
-		return nil, errors.New("invalid release feed")
-	}
+	// Asset redirects retain their existing policy. Feed redirects cannot change
+	// the repository, skip a page or escape the pagination budget.
+	feedHTTP := *c.HTTP
+	feedHTTP.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("release feed redirect refused") }
 	var best *Offer
-	for _, r := range releases {
-		if r.Draft || (channel == "stable" && r.Prerelease) {
-			continue
+	for page := 1; ; page++ {
+		if e := ctx.Err(); e != nil {
+			return nil, e
 		}
-		compare, e := updates.CompareVersions(r.Tag, current)
-		if e != nil || compare <= 0 {
-			continue
+		data, header, e := readResponse(ctx, &feedHTTP, next, maxReleasePageBytes)
+		if e != nil {
+			return nil, e
 		}
-		if best != nil {
-			cmp, e := updates.CompareVersions(r.Tag, best.Manifest.Version)
-			if e != nil || cmp <= 0 {
+		var releases []struct {
+			Tag        string `json:"tag_name"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+			Assets     []struct {
+				Name string `json:"name"`
+				URL  string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if json.Unmarshal(data, &releases) != nil {
+			return nil, errors.New("invalid release feed")
+		}
+		if len(releases) > 100 {
+			return nil, errors.New("release page has too many entries")
+		}
+		for _, r := range releases {
+			if e := ctx.Err(); e != nil {
+				return nil, e
+			}
+			if r.Draft || (channel == "stable" && r.Prerelease) {
 				continue
 			}
-		}
-		urls := map[string]string{}
-		for _, a := range r.Assets {
-			if trustedURL(a.URL) {
-				urls[a.Name] = a.URL
+			compare, e := updates.CompareVersions(r.Tag, current)
+			if e != nil || compare <= 0 {
+				continue
+			}
+			if best != nil {
+				cmp, e := updates.CompareVersions(r.Tag, best.Manifest.Version)
+				if e != nil || cmp <= 0 {
+					continue
+				}
+			}
+			urls := map[string]string{}
+			for _, a := range r.Assets {
+				if trustedURL(a.URL) {
+					urls[a.Name] = a.URL
+				}
+			}
+			if urls["windows-update.json"] == "" || urls["windows-update.json.sig"] == "" {
+				continue
+			}
+			b, e := c.get(ctx, urls["windows-update.json"], 65536)
+			if e != nil {
+				return nil, e
+			}
+			sig, e := c.get(ctx, urls["windows-update.json.sig"], 1024)
+			if e != nil {
+				return nil, e
+			}
+			m, e := Verify(b, sig, c.PublicKey)
+			if e != nil {
+				return nil, e
+			}
+			if m.Tag != r.Tag || m.Channel != channel {
+				continue
+			}
+			for _, a := range m.Artifacts {
+				if a.Format == format && urls[a.File] == DownloadURL(m, a.File) {
+					best = &Offer{m, a, b, sig}
+				}
 			}
 		}
-		if urls["windows-update.json"] == "" || urls["windows-update.json.sig"] == "" {
-			continue
-		}
-		b, e := c.get(ctx, urls["windows-update.json"], 65536)
+		next, e = nextReleasePage(header, page)
 		if e != nil {
 			return nil, e
 		}
-		sig, e := c.get(ctx, urls["windows-update.json.sig"], 1024)
-		if e != nil {
+		if e := ctx.Err(); e != nil {
 			return nil, e
 		}
-		m, e := Verify(b, sig, c.PublicKey)
-		if e != nil {
-			return nil, e
+		if next == "" {
+			return best, nil
 		}
-		if m.Tag != r.Tag || m.Channel != channel {
-			continue
-		}
-		for _, a := range m.Artifacts {
-			if a.Format == format && urls[a.File] == DownloadURL(m, a.File) {
-				best = &Offer{m, a, b, sig}
-			}
+		if page == maxReleasePages {
+			return nil, fmt.Errorf("%w: %d page limit", ErrIncompleteFeed, maxReleasePages)
 		}
 	}
-	return best, nil
 }
 func VerifyArchive(path string, a Artifact) error {
 	f, e := os.Open(path)
