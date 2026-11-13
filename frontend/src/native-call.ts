@@ -5,12 +5,15 @@ export async function nativeCall<T>(service:string,method:string,invoke:()=>Prom
  // Only native dialog paths wait for a person. Capture send/copy/pin retain
  // their effect deadline and must never be replayed after an unknown result.
  if(service==='desktop'&&(['PickFiles','PickRuntimeCLI','ImportContent','ExportDiagnostics','SaveArtifactAs'].includes(method)||captureSave)||service==='backend'&&method==='ApplySetup')return invoke();
+ // Capture reads and the native fenced, idempotent Ready claim must recover
+ // before the hidden presentation expires. Other effects retain their deadline.
+ const capturePreparation=service==='desktop'&&['WindowsCaptureDocument','WindowsCaptureReady'].includes(method);
  const reading=/Snapshot$|Preferences$|Status$/.test(method)||['PetSnapshotUpdate','Draft','DraftFiles','DraftImage','DraftImagePreview','HistoryVisible'].includes(method);
  let timer:ReturnType<typeof setTimeout>|undefined;
  try {
   return await Promise.race([
    invoke(),
-   new Promise<T>((_,reject)=>{timer=setTimeout(()=>reject(new Error('The operation has not been confirmed yet. Its original request is retained.')),reading?5000:40000);}),
+   new Promise<T>((_,reject)=>{timer=setTimeout(()=>reject(new Error('The operation has not been confirmed yet. Its original request is retained.')),capturePreparation?3000:reading?5000:40000);}),
   ]);
  }finally{if(timer!==undefined)clearTimeout(timer);}
 }
