@@ -213,9 +213,13 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	entered, release = make(chan struct{}, 1), make(chan struct{})
 	released = false
 	key := "CASE_COMPATIBLE_DISCOVER"
-	model.set(key, modelStep{Name: "tool_search", Args: map[string]any{"query": "Desktop World apps exec", "limit": 2}, Entered: entered, Block: release}, modelStep{Name: "mcp_call", BuildArgs: func() any {
-		return map[string]any{"tool_name": discoveredDTWTool(t, model, key, "apps"), "arguments": map[string]any{"query": "Bot Runtime Probe"}}
-	}})
+	model.set(key, modelStep{Name: "js_exec", Args: map[string]any{"code": `
+const catalog = await tools.search({server: "desktop-world"});
+const apps = catalog.tools.filter(tool => tool.name.endsWith("__apps"));
+if (apps.length !== 1) throw new Error("Expected one native apps tool");
+const reply = await tools.call(apps[0].name, {query: "Bot Runtime Probe"});
+return {probe: "UPGRADE_DTW_APPS", tool: apps[0].name, result: tools.unpack(reply)};
+`}, Entered: entered, Block: release})
 	if _, err = upgraded.Submit(ctx, api.Submission{ID: "compatible-fresh-discovery", Text: key}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +231,24 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	directory := waitFixedDTW(t, ctx, currentClient, after.Session.SessionId)
 	close(release)
 	released = true
-	waitAcceptance(t, ctx, func() bool { return upgraded.Snapshot().CanSend && len(model.seen(key)) >= 3 })
+	waitAcceptance(t, ctx, func() bool { return upgraded.Snapshot().CanSend && len(model.seen(key)) >= 2 })
+	appsReturned := false
+	walkDTWJSON(dtwLastToolOutput(model.seen(key)), func(result map[string]any) {
+		if result["probe"] != "UPGRADE_DTW_APPS" {
+			return
+		}
+		unpacked, _ := result["result"].(map[string]any)
+		parts, _ := unpacked["json"].([]any)
+		for _, part := range parts {
+			data, _ := part.(map[string]any)
+			if _, ok := data["apps"].([]any); ok {
+				appsReturned = true
+			}
+		}
+	})
+	if !appsReturned {
+		t.Fatal("fresh Code Mode discovery did not return a native apps result")
+	}
 	evidence := map[string]any{"resident_session": after.Session.SessionId, "worker_session": retainedWorker, "original_callback_count": effects.Load(), "original_receipt": retained, "worker_requests_before": workerRequests, "worker_requests_after": len(model.seen("CASE_COMPATIBLE_WORKER")), "upgraded_mcp_status": directory, "model_decisions": "synthetic", "mcp_discovery_and_apps": "real"}
 	data, _ := json.MarshalIndent(evidence, "", "  ")
 	if err = os.WriteFile(filepath.Join(root, "upgrade-summary.json"), data, 0600); err != nil {

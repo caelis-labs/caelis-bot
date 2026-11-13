@@ -232,7 +232,7 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 		}
 		fixed := 0
 		for _, p := range d.Plugins {
-			if value(p.Id) == "desktop-world" && value(p.Version) == "0.3.4" && p.Status == "builtin" {
+			if value(p.Id) == "desktop-world" && value(p.Version) == "0.4.2" && p.Status == "builtin" {
 				fixed++
 			}
 		}
