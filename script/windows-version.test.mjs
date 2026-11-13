@@ -1,9 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {copyFileSync,mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
-import {spawnSync} from 'node:child_process';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {delimiter,join} from 'node:path';
 import {windowsVersion} from './windows-version.mjs';
 import {releaseVersion} from './release-version.mjs';
 
@@ -14,10 +14,16 @@ test('Windows environment derives pins from repository files and rejects incompa
  t.after(()=>rmSync(root,{recursive:true,force:true}));
  mkdirSync(join(root,'script'));
  copyFileSync(new URL('./windows-env.ps1',import.meta.url),join(root,'script/windows-env.ps1'));
- // Mock only version reporting; module parsing still uses the installed Go binary.
+ const extraGo=join(root,'extra-go');mkdirSync(extraGo);
+ const goRoot=execFileSync('go',['env','GOROOT'],{encoding:'utf8',env:{...process.env,GOWORK:'off',GOTOOLCHAIN:'local'}}).trim();
+ const goName=process.platform==='win32'?'go.exe':'go';
+ copyFileSync(join(goRoot,'bin',goName),join(extraGo,goName));
+ const pathKey=Object.keys(process.env).find(key=>key.toUpperCase()==='PATH')||'PATH';
+ // Keep multiple Go installations on PATH, as on Windows CI. Mock only version
+ // reporting; module parsing still uses the first installed Go binary.
  writeFileSync(join(root,'probe.ps1'),`
 $ErrorActionPreference = 'Stop'
-$taskRealGo = (Get-Command go -CommandType Application).Source
+$taskRealGo = (Get-Command go -CommandType Application | Select-Object -First 1).Source
 function node { $env:BOT_TEST_NODE }
 function go {
   if ($args.Count -eq 1 -and $args[0] -eq 'version') { $env:BOT_TEST_GO }
@@ -32,11 +38,11 @@ function go {
   writeFileSync(join(root,'go.mod'),`module example.com/windows-env-test\n\ngo ${versions.go}\n${versions.wails?`\nrequire github.com/wailsapp/wails/v3 ${versions.wails}\n`:''}`);
   return spawnSync('pwsh',['-NoProfile','-NonInteractive','-File',join(root,'probe.ps1')],{
    cwd:root,encoding:'utf8',timeout:15000,
-   env:{...process.env,GOWORK:'off',GOTOOLCHAIN:'local',GOPROXY:'off',
+   env:{...process.env,[pathKey]:process.env[pathKey]+delimiter+extraGo,GOWORK:'off',GOTOOLCHAIN:'local',GOPROXY:'off',
     BOT_TEST_NODE:`v${versions.node}`,BOT_TEST_GO:`go version go${versions.go} windows/amd64`,...reports},
   });
  };
- await t.test('reads alternate Node, Go and Wails pins without toolchain.json',()=>{
+ await t.test('reads alternate pins with multiple Go installations on PATH',()=>{
   for(const versions of [pins,{node:'97.6.5',go:'1.21.9',wails:'v3.0.0-alpha.9'}]){
    const result=run(versions);
    assert.equal(result.status,0,result.stdout+result.stderr);

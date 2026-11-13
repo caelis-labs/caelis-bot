@@ -1,6 +1,6 @@
 module github.com/caelis-labs/caelis-bot/poc/eventbot
 
-go 1.26.8
+go 1.26.11
 
 require (
 	cel.dev/cel-go v0.32.0
