@@ -20,7 +20,8 @@ import {desktop} from './desktop';
 import {useI18n} from './i18n';
 import {addCaptureMark,captureCommandKey,captureDragRect,captureKeyAction,captureToolbarPosition,emptyHistory,moveCaptureSelection,paintCaptureMark,redoCaptureMark,undoCaptureMark} from './capture-editor';
 import type {CaptureHistory,CaptureMark,CaptureRect,Point} from './capture-editor';
-type Document={id:string;image:string;width:number;height:number;window:CaptureRect;screen:boolean;outcome:string;imageCapability:string;message:string;presentation:number;diagnostics?:boolean};
+import {captureDocumentReader,captureImage,confirmCapture} from './capture-recovery';
+import type {CaptureDocument as Document} from './capture-recovery';
 const clamp=(n:number,max:number)=>Math.max(0,Math.min(n,max));
 function CaptureButton({label,children,...props}:ComponentProps<'button'>&{label:string}) {
  return <button type="button" className="capture-icon-button" title={label} aria-label={label} {...props}>{children}</button>;
@@ -42,11 +43,15 @@ export function WindowsCapture(){
 function WindowsCaptureEditor({id}:{id:string}){
  const {t}=useI18n();
  const [doc,setDoc]=useState<Document|null>(null),[selection,setSelection]=useState<CaptureRect|null>(null),[history,setHistory]=useState<CaptureHistory>(emptyHistory);
- const [kind,setKind]=useState('select'),[note,setNote]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [kind,setKind]=useState('select'),[note,setNote]=useState(''),[actionError,setError]=useState(''),[busy,setBusy]=useState(false);
  const [text,setText]=useState(''),[ink,setInk]=useState('#e63854'),[width,setWidth]=useState(3),[pointer,setPointer]=useState<Point|null>(null);
  const workspace=useRef<HTMLElement>(null),canvas=useRef<HTMLCanvasElement>(null),magnifier=useRef<HTMLCanvasElement>(null),source=useRef<HTMLImageElement|null>(null),drag=useRef<CaptureMark|null>(null);
  const initialized=useRef(false),performing=useRef(false),acknowledged=useRef(0);
- const [imageLoaded,setImageLoaded]=useState(false),[confirmed,setConfirmed]=useState(false);
+ const [loaded,setLoaded]=useState<{image:string;presentation:number}|null>(null),[confirmed,setConfirmed]=useState(false);
+ const reader=useRef<ReturnType<typeof captureDocumentReader>|null>(null);
+ const [recovery,setRecovery]=useState<{document?:boolean;image?:number;ready?:number}>({});
+ const imageLoaded=!!doc&&loaded?.image===doc.image&&loaded.presentation===doc.presentation;
+ const error=actionError||(recovery.document||doc&&(recovery.image===doc.presentation||recovery.ready===doc.presentation)?t('native.capture.windowsImageFailed'):'');
  const toolbar=useRef<HTMLDivElement>(null);
  const [selecting,setSelecting]=useState(false),[toolbarPoint,setToolbarPoint]=useState<Point|null>(null),[widthOpen,setWidthOpen]=useState(false);
  const showToolbar=confirmed&&!!selection&&selection.width>0&&selection.height>0&&!selecting;
@@ -73,16 +78,28 @@ function WindowsCaptureEditor({id}:{id:string}){
   position();const observer=new ResizeObserver(position);observer.observe(panel);observer.observe(c);window.addEventListener('resize',position);
   return()=>{observer.disconnect();window.removeEventListener('resize',position);};
  },[showToolbar,selection,doc?.width,doc?.height,doc?.outcome]);
- const refresh=async()=>{
-  const d=await desktop<Document>('WindowsCaptureDocument',id);setDoc(d);
-  if(!initialized.current){setSelection({x:0,y:0,width:d.width,height:d.height});setConfirmed(d.outcome!=='draft');initialized.current=true;}
-  if(source.current?.src!==new URL(d.image,location.href).href){setImageLoaded(false);const im=new Image();im.onload=()=>{source.current=im;setImageLoaded(true);if(d.diagnostics)void desktop('WindowsCaptureInput',id,'image_decoded').catch(()=>{});};im.onerror=()=>setError(t('native.capture.windowsImageFailed'));im.src=d.image;}
- };
+ const refresh=()=>reader.current?.refresh()??Promise.resolve();
  useEffect(()=>{
-  const receipt=()=>void refresh().catch(()=>{if(!initialized.current)setError(t('native.capture.windowsImageFailed'));});receipt();window.addEventListener('capture-receipt',receipt);
+  const current=captureDocumentReader(id,()=>desktop<Document>('WindowsCaptureDocument',id),d=>{
+   setDoc(d);
+   if(!initialized.current){setSelection({x:0,y:0,width:d.width,height:d.height});setConfirmed(d.outcome!=='draft');initialized.current=true;}
+  },failed=>setRecovery(value=>({...value,document:failed})));
+  reader.current=current;
+  const receipt=()=>void current.refresh().catch(()=>{});receipt();window.addEventListener('capture-receipt',receipt);
   const timer=window.setInterval(()=>void desktop('RefreshWindowsCapture',id).catch(()=>{}),5000);
-  return()=>{window.removeEventListener('capture-receipt',receipt);window.clearInterval(timer);};
- },[]);
+  return()=>{current.stop();reader.current=null;window.removeEventListener('capture-receipt',receipt);window.clearInterval(timer);};
+ },[id]);
+ useEffect(()=>{
+  if(!doc)return;
+  const controller=new AbortController(),signal=controller.signal;
+  void captureImage(doc.image,signal).then(image=>{
+   if(signal.aborted)return;
+   source.current=image;setLoaded({image:doc.image,presentation:doc.presentation});
+   setRecovery(value=>({...value,image:undefined}));
+   if(doc.diagnostics)void desktop('WindowsCaptureInput',id,'image_decoded').catch(()=>{});
+  }).catch(()=>{if(!signal.aborted)setRecovery(value=>({...value,image:doc.presentation}));});
+  return()=>controller.abort();
+ },[doc?.image,doc?.presentation,id]);
  const paintSelection=(ctx:CanvasRenderingContext2D,r:CaptureRect)=>{
   ctx.save();ctx.beginPath();ctx.rect(r.x,r.y,r.width,r.height);ctx.clip();
   for(const m of history.marks)paintCaptureMark(ctx,m);
@@ -105,18 +122,20 @@ function WindowsCaptureEditor({id}:{id:string}){
    ctx.strokeStyle='#70c8ff';ctx.lineWidth=unit;ctx.strokeRect(r.x,r.y,r.width,r.height);
   }
  };
+ useLayoutEffect(()=>{if(imageLoaded&&doc)render();},[doc,selection,history,imageLoaded,confirmed,selecting]);
  useLayoutEffect(()=>{
-  if(!imageLoaded||!doc)return;
-  render();
-  if(acknowledged.current===doc.presentation)return;
-  // Hidden WebViews may throttle requestAnimationFrame indefinitely. Commit
-  // the decoded image and canvas before asking native code to reveal it.
+  if(!imageLoaded||!doc||acknowledged.current===doc.presentation)return;
+  const controller=new AbortController(),signal=controller.signal,presentation=doc.presentation;
+  // Hidden WebViews may throttle animation frames. Paint before revealing;
+  // record acknowledgement only after the idempotent native claim confirms.
   const timer=window.setTimeout(()=>{
-   acknowledged.current=doc.presentation;
-   void desktop('WindowsCaptureReady',id,doc.presentation).catch(()=>setError(t('native.capture.windowsImageFailed')));
+   void confirmCapture(()=>desktop('WindowsCaptureReady',id,presentation),signal).then(()=>{
+    if(signal.aborted)return;
+    acknowledged.current=presentation;setRecovery(value=>({...value,ready:undefined}));
+   }).catch(()=>{if(!signal.aborted)setRecovery(value=>({...value,ready:presentation}));});
   },0);
-  return()=>window.clearTimeout(timer);
- },[doc,selection,history,imageLoaded,confirmed,selecting]);
+  return()=>{controller.abort();window.clearTimeout(timer);};
+ },[id,doc?.presentation,doc?.image,imageLoaded]);
  useEffect(()=>{
   const c=magnifier.current,im=source.current;if(!c||!im||!pointer||!doc)return;
   c.width=128;c.height=128;const ctx=c.getContext('2d')!;ctx.imageSmoothingEnabled=false;ctx.fillStyle='#151922';ctx.fillRect(0,0,128,128);

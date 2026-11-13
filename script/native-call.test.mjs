@@ -78,3 +78,12 @@ test('runtime installation waits for its original cancellable native result beyo
  assert.equal(settled,false);assert.equal(calls,1);
  finish({state:'models'});assert.deepEqual(await pending,{state:'models'});assert.equal(calls,1);
 });
+
+for(const method of ['WindowsCaptureDocument','WindowsCaptureReady']){
+ test(`${method} has a bounded preparation deadline without assuming it did not execute`,async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let calls=0,finish;
+  const pending=nativeCall('desktop',method,()=>{calls++;return new Promise(resolve=>finish=resolve);},['original',7]);
+  const rejected=assert.rejects(pending,/not been confirmed/);t.mock.timers.tick(3000);await rejected;
+  finish();await Promise.resolve();assert.equal(calls,1);
+ });
+}
