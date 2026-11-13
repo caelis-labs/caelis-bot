@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const pin = JSON.parse(readFileSync(path.join(root, 'toolchain.json'), 'utf8')).codex;
+const pin = JSON.parse(readFileSync(path.join(root, 'internal/backend/codex/schema/manifest.json'), 'utf8')).codex;
 const binary = process.env.CODEX_BIN ?? 'codex';
 const child = spawn(binary, ['app-server', '--listen', 'stdio://'], {
   cwd: root, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: process.platform === 'win32',

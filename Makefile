@@ -41,9 +41,16 @@ smoke-caelis:
 smoke-caelis-live:
 	bash -c 'set -e; source script/env.sh; : "$${CAELIS_BOT_LIVE_STORE:?Set an isolated configured Caelis store}" "$${CAELIS_BOT_LIVE_MODEL:?Set the model name}"; go test -race -v -count=1 -timeout 25m -run "^TestConfiguredModelIntegration$$" ./internal/backend/caelis'
 
-.PHONY: build-headless
+.PHONY: build-headless build-headless-image
 build-headless:
 	./script/build-headless.sh
+
+BOT_HEADLESS_IMAGE ?= caelisbot:local
+build-headless-image:
+	docker build -f deploy/headless/Dockerfile \
+		--build-arg NODE_VERSION="$(shell cat .node-version)" \
+		--build-arg GO_VERSION="$(shell awk '$$1 == "go" {print $$2; exit}' go.mod)" \
+		-t "$(BOT_HEADLESS_IMAGE)" .
 
 # Opt-in real App/HTTP/React acceptance using a synthetic native Runtime.
 .PHONY: e2e-worker-peer

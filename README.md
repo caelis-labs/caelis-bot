@@ -16,9 +16,9 @@ Caelis Bot is a personal desktop assistant with a movable 3D character. Chat wit
 
 | Platform | Download | Guide |
 | --- | --- | --- |
-| macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · signed and notarized | [Install](docs/install.md) |
-| Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · unsigned | [Install](docs/install.windows.md) |
-| Linux / WSL · amd64, arm64 | [Managed tar.gz](https://github.com/caelis-labs/caelis-bot/releases/latest) · signature verification, user service | [Install](docs/install.linux.md) |
+| macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · signed and notarized | [Install](docs/release.md#macos) |
+| Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · unsigned | [Install](docs/release.md#windows) |
+| Linux / WSL · amd64, arm64 | [Managed tar.gz](https://github.com/caelis-labs/caelis-bot/releases/latest) · signature verification, user service | [Install](docs/release.md#linux-headless) |
 
 Verify the download using its `.sha256` file. Platforms publish independently; follow the guide for the matching package and channel.
 
@@ -28,11 +28,11 @@ Verify the download using its `.sha256` file. Platforms publish independently; f
 2. Connect a model service or reuse an authenticated model, then introduce your Bot.
 3. Click the character to chat, attach a file, or ask for help. Use **Settings → Connections & models** to change connections.
 
-Optional Computer Use asks for the permissions it needs. Import characters and avatars in **Settings → Appearance**. [Features and limits](docs/status.md) · [Content pack guide](docs/content-packs.md)
+Optional Computer Use asks for the permissions it needs. Import characters and avatars in **Settings → Appearance**. [Features and limits](docs/product.md) · [Content pack guide](docs/content-packs.md)
 
 ## Development
 
-On macOS, install the pinned [toolchain](toolchain.json), then run:
+On macOS, install Node from [.node-version](.node-version) and Go from [go.mod](go.mod), then run:
 
 ```sh
 make setup
@@ -40,7 +40,7 @@ make check
 make run
 ```
 
-[Development](docs/development.md) · [Windows builds](docs/windows-release.md) · [Documentation](docs/README.md) · [Issues](https://github.com/caelis-labs/caelis-bot/issues)
+[Development](docs/development.md) · [Windows builds](docs/development.md#native-windows-development) · [Documentation](docs/README.md) · [Issues](https://github.com/caelis-labs/caelis-bot/issues)
 
 ## License
 

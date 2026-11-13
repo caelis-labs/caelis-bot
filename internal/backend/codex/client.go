@@ -9,10 +9,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
-// TestedVersion pins schema generation and reproducible regression evidence.
-// It is not a runtime allowlist or a negotiated App Server protocol version.
-const TestedVersion = "0.153.4"
-
 type Client struct {
 	rpc              *transport
 	build            string // Exact initialized native owner userAgent, never the Bot build.

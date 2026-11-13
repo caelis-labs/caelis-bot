@@ -1,5 +1,7 @@
 # Build only the shared browser assets and the platform-neutral Linux binary.
-FROM node:24.21.0-bookworm-slim AS frontend
+ARG NODE_VERSION
+ARG GO_VERSION
+FROM node:${NODE_VERSION}-bookworm-slim AS frontend
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,7 +12,7 @@ COPY resources ./resources
 COPY tsconfig.json vite.config.ts ./
 RUN npm run build
 
-FROM node:24.21.0-bookworm-slim AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 WORKDIR /src
 COPY resources/caelis-runtime/release.json ./resources/caelis-runtime/release.json
 RUN apt-get update && apt-get install -y --no-install-recommends python3 curl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -18,7 +20,7 @@ COPY script/caelis-runtime.py script/release-network.mjs ./script/
 ARG TARGETARCH
 RUN python3 script/caelis-runtime.py stage-headless /bundle linux-${TARGETARCH}
 
-FROM golang:1.26.8-bookworm AS backend
+FROM golang:${GO_VERSION}-bookworm AS backend
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN GOWORK=off go mod download

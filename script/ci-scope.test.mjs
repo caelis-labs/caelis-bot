@@ -69,7 +69,7 @@ test('platform-only changes and accompanying docs select only their product chec
   assert.deepEqual(scope(['resources/desktop-world/release.json']), {kind:'shared'});
   assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind:'shared'});
   assert.deepEqual(scope(['unknown-path']), {kind:'full'});
-  assert.deepEqual(scope(['README.md', 'README.zh-CN.md', 'docs/install.md']), {kind:'docs'});
+  assert.deepEqual(scope(['README.md', 'README.zh-CN.md', 'docs/product.md']), {kind:'docs'});
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {

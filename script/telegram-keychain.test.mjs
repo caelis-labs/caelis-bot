@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 
 test('native channel token lookup is noninteractive without using LocalAuthentication or the real Keychain', {skip: process.platform !== 'darwin'}, () => {
+  const minimum = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print LSMinimumSystemVersion', 'resources/macos/Info.plist'], {encoding:'utf8'}).trim();
   const directory = mkdtempSync(join(tmpdir(), 'bot-telegram-keychain-'));
   try {
     for (const provider of ['telegram', 'weixin']) {
@@ -42,7 +43,7 @@ int main(void) {
   return 0;
 }
 `);
-      const compiled = spawnSync('clang', ['-Werror=deprecated-declarations', '-mmacosx-version-min=12.0', '-I', resolve(`internal/${provider}`), '-framework', 'Foundation', '-framework', 'Security', source, '-o', binary], {encoding: 'utf8', timeout: 30000});
+      const compiled = spawnSync('clang', ['-Werror=deprecated-declarations', `-mmacosx-version-min=${minimum}`, '-I', resolve(`internal/${provider}`), '-framework', 'Foundation', '-framework', 'Security', source, '-o', binary], {encoding: 'utf8', timeout: 30000});
       assert.equal(compiled.status, 0, `${provider}: ${compiled.stderr}`);
       const result = spawnSync(binary, [], {encoding: 'utf8', timeout: 10000});
       assert.equal(result.status, 0, `${provider}: ${result.stderr}`);

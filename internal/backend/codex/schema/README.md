@@ -9,9 +9,9 @@ codex app-server generate-json-schema --out .cache/codex-json-schema/0.153.4
 The original initialize/account files come from stable generation. Other consumed
 files use `--experimental`; `manifest.json.experimentalFiles` records their source.
 Both generations are required because experimental fields can change existing types.
-`manifest.json` records the byte hashes; `go test` checks
-them against the Go adapter's TestedVersion and `toolchain.json`. `make schema` also regenerates
-from the installed pinned binary and compares the consumed files. Version upgrades
+`manifest.json` owns the generator version and byte hashes. The Go adapter embeds it to
+report `TestedVersion`; `go test` verifies the consumed files against its hashes.
+`make schema` regenerates from the manifest's pinned binary and compares the consumed files. Version upgrades
 require explicit schema diff review, projection changes and lifecycle/contract tests;
 do not update only the version or hashes to bypass a mismatch.
 
@@ -19,7 +19,7 @@ This pin is only a reproducible schema/test baseline. Runtime connections do not
 check CLI release numbers. Both stdio and Unix sockets use the standard handshake
 and validate the wire fields actually consumed by the adapter. App Server does not
 currently negotiate a protocolVersion; schema directories named v1/v2 are not a
-negotiated version range. See [compatibility policy](../../../../docs/caelis-integration.md).
+negotiated version range. See [runtime ownership and compatibility](../../../../docs/architecture.md).
 
 These are native wire schemas, not a second frontend contract. The Go client projects
 initialize, auth, threads, turns, items, input, approvals and cleanup. In the JSON schema `account` may be omitted

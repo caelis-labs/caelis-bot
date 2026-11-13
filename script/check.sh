@@ -10,7 +10,7 @@ node script/asset-pack.mjs verify
 npm run check:i18n
 npm run build
 node --test \
-  script/ci-scope.test.mjs script/release-version.test.mjs \
+  script/build-config.test.mjs script/ci-scope.test.mjs script/release-version.test.mjs \
   script/release-network.test.mjs script/windows-version.test.mjs script/linux-update-manifest.test.mjs script/linux-release.test.mjs script/verify-linux-build.test.mjs script/windows-update-manifest.test.mjs script/windows-publication.test.mjs \
   script/update.test.mjs script/publication.test.mjs script/release-channel.test.mjs \
   script/telegram-keychain.test.mjs script/signing.test.mjs script/notarization.test.mjs \

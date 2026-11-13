@@ -28,7 +28,7 @@ try {
   @{ info = @{companyName='Caelis Labs';productName=$name;productIdentifier=$identity;description='A quiet desktop companion';version=$version} } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'wails.json') -Encoding utf8NoBOM
   # Pinned Wails produces the base package. Its current MSIX command copies only
   # the exe: augment that standard layout, then repack with the same SDK tool.
-  Invoke-BotCommand go run "github.com/wailsapp/wails/v3/cmd/wails3@$($taskBotPins.wails)" tool msix --config (Join-Path $work 'wails.json') --publisher $Publisher --arch x64 --name caelis-bot.exe --executable (Join-Path $app 'caelis-bot.exe') --out (Join-Path $work 'base.msix') --use-makeappx
+  Invoke-BotCommand go run "github.com/wailsapp/wails/v3/cmd/wails3@$taskWailsVersion" tool msix --config (Join-Path $work 'wails.json') --publisher $Publisher --arch x64 --name caelis-bot.exe --executable (Join-Path $app 'caelis-bot.exe') --out (Join-Path $work 'base.msix') --use-makeappx
   Invoke-BotCommand makeappx.exe unpack /p (Join-Path $work 'base.msix') /d $stage /o
   # Include the same pinned Helpers, Plugins and licenses as Setup/ZIP.
   Copy-Item -Path (Join-Path $app '*') -Destination $stage -Recurse -Force

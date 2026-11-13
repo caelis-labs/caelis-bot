@@ -1,216 +1,237 @@
-# Development and releases
+# Releases and installation
 
-## Ownership
-
-`caelis-bot` owns the application, finished character packs and macOS/Windows distribution. The private `caelis-bot-assets` repository owns modeling sources and opens product asset PRs. A product build uses checked-in finished files only; no private checkout or Blender is involved.
+See [development](development.md) for builds and [content packs](content-packs.md) for finished asset provenance.
+Private modeling sources are not release dependencies.
 
 ## Required checks and branch policy
 
-`main` requires a pull request, the **product** GitHub Actions check against the current base, resolved conversations and linear history. Administrators are included; force pushes and deletion are blocked. The current single-maintainer setup requires zero independent approvals, so a sole maintainer can merge after checks. Only squash merges are enabled; merged branches are deleted automatically. A tag ruleset prevents updates/deletion of `v*` tags while allowing new release tags.
+`main` requires a PR, the **product** check against the current base, resolved conversations and linear
+history, including administrators. Force pushes and branch deletion are blocked. Only squash merges are
+enabled; merged branches are deleted. The single-maintainer policy requires zero independent approvals. A tag
+ruleset prevents updates/deletion of `v*` tags while allowing new tags.
 
-Product CI runs on code PRs and manual requests. The required **product** check
-joins the selected macOS (`macos-15`), Windows (`windows-2025`) and Linux headless results; failed, cancelled or
-unexpectedly skipped jobs cannot pass it. The strict current-base PR gate checks
-the combined source before merging, so a main push does not repeat that suite.
+Product CI selects jobs from the actual diff, not labels or authors:
 
-PR checks are selected from the actual diff, not labels or authors:
-
-| Change | Required product jobs |
+| Change | Required jobs |
 | --- | --- |
-| README translations, `docs/`, changelog only | Scope/public-tree guard and aggregate gate |
-| Valid version-only release metadata | Scope/metadata validation and aggregate gate |
-| macOS-only source or scripts, with optional docs | macOS product |
-| Windows-only source or scripts, with optional docs | Windows product |
-| Shared code, dependencies, workflows or unknown paths | macOS product, Windows product and Linux headless |
+| README translations, docs or changelog only | Scope/public-tree guard and aggregate gate |
+| Valid version-only metadata | Scope/metadata validation and aggregate gate |
+| macOS-only source/scripts, optionally docs | macOS product |
+| Windows-only source/scripts, optionally docs | Windows product |
+| Shared code, dependencies, workflows or unknown paths | macOS, Windows and Linux headless |
 
-The scope job always validates workflows with actionlint and tests the routing rules. Missing, failed, cancelled or unexpectedly skipped required jobs fail `product`. A dependency or script change hidden inside a release PR cannot use the version-only fast path.
+Scope validates workflows/routing. Missing, failed, cancelled or unexpectedly skipped required jobs fail
+`product`; dependencies/scripts cannot use the version-only path. The strict current-base gate checks combined
+source before squash merge; main does not repeat it. PR/manual product checks do not publish packages.
+macOS checks source/assets, Windows native shared/platform/Runtime contracts, and Linux ownership/recovery
+race tests and both headless architectures. CI does not prove live model or GUI use.
 
-macOS product runs `make check` and asset smoke. Windows product runs native shared/platform contracts and the pinned Caelis Runtime package checks. Linux runs ownership/recovery race tests and builds both headless helper architectures. These jobs do not publish packages or perform real-account model acceptance.
+Use Conventional Commit squash titles: `feat:` increments minor and `fix:` patch; docs/chore alone do not
+trigger versions. Release-please maintains one root version PR. Merging it after exact-source required CI is
+the release decision; no auto-merge. Its immutable `vX.Y.Z` tag/draft starts macOS publication. Windows/Linux
+publish independently on that baseline. Cross-platform manual hardware acceptance is not a publishing
+prerequisite; platform artifact checks and all macOS security gates remain mandatory.
 
-PRs do not run `macos-preview` or a Windows stable/preview packaging matrix. The Product checks manual trigger also runs source checks only. Package construction, signing and artifact upload belong to release workflows: macOS builds its stable DMG; Windows builds the one requested stable or preview channel. Preview packages are built when publishing a preview tag, not for an ordinary PR. Local packaging remains available with `make package` and the Windows packaging scripts.
+Exact-tag build jobs use pinned toolchains/actions, read-only permissions and no signing credentials.
+PR CI has no Apple/App secrets. Apple credentials stay in main-only `macos-release`; Windows/Linux update
+keys stay in main-only `windows-release`/`linux-release`. Only publication gets ephemeral Contents write.
+Release-please mints a scoped token with `RELEASE_APP_ID`/`RELEASE_APP_PRIVATE_KEY`; asset PR automation
+has its own configured copy. No private modeling credentials enter public builds.
 
-Use focused local package checks when changing installer behavior. Native desktop review remains separate; a source check is not an installed-app or GUI claim. Go cache restoration uses the repository cache layout and dependency inputs; no release signing credentials enter PR builds.
+## macOS
 
-`make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](development.md) and [backend acceptance](caelis-integration.md). Intel macOS releases remain outside the current workflow. Windows has its own stable/preview workflow described in [Windows releases](windows-release.md).
+### Install and use
 
-Dependabot checks Actions, npm and Go dependencies weekly. Dependency PRs use the same required check and are not auto-merged. Update `toolchain.json` when changing the corresponding explicitly pinned toolchain; review Wails/Codex compatibility separately.
+Published macOS packages are Apple Silicon (`arm64`). The app target is macOS 12.0; Caelis Computer Use
+requires arm64/macOS 14.2. Intel packages are not published.
 
-## Release flow
+1. Compare [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) with the
+   [macOS manifest](https://releases.caelis.dev/caelis-bot/latest.json); pause on mismatched tags/missing assets.
+2. Download `.dmg` and same-named `.dmg.sha256`; run `shasum -a 256 -c EXACT-FILENAME.dmg.sha256`.
+3. Quit the old app, open the DMG, copy **Caelis Bot.app** to Applications and open it normally.
+   Retain `~/Library/Application Support/Caelis Bot` when replacing the app.
+4. App and DMG carry Developer ID signatures and notarization staples. On verification failure, obtain a fresh
+   official copy; do not remove quarantine, disable Gatekeeper or re-sign it.
 
-Use Conventional Commit squash titles. With the current `release-please` default versioning, `feat:` increments the minor version (`0.12.0` → `0.13.0`) and `fix:` increments the patch (`0.12.0` → `0.12.1`). A version PR is the human release decision: review it and merge it only when the change is ready. `chore:` and `docs:` alone do not trigger a product version. Local Dev builds are not a public release channel. Windows uses the same product base version: `vX.Y.Z-windows.preview.N` for preview and `vX.Y.Z` for stable. Keep one root release-please manifest/version PR; operating systems are distribution targets, not separate versioned packages. Platform publication can finish independently.
+Click the desktop character for chat or use menu-bar settings. Closing panels/hiding the pet leaves work
+running; Quit ends the app. Choose bundled Caelis or compatible local Codex and configure your model/account.
+Permissions are requested when needed; notifications/start-at-login are opt-in.
 
-1. A push to `main` makes release-please maintain a version PR with `package.json`, its lockfile, `CHANGELOG.md` and the manifest. The version PR is not auto-merged.
-2. Merging that PR makes release-please create an immutable `vX.Y.Z` tag and draft GitHub release. Its `release_created` output starts the macOS arm64 release workflow automatically.
-3. The build job checks out that tag's commit, checks its version, runs the updater and asset checks, and builds `Caelis Bot.app` without Apple credentials. The app embeds the tag and source SHA. The separate `macos-release` job verifies that SHA, signs with Developer ID, notarizes and staples both app and DMG, mounts the DMG, and checks Gatekeeper and SHA-256. Any failure leaves the draft unpublished.
-4. The package job signs a one-version Sparkle appcast and a manifest for the final DMG. The publisher reconciles exact GitHub assets and its immutable platform receipt, then publishes the draft. R2 verifies the signed bytes and receipt before writing the stable feed. Only after R2 succeeds does GitHub Latest move to that version. GitHub Latest is global release metadata; `--latest=false` during asset publication prevents it from pointing ahead of the usable macOS feed.
+Settings → Updates controls daily/manual checks. Confirm installation; active/uncertain work postpones
+relaunch until safe handoff. Dev builds have separate identity/data and no public updater.
+Releases predating updater support need a manual upgrade.
 
-The installable product is `Caelis Bot.app`, bundle ID `dev.caelis.bot`, with the existing `Application Support/Caelis Bot` data. Local and PR builds use `Caelis Bot Dev.app`, bundle ID `dev.caelis.bot.dev`, with separate development data. Those local builds are not public releases and do not check the release feed. macOS Apple Silicon uses the signed/notarized stable workflow. Windows independently publishes unsigned Setup/ZIP preview or stable releases through the same CI after checks; signed automatic updates are optional and still require the persistent update key.
+### Signing and publication
 
-A release is authorized by merging its version PR after the exact-source required CI passes. Cross-platform manual hardware acceptance is not a release prerequisite. Use targeted native checks when developing affected interactions and record their scope honestly; CI, fixtures and published artifact verification are distinct evidence. macOS signing, notarization, staples, Gatekeeper and immutable publication checks remain mandatory. A missing Windows machine must not block macOS or the Windows preview iteration.
+Public releases require **Developer ID Application**, hardened runtime, secure timestamps, notarization,
+valid app/DMG staples, mounted-DMG verification and independent Gatekeeper checks. Invalid identity/team,
+missing credentials, rejected/pending/unknown notarization or verification failure stops publication.
+No ad-hoc fallback; Apple Development/ad-hoc builds are not notarized releases.
 
-If signing or notarization is pending or fails, inspect the draft and the original run. A retained `notarization-checkpoint` carries the signed bytes, Apple submission IDs, tag and SHA for 14 days. Query a pending submission with `notarization-status.yml`; resume the **same** completed run using `release.yml`'s `resume_run_id` only after verifying its receipt. The workflow checks the original tag/source/team and does not resubmit known Apple work. A missing checkpoint cannot reconstruct the submitted bytes; inspect its original result before a fresh build.
+Configure `APPLE_TEAM_ID` and these secrets in the protected `macos-release` environment:
+`APPLE_DEVELOPER_ID_P12_BASE64`, `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_NOTARY_APPLE_ID`,
+`APPLE_NOTARY_PASSWORD`. Export only the selected encrypted Developer ID identity. Use a dedicated
+app-specific notary password; never store an Apple primary password or two-factor code in CI. Credentials
+enter only signing.
 
-```sh
-gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z
-gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z -f resume_run_id=COMPLETED_RELEASE_RUN_ID
-```
+The build embeds tag/source SHA; signing verifies it. After security checks, pinned Sparkle signs the final
+DMG/appcast. Ed25519-signed `latest.json` binds source/tag, DMG size/hash and appcast hash.
+Keep `SPARKLE_PUBLIC_KEY` embedded and persistent `SPARKLE_PRIVATE_KEY` backed up; pass the private key
+via stdin. Never generate a new update identity per build.
 
-Use manual `release.yml` only to recover an existing draft tag, not to create a new release. `publication.mjs` downloads and hashes any existing GitHub asset, uploads only missing names, and reconciles unknown uploads against the same bytes. It never silently replaces a differing asset. If only R2 fails, use `sync-r2.yml` for the already published tag; it verifies GitHub assets, signature, source and receipt, and then reconciles R2 and GitHub Latest.
+Publication reconciles exact GitHub names/bytes and the immutable platform receipt before publishing the
+draft. R2 verifies signatures/source/receipt, uploads and reads back immutable `caelis-bot/releases/vX.Y.Z/`
+objects, then updates the stable feed under `caelis-bot/feeds/macos/arm64/stable/` and installed-client
+aliases `caelis-bot/appcast.xml`, `latest.json`, `latest.json.sig`. Only after this succeeds does GitHub
+Latest move. Mutable feeds must retain `no-cache, max-age=0, must-revalidate`. Existing clients read the
+appcast alias.
 
-For a blocking published version, fix forward with a higher SemVer tag. An exceptional feed rollback requires the owner to verify an older release's DMG, checksum, signed appcast, manifest and receipt, copy only the signed mutable feed files to the existing stable aliases, and read them back. Keep immutable versioned DMGs and tags unchanged. Sparkle will not downgrade an installed higher version; affected clients need a higher fixed version or explicit manual reinstall. Normal `publish-r2.mjs` rejects rollback.
+Reuse organization R2 secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, selected for required
+repositories and scoped to `caelis-releases`. Organization storage alone does not enforce environment isolation;
+workflows consume them in protected publication jobs. Keep secrets out of logs/artifacts and rotate trust deliberately.
 
-## Automatic updates and R2
+### Recover publication
 
-Installable releases embed SHA-256-pinned Sparkle 2.10.0 and the persistent public key. The bundle uses numeric `CFBundleVersion=X.Y.Z` and reads the existing signed `https://releases.caelis.dev/caelis-bot/appcast.xml`. The app checks daily unless the user disables automatic checks; installation needs confirmation. Active or uncertain work postpones relaunch until the original owner is safely closed. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled release.
-
-Configuration reuses Caelis core's bucket, endpoint and credential names. Store these
-in the **caelis-labs organization**, with access limited to the selected repositories
-below. Secrets from a sibling repository are not inherited:
-
-| Name | Location | Purpose |
-| --- | --- | --- |
-| `SPARKLE_PUBLIC_KEY` | Organization variable; `caelis-bot` only | Persistent Ed25519 public key embedded by the credential-free build job |
-| `SPARKLE_PRIVATE_KEY` | Organization secret; `caelis-bot` only | Exported Sparkle private seed, passed to signing tools through stdin |
-| `R2_ACCESS_KEY_ID` | Organization secret; `caelis`, `caelis-bot` | R2 object read/write access limited to `caelis-releases` |
-| `R2_SECRET_ACCESS_KEY` | Organization secret; `caelis`, `caelis-bot` | Corresponding R2 secret |
-| `R2_ENDPOINT` | Organization secret; `caelis`, `caelis-bot` | Existing HTTPS S3 endpoint |
-
-Generate the persistent signing identity **once** and retain its Keychain backup.
-Do not create a key per CI run. This one-time setup keeps the private value out of
-command arguments, terminal output and the public tree:
-
-```sh
-/bin/bash <<'CONFIGURE'
-set -euo pipefail
-source script/env.sh
-source script/sparkle.sh
-key_dir=$(mktemp -d)
-trap 'rm -rf "$key_dir" "$BOT_SPARKLE_DIR"' EXIT
-umask 077
-"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot
-"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot -p > "$key_dir/public"
-"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot -x "$key_dir/private"
-gh variable set SPARKLE_PUBLIC_KEY --org caelis-labs --visibility selected --repos caelis-bot --body "$(cat "$key_dir/public")"
-gh secret set SPARKLE_PRIVATE_KEY --org caelis-labs --visibility selected --repos caelis-bot < "$key_dir/private"
-CONFIGURE
-```
-
-Set the three R2 organization secrets through GitHub Settings or `gh secret set NAME
---org caelis-labs --visibility selected --repos caelis,caelis-bot` using its hidden
-prompt. Organization administration with GitHub CLI requires `admin:org`; obtain
-that permission explicitly before setup. Repository/environment secrets with the same
-names override organization secrets; remove obsolete overrides only after verifying
-the organization configuration. Release workflows consume these secrets only in their
-main-only `macos-release` jobs, but organization storage itself does not restrict them
-to an environment. Keep Apple credentials in that protected environment.
-The bucket is `caelis-releases`; its public domain
-must serve `caelis-bot/*` without overriding mutable objects' `no-cache, max-age=0,
-must-revalidate` headers. No new bucket or Worker is required.
-
-On 2026-09-24, the organization configuration above was installed and its selected
-repository access verified. Sparkle's persistent identity uses the local Keychain
-account `caelis-bot`; its key pair and organization public key were checked together.
-The account token `caelis-org-release-publisher-20260924-r2` grants only object
-read/write on `caelis-releases` and expires on **2027-08-24**. Renew it before that date
-and update both R2 credential secrets together. Core's obsolete repository overrides
-were removed; its earlier Cloudflare token was not revoked. This setup verification
-does not establish a successful production upload or app update.
-
-After `verified=true` (Developer ID, notarization, staples and Gatekeeper), `generate_appcast` signs the final DMG and feed. `latest.json` binds tag, source SHA, DMG hash/size and appcast hash and has its own Ed25519 signature. GitHub assets include those bytes and the stable receipt `Caelis-Bot-X.Y.Z-macos-arm64-stable.publication.json`.
-
-R2 uploads immutable assets under `caelis-bot/releases/vX.Y.Z/` and writes the signed macOS stable feed at `caelis-bot/feeds/macos/arm64/stable/` plus the existing `caelis-bot/appcast.xml`, `latest.json` and `latest.json.sig` aliases used by installed clients. Both paths describe the same release; the app reads the legacy alias. The publisher reads back every uploaded object, rejects same-version byte changes and rollback, and removes older macOS baselines only after all new assets and pointers pass readback. Windows retains its own latest successful baseline independently; stable supersedes previews of the same baseline. Historical downloads remain on GitHub; cached old R2 URLs may expire under this capacity policy. It never deletes another product's bucket keys.
+Never move tags or replace published bytes. Reconcile lost upload responses by original name/hash and reuse
+original artifacts. Pending notarization retains signed bytes/submission IDs for 14 days. Inspect the original
+run, query `notarization-status.yml`, verify its checkpoint and resume that completed run. Do not resubmit
+known Apple work or infer failure from missing evidence.
 
 ```sh
-gh workflow run sync-r2.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z
+gh workflow run release.yml --ref main -f tag=vX.Y.Z -f resume_run_id=COMPLETED_RELEASE_RUN_ID
+gh workflow run sync-r2.yml --ref main -f tag=vX.Y.Z
 ```
 
-`make check` covers signatures, publication receipt recovery, R2 ownership and rollback using fixtures. `make check-updater` exercises a disposable signed feed and native postponed installation. Neither proves a Developer ID installation or real relaunch from public R2; verify that separately when needed. See [Sparkle's documentation](https://sparkle-project.org/documentation/).
+Manual `release.yml` recovers an existing draft tag; it does not create a new release decision. R2-only
+failures use `sync-r2.yml`, which revalidates the original assets/receipt. Recognized transient reads have
+bounded retry; authentication, TLS, signature/digest failures and notary submissions do not enter that read
+loop. Fix blocking public versions with higher SemVer. Exceptional owner-authorized feed rollback requires
+verification/readback of the older signed feed, DMG, manifest and receipt; immutable bytes/tags stay intact.
+Normal publication rejects rollback. Sparkle does not downgrade an already newer installation.
 
-## Credentials and least privilege
+## Windows
 
-The existing **Caelis Character Publisher** GitHub App is installed only on `caelis-bot`, with Contents and Pull requests write permissions. Public Actions uses:
+### Install and update
 
-- repository variable `RELEASE_APP_ID`;
-- encrypted repository secret `RELEASE_APP_PRIVATE_KEY`.
+Windows x64 targets Windows 10 22H2+ with WebView2; review is on Windows 11. No ARM64/Server Core claim.
 
-The private asset publisher holds its separately configured copy for asset PRs. Only the main-branch version job receives the public secret and mints a short-lived repository-scoped App token. This lets release PRs trigger normal CI without allowing `GITHUB_TOKEN` to create/approve PRs. No personal access token, admin permission, private modeling credential or deploy key is needed. Rotate the App key in both repositories when rotating this shared automation identity.
+1. Choose `windows-amd64-stable-Setup.exe` or `windows-amd64-stable.zip` and its `.sha256` from
+   [GitHub Releases](https://github.com/caelis-labs/caelis-bot/releases). Latest may contain macOS only;
+   use `vX.Y.Z-windows.preview.N` only for Preview testing.
+2. Compare PowerShell `(Get-FileHash -Algorithm SHA256 -LiteralPath 'PACKAGE').Hash` with the checksum's
+   first field; stop on mismatch.
+3. Run Setup or extract the complete ZIP and launch `caelis-bot.exe`. Keep Runtime/resources/licenses together.
+4. Packages are **unsigned**. If blocked, verify the source/contact your administrator; do not disable
+   protections. Open the tray/character and configure Caelis or local Codex.
 
-PR CI has read-only permissions and no App or Apple secrets. Both the build and signing/packaging jobs have read-only repository permissions; only the final publication job gets Contents write via its ephemeral `GITHUB_TOKEN`. Apple secrets are scoped to the `macos-release` environment, restricted to the `main` branch, and injected only into the signing step. Actions are pinned by commit SHA.
+Stable, Preview and Dev have separate identities/data/update subscriptions; Stable does not migrate Preview
+data. ZIP and Setup in the same channel share persistent data under `%LOCALAPPDATA%`; deleting ZIP or
+uninstalling Setup retains it. Setup owns its registered notifications/protocol/shortcuts/startup entries; ZIP
+does not register these. Foreign/legacy entries are not removed implicitly.
 
-## Developer ID signing and Apple notarization
+Use Settings → Updates only for releases with valid signed update metadata, or install newer official Setup
+into the existing directory. Quit before manual ZIP replacement and retain user data. Setup remembers its
+location; changing it needs uninstall/reinstall. Automatic update manifests and Authenticode are separate: a
+signed update manifest does not make Setup/ZIP Authenticode-signed.
 
-Public releases always require Developer ID Application signing and Apple notarization. There is no feature switch or ad-hoc fallback. An expired/wrong-type certificate, team mismatch, missing credentials/timestamp/hardened runtime, rejected or pending notarization, invalid staple, or Gatekeeper rejection stops publication. Pending Apple processing preserves a resumable checkpoint; rejection, unknown status and credential errors fail the job. Ticket transport errors use only the bounded retry described below; exhausted or unrecognized errors still fail the job.
+### Publish and recover
 
-The `macos-release` GitHub environment is restricted to `main`. Configure:
-
-| Name | Type | Value |
-| --- | --- | --- |
-| `APPLE_TEAM_ID` | Environment variable | The 10-character Apple team ID |
-| `APPLE_DEVELOPER_ID_P12_BASE64` | Environment secret | Base64 of one password-protected Developer ID Application identity, including its private key |
-| `APPLE_DEVELOPER_ID_P12_PASSWORD` | Environment secret | PKCS12 export password |
-| `APPLE_NOTARY_APPLE_ID` | Environment secret | Developer's Apple Account email |
-| `APPLE_NOTARY_PASSWORD` | Environment secret | A dedicated app-specific password for notarization |
-
-A paid individual Apple Developer membership supports this distribution. App Store publication and App Store Connect API access are not needed. Generate an app-specific password at [Apple Account](https://account.apple.com/) under Sign-In and Security. The certificate and private key perform signing; the separate account credentials authorize Apple notarization. Revoke the dedicated password when retiring the workflow and rotate its environment secret after replacement. No Apple Account primary password or two-factor code belongs in CI.
-
-Export the selected Developer ID identity as an encrypted `.p12`. Do not export unrelated keychain identities. The following commands read secret values from a file or hidden prompt; never put private values in command arguments, chat, commits or artifacts:
+Main-only `windows-preview.yml` takes `vX.Y.Z-windows.preview.N` or `vX.Y.Z` at exact merged source and
+matching base version. It checks/builds only that unsigned Setup/ZIP channel and verifies source/version,
+clean build and artifact hash/length. Stable appends assets without changing Mac assets/Latest; Preview
+creates a prerelease. MSIX is not a release path.
 
 ```sh
-base64 -i '/absolute/path/DeveloperIDApplication.p12' | gh secret set APPLE_DEVELOPER_ID_P12_BASE64 --repo caelis-labs/caelis-bot --env macos-release
-gh secret set APPLE_DEVELOPER_ID_P12_PASSWORD --repo caelis-labs/caelis-bot --env macos-release
-gh secret set APPLE_NOTARY_APPLE_ID --repo caelis-labs/caelis-bot --env macos-release
-gh secret set APPLE_NOTARY_PASSWORD --repo caelis-labs/caelis-bot --env macos-release
-gh variable set APPLE_TEAM_ID --repo caelis-labs/caelis-bot --env macos-release --body 'YOURTEAMID'
+gh workflow run windows-preview.yml --ref main -f tag=vX.Y.Z-windows.preview.N
+gh workflow run windows-preview.yml --ref main -f tag=vX.Y.Z
+gh workflow run sync-r2.yml --ref main -f platform=windows -f tag=TAG
 ```
 
-The signing job downloads only the app built by its own preceding job; it does not install npm/Go dependencies or compile with certificate access. `script/sign-release.sh` imports the identity into a temporary keychain with a random password and codesign-only key access. It verifies the pinned public Apple G2 intermediate, stores validated notary credentials in the same temporary keychain, and removes all credentials on exit. An always-run workflow cleanup also handles cancellation. It temporarily adds only that keychain to the user search list, preserving existing entries; deletion removes the temporary entry. It never changes the default keychain or system trust policy. The hosted runner is discarded after the job.
+Updates are optional: `publish_updates=true` requires the existing `WINDOWS_UPDATE_PRIVATE_KEY` matching
+`internal/windowsupdate/public-key.txt` in `windows-release`; failure cannot fall back to unsigned updates.
+The signature binds source/tag/channel/platform and both artifacts' sizes/hashes. Back up this identity;
+replacing it breaks old clients' trust. Reuse the original build artifact on retry and reconcile existing
+assets; never overwrite different bytes.
 
-`script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. Sparkle's framework, Autoupdate executable, Updater.app and XPC helpers are signed explicitly before the enclosing app. The app needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
+R2 uses `caelis-bot/releases/windows-amd64/TAG/`; its download `latest.json` is a link/hash index, not update
+authority. Retention follows Windows' latest successful baseline independently; stable supersedes previews of
+that baseline. Readback failure retains the old baseline. Historical assets remain on GitHub.
 
-Notarization saves the upload receipt before waiting up to **60 minutes per submission**. The signing/packaging job allows **150 minutes** for the App and DMG waits plus packaging, validation and checkpoint upload; its temporary keychain remains unlocked for that bounded job lifetime. After waiting, the same submission is queried again: `Accepted` continues even if the wait command timed out, `Invalid`/`Rejected` prints Apple's log and fails, and `In Progress` preserves a pending checkpoint and skips publication. The signed App ZIP, signed DMG when available, byte hashes, release context, receipts and Apple logs are retained together for **14 days**; credentials never enter the artifact. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
+Update handoff preserves original receipts, waits for the owner to close and commits before replacement. ZIP
+replaces only owned files on the same volume with private staging/backup and rollback; NSIS failure may
+require manual reinstall. Waiting/installing/missing receipts stay unknown rather than replaying effects. CLI
+management uses a private stable host-workspace outside the program directory. An already shared Host may
+retain its old directory until it exits; Bot exit and uninstall do not authorize killing that Host or its
+active work.
 
-All App/DMG `stapler staple` and `stapler validate` calls, including mounted-App checks during packaging, use `script/notarization-stapler.mjs`. Each call permits at most **5 attempts**, waiting **5, 15, 30 and 60 seconds**, only for exit 68 accompanied by `NSURLErrorDomain` timeout (-1001), cannot-connect (-1004), or connection-lost (-1005) diagnostics. Exit 68 alone is not retryable: it can also mean the artifact was not notarized. Invalid/revoked tickets, signature failures, TLS trust errors and unknown errors fail immediately. Each attempt is capped at 120 seconds; process timeout/cancellation is not retried. Every attempt remains in the job log. No signing, notary submission or Gatekeeper command is retried by this helper; existing verification and resumable checkpoints remain required.
+## Linux headless
 
-If Apple is delayed, query the existing submission before recovering the draft:
+### Install and access
+
+Linux amd64/arm64 and WSL use complete signed archives: Caelis, Web assets and launcher included; no Go/Node
+needed. Require an ordinary user, Python 3, Ed25519 OpenSSL, bubblewrap/unprivileged namespaces and a running
+systemd user manager, including WSL; no foreground installer fallback. Linux desktop, Web terminals and
+Linux/WSL Computer Use are unavailable. No official Docker image or Runtime compatibility claim follows from
+its source build.
 
 ```sh
-gh workflow run notarization-status.yml --repo caelis-labs/caelis-bot --ref main -f submission_id=APPLE_SUBMISSION_UUID
+curl -fsSL https://releases.caelis.dev/caelis-bot/install.sh | sh
+# Upgrade/launcher repair; retain the profile:
+curl -fsSL https://releases.caelis.dev/caelis-bot/install.sh | sh -s -- --upgrade
+systemctl --user status caelisbot.service
+systemctl --user stop caelisbot.service
+systemctl --user start caelisbot.service
 ```
 
-Replace `APPLE_SUBMISSION_UUID` with the ID from the release log or receipt. This main-only workflow reads the existing submission with the two notarization secrets in `macos-release`; it does not receive the signing identity, upload another artifact or publish a release. Its run summary and `notarization-status` artifact contain the current status. If the result is `In Progress`, leave the draft unpublished; use `resume_run_id` to wait again with the retained artifacts. Once Apple finishes, inspect any rejection log or resume the same checkpoint after `Accepted`. Never overwrite a published release.
+Save/inspect the bootstrap if preferred. It pins production trust and verifies the signed architecture index
+and every file's hash/size before execution; checksums cannot replace signatures. No sudo, weakened sandbox,
+linger or firewall changes. Foreign paths/units and incomplete installs are refused, not deleted.
 
-## Local build and signing
+Launcher: `~/.local/bin/caelisbot-launcher`; immutable installation: `$XDG_DATA_HOME/caelisbot-install`;
+private profile: `$XDG_DATA_HOME/caelisbot` (default base `~/.local/share`). Open `http://127.0.0.1:9317`.
+Direct loopback needs no pairing; exact Host/Origin and CSRF checks remain. Caelis is bundled; Codex uses
+explicit Install/Sign in actions and native device authentication. Model URLs and paths refer to the service
+machine, not the browser computer.
+
+For remote/private proxies, configure exact `--origin` and `--require-pairing` on the upstream. The latter
+explicitly disables direct-loopback trust when a forwarder makes the original peer indistinguishable. Example
+unmanaged/development server:
 
 ```sh
-make setup
-make check
-make smoke
-make package
+caelisbot serve --require-pairing --listen 127.0.0.1:9317 \
+  --origin https://your-machine.your-tailnet.ts.net
+# Host-only SSH forwarding; use http://127.0.0.1:9317 as the allowed origin instead:
+ssh -N -L 127.0.0.1:9317:127.0.0.1:9317 user@guest
 ```
 
-Local builds get a `-dev` suffix so they do not masquerade as a published release. For an exact release rebuild, check out its tag and pass that tag:
+Managed installations record these options at launcher `init`; do not launch a second managed-version process. Proxies must preserve allowed Host, SSE and unbuffered responses.
+Private network membership is not browser authority; forwarding headers never grant local trust. Pairing uses
+a private, one-use 10-minute code; `caelisbot pair --data-dir /same/private/profile` renews it. Do not place
+codes in URLs/logs. Remote cookies expire after seven idle days and retain their original receipt ownership.
+Tokens are profile-scoped; browser grants do not authorize the separately authenticated Bot-peer endpoint.
+An optional `cmd/caelisbot-local-proxy` uses private proof for host-loopback access; never expose it remotely.
 
-```sh
-BOT_RELEASE_TAG=v0.1.0 make package
-```
+### Update ownership, publication and rollback
 
-The build rejects tag/package mismatches. `dist/releases/` contains the DMG and checksum; `dist/Caelis Bot Dev.app` contains the default local app; tagged release builds use `Caelis Bot.app`. Development builds use the isolated Dev identity and strict signature validation; see [development](development.md). **Ad-hoc signing is neither Developer ID signing nor Apple notarization.** Ordinary PR CI does not require an Apple account/certificate. After explicitly signing an existing bundle, use `BOT_SIGNING_MODE=developer-id BOT_SIGNING_TEAM_ID=YOURTEAMID bash script/package.sh --skip-build`; rebuilding would replace that signature with the development signature.
+Settings → Updates checks/downloads signed offers and installs through the original idle handoff after
+confirmation. `--upgrade` uses that handoff and replaces the launcher only after candidate health; a busy
+owner may leave installation scheduled. External/manual directories are operator-managed; container images are
+image-managed. Never share a live profile or create one service per version. A same-user launcher owns the
+private root, profile lock, atomic selector and immutable version directories.
 
-For native acceptance of an already signed app in `dist`, run `BOT_SIGNING_TEAM_ID=YOURTEAMID bash script/build_and_run.sh --verify-signed`; this preserves the signature instead of rebuilding. It checks native startup, not Apple notarization. Inspect the actual desktop/chat/settings surfaces separately. Use an isolated `CAELIS_BOT_DATA_DIR` for test conversations.
+`linux-release.yml` builds both architectures from exact stable main-tag source without credentials.
+`LINUX_RELEASE_ED25519_PRIVATE_KEY` in `linux-release` signs against `internal/managedupdate/release-key.txt`;
+QA keys never authorize production. Signed manifests bind source/version/platform, launcher/state
+compatibility, archive size/hash and every allowed member's path/mode/size/hash. Links, traversal, extra
+members and expansion beyond declared limits fail before old-owner shutdown. Publication reconciles exact
+GitHub bytes and mirrors architecture assets under `caelis-bot/releases/linux-<arch>/<tag>/`, reads them back,
+moves signed download pointers, then publishes `install.sh`. Retention is architecture-scoped and cannot
+delete another platform's assets. Reuse original signed bytes on recovery.
 
-User-facing download and installation steps are in [English installation](install.md) and [中文安装](install.zh-CN.md). Do not remove quarantine or re-sign a downloaded release to conceal a verification failure.
-
-## Automation references
-
-[release-please manifest configuration](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md) · [Release Please Action](https://github.com/googleapis/release-please-action) · [GitHub protected branches](https://docs.github.com/en/rest/branches/branch-protection) · [Apple Developer ID certificates](https://developer.apple.com/help/account/certificates/create-developer-id-certificates) · [GitHub macOS certificate handling](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications) · [Apple first-launch guidance](https://support.apple.com/en-us/102445)
-
-
-Release network recovery also covers safe Apple `info`/`log` reads, the pinned Apple
-intermediate download, pinned Caelis/Windows NSIS/SDK downloads, and GitHub release/API downloads via `release-network.mjs`.
-Only recognized transient connection/timeout/service failures retry, within five
-attempts and a 180-second per-read timeout. Authentication, TLS, digest/signature,
-unknown errors and notary submission never enter that retry loop. GitHub upload
-and draft publication reconcile the original names/state; R2 uses AWS standard
-bounded retries (six attempts) and reads back the exact key/hash after a lost PUT
-response. Signature and provenance validation still gates every publication.
-These are release operations only; Bot skill instructions do not change.
+Accepted commands are not installation success: reconcile the original command receipt and read back the
+expected signed identity and new boot. Preserve original operation IDs/receipts; do not delete unknown journals
+or replay effects. Unknown effects, approvals and running work block unsafe handoff. Candidate health checks local state/listener/lock and applicable Runtime
+handshake, not model authentication or task success. A failed candidate restarts the previous Bot once; failed
+rollback stops as unknown. Code fallback never rolls back user data or downgrades a shared Caelis Host. Core
+owns idle Host replacement; bundled and actually running Host versions remain distinct until authenticated
+readback.

@@ -9,26 +9,16 @@ import (
 	"testing"
 )
 
-func TestNativeSchemaAndTestBaselineAgree(t *testing.T) {
-	read := func(path string, value any) {
-		t.Helper()
-		b, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(b, value); err != nil {
-			t.Fatal(err)
-		}
-	}
+func TestNativeSchemaManifest(t *testing.T) {
 	var manifest struct {
 		Codex string
 		Files map[string]string
 	}
-	var toolchain struct{ Codex string }
-	read("schema/manifest.json", &manifest)
-	read("../../../toolchain.json", &toolchain)
-	if manifest.Codex != TestedVersion || toolchain.Codex != TestedVersion {
-		t.Fatal("schema / toolchain / test baseline mismatch")
+	if err := json.Unmarshal(schemaManifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Codex == "" || TestedVersion != manifest.Codex {
+		t.Fatal("missing embedded schema baseline")
 	}
 	for _, file := range []string{"v1/InitializeParams.json", "v2/ThreadStartParams.json", "CommandExecutionRequestApprovalParams.json"} {
 		if manifest.Files[file] == "" {
