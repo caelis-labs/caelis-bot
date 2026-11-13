@@ -7,8 +7,13 @@ capability as connected only after a confirmed connection result.
 
 When an external tool's name is unclear, read `../mcp-tools.json` beside this
 Skill directory for last-confirmed connected tool names/descriptions. Use those
-as native ToolSearch clues, then read the returned schema. The index grants no
-permission; do not invent calls when it or search is unavailable.
+as clues for the active Runtime's native discovery, then read the returned schema.
+The index grants no permission; do not invent calls when it or search is unavailable.
+
+On Caelis, discover deferred plugin tools through `js_exec` with `tools.search`,
+then use `tools.call(name, args)` with the returned name and arguments that match
+its schema. Follow the Runtime's Code Mode guidance and return original reply or part references to retain
+output and media. Keep shell execution on native shell tools.
 
 Proceed within the user's requested target and scope. If a provider is absent,
 state the limitation and continue available work. Do not invent login controls or
