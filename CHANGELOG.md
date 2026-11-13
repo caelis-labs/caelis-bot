@@ -15,6 +15,10 @@
 
 * reduce pet projection, mask and plugin decode work ([#276](https://github.com/caelis-labs/caelis-bot/issues/276)) ([eebadce](https://github.com/caelis-labs/caelis-bot/commit/eebadcedabd18cad7bb1a116af0abda78a6ade3b))
 
+### Dependencies
+
+* **runtime:** update bundled Caelis from v0.77.1 to v0.79.1, including Desktop World v0.4.2 and matching native plugin guidance ([#281](https://github.com/caelis-labs/caelis-bot/pull/281)).
+
 ## [0.22.1](https://github.com/caelis-labs/caelis-bot/compare/v0.22.0...v0.22.1) (2026-11-03)
 
 
