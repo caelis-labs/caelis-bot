@@ -789,8 +789,21 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("old call rerouted to new catalog")
 		}
 		requests := model.seen("CASE_HOT")
-		if len(requests) != 2 || requests[0]["model"] != "gpt-5.4-mini" || requests[1]["model"] != "gpt-5.4" || requests[1]["instructions"] != next.Instructions {
-			t.Fatal("actual provider configuration differs")
+		if len(requests) != 2 {
+			t.Fatalf("actual provider request count: %d, want 2", len(requests))
+		}
+		if current.Profile == nil || used.Profile == nil || used.Profile.Instructions != next.Instructions {
+			t.Fatal("native application instructions were not updated exactly")
+		}
+		// Core appends native Skill/Code Mode guidance to the application prefix.
+		// A hot update must replace only that prefix and retain the entire suffix.
+		priorInstructions, ok := requests[0]["instructions"].(string)
+		nativeInstructions, found := strings.CutPrefix(priorInstructions, current.Profile.Instructions)
+		if !ok || !found {
+			t.Fatal("actual provider instructions lost the original application prefix")
+		}
+		if requests[0]["model"] != "gpt-5.4-mini" || requests[1]["model"] != "gpt-5.4" || requests[1]["instructions"] != next.Instructions+nativeInstructions {
+			t.Fatalf("actual synthetic provider configuration differs: models=%v -> %v, instructions=%q", requests[0]["model"], requests[1]["model"], requests[1]["instructions"])
 		}
 		reasoning, _ := requests[1]["reasoning"].(map[string]any)
 		if reasoning["effort"] != "high" {

@@ -1,27 +1,27 @@
 {
-  "version": "v0.77.1",
-  "commit": "888079abf96269c67770792e5c0b46a7a58568c5",
+  "version": "v0.79.1",
+  "commit": "048c0d479f663caa31880fdb3c6d5e33734de8be",
   "team": "64KZ67PM5J",
   "targets": {
     "darwin-arm64": {
-      "artifact": "caelis_0.77.1_darwin_arm64.tar.gz",
-      "sha256": "f120de1c4fa2c0c26ad71ea9c4a324129572ce2d38f55db98ad4e6428f0a4496",
-      "binary_sha256": "e3d6c58948b5cac123d27d29701ed40f1bea5bfd2c72b4859224203a1a4b15be"
+      "artifact": "caelis_0.79.1_darwin_arm64.tar.gz",
+      "sha256": "471f0a982f31cab196de7306a6afe2e6403474c81cd9b2c00a505b994c4405b8",
+      "binary_sha256": "f9e21d318e62cfc72bcbb7b2faa4c6ac14336842d94e7e2dd284877272658113"
     },
     "windows-amd64": {
-      "artifact": "caelis_0.77.1_windows_amd64.tar.gz",
-      "sha256": "e37e3f8b1b79a621efa540ceadb8b873f16467c5091f05bee360aa59445292d1",
-      "binary_sha256": "67ff6db1e5867a51a7465da7c1b61a2de66e535c94b8bfd33b3f7d9e0a3f08d5"
+      "artifact": "caelis_0.79.1_windows_amd64.tar.gz",
+      "sha256": "27cb15c68eeaa09915eae13021c8ed50c85ce45e2bc0b6cb963ce51b4490bf4a",
+      "binary_sha256": "df55ed8531ec70b40ff6bac0d1699918dc5d9426d08c0986369665d21e34fb1e"
     },
     "linux-amd64": {
-      "artifact": "caelis_0.77.1_linux_amd64.tar.gz",
-      "sha256": "d474d57c8c8eb44b20d9d9a3dc2aeb8a7fa355ff8ea0160734d2a35b2d2aa0f9",
-      "binary_sha256": "e77c8392af7433bf25bce876fc37a88dec28175f63111955a3149a563fba7fd6"
+      "artifact": "caelis_0.79.1_linux_amd64.tar.gz",
+      "sha256": "983c066cde89f790e483a386f2392bc19127dd5525abf0c01ea68a6ef4f57887",
+      "binary_sha256": "66ed12f6ee383e213cbde7c78b577a3a1213ded74b0b7d2e3147ebe5e4802a3b"
     },
     "linux-arm64": {
-      "artifact": "caelis_0.77.1_linux_arm64.tar.gz",
-      "sha256": "04f5851ec08b95df45b3d555abffa87f3469e5ac1063b5de2df6a156d4a61d80",
-      "binary_sha256": "a80d4da609b315b843b5e0e53fba945bb86702ca1082c939d80bb2cdc759246a"
+      "artifact": "caelis_0.79.1_linux_arm64.tar.gz",
+      "sha256": "f0a3693ef5fca7b4113977fe124d304cc532147efbbc573114239cfae5f4ba43",
+      "binary_sha256": "badb8506a00ba2f8a4b57e24ddfa3d87058d9888de13fa1cb666e2b27d03eb7a"
     }
   }
 }
