@@ -24,7 +24,7 @@ $taskOldCGO = $env:CGO_ENABLED
 try {
   $env:CGO_ENABLED='0'
   Invoke-BotCommand go run ./cmd/windows-package-assets internal/desktop/assets/app-icon.png (Join-Path $taskDestination 'Resources/Windows')
-  Invoke-BotCommand go run "github.com/wailsapp/wails/v3/cmd/wails3@$($taskBotPins.wails)" generate syso -arch amd64 -manifest resources/windows/app.manifest -icon (Join-Path $taskDestination 'Resources/Windows/app.ico') -out $taskResource
+  Invoke-BotCommand go run "github.com/wailsapp/wails/v3/cmd/wails3@$taskWailsVersion" generate syso -arch amd64 -manifest resources/windows/app.manifest -icon (Join-Path $taskDestination 'Resources/Windows/app.ico') -out $taskResource
   Invoke-BotCommand go build -buildvcs=false -trimpath -tags production -ldflags "-H windowsgui -X github.com/caelis-labs/caelis-bot/internal/updates.Version=$taskVersion -X github.com/caelis-labs/caelis-bot/internal/desktop.buildChannel=$($taskVersionInfo.identity) -X github.com/caelis-labs/caelis-bot/internal/desktop.windowsReleaseUpdates=$($taskVersionInfo.releaseUpdates.ToString().ToLowerInvariant()) -X github.com/caelis-labs/caelis-bot/internal/caelisruntime.windowsBundled=1" -o (Join-Path $taskDestination 'caelis-bot.exe') .
   Invoke-BotCommand go build -buildvcs=false -trimpath -o (Join-Path $taskDestination 'caelis-terminal.exe') ./cmd/caelis-terminal
 } finally {

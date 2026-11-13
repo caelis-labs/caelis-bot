@@ -16,9 +16,9 @@ Caelis Bot 是一个带有可拖动 3D 角色的个人桌面助手。与本机 C
 
 | 平台 | 下载 | 指南 |
 | --- | --- | --- |
-| macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · 已签名、公证 | [安装说明](docs/install.zh-CN.md) |
-| Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · 未签名 | [安装说明](docs/install.windows.md) |
-| Linux / WSL · amd64、arm64 | [完整 tar.gz](https://github.com/caelis-labs/caelis-bot/releases/latest) · 签名校验、用户服务 | [安装说明](docs/install.linux.md) |
+| macOS · Apple Silicon | [DMG](https://github.com/caelis-labs/caelis-bot/releases/latest) · 已签名、公证 | [安装说明](docs/release.md#macos) |
+| Windows · x64 | [Setup / ZIP](https://github.com/caelis-labs/caelis-bot/releases) · 未签名 | [安装说明](docs/release.md#windows) |
+| Linux / WSL · amd64、arm64 | [完整 tar.gz](https://github.com/caelis-labs/caelis-bot/releases/latest) · 签名校验、用户服务 | [安装说明](docs/release.md#linux-headless) |
 
 使用安装包附带的 `.sha256` 文件核验下载。各平台独立发布，请按指南选择对应安装包和渠道。
 
@@ -28,11 +28,11 @@ Caelis Bot 是一个带有可拖动 3D 角色的个人桌面助手。与本机 C
 2. 连接模型服务或复用已有认证模型，再介绍你的 Bot。
 3. 点击角色聊天、添加文件或交代任务，在 **设置 → 连接与模型** 调整连接。
 
-可选的电脑操控会按需申请权限。在 **设置 → 外观** 导入角色和头像。[功能与限制](docs/status.md) · [内容包创作指南](docs/content-packs.md)
+可选的电脑操控会按需申请权限。在 **设置 → 外观** 导入角色和头像。[功能与限制](docs/product.md) · [内容包创作指南](docs/content-packs.md)
 
 ## 开发
 
-在 macOS 安装指定的[工具链](toolchain.json)后运行：
+在 macOS 安装 [.node-version](.node-version) 指定的 Node 和 [go.mod](go.mod) 指定的 Go 后运行：
 
 ```sh
 make setup
@@ -40,7 +40,7 @@ make check
 make run
 ```
 
-[开发指南](docs/development.md) · [Windows 构建](docs/windows-release.md) · [文档索引](docs/README.md) · [反馈问题](https://github.com/caelis-labs/caelis-bot/issues)
+[开发指南](docs/development.md) · [Windows 构建](docs/development.md#native-windows-development) · [文档索引](docs/README.md) · [反馈问题](https://github.com/caelis-labs/caelis-bot/issues)
 
 ## 许可
 

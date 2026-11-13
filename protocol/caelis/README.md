@@ -35,5 +35,5 @@ item and tool-version provenance. Native approval options remain unchanged.
 The v1 Bot-state importer is isolated in `statemigration`; remove it when the
 minimum supported saved format reaches v2. Imported receipt addresses match Core
 Store v3's isolated importer. The original effect IDs, input source, unknown state
-and immutable request bytes are retained. See [integration](../../docs/caelis-integration.md)
-for migration, extensions and verification boundaries.
+and immutable request bytes are retained. See [architecture](../../docs/architecture.md) and [development](../../docs/development.md)
+for runtime ownership and verification boundaries.

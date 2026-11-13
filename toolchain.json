@@ -1,7 +1,0 @@
-{
-  "node": "24.21.0",
-  "go": "1.26.8",
-  "wails": "v3.2.0-nightly.20261103",
-  "codex": "0.153.4",
-  "platform": "darwin-arm64"
-}

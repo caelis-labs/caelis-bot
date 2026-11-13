@@ -40,7 +40,7 @@ fixture. Elapsed time alone never changes presence to unlocked.
 
 ## Reproduce
 
-From the repository root, with Go 1.26.8 and the user's installed Codex CLI:
+From the repository root, with the Go version in [go.mod](go.mod) and the user's installed Codex CLI:
 
 ```sh
 bash poc/eventbot/run.sh test

@@ -1,5 +1,5 @@
 // Disposable native acceptance fixture. No product surface, backend or user data.
-// Build/run instructions are in docs/native-acceptance.md.
+// Native verification boundaries are in docs/development.md.
 import AppKit
 final class Probe: NSObject, NSApplicationDelegate {
     var window: NSWindow!

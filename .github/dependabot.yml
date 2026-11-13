@@ -12,7 +12,7 @@ updates:
     directory: /
     patterns: ['*']
     multi-ecosystem-group: dependencies
-    # Keep typings on the Node runtime major pinned in toolchain.json.
+    # Keep typings on the Node runtime major pinned in .node-version.
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
