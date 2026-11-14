@@ -214,8 +214,8 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	released = false
 	key := "CASE_COMPATIBLE_DISCOVER"
 	model.set(key, modelStep{Name: "js_exec", Args: map[string]any{"code": `
-const catalog = await tools.search({server: "desktop-world"});
-const apps = catalog.tools.filter(tool => tool.name.endsWith("__apps"));
+const catalog = await tools.search({server: "dtw"});
+const apps = catalog.tools.filter(tool => tool.name === "dtw__apps");
 if (apps.length !== 1) throw new Error("Expected one native apps tool");
 const reply = await tools.call(apps[0].name, {query: "Bot Runtime Probe"});
 return {probe: "UPGRADE_DTW_APPS", tool: apps[0].name, result: tools.unpack(reply)};

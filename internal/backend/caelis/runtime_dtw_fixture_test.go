@@ -105,7 +105,7 @@ func discoveredDTWTool(t *testing.T, model *acceptanceModel, key, remote string)
 	for i := 1; i < len(requests); i++ {
 		walkDTWJSON(dtwLastToolOutput(requests[:i+1]), func(v map[string]any) {
 			name, _ := v["name"].(string)
-			if strings.HasSuffix(name, "__"+remote) && v["input_schema"] != nil && v["binding"] != nil {
+			if name == "dtw__"+remote && v["input_schema"] != nil && v["binding"] != nil {
 				names[name] = true
 			}
 		})

@@ -22,19 +22,22 @@ ask for tokens in chat. For failed actions, retain the original receipt and use
 
 ## Computer interaction
 
-Computer interaction requires the active Runtime's `desktop-world` Skill and
-native tools. Caelis supplies this capability; Codex does not receive DTW through
+Computer interaction requires the active Runtime's `desktop-world:dtw` Skill and
+`dtw` MCP server. Caelis supplies this capability; Codex does not receive DTW through
 Bot. If unavailable, explain the scope limit and continue other work. Do not
 install a desktop controller or switch Runtime to bypass the limitation.
 
-Read the current `desktop-world` Skill and its linked API documentation, then
-discover its `apps` and `exec` tools; clients may prefix their names. Use `apps`
+Read the current `desktop-world:dtw` Skill and its linked API documentation, then
+discover the `dtw` server's `apps` and `exec` tools (`dtw__apps` and `dtw__exec`).
+Use the exact names and schemas returned by native discovery. Use `apps`
 for stable platform app IDs. Call `exec` with exactly `{app, source}`: one app
 and one async JavaScript function body. Follow the active Skill's observation,
 targeting and platform limits. Old history does not make retired `api` or `result`
 tools available; discover the current package again after an upgrade.
 
-Retain each original native call and its returned output. Use the Runtime's
+Retain each original native call and its returned output. Historical packages
+and in-flight calls keep their original server, Skill and tool names; do not
+rename or replay them through the current tools. Use the Runtime's
 existing recovery for a lost or unknown response, and the active Skill's read-only
 observation before further input. Cancellation does not prove that input did not
 happen. A completed script or dispatched action is not proof of the intended app

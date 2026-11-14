@@ -118,7 +118,7 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	sid := s.ConversationState().Session
 	directory := waitFixedDTW(t, ctx, client, sid)
 	for _, v := range directory.Skills {
-		if strings.HasSuffix(v.Path, "/desktop-world/SKILL.md") && v.Status == "ready" {
+		if value(v.Name) == "desktop-world:dtw" && strings.HasSuffix(v.Path, "/skills/dtw/SKILL.md") && v.Status == "ready" {
 			skill = value(v.Name)
 		}
 	}
@@ -232,7 +232,7 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 		}
 		fixed := 0
 		for _, p := range d.Plugins {
-			if value(p.Id) == "desktop-world" && value(p.Version) == "0.4.2" && p.Status == "builtin" {
+			if value(p.Id) == "desktop-world" && value(p.Version) == "0.5.0" && p.Status == "builtin" {
 				fixed++
 			}
 		}
@@ -240,7 +240,7 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 			return false
 		}
 		for _, server := range d.Servers {
-			if server.Name == "desktop-world" {
+			if server.Name == "dtw" {
 				return server.Status == "running" && (server.Stale == nil || !*server.Stale) && (server.Refreshing == nil || !*server.Refreshing) && (server.RefreshFailed == nil || !*server.RefreshFailed) && value(server.Warning) == "" && len(server.Tools) == 2
 			}
 		}

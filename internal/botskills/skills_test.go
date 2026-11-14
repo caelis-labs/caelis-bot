@@ -19,6 +19,25 @@ func TestSkillMetadataAcceptsCheckoutLineEndings(t *testing.T) {
 	}
 }
 
+func TestInstalledComputerInteractionGuidance(t *testing.T) {
+	path, err := Install(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(path), "references", "plugins.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"`desktop-world:dtw` Skill", "`dtw` MCP server", "`dtw__apps`", "`dtw__exec`", "Historical packages", "in-flight calls keep their original", "Never repeat `exec`", "Codex does not receive DTW through", "do not copy credentials or inject a second"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("installed computer interaction guidance missing %q", required)
+		}
+	}
+	if strings.Contains(string(body), "`desktop-world` Skill") {
+		t.Fatal("retired Skill identity remains in current guidance")
+	}
+}
+
 func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "custom-guide"} {
