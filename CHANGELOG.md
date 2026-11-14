@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.3](https://github.com/caelis-labs/caelis-bot/compare/v0.22.2...v0.22.3) (2026-11-14)
+
+
+### Bug Fixes
+
+* **runtime:** pin Core v0.80.0 and use current DTW identities ([#284](https://github.com/caelis-labs/caelis-bot/issues/284)) ([042122d](https://github.com/caelis-labs/caelis-bot/commit/042122d00b7cc16bdf42812560925b8772301d50))
+
 ## [0.22.2](https://github.com/caelis-labs/caelis-bot/compare/v0.22.1...v0.22.2) (2026-11-13)
 
 
