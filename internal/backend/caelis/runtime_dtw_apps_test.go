@@ -59,6 +59,32 @@ func TestDTWReturnedApp(t *testing.T) {
 	}
 }
 
+func TestDTWReturnedAppKeepsToolIdentity(t *testing.T) {
+	const app = "dev.caelis.bot.runtimeprobe"
+	for _, recorded := range []string{"desktop_world__apps", "dtw__apps"} {
+		for _, requested := range []string{"desktop_world__apps", "dtw__apps"} {
+			t.Run(recorded+"/"+requested, func(t *testing.T) {
+				args, err := json.Marshal(map[string]any{"tool_name": recorded, "arguments": map[string]string{"query": app}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				request := map[string]any{"input": []any{
+					map[string]any{"type": "function_call", "name": "mcp_call", "call_id": "original-call", "arguments": string(args)},
+					map[string]any{"type": "function_call_output", "call_id": "original-call", "output": `{"apps":[{"app":"` + app + `"}]}`},
+				}}
+				got := dtwReturnedApp([]map[string]any{request}, requested, app)
+				want := ""
+				if recorded == requested {
+					want = "original-call"
+				}
+				if got != want {
+					t.Fatalf("recorded %q matched requested %q as %q, want %q", recorded, requested, got, want)
+				}
+			})
+		}
+	}
+}
+
 func TestDTWReturnedAppSavedRequests(t *testing.T) {
 	path := os.Getenv("CAELIS_BOT_TEST_DTW_SAVED_REQUESTS")
 	if path == "" {
