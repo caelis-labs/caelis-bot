@@ -12,9 +12,44 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"golang.org/x/sys/windows"
 )
+
+func TestWindowsWorkspaceRemovedBeforeCreateProcess(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "工作 space")
+	if err := os.Mkdir(workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "launch.command")
+	pending := filepath.Join(root, "pending")
+	v := windowsLaunch{Version: 1, Observer: true, Command: LaunchArguments{Binary: exe, Directory: workspace}, Pending: pending, AcceptedPrefix: filepath.Join(root, "accepted-")}
+	if err := localstate.Write(path, v); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pending, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(workspace); err != nil {
+		t.Fatal(err)
+	}
+	window, err := launchConsole(t.Context(), path, false)
+	if window != nil || !errors.Is(err, ErrLaunchNotSubmitted) || !errors.Is(err, api.ErrTaskWorkspaceUnavailable) {
+		t.Fatal("missing directory lost its safe startup error", window, err)
+	}
+	if b, err := os.ReadFile(pending); err != nil || string(b) != "original" {
+		t.Fatal("failed startup claimed the launch", err)
+	}
+	if _, err := os.Stat(workspace); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("recreated workspace", err)
+	}
+}
 
 func init() {
 	if handled, err := RunClient(os.Args[1:]); handled {

@@ -604,6 +604,12 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		s.mu.Unlock()
 		return api.Task{}, &api.WorkMessageRejection{Cause: errors.New("运行回合尚未确认，请先读取任务")}
 	}
+	if resume && !wasActive {
+		if err := api.ValidateTaskWorkspace(t.View.Workspace); err != nil {
+			s.mu.Unlock()
+			return api.Task{}, &api.WorkMessageRejection{Code: "workspace_unavailable", Cause: err}
+		}
+	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
 	previousSuperseded := append([]string(nil), t.SupersededRuns...)
 	kind, intent := "send", api.WorkFingerprint(in)

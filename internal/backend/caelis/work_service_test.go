@@ -286,6 +286,13 @@ func TestWorkServiceInputsUseWorkerNativeEncoderAndBindBytes(t *testing.T) {
 	})
 	addServiceWorker(s, "task", "work", wire.SessionState{})
 	path := filepath.Join(t.TempDir(), "data.txt")
+	worker := s.state.Workers["task"]
+	workspace, workspaceErr := api.ResolveTaskWorkspace(filepath.Dir(path))
+	if workspaceErr != nil {
+		t.Fatal(workspaceErr)
+	}
+	worker.Task.Workspace = workspace
+	s.state.Workers["task"] = worker
 	if err := os.WriteFile(path, []byte("first"), 0600); err != nil {
 		t.Fatal(err)
 	}

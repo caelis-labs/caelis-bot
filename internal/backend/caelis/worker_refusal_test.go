@@ -33,7 +33,7 @@ func TestNativeWorkerStartPreservesRefusal(t *testing.T) {
 					}
 					writeFixture(w, result)
 				})
-				in := api.WorkStart{ID: "task", Workspace: t.TempDir(), TaskStart: api.TaskStart{RequestID: "start", Title: "Synthetic", Prompt: "synthetic start"}}
+				in := api.WorkStart{ID: "task", Workspace: canonicalWorkspace(t), TaskStart: api.TaskStart{RequestID: "start", Title: "Synthetic", Prompt: "synthetic start"}}
 				got, err := s.StartWork(authorizedWorkerCall(t.Context(), s), in)
 				var refusal *api.WorkMessageRejection
 				code := "native_rejected"
@@ -91,7 +91,7 @@ func TestNativeWorkerContinuationPreservesRefusalWithoutReplay(t *testing.T) {
 				if steer {
 					status = "working"
 				}
-				s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: status, Outcome: "accepted"}, PromptID: "previous-start"}
+				s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Workspace: canonicalWorkspace(t), Status: status, Outcome: "accepted"}, PromptID: "previous-start"}
 				s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer(status), Active: pointer(steer), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("old-turn")}}, Seen: map[string]bool{}}
 				in := api.TaskMessage{ID: "task", RequestID: "refused", Prompt: "synthetic continuation"}
 				got, err := s.SendWork(authorizedWorkerCall(t.Context(), s), in)
@@ -130,7 +130,7 @@ func TestWorkerKnownStartRefusalIsNotFreshRejection(t *testing.T) {
 		for _, outcome := range []string{"conflicted", "rejected"} {
 			t.Run(stage+"/"+outcome, func(t *testing.T) {
 				s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Error("known refusal replayed") })
-				w := worker{Native: true, Task: api.Task{ID: "task", Workspace: t.TempDir()}, PromptID: "original-prompt", Start: &workerStart{Prompt: "original"}}
+				w := worker{Native: true, Task: api.Task{ID: "task", Workspace: canonicalWorkspace(t)}, PromptID: "original-prompt", Start: &workerStart{Prompt: "original"}}
 				op, path := w.operationID("create", w.Task.ID), "/sessions"
 				var request any = wire.CreateSessionRequest{OperationId: &op, Cwd: &w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, FastMode: pointer(false)}
 				if stage == "prompt" {

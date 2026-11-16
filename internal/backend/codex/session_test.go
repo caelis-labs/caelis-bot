@@ -42,7 +42,10 @@ type sessionFixture struct {
 
 func sessionPair(t *testing.T, mode string) (*Session, *sessionFixture) {
 	t.Helper()
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := NewSession(SessionOptions{Directory: filepath.Join(dir, "work"), StateFile: filepath.Join(dir, "binding.json")})
 	f := &sessionFixture{mode: mode, started: make(chan struct{}, 8), answers: make(chan wireMessage, 8), loginReply: make(chan struct{})}
 	s.start = func(context.Context, Options) (*Client, error) {

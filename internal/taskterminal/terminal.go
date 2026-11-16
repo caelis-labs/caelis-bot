@@ -117,9 +117,14 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	script, err := Script(t)
+	_, err := Script(t)
 	if err != nil {
 		return err
+	}
+	if t.Runtime == "codex" || t.Runtime == "caelis" {
+		if err := api.ValidateTaskWorkspace(t.Directory); err != nil {
+			return err
+		}
 	}
 	if !filepath.IsAbs(l.directory) || l.open == nil && l.openWindow == nil {
 		return errors.New("terminal launcher unavailable")
@@ -149,7 +154,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	}
 	// Publish acceptance and its client PID in the same rename. A duplicate
 	// script cannot overwrite the winning client's identity before Confirm.
-	guarded, guardErr := guardedScript(pending, acceptedPrefix, script)
+	guarded, guardErr := guardedScript(pending, acceptedPrefix, t)
 	if guardErr != nil {
 		return guardErr
 	}
@@ -292,6 +297,12 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	for {
 		if err := confirm(); !errors.Is(err, os.ErrNotExist) {
 			return err
+		}
+		// The terminal can accept its document while its shell has not opened
+		// it yet. Without an exec-boundary receipt, a lost cwd is a failed
+		// startup; revoke the same one-use request before returning feedback.
+		if (t.Runtime == "codex" || t.Runtime == "caelis") && api.ValidateTaskWorkspace(t.Directory) != nil {
+			return revoke(api.ErrTaskWorkspaceUnavailable)
 		}
 		if cw, ok := window.(ControlledWindow); ok {
 			if o, e := cw.Observe(ctx); e == nil && o.State == WindowClosed {

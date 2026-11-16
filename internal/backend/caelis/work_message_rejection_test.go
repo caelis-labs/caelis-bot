@@ -28,7 +28,7 @@ func TestManagerCaelisContinuationKeepsDefiniteRejection(t *testing.T) {
 				}
 				writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: "accepted"})
 			})
-			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted"}, PromptID: "previous-start"}
+			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Workspace: canonicalWorkspace(t), Status: "completed", Outcome: "accepted"}, PromptID: "previous-start"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("old-turn")}}, Seen: map[string]bool{}}
 			if predispatch {
 				s.state.Views["work"].State.Run = wire.RunState{Status: pointer("running"), Active: pointer(true)}

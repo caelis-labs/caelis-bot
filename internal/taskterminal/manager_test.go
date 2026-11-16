@@ -18,7 +18,7 @@ import (
 func testManager(t *testing.T, open func(context.Context, string) (Window, error)) *WindowManager {
 	t.Helper()
 	m := NewWindowManager(t.TempDir(), open, func(context.Context, string) (api.TerminalTarget, error) {
-		return api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}, nil
+		return api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: canonicalTempDir(t), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}, nil
 	}, nil, nil)
 	t.Cleanup(m.Close)
 	return m

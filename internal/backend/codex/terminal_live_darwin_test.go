@@ -25,7 +25,10 @@ func TestNativeSharedWorkerTerminal(t *testing.T) {
 	if binary == "" {
 		t.Skip("set CAELIS_BOT_TEST_CODEX to the installed CLI")
 	}
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	home := filepath.Join(dir, "codex-home")
 	if err := os.Mkdir(home, 0700); err != nil {
 		t.Fatal(err)
