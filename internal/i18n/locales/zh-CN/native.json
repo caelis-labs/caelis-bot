@@ -75,6 +75,7 @@
   "taskUnpinFailed": "暂时无法移除此项，请重试。",
   "taskPreferencesUnavailable": "任务偏好暂不可用。",
   "preferredTerminalUnavailable": "所选终端不可用，请在设置中选择已安装的终端。",
+  "taskWorkspaceUnavailable": "工作目录已不存在，请新建 Worker",
   "taskTerminalWaiting": "等待终端确认…",
   "taskTerminalNotConnected": "终端未连接。点击任务卡片可重新打开。",
   "taskTerminalClosing": "等待终端关闭确认…取消将保留窗口和任务卡片。",

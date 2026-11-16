@@ -91,7 +91,7 @@ func TestNativeWorkerContinuationPreservesRefusalWithoutReplay(t *testing.T) {
 				if steer {
 					status = "working"
 				}
-				s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: status, Outcome: "accepted"}, PromptID: "previous-start"}
+				s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Workspace: t.TempDir(), Status: status, Outcome: "accepted"}, PromptID: "previous-start"}
 				s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer(status), Active: pointer(steer), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("old-turn")}}, Seen: map[string]bool{}}
 				in := api.TaskMessage{ID: "task", RequestID: "refused", Prompt: "synthetic continuation"}
 				got, err := s.SendWork(authorizedWorkerCall(t.Context(), s), in)

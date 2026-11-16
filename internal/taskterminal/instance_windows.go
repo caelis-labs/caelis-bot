@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"golang.org/x/sys/windows"
 	"os"
@@ -81,6 +82,9 @@ func launchConsole(ctx context.Context, path string, newConsole bool) (Window, e
 		flags |= windows.CREATE_NEW_CONSOLE
 	}
 	if err = windows.CreateProcess(binary, command, nil, nil, false, flags, &environment[0], directory, &startup, &process); err != nil {
+		if v.Observer && api.ValidateTaskWorkspace(v.Command.Directory) != nil {
+			return nil, NotLaunched(api.ErrTaskWorkspaceUnavailable)
+		}
 		return nil, NotLaunched(err)
 	}
 	defer windows.CloseHandle(process.Thread)

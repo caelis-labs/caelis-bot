@@ -29,7 +29,7 @@ func (f *rejectionCompactTasks) SendTask(_ context.Context, in api.TaskMessage) 
 }
 
 func TestDelegateRejectionReasons(t *testing.T) {
-	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "input_preparation_failed", "input_validation_failed", "workspace_preparation_failed", "native_conflict", "native_rejected", ""} {
+	for _, reason := range []string{"updater_paused", "capacity_full", "work_admission_failed", "source_not_authorized", "workspace_invalid", "workspace_unavailable", "input_preparation_failed", "input_validation_failed", "workspace_preparation_failed", "native_conflict", "native_rejected", ""} {
 		for _, continuation := range []bool{false, true} {
 			t.Run(reason+map[bool]string{false: "/create", true: "/continue"}[continuation], func(t *testing.T) {
 				outcome := "rejected"
@@ -50,6 +50,9 @@ func TestDelegateRejectionReasons(t *testing.T) {
 					t.Fatal("original receipt lost", data)
 				}
 				message := e["message"]
+				if reason == "workspace_unavailable" && message != api.ErrTaskWorkspaceUnavailable.Error() {
+					t.Fatal("missing actionable workspace feedback", message)
+				}
 				temporary := reason == "updater_paused" || reason == "capacity_full"
 				if temporary && (!strings.Contains(message, "Retry later") || !strings.Contains(message, "30 seconds") || strings.Contains(message, "definitively rejected")) {
 					t.Fatal("temporary refusal guidance", message)

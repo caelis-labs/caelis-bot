@@ -59,6 +59,48 @@ func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDisappearsAfterTerminalPreflight(t *testing.T) {
+	for _, runtime := range []string{"codex", "caelis"} {
+		t.Run(runtime, func(t *testing.T) {
+			root := t.TempDir()
+			workspace := filepath.Join(root, "工作 ' $(touch unexpected)")
+			if err := os.Mkdir(workspace, 0700); err != nil {
+				t.Fatal(err)
+			}
+			marker := filepath.Join(root, "executed")
+			binary := filepath.Join(root, "runtime")
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\ntouch "+quote(marker)+"\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			target := api.TerminalTarget{Runtime: runtime, Binary: binary, Directory: workspace, Endpoint: "http://127.0.0.1:1234", Thread: "original-thread", Session: "original-session", Store: root, TokenFile: filepath.Join(root, "token")}
+			if runtime == "codex" {
+				target.Endpoint = "unix:///tmp/fixture.sock"
+			}
+			var output []byte
+			l := New(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) error {
+				if err := os.Remove(workspace); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				output, err = exec.CommandContext(ctx, "/bin/sh", path).CombinedOutput()
+				return err
+			})
+			if err := l.Open(t.Context(), "original-task", target); err == nil {
+				t.Fatal("failed cd reported success")
+			}
+			if string(output) != api.ErrTaskWorkspaceUnavailable.Error()+"\n" {
+				t.Fatalf("unsafe startup feedback: %q", output)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("runtime ran in another cwd", err)
+			}
+			if _, err := os.Stat(workspace); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("workspace was recreated", err)
+			}
+		})
+	}
+}
+
 func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "executed")

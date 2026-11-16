@@ -168,6 +168,8 @@ func delegationRejectionGuidance(reason string) string {
 		return "The original Worker invocation could not be verified. Retain the task and request and inspect the original binding; waiting or changing workspace cannot repair an identity mismatch."
 	case "workspace_invalid":
 		return "The workspace was rejected before Worker input was accepted. Use an existing project directory outside the Bot private Notebook, or omit workspace for an isolated task directory."
+	case "workspace_unavailable":
+		return api.ErrTaskWorkspaceUnavailable.Error()
 	case "native_conflict":
 		return "The original Worker submission conflicted with its native owner. Inspect the original task and request before another action."
 	case "native_rejected":

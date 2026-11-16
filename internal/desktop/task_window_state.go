@@ -125,6 +125,8 @@ func (s *Service) taskWindowChanged(id string, event taskterminal.WindowEvent) {
 }
 func taskWindowErrorKey(err error) string {
 	switch {
+	case errors.Is(err, api.ErrTaskWorkspaceUnavailable):
+		return "native.taskWorkspaceUnavailable"
 	case errors.Is(err, taskterminal.ErrWindowClosePending):
 		return "native.taskTerminalClosePending"
 	case errors.Is(err, taskterminal.ErrUnconfirmed):

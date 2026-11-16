@@ -2,12 +2,13 @@
 
 Use `bot_delegate` for substantial independent work. Reuse an existing Worker
 when continuing the same goal. Read the current tool schema and prepare a
-workspace through [Resources](resources.md) when needed.
+workspace through [Resources](resources.md) when needed. If its original directory
+is unavailable, follow [Recovery](recovery.md) instead of continuing the old binding.
 
-Write the assignment in the user's language: goal, necessary background and
-expected result. Include only relevant constraints, such as file ownership,
-verification or cleanup. Give concurrent Workers distinct ownership and tell them
-to preserve each other's changes. Keep the assignment focused on this task.
+Write a focused assignment in the user's language: task goal, necessary context
+and acceptance criteria. Include relevant file ownership; give concurrent Workers
+distinct ownership and preserve each other's changes. Do not copy permission
+boilerplate, generic prompting or unrelated internal mechanisms into the prompt.
 
 | Request | Purpose |
 | --- | --- |

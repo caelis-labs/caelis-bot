@@ -10,12 +10,12 @@ within their access and isolation rules; avoid full cache copies per worktree.
 Check free space before a large build/download when space may be tight. Keep
 bulky working data outside Notebook.
 
-For code changes needing isolation, prepare a branch and linked worktree outside
-Notebook and app-data `Tasks`, near the repository or in the system temporary
-directory. Pass its absolute path as `bot_delegate.workspace`; a path in prose
-does not select the directory. Simple/read-only work can use a suitable existing
-checkout. Keep an existing Worker bound to its original workspace; direct its code
-commands to an external worktree when needed.
+Prefer the actual project workspace for nonparallel work. Only when that workspace
+may be occupied or conflict with other work, plan and prepare a separate branch
+and linked worktree outside Notebook and app-data `Tasks`, near the repository or
+in the system temporary directory. Pass the prepared absolute path as
+`bot_delegate.workspace`; the Worker receives the actual workspace, and a path
+in prose does not select it. You own its later cleanup.
 
 Use the smallest test environment that answers the question. Reuse a suitable
 isolated profile unless it would conflict with another owner or risk live data.

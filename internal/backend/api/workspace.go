@@ -7,6 +7,17 @@ import (
 	"strings"
 )
 
+var ErrTaskWorkspaceUnavailable = errors.New("工作目录已不存在，请新建 Worker")
+
+// ValidateTaskWorkspace checks a retained binding without changing its cwd or
+// recreating it. The resolved path is deliberately not used as a replacement.
+func ValidateTaskWorkspace(path string) error {
+	if _, err := ResolveTaskWorkspace(path); err != nil {
+		return ErrTaskWorkspaceUnavailable
+	}
+	return nil
+}
+
 // ResolveTaskWorkspace resolves an existing user-selected directory without
 // creating, chmod-ing or deleting anything in it. Persist this canonical path as
 // the native cwd and sandbox root; an alias must not retarget a resumed task.

@@ -701,6 +701,11 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if retry {
 		return projected, errors.New("original request receipt already exists; read the exact request before continuing")
 	}
+	if !busy {
+		if err := api.ValidateTaskWorkspace(w.Task.Workspace); err != nil {
+			return projected, &api.WorkMessageRejection{Code: "workspace_unavailable", Cause: err}
+		}
+	}
 	parts, e := s.encodeWorkerInputs(ctx, sid, op, inputs)
 	if e != nil {
 		return projected, e

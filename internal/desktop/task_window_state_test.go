@@ -2,9 +2,19 @@ package desktop
 
 import (
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"testing"
 )
+
+func TestMissingWorkspaceFeedbackClearsTerminalWaiting(t *testing.T) {
+	s, d := taskService(t)
+	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 1, Phase: taskterminal.WindowOpening})
+	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 2, Phase: taskterminal.WindowUncertain, Err: taskterminal.NotLaunched(api.ErrTaskWorkspaceUnavailable)})
+	if d.opening != "" || d.failure != s.text("native.taskWorkspaceUnavailable", nil) {
+		t.Fatal("missing actionable workspace feedback", d)
+	}
+}
 
 func TestCloseConfirmationProjectionAndCancellation(t *testing.T) {
 	s, d := taskService(t)

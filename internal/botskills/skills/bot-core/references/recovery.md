@@ -41,6 +41,7 @@ For confirmed `submission_rejected`, use `error.reason` and safe `error.detail`:
 | --- | --- |
 | `updater_paused`, `capacity_full` | Retry later within authorization, at least after the suggested interval; preserve workspace and intent. Arrange a callback if attention must return later. |
 | `workspace_invalid` | Inspect and correct the selected path. |
+| `workspace_unavailable` | The original workspace is no longer available. Delegate remaining authorized work to a new Worker in a prepared workspace. Keep the old task for history and original receipts; do not recreate its directory or steer it to another cwd to restore the binding. |
 | `source_not_authorized` | Inspect the original invocation binding; waiting or changing directories cannot repair it. |
 | `work_admission_failed` | Inspect the cause; do not assume a transient failure or schedule a retry. |
 | `native_rejected` | Inspect the refusal; do not bypass a denied approval. |

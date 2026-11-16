@@ -75,6 +75,7 @@
   "taskUnpinFailed": "Could not remove this item. Please try again.",
   "taskPreferencesUnavailable": "Task preferences are unavailable.",
   "preferredTerminalUnavailable": "The selected terminal is unavailable. Choose an installed terminal in Settings.",
+  "taskWorkspaceUnavailable": "The working directory no longer exists. Create a new Worker.",
   "taskTerminalWaiting": "Waiting for terminal confirmation…",
   "taskTerminalNotConnected": "Terminal did not connect. Click the task to try again.",
   "taskTerminalClosing": "Waiting for terminal close confirmation… Cancel to keep the window and task card.",

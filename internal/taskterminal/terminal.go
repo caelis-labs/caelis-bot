@@ -121,6 +121,11 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	if err != nil {
 		return err
 	}
+	if t.Runtime == "codex" || t.Runtime == "caelis" {
+		if err := api.ValidateTaskWorkspace(t.Directory); err != nil {
+			return err
+		}
+	}
 	if !filepath.IsAbs(l.directory) || l.open == nil && l.openWindow == nil {
 		return errors.New("terminal launcher unavailable")
 	}

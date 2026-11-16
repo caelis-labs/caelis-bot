@@ -51,7 +51,7 @@ func Script(t api.TerminalTarget) (string, error) {
 	return script, nil
 }
 func renderArguments(spec LaunchArguments) string {
-	command := "cd " + quote(spec.Directory) + " || exit 1\nexec " + quote(spec.Binary)
+	command := "if ! cd " + quote(spec.Directory) + " 2>/dev/null; then\n  printf '%s\\n' " + quote(api.ErrTaskWorkspaceUnavailable.Error()) + "\n  exit 1\nfi\nexec " + quote(spec.Binary)
 	for _, arg := range spec.Args {
 		command += " " + quote(arg)
 	}
