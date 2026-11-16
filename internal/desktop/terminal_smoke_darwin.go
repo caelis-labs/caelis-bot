@@ -62,6 +62,10 @@ func smokeTerminalInstances(terminals []string, confirmClose, confirmOpen, delay
 		return err
 	}
 	defer os.RemoveAll(dir)
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return err
+	}
 	var failures []error
 	for _, terminal := range terminals {
 		if !terminalInstalled(taskterminal.BundleID(terminal)) {

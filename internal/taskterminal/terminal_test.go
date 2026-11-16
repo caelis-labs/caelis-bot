@@ -17,7 +17,7 @@ import (
 )
 
 func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalTempDir(t)
 	workspace := filepath.Join(dir, "work ' $(touch unexpected)")
 	if err := os.Mkdir(workspace, 0700); err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
 func TestWorkspaceDisappearsAfterTerminalPreflight(t *testing.T) {
 	for _, runtime := range []string{"codex", "caelis"} {
 		t.Run(runtime, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalTempDir(t)
 			workspace := filepath.Join(root, "工作 ' $(touch unexpected)")
 			if err := os.Mkdir(workspace, 0700); err != nil {
 				t.Fatal(err)
@@ -102,7 +102,7 @@ func TestWorkspaceDisappearsAfterTerminalPreflight(t *testing.T) {
 }
 
 func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalTempDir(t)
 	marker := filepath.Join(dir, "executed")
 	binary := filepath.Join(dir, "fake-codex")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf done > "+quote(marker)+"\n"), 0700); err != nil {
@@ -176,7 +176,7 @@ func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 }
 
 func TestProvenUnsubmittedLaunchCleansScriptImmediately(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	var path string
 	l := New(filepath.Join(root, "Terminal"), func(_ context.Context, command string) error {
 		path = command
@@ -204,7 +204,7 @@ func TestRejectInvalidTargetBeforeOpening(t *testing.T) {
 }
 
 func TestCaelisAttachUsesExistingSessionAndCredentialPath(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalTempDir(t)
 	binary := filepath.Join(dir, "caelis ' $(touch bad)")
 	capture := filepath.Join(dir, "args")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\n"), 0700); err != nil {

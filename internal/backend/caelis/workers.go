@@ -670,6 +670,9 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	op := w.operationID("send", in.RequestID)
 	_, retry := s.state.Operations[op]
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
+	// Workspace admission uses the full native activity projection. Keep busy
+	// separate: it also selects the existing prompt/steer and grant paths.
+	active := v != nil && workerNativeActive(v.State)
 	projected := s.workerViewLocked(w)
 	unresolved := projected.Status == "unknown" || projected.Status == "pending" || w.Start != nil
 	s.mu.Unlock()
@@ -701,7 +704,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if retry {
 		return projected, errors.New("original request receipt already exists; read the exact request before continuing")
 	}
-	if !busy {
+	if !active {
 		if err := api.ValidateTaskWorkspace(w.Task.Workspace); err != nil {
 			return projected, &api.WorkMessageRejection{Code: "workspace_unavailable", Cause: err}
 		}

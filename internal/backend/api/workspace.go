@@ -10,9 +10,11 @@ import (
 var ErrTaskWorkspaceUnavailable = errors.New("工作目录已不存在，请新建 Worker")
 
 // ValidateTaskWorkspace checks a retained binding without changing its cwd or
-// recreating it. The resolved path is deliberately not used as a replacement.
+// recreating it or following a replacement symlink. This is a canonical path
+// binding, not inode/File ID identity: an ordinary directory recreated at the
+// same path is indistinguishable from the original.
 func ValidateTaskWorkspace(path string) error {
-	if _, err := ResolveTaskWorkspace(path); err != nil {
+	if resolved, err := ResolveTaskWorkspace(path); err != nil || resolved != path {
 		return ErrTaskWorkspaceUnavailable
 	}
 	return nil

@@ -10,6 +10,44 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := api.ResolveTaskWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestTaskWorkspaceSymlinkCannotRetargetTerminal(t *testing.T) {
+	for _, runtime := range []string{"codex", "caelis"} {
+		t.Run(runtime, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			workspace := filepath.Join(root, "original")
+			if err := os.Mkdir(workspace, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(workspace); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(canonicalTempDir(t), workspace); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+			launcher := New(filepath.Join(root, "Terminal"), func(context.Context, string) error {
+				t.Error("redirected task launched")
+				return NotLaunched(ErrWindowIdentity)
+			})
+			target := api.TerminalTarget{Runtime: runtime, Binary: filepath.Join(root, "runtime.exe"), Directory: workspace, Endpoint: "unix://" + filepath.Join(root, "runtime.sock"), Thread: "original"}
+			if runtime == "caelis" {
+				target.Endpoint, target.Session, target.Store, target.TokenFile = "http://127.0.0.1:1234", "original", root, filepath.Join(root, "token")
+			}
+			if err := launcher.Open(t.Context(), "original-task", target); !errors.Is(err, api.ErrTaskWorkspaceUnavailable) || !errors.Is(err, ErrLaunchNotSubmitted) {
+				t.Fatal("redirected workspace was accepted", err)
+			}
+		})
+	}
+}
+
 func TestMissingTaskWorkspaceNeverLaunches(t *testing.T) {
 	for _, runtime := range []string{"codex", "caelis"} {
 		for _, replacedByFile := range []bool{false, true} {

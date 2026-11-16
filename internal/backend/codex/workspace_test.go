@@ -9,8 +9,8 @@ import (
 )
 
 func TestDeletedWorkspaceRejectsIdleContinuationWithoutChangingBinding(t *testing.T) {
-	for _, file := range []bool{false, true} {
-		t.Run(map[bool]string{false: "deleted", true: "file"}[file], func(t *testing.T) {
+	for _, replacement := range []string{"deleted", "file", "symlink"} {
+		t.Run(replacement, func(t *testing.T) {
 			s, f, d, m := taskPair(t)
 			sendSynthetic(t, s, "workspace-parent")
 			task := newTask(t, m, "workspace-create")
@@ -21,9 +21,14 @@ func TestDeletedWorkspaceRejectsIdleContinuationWithoutChangingBinding(t *testin
 			if err := os.RemoveAll(task.Workspace); err != nil {
 				t.Fatal(err)
 			}
-			if file {
+			if replacement == "file" {
 				if err := os.WriteFile(task.Workspace, nil, 0600); err != nil {
 					t.Fatal(err)
+				}
+			}
+			if replacement == "symlink" {
+				if err := os.Symlink(t.TempDir(), task.Workspace); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
 				}
 			}
 			in := api.TaskMessage{ID: task.ID, RequestID: "workspace-continue", Prompt: "continue"}

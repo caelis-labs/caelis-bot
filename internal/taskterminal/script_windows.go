@@ -29,7 +29,11 @@ func Script(t api.TerminalTarget) (string, error) {
 	b, err := json.Marshal(windowsLaunch{Version: 1, Command: args, Observer: t.Runtime == "caelis" || t.Runtime == "codex"})
 	return string(b), err
 }
-func guardedScript(pending, prefix, script string) (string, error) {
+func guardedScript(pending, prefix string, target api.TerminalTarget) (string, error) {
+	script, err := Script(target)
+	if err != nil {
+		return "", err
+	}
 	var v windowsLaunch
 	if json.Unmarshal([]byte(script), &v) != nil || v.Version != 1 || !filepath.IsAbs(pending) || filepath.Dir(pending) != filepath.Dir(prefix) {
 		return "", ErrNativeTerminalUnsupported

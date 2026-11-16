@@ -30,7 +30,7 @@ func TestManagerUnknownContinuationCannotBorrowOldCompletedProjection(t *testing
 	s.state.Workers["task"] = worker{
 		Native:   true,
 		Binding:  wire.SessionBinding{SessionId: "work"},
-		Task:     api.Task{ID: "task", Workspace: t.TempDir(), Status: "pending", Outcome: "accepted"},
+		Task:     api.Task{ID: "task", Workspace: canonicalWorkspace(t), Status: "pending", Outcome: "accepted"},
 		PromptID: "original-start",
 	}
 	s.state.Views["work"] = &view{State: wire.SessionState{
@@ -89,7 +89,7 @@ func TestOriginalContinuationReceiptSettlesAcrossRestart(t *testing.T) {
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 				}
 			})
-			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Workspace: t.TempDir(), Status: "completed", Outcome: "accepted", Result: "old result"}, PromptID: "original-start"}
+			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Workspace: canonicalWorkspace(t), Status: "completed", Outcome: "accepted", Result: "old result"}, PromptID: "original-start"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("old-turn")}}, Items: []api.Item{{Kind: "assistant", TurnKey: "old-turn", Text: "old result"}}, Seen: map[string]bool{}}
 			root := t.TempDir()
 			m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", s, s, s.Snapshot)

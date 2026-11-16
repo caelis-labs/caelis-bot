@@ -45,7 +45,7 @@ func TestCustomTerminalParsesArgvAndDoesNotInterpolateScript(t *testing.T) {
 }
 
 func TestCustomTerminalUsesTheSameExecutionReceipt(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalTempDir(t)
 	binary := filepath.Join(dir, "fake-runtime")
 	marker := filepath.Join(dir, "ran")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf ready > "+quote(marker)+"\n"), 0700); err != nil {
