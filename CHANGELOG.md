@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.4](https://github.com/caelis-labs/caelis-bot/compare/v0.22.3...v0.22.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* reject Worker launch and continuation without workspace ([#286](https://github.com/caelis-labs/caelis-bot/issues/286)) ([528ab42](https://github.com/caelis-labs/caelis-bot/commit/528ab4240311a14032ca48b594a53aa0a44f8eb2))
+* **runtime:** pin bundled Caelis v0.81.2 ([#288](https://github.com/caelis-labs/caelis-bot/issues/288)) ([16c8bab](https://github.com/caelis-labs/caelis-bot/commit/16c8bab7ce484bce8e5855601799ad2486f3b49e))
+
 ## [0.22.3](https://github.com/caelis-labs/caelis-bot/compare/v0.22.2...v0.22.3) (2026-11-14)
 
 
