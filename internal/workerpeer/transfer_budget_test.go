@@ -6,16 +6,40 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+// Delay the first socket read so this fixture also runs through a request-header
+// delay longer than its deliberately tiny body budget.
+type delayedHeaderListener struct{ net.Listener }
+
+func (l delayedHeaderListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &delayedHeaderConn{Conn: c}, nil
+}
+
+type delayedHeaderConn struct {
+	net.Conn
+	once sync.Once
+}
+
+func (c *delayedHeaderConn) Read(p []byte) (int, error) {
+	c.once.Do(func() { time.Sleep(100 * time.Millisecond) })
+	return c.Conn.Read(p)
+}
 
 func TestWorkerDispatchDoesNotReplaceOriginalFileDigest(t *testing.T) {
 	var writes atomic.Int32
@@ -88,8 +112,18 @@ func TestWorkerBodyBudgetOverridesHeadlessReadTimeoutOnlyAfterAuthentication(t *
 		t.Fatal(err)
 	}
 	defer s.Close(context.Background())
-	h := httptest.NewUnstartedServer(s)
+	bodyReady := make(chan struct{})
+	h := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == Prefix+"call" && r.Header.Get("Authorization") != "" {
+			close(bodyReady)
+		}
+		s.ServeHTTP(w, r)
+	}))
+	// Keep header admission separate from the scaled-down body budget, as the
+	// production listeners do. A slow header must not fail fixture pairing.
+	h.Config.ReadHeaderTimeout = 5 * time.Second
 	h.Config.ReadTimeout = 30 * time.Millisecond
+	h.Listener = delayedHeaderListener{h.Listener}
 	h.Start()
 	defer h.Close()
 	c := pairFixture(t, s, h, "source-a")
@@ -99,6 +133,13 @@ func TestWorkerBodyBudgetOverridesHeadlessReadTimeoutOnlyAfterAuthentication(t *
 	go func() {
 		defer writer.Close()
 		_, _ = writer.Write(raw[:1])
+		// Start the body delay after header admission so the injected header
+		// delay cannot consume it and accidentally make the body arrive early.
+		select {
+		case <-bodyReady:
+		case <-t.Context().Done():
+			return
+		}
 		time.Sleep(100 * time.Millisecond)
 		_, _ = writer.Write(raw[1:])
 	}()
