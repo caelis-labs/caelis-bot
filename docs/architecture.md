@@ -99,8 +99,10 @@ Recovery reconnects the original owner first. Automatic Caelis recovery starts a
 only after public status confirms `stopped` for the saved Store/principal. Bundled CLI
 preparation and explicit activation also use public `service start`; Core owns compatible
 Host reuse, busy/idle replacement and non-downgrade. Bot never kills a shared Host.
-Codex shared-daemon startup requires retained native process identity and confirmed
-absence; an unreachable socket alone is insufficient.
+Manual and automatic Codex reconnect probe the saved shared endpoint. If the daemon
+is unavailable, both use the public `app-server daemon start` for its original home.
+Codex owns PID records and startup arbitration. Bot coalesces starts per home,
+checks the handshake again, then reconciles the original receipts.
 Explicit lost-owner recovery fences the old owner and retains unknown receipts. Readable
 archived history does not authorize resuming a lost execution or settling its effects.
 

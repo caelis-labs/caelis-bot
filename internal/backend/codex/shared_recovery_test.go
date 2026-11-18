@@ -8,13 +8,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/coder/websocket"
 )
@@ -29,22 +29,6 @@ func recoveryDirectory(t *testing.T) string {
 	return dir
 }
 
-func exitedPID(t *testing.T) int {
-	t.Helper()
-	c := exec.Command("/bin/sh", "-c", "exit 0")
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
-	pid := c.Process.Pid
-	if err := c.Wait(); err != nil {
-		t.Fatal(err)
-	}
-	if !processGone(pid) {
-		t.Fatal("reaped fixture process still exists")
-	}
-	return pid
-}
-
 func writeDaemonRecord(t *testing.T, dir, name, record string) {
 	t.Helper()
 	path := filepath.Join(dir, "app-server-daemon")
@@ -56,34 +40,7 @@ func writeDaemonRecord(t *testing.T, dir, name, record string) {
 	}
 }
 
-func TestSharedDaemonAbsenceRequiresDeadProcessEvidence(t *testing.T) {
-	dead := strconv.Itoa(exitedPID(t))
-	for _, tc := range []struct {
-		name, record, updater string
-		want                  bool
-	}{
-		{"explicit stop or no record", "", "", false},
-		{"startup reservation", " ", "", false},
-		{"invalid", `{"pid":0}`, "", false},
-		{"malformed", "PRIVATE_PID_OUTPUT", "", false},
-		{"live or reused", `{"pid":` + strconv.Itoa(os.Getpid()) + `}`, "", false},
-		{"dead daemon", `{"pid":` + dead + `}`, "", true},
-		{"updater still alive", `{"pid":` + dead + `}`, `{"pid":` + strconv.Itoa(os.Getpid()) + `}`, false},
-		{"dead daemon and updater", `{"pid":` + dead + `}`, `{"pid":` + dead + `}`, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			if tc.record != "" {
-				writeDaemonRecord(t, dir, "daemon.pid", tc.record)
-			}
-			if tc.updater != "" {
-				writeDaemonRecord(t, dir, "daemon-updater.pid", tc.updater)
-			}
-			if got := sharedDaemonGone(dir); got != tc.want {
-				t.Fatal(got, tc.want)
-			}
-		})
-	}
+func TestPrivateSocketCannotStartSharedDaemon(t *testing.T) {
 	if sharedHome("/tmp/private.sock") != "" || sharedHome("relative/app-server-control/app-server-control.sock") != "" {
 		t.Fatal("private owner admitted for daemon recovery")
 	}
@@ -115,16 +72,26 @@ func serveRecoverySocket(t *testing.T, path string, f *sessionFixture, home stri
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		defer ws.CloseNow()
-		f.serve(websocket.NetConn(ctx, ws, websocket.MessageText))
+		peer := websocket.NetConn(ctx, ws, websocket.MessageText)
+		f.mu.Lock()
+		f.peer = peer
+		f.mu.Unlock()
+		f.serve(peer)
 	})}
 	go func() { _ = server.Serve(l) }()
 	return func() { _ = server.Close(); _ = l.Close() }
 }
 
-func TestMissingSharedServiceStartsOnceAndReconcilesOriginalReceipts(t *testing.T) {
+func TestSharedReconnectStartsDaemonAndReconcilesOriginalReceipts(t *testing.T) {
+	for _, scenario := range []string{"automatic after disconnect", "manual without records", "startup with reused updater PID", "unhealthy listener"} {
+		t.Run(scenario, func(t *testing.T) { checkSharedReconnect(t, scenario) })
+	}
+}
+
+func checkSharedReconnect(t *testing.T, scenario string) {
+	t.Helper()
 	home := recoveryDirectory(t)
 	socket := filepath.Join(home, "app-server-control", "app-server-control.sock")
-	writeDaemonRecord(t, home, "daemon.pid", `{"pid":`+strconv.Itoa(exitedPID(t))+`}`)
 	log, trigger, ready := filepath.Join(home, "calls"), filepath.Join(home, "trigger"), filepath.Join(home, "ready")
 	bin := filepath.Join(home, "codex")
 	t.Setenv("CODEX_HOME", filepath.Join(home, "wrong-current-profile"))
@@ -142,6 +109,24 @@ func TestMissingSharedServiceStartsOnceAndReconcilesOriginalReceipts(t *testing.
 	worker := f.workers["original-worker"]
 	worker.Status.Type = "active"
 	f.workers["original-worker"] = worker
+	var unhealthy *http.Server
+	switch scenario {
+	case "startup with reused updater PID":
+		writeDaemonRecord(t, home, "daemon-updater.pid", `{"pid":`+strconv.Itoa(os.Getpid())+`}`)
+	case "unhealthy listener":
+		if err := os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
+			t.Fatal(err)
+		}
+		listener, err := net.Listen("unix", socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unhealthy = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		})}
+		go func() { _ = unhealthy.Serve(listener) }()
+		t.Cleanup(func() { _ = unhealthy.Close() })
+	}
 	serverDone := make(chan func(), 1)
 	go func() {
 		for {
@@ -153,6 +138,9 @@ func TestMissingSharedServiceStartsOnceAndReconcilesOriginalReceipts(t *testing.
 				return
 			case <-time.After(time.Millisecond):
 			}
+		}
+		if unhealthy != nil {
+			_ = unhealthy.Close()
 		}
 		stop := serveRecoverySocket(t, socket, f, home)
 		serverDone <- stop
@@ -173,12 +161,35 @@ func TestMissingSharedServiceStartsOnceAndReconcilesOriginalReceipts(t *testing.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.DetachForUpdate(context.Background()) })
-	if err := s.Connect(testContext(t)); err != nil {
-		t.Fatal(err)
+	service := backend.NewService(s, nil, nil, nil, nil)
+	switch scenario {
+	case "automatic after disconnect":
+		original := &sessionFixture{answers: make(chan wireMessage, 8)}
+		stopOriginal := serveRecoverySocket(t, socket, original, home)
+		t.Cleanup(stopOriginal)
+		if err := service.Connect(testContext(t)); err != nil {
+			t.Fatal(err)
+		}
+		stopOriginal()
+		original.mu.Lock()
+		_ = original.peer.Close()
+		original.mu.Unlock()
+	case "manual without records":
+		if err := service.Reconnect(testContext(t)); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		if err := service.Connect(testContext(t)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	stop := <-serverDone
-	t.Cleanup(stop)
-	v := s.Snapshot()
+	select {
+	case stop := <-serverDone:
+		t.Cleanup(stop)
+	case <-testContext(t).Done():
+		t.Fatal("shared daemon start did not restore the endpoint")
+	}
+	v := awaitState(t, s, func(v api.Snapshot) bool { return v.Connection == "ready" && v.LastReceipt.Outcome == "accepted" })
 	if v.Connection != "ready" || v.LastReceipt.ID != "original-request" || v.LastReceipt.Outcome != "accepted" || !s.client.UsesSharedServer() {
 		t.Fatal("original receipt or shared owner lost", v.LastReceipt, v.Connection)
 	}
@@ -207,14 +218,25 @@ func TestMissingSharedServiceStartsOnceAndReconcilesOriginalReceipts(t *testing.
 	}
 }
 
+func TestSharedStartMustRestoreOriginalEndpoint(t *testing.T) {
+	home := recoveryDirectory(t)
+	bin := filepath.Join(home, "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(home, "app-server-control", "app-server-control.sock")
+	client, err := Start(testContext(t), Options{Binary: bin, Socket: socket, RequiredSocket: true, RecoverShared: true})
+	if client != nil || !errors.Is(err, errExistingServer) {
+		t.Fatalf("start exited successfully but original endpoint is missing: client=%v err=%v", client != nil, err)
+	}
+}
+
 func TestSharedRecoveryFailureBacksOffWithoutPrivateFallback(t *testing.T) {
 	dir := recoveryDirectory(t)
 	socket := filepath.Join(dir, "app-server-control", "app-server-control.sock")
-	writeDaemonRecord(t, dir, "daemon.pid", `{"pid":`+strconv.Itoa(exitedPID(t))+`}`)
 	log, bin := filepath.Join(dir, "calls"), filepath.Join(dir, "codex")
 	t.Setenv("RECOVERY_LOG", log)
-	t.Setenv("RECOVERY_PID", filepath.Join(dir, "app-server-daemon", "daemon.pid"))
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\nrm \"$RECOVERY_PID\"\necho PRIVATE_COMMAND_ERROR >&2\nexit 1\n"), 0700); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\necho PRIVATE_COMMAND_ERROR >&2\nexit 1\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	for range 5 {
@@ -227,17 +249,13 @@ func TestSharedRecoveryFailureBacksOffWithoutPrivateFallback(t *testing.T) {
 	if err != nil || string(b) != "app-server daemon start\n" {
 		t.Fatal("unbounded start or private fallback", string(b), err)
 	}
-	if _, confirmed := sharedRecoveryEvidence.Load(dir); !confirmed || !sharedDaemonAbsent(dir, confirmed) {
-		t.Fatal("failed native start lost confirmed absence after cleaning stale PID")
-	}
 }
 
-func TestLiveSharedSocketAndHandshakeFailureNeverStartDaemon(t *testing.T) {
+func TestHealthyOrIncompatibleSharedSocketNeverStartsDaemon(t *testing.T) {
 	for _, valid := range []bool{true, false} {
 		t.Run(strconv.FormatBool(valid), func(t *testing.T) {
 			home := recoveryDirectory(t)
 			socket := filepath.Join(home, "app-server-control", "app-server-control.sock")
-			writeDaemonRecord(t, home, "daemon.pid", `{"pid":`+strconv.Itoa(exitedPID(t))+`}`)
 			f := &sessionFixture{answers: make(chan wireMessage, 8)}
 			stop := serveRecoverySocket(t, socket, f, home)
 			defer stop()
@@ -258,9 +276,6 @@ func TestLiveSharedSocketAndHandshakeFailureNeverStartDaemon(t *testing.T) {
 			}
 			c, err := Start(testContext(t), Options{Binary: bin, Socket: socket, RequiredSocket: true, RecoverShared: true})
 			if valid {
-				if _, confirmed := sharedRecoveryEvidence.Load(home); confirmed {
-					t.Fatal("listening owner retained authority for a later cold start")
-				}
 				if err != nil {
 					t.Fatal(err)
 				}

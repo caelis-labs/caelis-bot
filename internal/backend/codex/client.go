@@ -47,7 +47,6 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		probe, done := context.WithTimeout(ctx, 3*time.Second)
 		conn, err := connectExisting(probe, opts.Socket)
 		if err == nil {
-			sharedRecoveryEvidence.Delete(sharedHome(opts.Socket))
 			var client *Client
 			client, err = initializeClient(probe, conn, nil, opts)
 			if err == nil {
@@ -57,14 +56,13 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		}
 		done()
 		if opts.RequiredSocket {
-			if opts.RecoverShared && missingSocket(err) && sharedHome(opts.Socket) != "" {
-				if recoveryErr := recoverShared(ctx, opts); recoveryErr != nil {
+			if home := sharedHome(opts.Socket); opts.RecoverShared && home != "" && canStartSharedDaemon(err) {
+				if recoveryErr := recoverShared(ctx, opts, home); recoveryErr != nil {
 					return nil, errors.Join(errExistingServer, recoveryErr)
 				}
 				// Readiness is the standard handshake, not the CLI's exit status.
 				conn, err = connectExisting(ctx, opts.Socket)
 				if err == nil {
-					sharedRecoveryEvidence.Delete(sharedHome(opts.Socket))
 					return initializeClient(ctx, conn, nil, opts)
 				}
 			}
