@@ -44,7 +44,7 @@ func (a *Application) StartBackground() {
 			}
 			if a.HasRuntimeChoice() && time.Now().After(nextConnect) {
 				state := a.Backend.RecoveryState()
-				if !state.Automatic && !state.InProgress && (state.Manual || a.currentEngine().Snapshot().Connection == "offline") {
+				if !state.Supervised && !state.Automatic && !state.InProgress && (state.Manual || a.currentEngine().Snapshot().Connection == "offline") {
 					nextConnect = time.Now().Add(30 * time.Second)
 					work, stop := context.WithTimeout(ctx, 30*time.Second)
 					_ = a.Backend.Connect(work)
@@ -88,4 +88,11 @@ func (a *Application) repairFeaturesLocked() error {
 		a.tasks = manager
 	}
 	return nil
+}
+
+// RequestReconnectProbe delivers a wake edge only to the current Runtime.
+func (a *Application) RequestReconnectProbe() {
+	if probe, ok := a.currentEngine().(api.ReconnectProbe); ok {
+		probe.RequestReconnectProbe()
+	}
 }

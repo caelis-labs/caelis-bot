@@ -151,6 +151,7 @@ type Session struct {
 	epoch                  uint64
 	reconnectSeq           uint64
 	reconnectActive        bool
+	reconnectWake          chan struct{}
 	reconnectCancel        context.CancelFunc
 	reconnectAttempts      int
 	reconnectNoticeID      string
@@ -450,10 +451,19 @@ func (s *Session) publishSnapshot() {
 			out.InputSources = append(out.InputSources, source)
 		}
 	}
-	s.cached.Store(&out)
+	shared := s.supervisesSharedLocked()
+	waiting := s.reconnectActive && s.reconnectWake != nil
 	composer := s.composerLocked()
+	if shared && s.reconnectActive && (s.state.Connection == "connecting" || s.retryableSharedFailureLocked()) {
+		issue := "shared_recovering"
+		if s.reconnectAttempts >= maxAutoReconnectAttempts {
+			issue = "shared_retry_wait"
+		}
+		out.ConnectionIssue, composer.ConnectionIssue = issue, issue
+	}
+	s.cached.Store(&out)
 	s.cachedComposer.Store(&composer)
-	recovery := api.RecoveryState{Fence: fmt.Sprintf("codex:%s:%d", s.instance, s.epoch), Automatic: s.reconnectActive, Manual: s.state.Connection == "offline" && !s.reconnectActive && !s.closed && !s.closing}
+	recovery := api.RecoveryState{Fence: fmt.Sprintf("codex:%s:%d", s.instance, s.epoch), Supervised: shared, Automatic: s.reconnectActive && !waiting, Manual: s.state.Connection == "offline" && (!s.reconnectActive || waiting) && !s.closed && !s.closing}
 	s.cachedRecovery.Store(&recovery)
 }
 func (s *Session) Snapshot() api.Snapshot {
@@ -514,16 +524,25 @@ func (s *Session) Connect(ctx context.Context) error {
 	if err := lockwait.Lock(ctx, &s.mu); err != nil {
 		return err
 	}
-	s.reconnectSeq++
-	if s.reconnectCancel != nil {
-		s.reconnectCancel()
+	// Keep the current shared episode alive until this caller actually owns
+	// admission. A timed-out manual request must not cancel unattended recovery.
+	shared := s.supervisesSharedLocked()
+	if !shared {
+		s.cancelAutoReconnectLocked()
 	}
-	s.reconnectActive = false
 	s.mu.Unlock()
 	if err := lockwait.Lock(ctx, &s.op); err != nil {
 		return err
 	}
 	defer s.op.Unlock()
+	if shared {
+		s.mu.Lock()
+		if s.reconnectWake != nil && s.reconnectActive {
+			resetSharedCooldown(strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://"))
+		}
+		s.cancelAutoReconnectLocked()
+		s.mu.Unlock()
+	}
 	return s.connect(ctx)
 }
 
@@ -688,7 +707,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if s.binding.OwnerEndpoint != "" {
 		startOptions.Socket = strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")
 		startOptions.RequiredSocket = true
-		startOptions.RecoverShared = retained == nil && sharedHome(startOptions.Socket) != ""
+		startOptions.RecoverShared = retained == nil && !reconnectPrivate && sharedHome(startOptions.Socket) != ""
 	} else if retained != nil && retained.retainedSocket() != "" {
 		startOptions.Socket = strings.TrimPrefix(retained.retainedSocket(), "unix://")
 		startOptions.RequiredSocket = true // Never replace an unavailable original owner.
@@ -924,9 +943,6 @@ func (s *Session) connectionError(message string, cause error) error {
 	} else if errors.Is(cause, errSharedStartFailed) {
 		s.state.ConnectionIssue = "shared_start_failed"
 		message = "共享 Codex 服务启动失败或不支持；原任务和待确认结果已保留，将稍后重试。"
-	} else if errors.Is(cause, errSharedStateUnknown) {
-		s.state.ConnectionIssue = "shared_state_unknown"
-		message = "共享 Codex 服务状态尚未确认。请检查共享服务或手动启动；原任务和待确认结果已保留。"
 	} else if errors.Is(cause, errExistingServer) {
 		s.state.ConnectionIssue = "existing_server"
 		message = "发现了本机 Codex 连接入口，但暂时无法握手。请确认提供入口的应用仍在运行，再重新连接。"
@@ -934,6 +950,9 @@ func (s *Session) connectionError(message string, cause error) error {
 	s.state.Message = message
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"
+	}
+	if s.supervisesSharedLocked() && s.retryableSharedFailureLocked() {
+		s.startAutoReconnectLocked(s.epoch)
 	}
 	phase := "awaiting_manual_reconnect"
 	if s.reconnectActive {
@@ -1011,6 +1030,19 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	if epoch != s.epoch || s.closed {
 		return
 	}
+	for id, p := range s.prompts {
+		p.view.Status = "unavailable"
+		s.replacePrompt(id, p.view)
+	}
+	// Closing a failed transport invalidates its prompts, but must preserve an
+	// already reported cause that requires user intervention.
+	if s.supervisesSharedLocked() {
+		if s.state.Connection == "offline" && (s.lastConnectCause != nil || s.state.ConnectionIssue == "workspace_trust") {
+			s.update()
+			return
+		}
+		s.lastConnectCause = c.Err()
+	}
 	s.state.Connection = "offline"
 	s.state.Message = "连接已断开；请重新连接核对结果。"
 	s.usage, s.usageTurn = api.ContextUsage{}, ""
@@ -1024,12 +1056,8 @@ func (s *Session) listen(c *Client, epoch uint64) {
 		s.state.Phase = "unknown"
 	}
 	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "session_offline", Reason: transportCode(c.Err()), Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "reconnect_pending"})
-	for id, p := range s.prompts {
-		p.view.Status = "unavailable"
-		s.replacePrompt(id, p.view)
-	}
-	s.update()
 	s.scheduleAutoReconnectLocked(c, epoch)
+	s.update()
 }
 func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	return s.submit(ctx, in, files, false)

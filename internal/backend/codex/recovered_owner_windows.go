@@ -52,22 +52,6 @@ func privateOwnerLifecycle(id ownerProcessIdentity) ownerLifecycle {
 	return ownerUnknown
 }
 
-func processGone(pid int) bool {
-	if pid <= 1 {
-		return false
-	}
-	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-		return true
-	}
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(h)
-	result, err := windows.WaitForSingleObject(h, 0)
-	return err == nil && result == windows.WAIT_OBJECT_0
-}
-
 func ownerJobName(id ownerProcessIdentity) (*uint16, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {

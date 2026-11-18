@@ -77,7 +77,7 @@ type macDriver struct {
 	handle  cgo.Handle
 }
 
-func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Service, quit func()) *macDriver {
+func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Service, quit, requestReconnectProbe func()) *macDriver {
 	d := &macDriver{}
 	d.events = newNativeEventQueue(func(e nativeEvent) {
 		switch e.kind {
@@ -94,6 +94,9 @@ func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Serv
 		case 2:
 			s.OpenHistory()
 		case 3:
+			s.recoverDisplay()
+		case C.BotSystemDidWake:
+			go requestReconnectProbe()
 			s.recoverDisplay()
 		case 5:
 			logError(s.SetVisible(e.x != 0))

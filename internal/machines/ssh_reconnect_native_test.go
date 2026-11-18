@@ -187,9 +187,12 @@ func TestNativeSSHReconnectRevalidatesOriginalAuthorityAndRuntime(t *testing.T) 
 	if err := s.RemoveMachine(t.Context(), machine.ID); err != nil {
 		t.Fatal(err)
 	}
-	if s.SSHConnectionStatus(target).State != "idle" {
-		t.Fatal("deleted last reference retained reconnecting channel")
+	// ReleaseUnused fences the channel immediately and removes its entry
+	// after the owned OpenSSH process and socket have finished exiting.
+	if status := s.SSHConnectionStatus(target); status.State != "idle" && status.Issue != "ssh_stopping" {
+		t.Fatalf("deleted last reference retained usable channel: %s/%s", status.State, status.Issue)
 	}
+	waitPeerTest(t, func() bool { return s.SSHConnectionStatus(target).State == "idle" })
 	if _, err := s.InspectMachine(t.Context(), machine.ID, ""); err == nil {
 		t.Fatal("deleted connection revived through health read")
 	}

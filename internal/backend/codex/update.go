@@ -114,12 +114,7 @@ func (s *Session) PrepareRuntimeRebind(ctx context.Context) error {
 	c := s.client
 	s.client = nil
 	s.epoch++ // the detached event loop cannot mark the replacement offline
-	s.reconnectSeq++
-	if s.reconnectCancel != nil {
-		s.reconnectCancel()
-	}
-	s.reconnectActive = false
-	s.reconnectCancel = nil
+	s.cancelAutoReconnectLocked()
 	s.state.Connection = "offline"
 	s.update()
 	s.mu.Unlock()

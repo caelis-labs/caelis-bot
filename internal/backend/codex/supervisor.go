@@ -28,7 +28,7 @@ func (s *Session) supervise() {
 			return
 		}
 		c, epoch := s.client, s.epoch
-		reconnect := (epoch > 0 || s.loadErr != nil) && s.state.Connection == "offline" && !s.reconnectActive
+		reconnect := (epoch > 0 || s.loadErr != nil) && s.state.Connection == "offline" && !s.reconnectActive && !s.supervisesSharedLocked()
 		ready := s.state.Connection == "ready" && c != nil && c.Err() == nil
 		syncRecent := ready && s.residentSyncNeeded && !s.workerOnly
 		thread, revision := s.binding.ThreadID, s.state.Revision

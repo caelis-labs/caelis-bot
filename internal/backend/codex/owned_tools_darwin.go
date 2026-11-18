@@ -51,7 +51,7 @@ func privateOwnerLifecycle(id ownerProcessIdentity) ownerLifecycle {
 		return ownerUnknown
 	}
 	p, err := unix.SysctlKinfoProc("kern.proc.pid", id.PID)
-	if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EIO) && processGone(id.PID) {
+	if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EIO) && errors.Is(syscall.Kill(id.PID, 0), syscall.ESRCH) {
 		return ownerGone
 	}
 	if err != nil {
