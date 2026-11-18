@@ -17,7 +17,7 @@ export function CodexLogin({state,busy=false,error=false,onAction,host=desktop,o
  useEffect(()=>{setLocalError('');setKey('');if(pending)setKeyForm(false)},[login?.id,pending]);
  const perform=(action:string,fields?:Partial<SetupRequest>)=>{setLocalError('');void Promise.resolve(onAction(action,fields)).catch(()=>setLocalError('runtime.deviceActionFailed'))};
  const launch=()=>{if(login?.verificationUrl!=='https://auth.openai.com/codex/device')return;void open('OpenMessageLink',login.verificationUrl).catch(()=>setLocalError('runtime.deviceOpenFailed'))};
- const message:Record<string,MessageKey>={unsupported:'runtime.deviceUnsupported',unavailable:'runtime.deviceUnavailable',failed:'runtime.deviceFailed',expired:'runtime.deviceExpired',cancelled:'runtime.deviceCancelled',interrupted:'runtime.deviceInterrupted',unknown:'runtime.deviceUnknown','other-session':'runtime.deviceOtherSession'};
+ const message:Record<string,MessageKey>={unsupported:'runtime.deviceUnsupported',unavailable:'runtime.deviceUnavailable',failed:'runtime.deviceFailed',expired:'runtime.deviceExpired',cancelled:'runtime.deviceCancelled',interrupted:'runtime.deviceInterrupted',unknown:'runtime.deviceUnknown',unconfirmed:'runtime.deviceUnconfirmed','other-session':'runtime.deviceOtherSession'};
  return <div className="codex-login">
   {pending&&status==='pending'&&login?.userCode?<>
    <p className="settings-note">{t('runtime.deviceEnterCode')}</p>

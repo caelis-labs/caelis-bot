@@ -8,18 +8,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// Setup can inspect an inactive profile. A matching public socket is safe to
-// borrow even when the settings client and resident use different CLI builds.
-func (s *Session) catalogClient() *Client {
-	if s == nil {
-		return nil
+func openShared(ctx context.Context, binary, socket string, start func(context.Context, Options) (*Client, error)) (*Client, error) {
+	if start == nil {
+		start = Start
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.state.Connection == "ready" && !s.closed && !s.closing {
-		return s.client
-	}
-	return nil
+	return start(ctx, Options{Binary: binary, Socket: socket, RequiredSocket: true, RecoverShared: true})
 }
 
 func sharedModels(ctx context.Context, binary, home string, candidate *Client, start func(context.Context, Options) (*Client, error)) ([]api.ModelOption, error) {
@@ -32,10 +25,7 @@ func sharedModels(ctx context.Context, binary, home string, candidate *Client, s
 			return candidate.models(ctx)
 		}
 	}
-	if start == nil {
-		start = Start
-	}
-	c, err := start(ctx, Options{Binary: binary, Socket: socket, RequiredSocket: true, RecoverShared: true})
+	c, err := openShared(ctx, binary, socket, start)
 	if err != nil {
 		return nil, errModelCatalog
 	}

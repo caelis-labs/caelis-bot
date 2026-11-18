@@ -13,7 +13,11 @@ func setupFixture(t *testing.T, handler func(*Setup, wireMessage, net.Conn)) *Se
 	t.Helper()
 	s := &Setup{}
 	home := t.TempDir()
-	s.start = func(ctx context.Context, _ Options) (*Client, error) {
+	t.Setenv("CODEX_HOME", home)
+	s.start = func(ctx context.Context, opts Options) (*Client, error) {
+		if opts.CLIOnly || !opts.RequiredSocket || !opts.RecoverShared || opts.Socket != controlSocket(home) {
+			t.Fatal("setup attempted to use a private process or the wrong daemon")
+		}
 		rpc, conn := pair(t)
 		go func() {
 			defer conn.Close()
@@ -46,7 +50,7 @@ func TestPreparedHomeRequiresTheSameLiveManagementClient(t *testing.T) {
 	if _, ok := s.PreparedHome("/fixture"); ok {
 		t.Fatal("preparation started a client")
 	}
-	if _, err := s.Inspect(t.Context(), "/fixture", nil); err != nil {
+	if _, err := s.Inspect(t.Context(), "/fixture"); err != nil {
 		t.Fatal(err)
 	}
 	s.op.Lock()
@@ -89,22 +93,22 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	if e != nil || u != "" {
 		t.Fatal(e)
 	}
-	v, e := s.Inspect(t.Context(), "/fixture", nil)
+	v, e := s.Inspect(t.Context(), "/fixture")
 	if e != nil || !v.LoginPending || v.State != "login" || !logged {
 		t.Fatal(v, e)
 	}
 	// An unrelated login's completion cannot satisfy this attempt.
 	s.mu.Lock()
-	s.completed["other"] = true
+	s.deviceCompletedLocked("other", true)
 	s.mu.Unlock()
-	v, _ = s.Inspect(t.Context(), "/fixture", nil)
+	v, _ = s.Inspect(t.Context(), "/fixture")
 	if !v.LoginPending {
 		t.Fatal("wrong login completed setup")
 	}
 	s.mu.Lock()
-	s.completed[id] = true
+	s.deviceCompletedLocked(id, true)
 	s.mu.Unlock()
-	v, e = s.Inspect(t.Context(), "/fixture", nil)
+	v, e = s.Inspect(t.Context(), "/fixture")
 	if e != nil || v.LoginPending || v.State != "ready" || len(v.Models) != 1 {
 		t.Fatal(v, e)
 	}
@@ -124,7 +128,7 @@ func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
 			started = true
 			// Completion may arrive before the login/start response.
 			s.mu.Lock()
-			s.completed["early"] = true
+			s.deviceCompletedLocked("early", true)
 			s.mu.Unlock()
 			writeWire(t, c, wireMessage{ID: m.ID, Result: json.RawMessage(`{"type":"chatgptDeviceCode","loginId":"early","verificationUrl":"https://auth.openai.com/codex/device","userCode":"ABCD-1234"}`)})
 		case "account/read":
@@ -142,7 +146,7 @@ func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
 	if _, e := s.Apply(ctx, "/fixture", "login", ""); e != nil {
 		t.Fatal(e)
 	}
-	if v, e := s.Inspect(ctx, "/fixture", nil); e != nil || v.LoginPending {
+	if v, e := s.Inspect(ctx, "/fixture"); e != nil || v.LoginPending {
 		t.Fatal(v, e)
 	}
 	_, e := s.Apply(ctx, "/fixture", "api-key", "PRIVATE_SYNTHETIC_KEY")

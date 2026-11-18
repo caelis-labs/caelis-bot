@@ -173,8 +173,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 		return out, nil
 	}
 	if v.Runtime == "codex" {
-		resident, _ := s.app.currentEngine().(*codex.Session)
-		out, e = s.codex.Inspect(ctx, installation.Path, resident)
+		out, e = s.codex.Inspect(ctx, installation.Path)
 	} else {
 		out, e = caelis.InspectSetup(ctx, v)
 	}
@@ -197,7 +196,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 	if order, err := updates.CompareVersions(installation.Version, out.ServiceVersion); err == nil {
 		out.ServiceUpdateAvailable = order > 0
 	}
-	if e == nil && out.State != "incompatible" {
+	if e == nil && out.State != "incompatible" && !(v.Runtime == "codex" && out.State == "unavailable") {
 		e = s.saveProfile(v)
 	}
 	return out, e
@@ -295,8 +294,6 @@ func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.
 			e = err
 			message = st.Message
 		} else {
-			s.codex.Close()
-			s.codex = &codex.Setup{}
 			st, err := codex.ManageRuntime(ctx, r.Action, r.Settings.CLIPath)
 			managed = &st
 			e = err

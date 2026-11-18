@@ -136,7 +136,7 @@ func TestWindowsInstalledSetup(t *testing.T) {
 	client.Close()
 	s := &Setup{}
 	defer s.Close()
-	v, err := s.Inspect(t.Context(), binary, nil)
+	v, err := s.Inspect(t.Context(), binary)
 	if err != nil || (v.State != "ready" && v.State != "login") {
 		t.Fatalf("setup state=%s: %v", v.State, err)
 	}
