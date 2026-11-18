@@ -315,6 +315,43 @@ func TestUnattendedSharedReconnect(t *testing.T) {
 	}
 }
 
+func TestCanceledSharedHandshakeHandsOffToResident(t *testing.T) {
+	home := recoveryDirectory(t)
+	s := NewSession(SessionOptions{Directory: home, StateFile: filepath.Join(home, "binding.json")})
+	s.binding.OwnerEndpoint = "unix://" + filepath.Join(home, "app-server-control", "app-server-control.sock")
+	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
+	entered := make(chan struct{})
+	var attempts atomic.Int32
+	s.start = func(ctx context.Context, _ Options) (*Client, error) {
+		if attempts.Add(1) == 1 {
+			close(entered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return nil, ErrProtocol // New probe finds an actionable problem.
+	}
+	t.Cleanup(func() { _ = s.DetachForUpdate(context.Background()) })
+	ctx, cancel := context.WithCancel(testContext(t))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Connect(ctx) }()
+	select {
+	case <-entered:
+		cancel()
+	case <-ctx.Done():
+		t.Fatal("handshake did not start")
+	}
+	if err := <-done; err == nil {
+		t.Fatal("canceled caller reported a connection")
+	}
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.ConnectionIssue == "runtime_protocol" && !s.RecoveryState().Automatic
+	})
+	if attempts.Load() != 2 {
+		t.Fatal("foreground cancellation lost or duplicated the unattended probe")
+	}
+}
+
 func TestSharedRetryStopsForUserIntervention(t *testing.T) {
 	for _, cause := range []error{ErrProtocol, errRuntimeMissing, os.ErrPermission} {
 		t.Run(cause.Error(), func(t *testing.T) {

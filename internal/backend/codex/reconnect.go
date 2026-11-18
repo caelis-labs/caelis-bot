@@ -51,7 +51,10 @@ func (s *Session) retryableSharedFailureLocked() bool {
 		errors.Is(err, errRuntimeMissing) || incompatibleProtocol(err) || resourceExhausted(err) || errors.Is(err, os.ErrPermission) {
 		return false
 	}
-	return errors.Is(err, errExistingServer) || recoverableDisconnect(err) || errors.Is(err, context.DeadlineExceeded)
+	// A foreground caller can expire or cancel during initialize while the
+	// resident is still meant to be online.
+	return errors.Is(err, errExistingServer) || recoverableDisconnect(err) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) && s.life.Err() == nil
 }
 
 // Only the current episode can receive a wake edge. Signals received during
