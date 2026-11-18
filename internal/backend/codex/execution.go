@@ -55,7 +55,7 @@ func (s *Session) ImageInput(ctx context.Context) (api.ImageInputCapability, err
 
 func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	s.mu.Lock()
-	c := s.client
+	c, binary := s.client, s.opts.Binary
 	ready := s.state.Connection == "ready" && !s.closed && !s.closing
 	s.mu.Unlock()
 	if c == nil || !ready {
@@ -63,7 +63,11 @@ func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	}
 	ctx, cancel := s.operation(ctx, 15*time.Second)
 	defer cancel()
-	return c.models(ctx)
+	// A target-only worker reports capabilities from its own execution host.
+	if s.workerOnly {
+		return c.models(ctx)
+	}
+	return sharedModels(ctx, binary, c.home, c, s.start)
 }
 
 func (c *Client) models(ctx context.Context) ([]api.ModelOption, error) {
@@ -81,7 +85,7 @@ func (c *Client) models(ctx context.Context) ([]api.ModelOption, error) {
 			NextCursor string       `json:"nextCursor"`
 		}
 		if err := callDecode(ctx, c, "model/list", params, &page); err != nil {
-			return nil, errors.New("Codex 模型目录暂不可用，请刷新；不会自动换用其他模型")
+			return nil, errModelCatalog
 		}
 		for _, m := range page.Data {
 			if m.Model == "" || models[m.Model] {

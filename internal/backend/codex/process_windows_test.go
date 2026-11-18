@@ -123,8 +123,7 @@ func TestWindowsStdioDeadlineAndClose(t *testing.T) {
 	}
 }
 
-// Settings uses the same standard handshake over stdio, then reads account and
-// model metadata without initiating login or making a model call.
+// Inspect the selected CLI account and, when signed in, the shared model catalog.
 func TestWindowsInstalledSetup(t *testing.T) {
 	binary := os.Getenv("CAELIS_BOT_TEST_CODEX_BINARY")
 	if binary == "" {
@@ -137,7 +136,7 @@ func TestWindowsInstalledSetup(t *testing.T) {
 	client.Close()
 	s := &Setup{}
 	defer s.Close()
-	v, err := s.Inspect(t.Context(), binary)
+	v, err := s.Inspect(t.Context(), binary, nil)
 	if err != nil || (v.State != "ready" && v.State != "login") {
 		t.Fatalf("setup state=%s: %v", v.State, err)
 	}

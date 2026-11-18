@@ -145,19 +145,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 			// Reuse the successful inspection; settings must not launch another
 			// probe just to reconcile the default worker model.
 			if out.State == "ready" && s.app.localWork != nil {
-				models := []api.ModelOption{}
-				complete := true
-				for _, choice := range out.Models {
-					if choice.NoAuth {
-						continue
-					}
-					if choice.Parameters == nil {
-						complete = false
-						break
-					}
-					models = append(models, *choice.Parameters)
-				}
-				if complete {
+				if models, ok := setupModelOptions(out.Models); ok {
 					s.reconcileWorkerModels(v.Runtime, models)
 				}
 			}
@@ -185,7 +173,8 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 		return out, nil
 	}
 	if v.Runtime == "codex" {
-		out, e = s.codex.Inspect(ctx, installation.Path)
+		resident, _ := s.app.currentEngine().(*codex.Session)
+		out, e = s.codex.Inspect(ctx, installation.Path, resident)
 	} else {
 		out, e = caelis.InspectSetup(ctx, v)
 	}

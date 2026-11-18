@@ -12,6 +12,7 @@ import (
 func setupFixture(t *testing.T, handler func(*Setup, wireMessage, net.Conn)) *Setup {
 	t.Helper()
 	s := &Setup{}
+	home := t.TempDir()
 	s.start = func(ctx context.Context, _ Options) (*Client, error) {
 		rpc, conn := pair(t)
 		go func() {
@@ -25,7 +26,7 @@ func setupFixture(t *testing.T, handler func(*Setup, wireMessage, net.Conn)) *Se
 				handler(s, m, conn)
 			}
 		}()
-		return &Client{rpc: rpc}, nil
+		return &Client{rpc: rpc, home: home}, nil
 	}
 	t.Cleanup(s.Close)
 	return s
@@ -45,7 +46,7 @@ func TestPreparedHomeRequiresTheSameLiveManagementClient(t *testing.T) {
 	if _, ok := s.PreparedHome("/fixture"); ok {
 		t.Fatal("preparation started a client")
 	}
-	if _, err := s.Inspect(t.Context(), "/fixture"); err != nil {
+	if _, err := s.Inspect(t.Context(), "/fixture", nil); err != nil {
 		t.Fatal(err)
 	}
 	s.op.Lock()
@@ -88,7 +89,7 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	if e != nil || u != "" {
 		t.Fatal(e)
 	}
-	v, e := s.Inspect(t.Context(), "/fixture")
+	v, e := s.Inspect(t.Context(), "/fixture", nil)
 	if e != nil || !v.LoginPending || v.State != "login" || !logged {
 		t.Fatal(v, e)
 	}
@@ -96,14 +97,14 @@ func TestSetupLoginWaitsForMatchingCompletion(t *testing.T) {
 	s.mu.Lock()
 	s.completed["other"] = true
 	s.mu.Unlock()
-	v, _ = s.Inspect(t.Context(), "/fixture")
+	v, _ = s.Inspect(t.Context(), "/fixture", nil)
 	if !v.LoginPending {
 		t.Fatal("wrong login completed setup")
 	}
 	s.mu.Lock()
 	s.completed[id] = true
 	s.mu.Unlock()
-	v, e = s.Inspect(t.Context(), "/fixture")
+	v, e = s.Inspect(t.Context(), "/fixture", nil)
 	if e != nil || v.LoginPending || v.State != "ready" || len(v.Models) != 1 {
 		t.Fatal(v, e)
 	}
@@ -141,7 +142,7 @@ func TestSetupEarlyCompletionAndSecretErrorRedaction(t *testing.T) {
 	if _, e := s.Apply(ctx, "/fixture", "login", ""); e != nil {
 		t.Fatal(e)
 	}
-	if v, e := s.Inspect(ctx, "/fixture"); e != nil || v.LoginPending {
+	if v, e := s.Inspect(ctx, "/fixture", nil); e != nil || v.LoginPending {
 		t.Fatal(v, e)
 	}
 	_, e := s.Apply(ctx, "/fixture", "api-key", "PRIVATE_SYNTHETIC_KEY")

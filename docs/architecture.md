@@ -95,6 +95,12 @@ draft. Existing tasks, execution snapshots and approvals keep their original ada
 Worker-default changes affect new work. Preference changes do not cancel outgoing work.
 Only first activation transfers unsent attachments to an empty target.
 
+Codex settings use the selected CLI for account inspection and device login. The
+conversation and background-work pickers and their local preference validation read
+`model/list` from the shared App Server for that Codex home. A matching resident
+connection can serve the read. Otherwise Bot opens a temporary connection to the
+same endpoint. Target-only Workers report capabilities from their own execution host.
+
 Recovery reconnects the original owner first. Automatic Caelis recovery starts a service
 only after public status confirms `stopped` for the saved Store/principal. Bundled CLI
 preparation and explicit activation also use public `service start`; Core owns compatible

@@ -29,7 +29,7 @@ type Options struct {
 	Binary         string
 	Socket         string
 	RequiredSocket bool // Recovery must use the original owner; no process fallback.
-	RecoverShared  bool // Session recovery only; standard shared endpoint, never a private owner.
+	RecoverShared  bool // Allow native daemon startup only for the standard shared endpoint.
 	Directory      string
 	CLIOnly        bool // Probe a selected executable without falling back to another source.
 	Attachable     bool // Owned session runtime exposes a private local Unix endpoint.

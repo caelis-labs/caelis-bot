@@ -106,14 +106,11 @@ func (s *Setup) clientFor(ctx context.Context, path string) (*Client, error) {
 	}
 	return s.client, nil
 }
-func (s *Setup) Inspect(ctx context.Context, path string) (api.SetupState, error) {
+func (s *Setup) Inspect(ctx context.Context, path string, resident *Session) (api.SetupState, error) {
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return s.inspect(ctx, path)
-}
-func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error) {
 	v := api.SetupState{State: "login", Models: []api.SetupChoice{}}
 	c, e := s.clientFor(ctx, path)
 	if e != nil {
@@ -151,7 +148,7 @@ func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error
 	if !auth.AccountPresent && auth.RequiresOpenAIAuth {
 		return v, nil
 	}
-	models, e := c.models(ctx)
+	models, e := sharedModels(ctx, path, c.home, resident.catalogClient(), s.start)
 	if e != nil {
 		return v, e
 	}
@@ -212,15 +209,6 @@ func (s *Setup) Apply(ctx context.Context, path, action, key string, attempt ...
 		return "", errors.New("不支持的登录操作")
 	}
 	return "", nil
-}
-func (s *Setup) Models(ctx context.Context, path string) ([]api.ModelOption, error) {
-	s.op.Lock()
-	defer s.op.Unlock()
-	c, e := s.clientFor(ctx, path)
-	if e != nil {
-		return nil, e
-	}
-	return c.models(ctx)
 }
 
 // PreparedHome identifies the live management client for short-lived setup

@@ -68,7 +68,7 @@ func owner(t *testing.T, id string) context.Context {
 }
 func deviceView(t *testing.T, s *Setup, ctx context.Context) api.SetupState {
 	t.Helper()
-	v, e := s.Inspect(ctx, "/fixture")
+	v, e := s.Inspect(ctx, "/fixture", nil)
 	if e != nil {
 		t.Fatal(e)
 	}
