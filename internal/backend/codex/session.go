@@ -688,7 +688,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if s.binding.OwnerEndpoint != "" {
 		startOptions.Socket = strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")
 		startOptions.RequiredSocket = true
-		startOptions.RecoverShared = retained == nil && sharedHome(startOptions.Socket) != ""
+		startOptions.RecoverShared = retained == nil && !reconnectPrivate && sharedHome(startOptions.Socket) != ""
 	} else if retained != nil && retained.retainedSocket() != "" {
 		startOptions.Socket = strings.TrimPrefix(retained.retainedSocket(), "unix://")
 		startOptions.RequiredSocket = true // Never replace an unavailable original owner.
@@ -924,9 +924,6 @@ func (s *Session) connectionError(message string, cause error) error {
 	} else if errors.Is(cause, errSharedStartFailed) {
 		s.state.ConnectionIssue = "shared_start_failed"
 		message = "共享 Codex 服务启动失败或不支持；原任务和待确认结果已保留，将稍后重试。"
-	} else if errors.Is(cause, errSharedStateUnknown) {
-		s.state.ConnectionIssue = "shared_state_unknown"
-		message = "共享 Codex 服务状态尚未确认。请检查共享服务或手动启动；原任务和待确认结果已保留。"
 	} else if errors.Is(cause, errExistingServer) {
 		s.state.ConnectionIssue = "existing_server"
 		message = "发现了本机 Codex 连接入口，但暂时无法握手。请确认提供入口的应用仍在运行，再重新连接。"

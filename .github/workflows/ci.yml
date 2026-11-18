@@ -95,9 +95,11 @@ jobs:
             go.sum
             script/env.sh
       - name: Check native remote ownership and recovery races
-        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/sshtransport ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore
+        # These packages exercise fsync and process-exit deadlines on the same
+        # runner. Serialize packages while preserving concurrency inside each test.
+        run: go test -p 1 -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/sshtransport ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore
       - name: Check headless chat persistence and plugin lifecycle
-        run: go test -race -count=1 ./internal/app ./internal/chatlog ./internal/plugins
+        run: go test -p 1 -race -count=1 ./internal/app ./internal/chatlog ./internal/plugins
       - name: Build both managed architectures and run native Linux upgrade recovery at umask 077
         run: bash script/ci-linux-headless.sh
   windows-product:
