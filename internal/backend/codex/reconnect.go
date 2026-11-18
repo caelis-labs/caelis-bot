@@ -46,15 +46,17 @@ func (s *Session) supervisesSharedLocked() bool {
 }
 
 func (s *Session) retryableSharedFailureLocked() bool {
-	err := s.lastConnectCause
-	if s.state.Connection != "offline" || s.trustBlockedReason != "" || err == nil ||
-		errors.Is(err, errRuntimeMissing) || incompatibleProtocol(err) || resourceExhausted(err) || errors.Is(err, os.ErrPermission) {
+	return s.state.Connection == "offline" && s.trustBlockedReason == "" && s.life.Err() == nil && transientSharedFailure(s.lastConnectCause)
+}
+
+func transientSharedFailure(err error) bool {
+	if err == nil || errors.Is(err, errRuntimeMissing) || incompatibleProtocol(err) || resourceExhausted(err) || errors.Is(err, os.ErrPermission) {
 		return false
 	}
 	// A foreground caller can expire or cancel during initialize while the
 	// resident is still meant to be online.
-	return errors.Is(err, errExistingServer) || recoverableDisconnect(err) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, context.Canceled) && s.life.Err() == nil
+	return errors.Is(err, errExistingServer) || recoverableDisconnect(err) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
 // Only the current episode can receive a wake edge. Signals received during
