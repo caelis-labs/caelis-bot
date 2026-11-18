@@ -75,6 +75,39 @@ func TestSleepCoalescesAndBusyWorkIsNeverSteered(t *testing.T) {
 	}
 
 }
+
+type reminderProbe struct {
+	*fakeEngine
+	probes int
+}
+
+func (p *reminderProbe) RequestReconnectProbe() { p.probes++ }
+
+func TestDueOfflineReminderAdvancesOneReconnectProbe(t *testing.T) {
+	r, f, now := fixture(t)
+	p := &reminderProbe{fakeEngine: f}
+	r.engine = p
+	saveReminder(t, r, "due")
+	*now = now.Add(time.Minute)
+	f.view = api.Snapshot{Connection: "offline"}
+	for range 3 {
+		if err := r.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := r.State().Wake.ID
+	if p.probes != 1 || len(f.submissions) != 0 || r.State().Wake.Status != "pending" {
+		t.Fatal("offline tick replayed reminder or probe")
+	}
+	f.view = api.Snapshot{Connection: "ready", CanSend: true}
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.submissions) != 1 || f.submissions[0].ID != id {
+		t.Fatal("original reminder identity lost")
+	}
+}
+
 func TestUnknownDispatchNeverReplaysAndReconcilesReceipt(t *testing.T) {
 	r, f, now := fixture(t)
 	saveReminder(t, r, "water")

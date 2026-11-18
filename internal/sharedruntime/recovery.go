@@ -73,4 +73,18 @@ func (c *Coordinator) Recover(ctx context.Context, key string, start func(contex
 	}
 }
 
+// ResetCooldown drops a completed attempt after a new readiness observation or
+// wake edge. An in-flight command still belongs to all concurrent observers.
+func (c *Coordinator) ResetCooldown(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if a := c.attempts[key]; a != nil {
+		select {
+		case <-a.done:
+			delete(c.attempts, key)
+		default:
+		}
+	}
+}
+
 var Shared Coordinator

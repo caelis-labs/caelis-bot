@@ -50,6 +50,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 			var client *Client
 			client, err = initializeClient(probe, conn, nil, opts)
 			if err == nil {
+				resetSharedCooldown(opts.Socket)
 				done()
 				return client, nil
 			}
@@ -63,7 +64,11 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 				// Readiness is the standard handshake, not the CLI's exit status.
 				conn, err = connectExisting(ctx, opts.Socket)
 				if err == nil {
-					return initializeClient(ctx, conn, nil, opts)
+					client, err := initializeClient(ctx, conn, nil, opts)
+					if err == nil {
+						resetSharedCooldown(opts.Socket)
+					}
+					return client, err
 				}
 			}
 			return nil, errors.Join(errExistingServer, err)

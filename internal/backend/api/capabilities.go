@@ -57,12 +57,17 @@ type NativePlugin struct {
 // RecoveryState is a host-only, opaque fence for one Runtime connection owner.
 // A channel may offer manual recovery only after automatic recovery stops.
 type RecoveryState struct {
+	// Supervised means this adapter owns background reconnect and its stop conditions.
+	Supervised bool
 	Fence      string
 	Automatic  bool
 	InProgress bool
 	Manual     bool
 }
 type RecoverySource interface{ RecoveryState() RecoveryState }
+
+// ReconnectProbe advances an existing retry wait without starting work.
+type ReconnectProbe interface{ RequestReconnectProbe() }
 type RuntimeConfigurator interface {
 	// Serialize with native submission/approval, reject busy or uncertain work,
 	// validate independently, then persist before replacing the connection.

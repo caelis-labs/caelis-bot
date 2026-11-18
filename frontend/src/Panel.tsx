@@ -7,6 +7,7 @@ import {Recovery} from './SurfaceBoundary';
 import {ChatFeedback} from './ChatFeedback';
 import { surfaceReady, surfaceMounted } from './surface-ready';
 import { useConnectionNotice } from './use-connection-notice';
+import { hasUnconfirmedWork, sharedRecoveryNotice } from './connection-notice';
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
@@ -523,6 +524,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
  const needsConnection=loaded&&!!(hasText||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
+ const connectionHint=sharedRecoveryNotice(snapshot)?t('chat.reconnectingDraft'):t('chat.connectionUnavailableToSend');
  return <div className={`compose-area${multiline||files.length||quoted?' compose-expanded':''}${dragging?' file-dragging':''}`} data-file-drop-target
   onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
@@ -550,13 +552,13 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
     data-placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
 
   {!!error&&feedbackTarget&&createPortal(<ChatFeedback key={error} message={error} feedback={{issue:pending.current?.progress.outcome==='unknown'?'submission_unconfirmed':'background_read_failed'}} onRetry={()=>void retryLocalCleanup()}/>,feedbackTarget)}
-  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
+  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{connectionHint}</span></div>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
 
   </div>
   <div className="capsule composer-actions">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
+   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?connectionHint:actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
@@ -638,10 +640,13 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
  const connection=useConnectionNotice(snapshot);
+ const recovery=sharedRecoveryNotice(snapshot);
+ const awaitingRecovery=!!recovery&&hasUnconfirmedWork(snapshot);
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';
  const connectionText=chooseRuntime?t('chat.setupRequiredConnection'):
+  recovery==='waiting'?t('chat.automaticReconnect'):
   snapshot?.connection==='connecting'?t('chat.checkingConnection'):
   snapshot?.connection==='login'?t('chat.loginRequiredConnection'):
   snapshot?.connectionIssue==='runtime_missing'?t('chat.runtimeMissingConnection'):
@@ -666,7 +671,7 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
   {settingsEntry&&<div className="chat-settings-entry">{settingsEntry}</div>}
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
-   {!messages.length&&!connection&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
+   {!messages.length&&!connection&&!awaitingRecovery&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
     {dividerAt!==undefined&&<div className="history-time-divider"><time dateTime={new Date(dividerAt/1000).toISOString()}>{chatTimeLabel(dividerAt,locale)}</time></div>}
@@ -674,12 +679,14 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    </div>,...(snapshot?.approvals??[]).filter(p=>p.turnKey&&p.turnKey===i.turnKey&&!timeline.rows.slice(index+1).some(row=>row.item.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)])}
    {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
+   {awaitingRecovery&&!connection&&<p className="quiet" role="status">{t('chat.reconnectingUnconfirmed')}</p>}
    {connection&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className="message assistant state-bubble">
    {connection&&snapshot&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>
+    {awaitingRecovery&&<p role="status">{t('chat.reconnectingUnconfirmed')}</p>}
     {connectionError&&<Recovery message={connectionError}/>}
     <div className="connection-actions">
      {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void desktop('OpenRuntimeSettings').catch(()=>setConnectionError(t('chat.actionFailed')))}>{t('chat.loginInBrowser')}</button>}

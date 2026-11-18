@@ -31,6 +31,12 @@ func canStartSharedDaemon(err error) bool {
 	return err != errExistingServer && !incompatibleProtocol(err) && !resourceExhausted(err) && !errors.Is(err, os.ErrPermission)
 }
 
+func resetSharedCooldown(socket string) {
+	if home := sharedHome(socket); home != "" {
+		sharedruntime.Shared.ResetCooldown("codex:" + home)
+	}
+}
+
 func recoverShared(ctx context.Context, opts Options, home string) error {
 	return sharedruntime.Shared.Recover(ctx, "codex:"+home, func(ctx context.Context) error {
 		binary, err := runtimeBinary(opts.Binary)

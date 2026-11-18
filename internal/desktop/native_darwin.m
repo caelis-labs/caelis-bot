@@ -667,7 +667,7 @@ void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t h
                 [weak.inputView cancelInteraction]; [weak dismissMenu:@"menu-dismiss-space-or-wake"]; [weak cancelPlane]; weak.frontContext=nil;
                 if ([note.name isEqualToString:NSWorkspaceDidWakeNotification]) {
                     [weak trace:@"wake"];
-                    desktopEvent(weak.handle,3,0,0,0);
+                    desktopEvent(weak.handle,BotSystemDidWake,0,0,0);
                 } else {
                     // Switching desktops preserves placement and hidden preference.
                     [weak collapseBubble];

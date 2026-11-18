@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,13 +31,64 @@ func (s *Session) retryDelay(attempt int) time.Duration {
 	if s.reconnectDelay != nil {
 		return s.reconnectDelay(attempt)
 	}
+	if attempt > maxAutoReconnectAttempts {
+		return min(5*time.Minute, 30*time.Second<<min(attempt-maxAutoReconnectAttempts-1, 4))
+	}
 	return (250 * time.Millisecond) << min(attempt-1, 4)
+}
+
+// A saved public endpoint can be probed indefinitely without changing the
+// original owner. Private owners and retained Workers keep their own fences.
+func (s *Session) supervisesSharedLocked() bool {
+	return s.epoch > 0 && !s.workerOnly && s.loadErr == nil && s.retainedOwner == nil &&
+		s.binding.OwnerProcess == nil && !s.binding.OwnerUnavailable && !s.binding.OwnerClosing &&
+		sharedHome(strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")) != ""
+}
+
+func (s *Session) retryableSharedFailureLocked() bool {
+	err := s.lastConnectCause
+	if s.state.Connection != "offline" || s.trustBlockedReason != "" || err == nil ||
+		errors.Is(err, errRuntimeMissing) || incompatibleProtocol(err) || resourceExhausted(err) || errors.Is(err, os.ErrPermission) {
+		return false
+	}
+	return errors.Is(err, errExistingServer) || recoverableDisconnect(err) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// Only the current episode can receive a wake edge. Signals received during
+// a probe are absorbed; they must not bypass the next backoff.
+func (s *Session) RequestReconnectProbe() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reconnectActive && s.reconnectWake != nil {
+		select {
+		case s.reconnectWake <- struct{}{}:
+			resetSharedCooldown(strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://"))
+		default:
+		}
+	}
 }
 
 // Called under s.mu after the original listener has stopped. The one coordinator
 // owns all retries; listeners created by its attempts cannot start a second one.
 func (s *Session) scheduleAutoReconnectLocked(c *Client, epoch uint64) {
-	if s.reconnectActive || s.closed || s.closing || (!s.bound && !s.workerOnly) || !recoverableDisconnect(c.Err()) {
+	if (!s.bound && !s.workerOnly && !s.supervisesSharedLocked()) || !recoverableDisconnect(c.Err()) {
+		return
+	}
+	s.startAutoReconnectLocked(epoch)
+}
+
+func (s *Session) cancelAutoReconnectLocked() {
+	s.reconnectSeq++
+	if s.reconnectCancel != nil {
+		s.reconnectCancel()
+	}
+	s.reconnectActive = false
+	s.reconnectWake = nil
+	s.reconnectCancel = nil
+}
+
+func (s *Session) startAutoReconnectLocked(epoch uint64) {
+	if s.reconnectActive || s.closed || s.closing {
 		return
 	}
 	ctx, cancel := context.WithCancel(s.life)
@@ -52,26 +105,49 @@ func (s *Session) scheduleAutoReconnectLocked(c *Client, epoch uint64) {
 		s.reconnectNoticeID = s.binding.LastReceipt.ID
 	}
 	s.state.Message = "连接中断，正在核对原任务和发送结果。"
-	s.update()
-	go s.autoReconnect(ctx, seq, epoch)
+	shared := s.supervisesSharedLocked()
+	go func() {
+		defer cancel()
+		s.autoReconnect(ctx, seq, epoch, shared)
+	}()
 }
 
-func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64) {
+func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64, shared bool) {
 	defer func() {
 		s.mu.Lock()
 		if s.reconnectSeq == seq {
 			s.reconnectActive = false
 			s.reconnectCancel = nil
+			s.reconnectWake = nil
+			// The recovered transport can close just after connect returns and
+			// before this coordinator releases the episode.
+			if shared && ctx.Err() == nil && s.supervisesSharedLocked() && s.retryableSharedFailureLocked() {
+				s.startAutoReconnectLocked(s.epoch)
+			}
 			s.update()
 		}
 		s.mu.Unlock()
 	}()
-	for attempt := 1; attempt <= maxAutoReconnectAttempts; attempt++ {
+	for attempt := 1; ; attempt++ {
+		var wake chan struct{}
+		if shared && attempt > maxAutoReconnectAttempts {
+			s.mu.Lock()
+			if s.reconnectSeq != seq || ctx.Err() != nil {
+				s.mu.Unlock()
+				return
+			}
+			wake = make(chan struct{}, 1)
+			s.reconnectWake = wake
+			s.update()
+			s.mu.Unlock()
+		}
 		timer := time.NewTimer(s.retryDelay(attempt))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return
+		case <-wake:
+			timer.Stop()
 		case <-timer.C:
 		}
 		s.op.Lock()
@@ -79,7 +155,12 @@ func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64) {
 		current := s.reconnectSeq == seq && s.epoch == epoch && !s.closed && !s.closing && ctx.Err() == nil
 		if current {
 			s.reconnectAttempts = attempt
-			s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "reconnect_attempt", Generation: epoch, SessionEpoch: epoch, Phase: "original_owner", Limit: maxAutoReconnectAttempts, Sequence: uint64(attempt)})
+			s.reconnectWake = nil
+			phase, limit := "original_owner", maxAutoReconnectAttempts
+			if attempt > maxAutoReconnectAttempts {
+				phase, limit = "background_probe", 0
+			}
+			s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "reconnect_attempt", Generation: epoch, SessionEpoch: epoch, Phase: phase, Limit: limit, Sequence: uint64(attempt)})
 		}
 		s.mu.Unlock()
 		if !current {
@@ -105,10 +186,13 @@ func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64) {
 		if needsReview {
 			s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "codex", Code: "reconnect_needs_review", Generation: epoch, SessionEpoch: epoch, Phase: "original_cleanup_receipt", Sequence: uint64(attempt)})
 		}
-		if stop || attempt == maxAutoReconnectAttempts {
+		if shared {
+			stop = !s.supervisesSharedLocked() || !s.retryableSharedFailureLocked()
+		}
+		if stop || !shared && attempt == maxAutoReconnectAttempts {
 			if !ready && !needsReview && s.state.Connection != "login" {
 				s.state.Connection = "offline"
-				if !errors.Is(s.lastConnectCause, errSharedStartFailed) {
+				if !shared && !errors.Is(s.lastConnectCause, errSharedStartFailed) {
 					s.state.Message = "自动恢复未能核对原任务；请检查连接后手动重试。"
 				}
 				if resourceExhausted(s.lastConnectCause) {

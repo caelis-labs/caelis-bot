@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {connectionNoticeGrace,connectionNoticeKey} from '../frontend/src/connection-notice.ts';
+import {connectionNoticeGrace,connectionNoticeKey,hasUnconfirmedWork,sharedRecoveryNotice} from '../frontend/src/connection-notice.ts';
 
 const state={connection:'ready',connectionIssue:'',message:'',phase:'idle',introductionPending:false};
 test('Windows handshake and empty automatic recovery get a bounded presentation grace',()=>{
@@ -31,4 +31,25 @@ test('authentication, setup, explicit failures and uncertain work are immediate'
   assert.notEqual(connectionNoticeKey(value),'');
  }
  assert.notEqual(connectionNoticeKey(failures[1]),connectionNoticeKey({...state,connection:'offline'}));
+});
+
+test('fast shared recovery suppresses the action card while keeping uncertain work visible',()=>{
+ for(const connection of ['offline','connecting']) {
+  const recovering={...state,connection,connectionIssue:'shared_recovering'};
+  assert.equal(sharedRecoveryNotice(recovering),'checking');
+  assert.equal(hasUnconfirmedWork(recovering),false);
+  assert.equal(connectionNoticeKey(recovering),'');
+  for(const uncertain of [{...recovering,phase:'unknown'},{...recovering,lastReceipt:{outcome:'unknown'}}]) {
+   assert.equal(sharedRecoveryNotice(uncertain),'checking');
+   assert.equal(hasUnconfirmedWork(uncertain),true);
+   assert.equal(connectionNoticeKey(uncertain),'');
+  }
+  const waiting={...recovering,connectionIssue:'shared_retry_wait'};
+  assert.equal(sharedRecoveryNotice(waiting),'waiting');
+  assert.notEqual(connectionNoticeKey(waiting),'');
+  assert.equal(connectionNoticeGrace(waiting,true),0);
+ }
+ const login={...state,connection:'login',connectionIssue:'shared_recovering'};
+ assert.equal(sharedRecoveryNotice(login),null);
+ assert.notEqual(connectionNoticeKey(login),'');
 });
