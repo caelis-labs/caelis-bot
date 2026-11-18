@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,6 +216,176 @@ func checkSharedReconnect(t *testing.T, scenario string) {
 	defer f.mu.Unlock()
 	if f.starts != 0 || !f.resumeExcluded {
 		t.Fatal("input replay or full history recovery")
+	}
+}
+
+// The first public start stays in cooldown while the fast transport probes run.
+// A wake or explicit reconnect must be able to start a repaired daemon before
+// that cooldown expires, using the original resident binding and receipt.
+func TestUnattendedSharedReconnect(t *testing.T) {
+	for _, trigger := range []string{"timer", "wake", "button"} {
+		t.Run(trigger, func(t *testing.T) {
+			home := recoveryDirectory(t)
+			socket := filepath.Join(home, "app-server-control", "app-server-control.sock")
+			bin := filepath.Join(home, "codex")
+			script := "#!/bin/sh\ncd \"$CODEX_HOME\" || exit 1\necho start >> calls\n[ -f repaired ] || exit 1\ntouch starting\nwhile [ ! -S app-server-control/app-server-control.sock ]; do sleep 0.01; done\n"
+			if err := os.WriteFile(bin, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			s := NewSession(SessionOptions{Binary: bin, Directory: home, StateFile: filepath.Join(home, "binding.json")})
+			s.binding.OwnerEndpoint, s.binding.ThreadID = "unix://"+socket, "thread-native"
+			s.binding.Pending = &pendingSubmission{ID: "request"}
+			s.binding.LastReceipt = &api.Receipt{ID: "request", Outcome: "unknown"}
+			s.reconnectDelay = func(attempt int) time.Duration {
+				if attempt <= maxAutoReconnectAttempts {
+					return time.Millisecond
+				}
+				if trigger == "timer" {
+					return 100 * time.Millisecond
+				}
+				return time.Hour
+			}
+			if err := s.save(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.DetachForUpdate(context.Background()) })
+			service := backend.NewService(s, nil, nil, nil, nil)
+			if err := service.Connect(testContext(t)); err == nil {
+				t.Fatal("unavailable endpoint reported ready")
+			}
+			awaitState(t, s, func(v api.Snapshot) bool {
+				r := service.RecoveryState()
+				return r.Supervised && r.Manual && v.ConnectionIssue == "shared_retry_wait"
+			})
+			// A caller that cannot take admission cannot abandon the only
+			// observer. The timer/wake below must still recover this episode.
+			s.op.Lock()
+			blocked, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+			err := s.Connect(blocked)
+			cancel()
+			s.op.Unlock()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("blocked manual admission: %v", err)
+			}
+			f := &sessionFixture{answers: make(chan wireMessage, 8), history: []nativeTurn{{ID: "original", Status: "completed", Items: []nativeItem{{ID: "item", Type: "userMessage", ClientID: "request"}}}}}
+			if trigger == "timer" {
+				stop := serveRecoverySocket(t, socket, f, home)
+				t.Cleanup(stop)
+			} else {
+				if err := os.WriteFile(filepath.Join(home, "repaired"), nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+				reconnected := make(chan error, 1)
+				if trigger == "button" {
+					go func() { reconnected <- service.Reconnect(testContext(t)) }()
+				} else {
+					s.RequestReconnectProbe()
+				}
+				deadline := testContext(t)
+				for {
+					if _, err := os.Stat(filepath.Join(home, "starting")); err == nil {
+						break
+					}
+					select {
+					case <-deadline.Done():
+						t.Fatal("accelerated probe failed to start repaired daemon")
+					case <-time.After(time.Millisecond):
+					}
+				}
+				stop := serveRecoverySocket(t, socket, f, home)
+				t.Cleanup(stop)
+				if trigger == "button" {
+					if err := <-reconnected; err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			awaitState(t, s, func(v api.Snapshot) bool {
+				return v.Connection == "ready" && v.LastReceipt.ID == "request" && v.LastReceipt.Outcome == "accepted"
+			})
+			log, err := os.ReadFile(filepath.Join(home, "calls"))
+			want := "start\nstart\n"
+			if trigger == "timer" {
+				want = "start\n"
+			}
+			if string(log) != want || err != nil {
+				t.Fatalf("native starts: %q, %v", log, err)
+			}
+		})
+	}
+}
+
+func TestCanceledSharedHandshakeHandsOffToResident(t *testing.T) {
+	home := recoveryDirectory(t)
+	s := NewSession(SessionOptions{Directory: home, StateFile: filepath.Join(home, "binding.json")})
+	s.binding.OwnerEndpoint = "unix://" + filepath.Join(home, "app-server-control", "app-server-control.sock")
+	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
+	entered := make(chan struct{})
+	var attempts atomic.Int32
+	s.start = func(ctx context.Context, _ Options) (*Client, error) {
+		if attempts.Add(1) == 1 {
+			close(entered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return nil, ErrProtocol // New probe finds an actionable problem.
+	}
+	t.Cleanup(func() { _ = s.DetachForUpdate(context.Background()) })
+	ctx, cancel := context.WithCancel(testContext(t))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Connect(ctx) }()
+	select {
+	case <-entered:
+		cancel()
+	case <-ctx.Done():
+		t.Fatal("handshake did not start")
+	}
+	if err := <-done; err == nil {
+		t.Fatal("canceled caller reported a connection")
+	}
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.ConnectionIssue == "runtime_protocol" && !s.RecoveryState().Automatic
+	})
+	if attempts.Load() != 2 {
+		t.Fatal("foreground cancellation lost or duplicated the unattended probe")
+	}
+}
+
+func TestSharedRetryStopsForUserIntervention(t *testing.T) {
+	for _, cause := range []error{ErrProtocol, errRuntimeMissing, os.ErrPermission} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			home := recoveryDirectory(t)
+			s := NewSession(SessionOptions{Directory: home, StateFile: filepath.Join(home, "binding.json")})
+			s.binding.OwnerEndpoint = "unix://" + filepath.Join(home, "app-server-control", "app-server-control.sock")
+			var attempts atomic.Int32
+			s.start = func(context.Context, Options) (*Client, error) {
+				attempts.Add(1)
+				return nil, errors.Join(errExistingServer, cause)
+			}
+			s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
+			t.Cleanup(func() { _ = s.DetachForUpdate(context.Background()) })
+			if err := s.Connect(testContext(t)); err == nil {
+				t.Fatal("unexpected ready state")
+			}
+			state := s.RecoveryState()
+			if !state.Supervised || state.Automatic || !state.Manual {
+				t.Fatal("actionable failure admitted to background retry", state)
+			}
+			s.RequestReconnectProbe()
+			if attempts.Load() != 1 {
+				t.Fatal("wake retried actionable failure")
+			}
+		})
+	}
+}
+
+func TestSharedReconnectIntervals(t *testing.T) {
+	s := &Session{}
+	for attempt, want := range []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute} {
+		if got := s.retryDelay(attempt + 1); got != want {
+			t.Fatalf("attempt %d delay %v, want %v", attempt+1, got, want)
+		}
 	}
 }
 

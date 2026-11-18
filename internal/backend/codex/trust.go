@@ -143,11 +143,22 @@ func (s *Session) trustWriteFailure(err error) error {
 	return s.trustFailure(err.Error(), err)
 }
 
+// A transport failure during an observation does not establish a trust decision.
+func (s *Session) trustReadFailure(err error) error {
+	s.mu.Lock()
+	retry := s.supervisesSharedLocked() && s.trustBlockedReason == "" && s.trustApprovalID == "" && transientSharedFailure(err)
+	s.mu.Unlock()
+	if retry {
+		return s.connectionError("暂时无法读取工作目录状态，正在恢复连接。", err)
+	}
+	return s.trustFailure(err.Error(), err)
+}
+
 func (s *Session) requireBotWorkspaceTrust(ctx context.Context, c *Client) error {
 	directory := s.opts.Directory
 	state, err := readWorkspaceTrust(ctx, c, directory)
 	if err != nil {
-		return s.trustFailure(err.Error(), err)
+		return s.trustReadFailure(err)
 	}
 	s.mu.Lock()
 	uncertain := s.binding.TrustWriteUnknown
@@ -181,6 +192,9 @@ func (s *Session) requireBotWorkspaceTrust(ctx context.Context, c *Client) error
 		}
 	}
 	verified, err := readWorkspaceTrust(ctx, c, directory)
+	if err != nil && state.level == "trusted" { // Both reads preceded any config write.
+		return s.trustReadFailure(err)
+	}
 	if err != nil || verified.level != "trusted" || verified.reason != "" {
 		if err == nil {
 			err = errors.New("Codex 未确认 Bot 工作目录的有效信任；可能受到组织策略限制")

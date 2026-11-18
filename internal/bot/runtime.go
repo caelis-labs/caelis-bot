@@ -529,8 +529,13 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 		r.mu.Unlock()
 		return nil
 	}
-	if !r.engine.Snapshot().CanSend {
+	if snapshot := r.engine.Snapshot(); !snapshot.CanSend {
+		probe, canProbe := r.engine.(api.ReconnectProbe)
+		newWake := (previous.Wake == nil || previous.Wake.ID != r.state.Wake.ID) && snapshot.Connection == "offline"
 		r.mu.Unlock()
+		if newWake && canProbe {
+			probe.RequestReconnectProbe()
+		}
 		return nil
 	}
 	wake := *r.state.Wake

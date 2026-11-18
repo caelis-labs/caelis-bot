@@ -118,3 +118,31 @@ func TestFirstObserverCancellationKeepsSharedStartup(t *testing.T) {
 		t.Fatal("observer cancellation was cached or launched another startup", err, starts.Load())
 	}
 }
+
+func TestResetCooldownKeepsInFlightStart(t *testing.T) {
+	var c Coordinator
+	started, finish := make(chan struct{}), make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		first <- c.Recover(t.Context(), "home", func(context.Context) error {
+			close(started)
+			<-finish
+			return nil
+		})
+	}()
+	<-started
+	c.ResetCooldown("home")
+	close(finish)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	start := func(context.Context) error { count++; return nil }
+	if err := c.Recover(t.Context(), "home", start); err != nil || count != 0 {
+		t.Fatal("wake dropped a running command")
+	}
+	c.ResetCooldown("home")
+	if err := c.Recover(t.Context(), "home", start); err != nil || count != 1 {
+		t.Fatal("completed command blocked a fresh probe")
+	}
+}

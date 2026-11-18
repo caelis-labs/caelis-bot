@@ -103,6 +103,13 @@ Manual and automatic Codex reconnect probe the saved shared endpoint. If the dae
 is unavailable, both use the public `app-server daemon start` for its original home.
 Codex owns PID records and startup arbitration. Bot coalesces starts per home,
 checks the handshake again, then reconciles the original receipts.
+For a resident with a saved shared Codex endpoint, its adapter owns transient
+connection retries, including cold start. Five quick probes give way to
+30-second through five-minute waits; each command and handshake has a deadline.
+System wake, a newly due reminder and manual reconnect can advance a long wait.
+Authentication, protocol incompatibility, trust decisions and uncertain effects
+retain their existing action or receipt checks. Private owners and retained
+Workers keep their own bounded recovery.
 Explicit lost-owner recovery fences the old owner and retains unknown receipts. Readable
 archived history does not authorize resuming a lost execution or settling its effects.
 

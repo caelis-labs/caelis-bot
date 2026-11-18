@@ -481,7 +481,7 @@ func Run(assets fs.FS) error {
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")
 		}
-		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
+		s.start(newMacDriver(pet, bubble, history, prop, s, quit, core.RequestReconnectProbe))
 		installMacArtifactPreviewToolbar(preview, s.LanguagePreferences().Locale)
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {

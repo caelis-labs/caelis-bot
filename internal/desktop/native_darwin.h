@@ -1,4 +1,5 @@
 #include <stdint.h>
+enum { BotSystemDidWake = 25 };
 typedef struct { double x,y,width,height; } BotRect;
 void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength);
 void bot_bubble(void *host, int visible);
