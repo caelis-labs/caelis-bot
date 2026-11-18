@@ -10,100 +10,77 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// Setup owns a separate standard client, without conversation or Bot authority.
+// Setup subscribes to the public daemon on its own connection for login notifications.
 // op serializes UI operations; notifications never block a synchronous RPC.
 type Setup struct {
-	op                        sync.Mutex
-	mu                        sync.Mutex
-	client                    *Client
-	binary                    string
-	loginID, loginURL, notice string
-	device                    *api.SetupLogin
-	deviceOwner               string
-	deviceTimer               *time.Timer
-	completed                 map[string]bool
-	closed                    bool
-	epoch                     uint64
-	workers                   sync.WaitGroup
-	start                     func(context.Context, Options) (*Client, error)
+	op                 sync.Mutex
+	mu                 sync.Mutex
+	client             *Client
+	binary, socket     string
+	loginID            string
+	device             *api.SetupLogin
+	deviceOwner        string
+	deviceTimer        *time.Timer
+	completed          map[string]bool
+	closed             bool
+	epoch, deviceEpoch uint64
+	workers            sync.WaitGroup
+	start              func(context.Context, Options) (*Client, error)
 }
 
 func (s *Setup) clientFor(ctx context.Context, path string) (*Client, error) {
 	if s.closed {
 		return nil, errors.New("运行时管理已关闭")
 	}
+	socket := controlSocket("")
+	if socket == "" {
+		return nil, errExistingServer
+	}
+	if s.socket != "" && s.socket != socket && s.deviceActive() {
+		return nil, errors.New("请先结束当前登录")
+	}
 	if s.client != nil {
 		select {
 		case <-s.client.Done():
-			s.client.Close()
-			s.client = nil
 		default:
-		}
-	}
-	if s.client != nil && s.binary != path {
-		s.mu.Lock()
-		active := s.device != nil && (s.device.State == "pending" || s.device.State == "unknown")
-		s.mu.Unlock()
-		if active {
-			return nil, errors.New("请先结束当前登录")
+			if s.socket == socket {
+				s.binary = path
+				return s.client, nil
+			}
 		}
 		s.client.Close()
 		s.client = nil
 	}
-	if s.client == nil {
-		start := s.start
-		if start == nil {
-			start = Start
-		}
-		c, e := start(ctx, Options{Binary: path, CLIOnly: true})
-		if e != nil {
-			return nil, e
-		}
-		s.client = c
-		s.binary = path
-		s.mu.Lock()
-		if s.device != nil && (s.device.State == "pending" || s.device.State == "unknown") {
-			s.finishDeviceLocked("interrupted")
-		}
-		s.loginID = ""
-		s.loginURL = ""
-		s.notice = ""
-		s.completed = map[string]bool{}
-		s.epoch++
-		epoch := s.epoch
-		s.mu.Unlock()
-		s.workers.Add(1)
-		go func() {
-			defer s.workers.Done()
-			for n := range c.Notifications() {
-				if n.Method != "account/login/completed" {
-					continue
-				}
-				var v struct {
-					LoginID string `json:"loginId"`
-					Success bool   `json:"success"`
-				}
-				if json.Unmarshal(n.Params, &v) != nil || v.LoginID == "" {
-					continue
-				}
-				s.mu.Lock()
-				if s.epoch == epoch && len(s.completed) < 32 {
-					s.completed[v.LoginID] = v.Success
-					if s.loginID == v.LoginID {
-						if v.Success {
-							s.finishDeviceLocked("complete")
-						} else {
-							s.finishDeviceLocked("failed")
-						}
-						s.loginID = ""
-						s.loginURL = ""
-						delete(s.completed, v.LoginID)
-					}
-				}
-				s.mu.Unlock()
-			}
-		}()
+	c, e := openShared(ctx, path, socket, s.start)
+	if e != nil {
+		return nil, e
 	}
+	s.client, s.binary, s.socket = c, path, socket
+	s.mu.Lock()
+	s.epoch++
+	epoch := s.epoch
+	s.mu.Unlock()
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		for n := range c.Notifications() {
+			if n.Method != "account/login/completed" {
+				continue
+			}
+			var v struct {
+				LoginID string `json:"loginId"`
+				Success bool   `json:"success"`
+			}
+			if json.Unmarshal(n.Params, &v) != nil || v.LoginID == "" {
+				continue
+			}
+			s.mu.Lock()
+			if s.epoch == epoch {
+				s.deviceCompletedLocked(v.LoginID, v.Success)
+			}
+			s.mu.Unlock()
+		}
+	}()
 	return s.client, nil
 }
 func (s *Setup) Inspect(ctx context.Context, path string) (api.SetupState, error) {
@@ -111,38 +88,28 @@ func (s *Setup) Inspect(ctx context.Context, path string) (api.SetupState, error
 	defer s.op.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return s.inspect(ctx, path)
-}
-func (s *Setup) inspect(ctx context.Context, path string) (api.SetupState, error) {
 	v := api.SetupState{State: "login", Models: []api.SetupChoice{}}
 	c, e := s.clientFor(ctx, path)
 	if e != nil {
-		v.State = "incompatible"
-		v.Message = "Codex 连接未通过，请更新或选择其他程序"
+		v.State = "unavailable"
+		if incompatibleProtocol(e) {
+			v.State = "incompatible"
+		}
 		return v, nil
 	}
-	s.mu.Lock()
-	if success, ok := s.completed[s.loginID]; s.loginID != "" && ok {
-		delete(s.completed, s.loginID)
-		s.loginID = ""
-		s.loginURL = ""
-		if success {
-			s.finishDeviceLocked("complete")
-		} else {
-			s.finishDeviceLocked("failed")
-		}
-		if !success {
-			s.notice = "登录未完成，请重试"
-		}
-	}
-	v.Login = s.deviceViewLocked(ctx)
-	v.LoginPending = s.loginID != "" || s.device != nil && s.device.State == "unknown"
-	v.Message = s.notice
-	s.mu.Unlock()
 	auth, e := c.ReadAuthStatus(ctx)
 	if e != nil {
 		return v, errors.New("无法读取 Codex 登录状态，请重新检测")
 	}
+	s.mu.Lock()
+	if auth.AccountPresent && s.device != nil && (s.device.State == "pending" && s.epoch != s.deviceEpoch || s.device.State == "unknown") {
+		// Account readiness survives a missed completion notification. It
+		// establishes the current account without attributing a login receipt.
+		s.finishDeviceLocked("unconfirmed")
+	}
+	v.Login = s.deviceViewLocked(ctx)
+	v.LoginPending = s.loginID != "" || s.device != nil && s.device.State == "unknown"
+	s.mu.Unlock()
 	v.AccountType = auth.AccountType
 	if v.LoginPending {
 		v.Message = "请在浏览器中完成登录"
@@ -172,9 +139,6 @@ func (s *Setup) Apply(ctx context.Context, path, action, key string, attempt ...
 	if e != nil {
 		return "", errors.New("请先检测 Codex 连接")
 	}
-	s.mu.Lock()
-	id := s.loginID
-	s.mu.Unlock()
 	switch action {
 	case "login":
 		return "", s.startDevice(ctx, c)
@@ -195,14 +159,14 @@ func (s *Setup) Apply(ctx context.Context, path, action, key string, attempt ...
 		if key == "" || len(key) > 16384 {
 			return "", errors.New("请输入有效的 API Key")
 		}
-		if id != "" || s.deviceActive() {
+		if s.deviceActive() {
 			return "", errors.New("请先取消当前登录")
 		}
 		if e = callDecode(ctx, c, "account/login/start", map[string]string{"type": "apiKey", "apiKey": key}, nil); e != nil {
 			return "", errors.New("登录结果未确认，请重新检测；密钥未保存在 Bot 中")
 		}
 	case "logout":
-		if id != "" || s.deviceActive() {
+		if s.deviceActive() {
 			return "", errors.New("请先取消当前登录")
 		}
 		if e = callDecode(ctx, c, "account/logout", nil, nil); e != nil {
@@ -213,22 +177,13 @@ func (s *Setup) Apply(ctx context.Context, path, action, key string, attempt ...
 	}
 	return "", nil
 }
-func (s *Setup) Models(ctx context.Context, path string) ([]api.ModelOption, error) {
-	s.op.Lock()
-	defer s.op.Unlock()
-	c, e := s.clientFor(ctx, path)
-	if e != nil {
-		return nil, e
-	}
-	return c.models(ctx)
-}
 
 // PreparedHome identifies the live management client for short-lived setup
 // snapshots. It exposes no credentials and never starts or authorizes a client.
 func (s *Setup) PreparedHome(path string) (string, bool) {
 	s.op.Lock()
 	defer s.op.Unlock()
-	if s.closed || s.client == nil || s.binary != path {
+	if s.closed || s.client == nil || s.binary != path || s.socket != controlSocket("") {
 		return "", false
 	}
 	select {
@@ -241,14 +196,15 @@ func (s *Setup) PreparedHome(path string) (string, bool) {
 func (s *Setup) Close() {
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.closed {
+		return
+	}
 	s.closed = true
 	s.mu.Lock()
+	id := s.loginID
 	s.finishDeviceLocked("interrupted")
 	s.mu.Unlock()
 	if s.client != nil {
-		s.mu.Lock()
-		id := s.loginID
-		s.mu.Unlock()
 		if id != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = callDecode(ctx, s.client, "account/login/cancel", map[string]string{"loginId": id}, nil)

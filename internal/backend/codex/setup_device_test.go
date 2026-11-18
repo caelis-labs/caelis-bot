@@ -132,14 +132,14 @@ func TestDeviceCompletionFailureExpiryAndExistingLogin(t *testing.T) {
 			ctx := owner(t, "a")
 			_, _ = s.Apply(ctx, "/fixture", "login", "")
 			s.mu.Lock()
-			s.completed["unrelated"] = true
+			s.deviceCompletedLocked("unrelated", true)
 			s.mu.Unlock()
 			if !deviceView(t, s, ctx).LoginPending {
 				t.Fatal("unrelated completion adopted")
 			}
 			f.logged.Store(success)
 			s.mu.Lock()
-			s.completed["native-1"] = success
+			s.deviceCompletedLocked("native-1", success)
 			s.mu.Unlock()
 			v := deviceView(t, s, ctx)
 			if v.LoginPending || v.Login.UserCode != "" {
@@ -149,7 +149,7 @@ func TestDeviceCompletionFailureExpiryAndExistingLogin(t *testing.T) {
 				t.Fatal("wrong completion projection")
 			}
 			// A timer already queued before completion must not replace its result.
-			s.expireDevice(s.epoch, v.Login.ID)
+			s.expireDevice(v.Login.ID)
 			if got := deviceView(t, s, ctx); got.Login.State != v.Login.State || f.cancels.Load() != 0 {
 				t.Fatal("late expiry replaced a terminal result")
 			}
@@ -160,7 +160,7 @@ func TestDeviceCompletionFailureExpiryAndExistingLogin(t *testing.T) {
 	ctx := owner(t, "a")
 	_, _ = s.Apply(ctx, "/fixture", "login", "")
 	v := deviceView(t, s, ctx)
-	s.expireDevice(s.epoch, v.Login.ID)
+	s.expireDevice(v.Login.ID)
 	if got := deviceView(t, s, ctx); got.LoginPending || got.Login.State != "expired" || got.Login.UserCode != "" || f.cancels.Load() != 1 {
 		t.Fatal("expiry did not cancel original login")
 	}
@@ -225,7 +225,7 @@ func TestDeviceUnsupportedAndMalformedNeverFallback(t *testing.T) {
 		t.Fatal("malformed response did not retain cancel target")
 	}
 }
-func TestLostDeviceStartRetainsAttemptUntilOwnedProcessCancellation(t *testing.T) {
+func TestLostDeviceStartEndsTrackingWithoutCancellingSharedDaemon(t *testing.T) {
 	f := &deviceFixture{lost: true}
 	s := deviceSetup(t, f)
 	ctx := owner(t, "a")
@@ -244,13 +244,43 @@ func TestLostDeviceStartRetainsAttemptUntilOwnedProcessCancellation(t *testing.T
 	if _, e := s.Apply(ctx, "/fixture", "cancel-login", "", v.Login.ID); e != nil {
 		t.Fatal(e)
 	}
-	select {
-	case <-original.Done():
-	default:
-		t.Fatal("owned setup client not stopped")
+	if s.client != original || f.cancels.Load() != 0 {
+		t.Fatal("cancel changed the shared connection or guessed a native login ID")
 	}
-	if s.client != nil {
-		t.Fatal("cancel left unknown owner reusable")
+	if got := deviceView(t, s, ctx); got.LoginPending || got.Login.State != "unconfirmed" {
+		t.Fatal("lost reply was reported as confirmed cancellation")
+	}
+}
+
+func TestSharedLoginSurvivesSettingsDisconnect(t *testing.T) {
+	for _, signedIn := range []bool{false, true} {
+		t.Run(fmt.Sprint(signedIn), func(t *testing.T) {
+			f := &deviceFixture{}
+			s := deviceSetup(t, f)
+			ctx := owner(t, "a")
+			if _, err := s.Apply(ctx, "/fixture", "login", ""); err != nil {
+				t.Fatal(err)
+			}
+			before := deviceView(t, s, ctx)
+			s.client.Close() // Only the settings socket disconnects.
+			f.logged.Store(signedIn)
+			after := deviceView(t, s, ctx)
+			if f.starts.Load() != 1 || before.Login.ID != after.Login.ID {
+				t.Fatal("reconnect lost or replayed the native attempt")
+			}
+			if signedIn {
+				if after.State != "ready" || after.LoginPending || after.Login.State != "unconfirmed" {
+					t.Fatal("missed completion prevented authoritative account readback")
+				}
+				return
+			}
+			if !after.LoginPending || after.Login.UserCode != before.Login.UserCode {
+				t.Fatal("reconnect lost the pending challenge")
+			}
+			if _, err := s.Apply(ctx, "/fixture", "cancel-login", "", before.Login.ID); err != nil || f.cancels.Load() != 1 {
+				t.Fatal("reconnected client could not cancel the original login", err)
+			}
+		})
 	}
 }
 

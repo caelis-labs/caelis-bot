@@ -296,6 +296,7 @@
   "deviceExpired": "The code expired. Please sign in again.",
   "deviceCancelled": "Sign-in cancelled.",
   "deviceInterrupted": "The sign-in connection ended. Please sign in again.",
+  "deviceUnconfirmed": "Waiting ended. The sign-in result could not be confirmed.",
   "deviceUnknown": "Sign-in has not been confirmed. Cancel this attempt before trying again.",
   "deviceOtherSession": "Continue in the browser that started sign-in, or wait for it to finish.",
   "deviceActionFailed": "The result is not confirmed yet. Please try again shortly.",

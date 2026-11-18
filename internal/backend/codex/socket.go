@@ -17,17 +17,30 @@ import (
 
 var errExistingServer = errors.New("existing app server unavailable")
 
+func controlSocket(home string) string {
+	// Older handshakes omit codexHome. Resolve it as for a new local connection.
+	if home == "" {
+		home = os.Getenv("CODEX_HOME")
+		if home == "" {
+			user, err := os.UserHomeDir()
+			if err != nil {
+				return ""
+			}
+			home = filepath.Join(user, ".codex")
+		}
+	}
+	if !filepath.IsAbs(home) {
+		return ""
+	}
+	return filepath.Join(home, "app-server-control", "app-server-control.sock")
+}
+
 // Prefer an already listening standard control socket. This does not launch an
 // app or daemon, inspect private app IPC, or require a CLI binary to connect.
 func connectExisting(ctx context.Context, path string) (connection, error) {
 	if runtime.GOOS == "darwin" || ((runtime.GOOS == "linux" || runtime.GOOS == "windows") && path != "") {
 		if path == "" {
-			home := os.Getenv("CODEX_HOME")
-			if home == "" {
-				user, _ := os.UserHomeDir()
-				home = filepath.Join(user, ".codex")
-			}
-			path = filepath.Join(home, "app-server-control", "app-server-control.sock")
+			path = controlSocket("")
 		}
 		info, err := os.Stat(path)
 		if err != nil {

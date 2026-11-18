@@ -512,6 +512,11 @@ func TestMaintenanceReferenceSurvivesHistoryPressure(t *testing.T) {
 }
 func TestRetiredDefinitionsRotateBeyondCapacity(t *testing.T) {
 	e, now := setup(t, nil)
+	// Exercise every lifecycle transition in memory, then round-trip the final
+	// state once. Filesystem sync latency is independent of the capacity limit.
+	durable := e.write
+	e.write = func(string, any) error { return nil }
+
 	for i := 0; i < MaxActive+MaxHistory+20; i++ {
 		id := fmt.Sprintf("plan-%d", i)
 		if _, err := e.Save(Plan{ID: id, Event: "mail", Kind: "after", Seconds: 3600}, *now); err != nil {
@@ -531,5 +536,17 @@ func TestRetiredDefinitionsRotateBeyondCapacity(t *testing.T) {
 			t.Fatal(err)
 		}
 		e.retire(*now, nil)
+	}
+	e.write = durable
+	if err := e.persist(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(e.path, nil, *now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if _, ok := reopened.event("mail"); len(reopened.state.Plans) > MaxHistory || len(reopened.state.Events) > MaxHistory || !ok {
+		t.Fatal("rotated definitions did not survive reopening within capacity")
 	}
 }

@@ -24,6 +24,20 @@ func (s *runtimeSetup) SetupModels(ctx context.Context, id string) ([]api.ModelO
 	}
 	return s.profileModels(ctx, p)
 }
+func setupModelOptions(choices []api.SetupChoice) ([]api.ModelOption, bool) {
+	models := make([]api.ModelOption, 0, len(choices))
+	for _, choice := range choices {
+		if choice.NoAuth {
+			continue
+		}
+		if choice.Parameters == nil {
+			return nil, false
+		}
+		models = append(models, *choice.Parameters)
+	}
+	return models, true
+}
+
 func (s *runtimeSetup) profileModels(ctx context.Context, p api.RuntimeSettings) ([]api.ModelOption, error) {
 	state, e := s.inspect(ctx, p)
 	if e != nil {
@@ -33,11 +47,11 @@ func (s *runtimeSetup) profileModels(ctx context.Context, p api.RuntimeSettings)
 		return []api.ModelOption{}, nil
 	}
 	if p.Runtime == "codex" {
-		models, err := s.codex.Models(ctx, state.Installation.Path)
-		if err == nil {
-			s.reconcileWorkerModels(p.Runtime, models)
+		models, ok := setupModelOptions(state.Models)
+		if !ok {
+			return nil, errors.New("runtime models unavailable")
 		}
-		return models, err
+		return models, nil
 	}
 	config, e := caelis.ReadRuntimeConfiguration(ctx, p)
 	if e == nil {

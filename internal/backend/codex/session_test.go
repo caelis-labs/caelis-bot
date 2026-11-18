@@ -48,14 +48,18 @@ func sessionPair(t *testing.T, mode string) (*Session, *sessionFixture) {
 	}
 	s := NewSession(SessionOptions{Directory: filepath.Join(dir, "work"), StateFile: filepath.Join(dir, "binding.json")})
 	f := &sessionFixture{mode: mode, started: make(chan struct{}, 8), answers: make(chan wireMessage, 8), loginReply: make(chan struct{})}
-	s.start = func(context.Context, Options) (*Client, error) {
+	s.start = func(_ context.Context, opts Options) (*Client, error) {
 		a, b := net.Pipe()
+		if opts.RequiredSocket && !opts.Attachable {
+			go f.serve(b)
+			return &Client{rpc: newTransportOptions(a, nil, false), home: dir}, nil
+		}
 		f.mu.Lock()
 		f.peer = b
 		f.connections++
 		f.mu.Unlock()
 		go f.serve(b)
-		return &Client{rpc: newTransportOptions(a, nil, true)}, nil
+		return &Client{rpc: newTransportOptions(a, nil, true), home: dir}, nil
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

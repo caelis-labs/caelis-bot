@@ -145,19 +145,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 			// Reuse the successful inspection; settings must not launch another
 			// probe just to reconcile the default worker model.
 			if out.State == "ready" && s.app.localWork != nil {
-				models := []api.ModelOption{}
-				complete := true
-				for _, choice := range out.Models {
-					if choice.NoAuth {
-						continue
-					}
-					if choice.Parameters == nil {
-						complete = false
-						break
-					}
-					models = append(models, *choice.Parameters)
-				}
-				if complete {
+				if models, ok := setupModelOptions(out.Models); ok {
 					s.reconcileWorkerModels(v.Runtime, models)
 				}
 			}
@@ -208,7 +196,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (out 
 	if order, err := updates.CompareVersions(installation.Version, out.ServiceVersion); err == nil {
 		out.ServiceUpdateAvailable = order > 0
 	}
-	if e == nil && out.State != "incompatible" {
+	if e == nil && out.State != "incompatible" && !(v.Runtime == "codex" && out.State == "unavailable") {
 		e = s.saveProfile(v)
 	}
 	return out, e
@@ -306,8 +294,6 @@ func (s *runtimeSetup) applySetup(ctx context.Context, r api.SetupRequest) (api.
 			e = err
 			message = st.Message
 		} else {
-			s.codex.Close()
-			s.codex = &codex.Setup{}
 			st, err := codex.ManageRuntime(ctx, r.Action, r.Settings.CLIPath)
 			managed = &st
 			e = err
