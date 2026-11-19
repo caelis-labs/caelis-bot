@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/botworkspace"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
@@ -375,6 +376,11 @@ func (s *Session) ConfigureBotTools(config *api.ToolConnection) error {
 	if err := projectCodexWorkspace(s.opts.Directory, config); err != nil {
 		return err
 	}
+	revision, err := botworkspace.CodexRevision(s.opts.Directory)
+	if err != nil {
+		return err
+	}
+	s.workspaceMCPRevision = revision
 	s.opts.BotTools = config.Clone()
 	for _, t := range s.binding.Tasks {
 		if t != nil && t.Instructions == "" {

@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,15 @@ type acceptanceModel struct {
 
 var casePattern = regexp.MustCompile(`CASE_[A-Z_]+`)
 
+func hasNativeMCPServer(servers []wire.SessionMCPServer, name string) bool {
+	for _, server := range servers {
+		if server.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func newAcceptanceModel() *acceptanceModel {
 	return &acceptanceModel{plans: map[string][]modelStep{}, counts: map[string]int{}, requests: map[string][]map[string]any{}}
 }
@@ -59,6 +69,12 @@ func (m *acceptanceModel) serveCase(w http.ResponseWriter, r *http.Request, key 
 	raw, _ := io.ReadAll(r.Body)
 	var body map[string]any
 	_ = json.Unmarshal(raw, &body)
+	if strings.Contains(string(raw), "Internal compaction for this ongoing task.") || strings.Contains(string(raw), "internal CONTEXT COMPACTION SUMMARY") {
+		summary := compactionHTTPModel{}
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		summary.serve(w, r)
+		return
+	}
 	cases := casePattern.FindAllString(string(raw), -1)
 	if key == "" && len(cases) > 0 {
 		key = cases[len(cases)-1]
@@ -173,11 +189,20 @@ func waitTurn(t *testing.T, ctx context.Context, s *Session, previous string) {
 	t.Helper()
 	waitAcceptance(t, ctx, func() bool {
 		v := s.Snapshot()
-		return v.CurrentTurn != "" && v.CurrentTurn != previous && v.CanSend && (v.Phase == "completed" || v.Phase == "failed" || v.Phase == "interrupted")
+		if v.CurrentTurn == "" || v.CurrentTurn == previous || !v.CanSend {
+			return false
+		}
+		switch v.Phase {
+		case "completed":
+			return true
+		case "failed", "interrupted":
+			t.Fatalf("turn ended %s: %s", v.Phase, v.Message)
+		case "idle":
+			observed := s.ConversationState()
+			return observed.Turn == v.CurrentTurn && observed.Status == "completed"
+		}
+		return false
 	})
-	if v := s.Snapshot(); v.Phase != "completed" {
-		t.Fatalf("turn ended %s: %s", v.Phase, v.Message)
-	}
 }
 func submitAcceptance(t *testing.T, ctx context.Context, s *Session, key string) {
 	t.Helper()
@@ -421,7 +446,29 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("B00_native_project_mcp", func(t *testing.T) {
+		verifyNativeProjectMCP(t, ctx, s, host, config, settings, root, environment.home, miniSelector)
+	}) {
+		return
+	}
 	if !t.Run("B00_reviewed_plugin_activation", func(t *testing.T) {
+		submitAcceptance(t, ctx, s, "CASE_BEFORE_PLUGIN")
+		workspaceSkillDir := filepath.Join(vault.Path(), ".agents", "skills")
+		privateSkillName := "workspace-private-fixture"
+		privateSkillDir := filepath.Join(workspaceSkillDir, privateSkillName)
+		if err := os.MkdirAll(privateSkillDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		privateSkillDescription := "PRIVATE_NOTEBOOK_SKILL_METADATA_FIXTURE"
+		privateSkill := `---
+name: ` + privateSkillName + `
+description: ` + privateSkillDescription + `
+---
+Use this fixture only when asked about private Notebook skill discovery.
+`
+		if err := os.WriteFile(filepath.Join(privateSkillDir, "SKILL.md"), []byte(privateSkill), 0600); err != nil {
+			t.Fatal(err)
+		}
 		manager, err := plugins.Open(filepath.Join(root, "Plugins"))
 		if err != nil {
 			t.Fatal(err)
@@ -463,8 +510,8 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		selected := manager.Selection()
 		configuration, err := s.Configuration(ctx)
-		if err != nil || len(selected.SkillRoots) != 1 || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) {
-			t.Fatal("installed Skill was not committed through Core configuration", configuration.Profile.SkillRoots, err)
+		if err != nil || len(selected.SkillRoots) != 1 || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) || !slices.Equal(configuration.Profile.SkillDirs, []string{workspaceSkillDir}) || len(configuration.Profile.McpServers) != 0 {
+			t.Fatal("installed Skill was not committed through Core configuration", configuration.Profile, err)
 		}
 		// Creation uses the same public profile schema as the later CAS patch.
 		// An unreachable external MCP service must not block the resident Bot.
@@ -480,17 +527,35 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		defer func() { _ = fresh.Close(context.Background()) }()
 		createdConfig, err := fresh.Configuration(ctx)
-		if err != nil || !slices.Equal(createdConfig.Profile.SkillRoots, selected.SkillRoots) || len(createdConfig.Profile.McpServers) != 1 || createdConfig.Profile.McpServers[0].Name != plugins.RuntimeName("fixture", "unavailable") {
+		if err != nil || !slices.Equal(createdConfig.Profile.SkillRoots, selected.SkillRoots) || !slices.Equal(createdConfig.Profile.SkillDirs, []string{workspaceSkillDir}) || !hasNativeMCPServer(createdConfig.Profile.McpServers, plugins.RuntimeName("fixture", "unavailable")) {
 			t.Fatal("public creation/configuration roundtrip lost the atomic selection", createdConfig.Profile, err)
 		}
 		waitAcceptance(t, ctx, func() bool { return fresh.Snapshot().CanSend })
+		model.set("CASE_PLUGIN", modelStep{Name: "Skill", Args: map[string]string{"name": privateSkillName}}, modelStep{Name: "Skill", Args: map[string]string{"name": "markdown-work"}})
 		submitAcceptance(t, ctx, s, "CASE_PLUGIN")
 		requests := model.seen("CASE_PLUGIN")
-		if len(requests) != 1 || !strings.Contains(fmt.Sprint(requests[0]), "markdown-work") {
-			t.Fatal("installed Skill metadata did not reach the model", len(requests))
+		if len(requests) != 3 || !strings.Contains(fmt.Sprint(requests[1]), "Use this fixture only when asked") || !strings.Contains(fmt.Sprint(requests[2]), "Keep the heading hierarchy shallow") {
+			t.Fatal("live Skill calls did not return the installed and private Skill bodies", len(requests))
+		}
+		if strings.Contains(fmt.Sprint(requests[0]), privateSkillDescription) {
+			t.Fatal("ordinary turn advanced pinned Skill metadata")
+		}
+		sid := s.ConversationState().Session
+		var head wire.SessionState
+		if err := host.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &head, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		op := "fixture-compact-skills"
+		var compact wire.CommandResult
+		if err := host.json(ctx, "POST", "/sessions/"+idPath(sid)+"/compact", wire.CompactSessionRequest{OperationId: &op, ExpectedRevision: &head.Revision, ExpectedControllerEpoch: head.Controller.EpochId}, &compact, op, string(head.Revision)); err != nil || !succeeded(compact.Outcome) {
+			t.Fatal("Skill summary adoption", compact.Outcome, compact.ErrorCode, value(compact.Detail), err)
+		}
+		submitAcceptance(t, ctx, s, "CASE_SKILLS_AFTER_COMPACT")
+		after := model.seen("CASE_SKILLS_AFTER_COMPACT")
+		if len(after) != 1 || !strings.Contains(fmt.Sprint(after[0]["instructions"]), privateSkillDescription) && !strings.Contains(fmt.Sprint(after[0]["messages"]), privateSkillDescription) {
+			t.Fatal("adopted summary did not refresh Skill descriptions")
 		}
 		var status wire.SessionMCPStatus
-		sid := s.ConversationState().Session
 		if err = s.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 			t.Fatal(err)
 		}
@@ -503,26 +568,35 @@ func TestNativeHostIntegration(t *testing.T) {
 		if !ready {
 			t.Fatal("installed Skill not ready", status.Skills)
 		}
+		privateReady := false
+		for _, skill := range status.Skills {
+			if skill.Status == "ready" && (skill.Name != nil && *skill.Name == privateSkillName || strings.Contains(skill.Path, privateSkillName)) {
+				privateReady = true
+			}
+		}
+		if !privateReady {
+			t.Fatal("private Notebook Skill was not registered by Caelis", status.Skills)
+		}
 		if err = mutatePlugin("disable"); err != nil {
 			t.Fatal(err)
 		}
 		configuration, err = s.Configuration(ctx)
-		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 || manager.Snapshot().Items[0].Enabled {
-			t.Fatal("disabled plugin selection remained active", configuration.Profile, err)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || !slices.Equal(configuration.Profile.SkillDirs, []string{workspaceSkillDir}) || len(configuration.Profile.McpServers) != 0 || manager.Snapshot().Items[0].Enabled {
+			t.Fatal("disabled plugin selection removed private Notebook extensions", configuration.Profile, err)
 		}
 		if err = mutatePlugin("enable"); err != nil {
 			t.Fatal(err)
 		}
 		configuration, err = s.Configuration(ctx)
-		if err != nil || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) || !manager.Snapshot().Items[0].Enabled {
+		if err != nil || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) || !slices.Equal(configuration.Profile.SkillDirs, []string{workspaceSkillDir}) || len(configuration.Profile.McpServers) != 0 || !manager.Snapshot().Items[0].Enabled {
 			t.Fatal("reviewed Skill was not restored through Core configuration", configuration.Profile, err)
 		}
 		if err = mutatePlugin("disable"); err != nil {
 			t.Fatal(err)
 		}
 		configuration, err = s.Configuration(ctx)
-		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 {
-			t.Fatal("restored Skill was not cleared again", configuration.Profile, err)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || !slices.Equal(configuration.Profile.SkillDirs, []string{workspaceSkillDir}) || len(configuration.Profile.McpServers) != 0 {
+			t.Fatal("restored Skill was not cleared while private Notebook extensions remained", configuration.Profile, err)
 		}
 	}) {
 		return
@@ -1106,28 +1180,28 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("missing approved command handle")
 		}
 		model.mu.Lock()
-		model.plans["CASE_APPROVAL"] = append(model.plans["CASE_APPROVAL"][:2], modelStep{Name: "Task", Args: map[string]string{"action": "read", "handle": handle}}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		model.plans["CASE_APPROVAL"] = append(model.plans["CASE_APPROVAL"][:2], modelStep{Name: "Task", Args: map[string]string{"action": "wait", "handle": handle}}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
 		model.mu.Unlock()
 		if err = s.Decide(ctx, api.Decision{ID: a.ID, Choice: choice}); err != nil {
 			t.Fatal(err)
 		}
 		waitAcceptance(t, approvalCtx, func() bool { return len(model.seen("CASE_APPROVAL")) >= 4 && s.Snapshot().CanSend })
+		// The Host task directory can lag behind the completion followup.
+		waitAcceptance(t, approvalCtx, func() bool {
+			var completed wire.TaskList
+			if err := s.client.json(approvalCtx, "GET", "/sessions/"+idPath(s.state.Session.SessionId)+"/tasks", nil, &completed, "", ""); err != nil {
+				return false
+			}
+			for _, task := range completed.Tasks {
+				if task.Handle == handle && task.State == "completed" {
+					return true
+				}
+			}
+			return false
+		})
 		data, err := os.ReadFile(filepath.Join(vault.Path(), "approval-once.txt"))
 		if err != nil || string(data) != "x" {
 			t.Fatal("approved command missing or repeated", err)
-		}
-		var completed wire.TaskList
-		if err = s.client.json(ctx, "GET", "/sessions/"+idPath(s.state.Session.SessionId)+"/tasks", nil, &completed, "", ""); err != nil {
-			t.Fatal(err)
-		}
-		settled := false
-		for _, task := range completed.Tasks {
-			if task.Handle == handle && task.State == "completed" {
-				settled = true
-			}
-		}
-		if !settled {
-			t.Fatal("completion followup lost the approved command identity")
 		}
 		if len(s.Snapshot().Approvals) != 0 {
 			t.Fatal("settled approval remained visible")
@@ -1232,8 +1306,8 @@ func TestNativeHostIntegration(t *testing.T) {
 		if after.Profile.ExecutionConfig == nil {
 			t.Fatal("restart lost execution configuration")
 		}
-		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
-			t.Fatal("restart restored a disabled plugin selection", after.Profile)
+		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || len(after.Profile.McpServers) != 0 {
+			t.Fatal("restart restored a disabled plugin selection or lost private Notebook Skills", after.Profile)
 		}
 		// An idle Host replacement succeeds with the Bot still subscribed. Only
 		// proven busy rejections may be retried; an unknown shutdown is not resent.
@@ -1274,8 +1348,8 @@ func TestNativeHostIntegration(t *testing.T) {
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
 			t.Fatal("reconnect replaced binding", e)
 		}
-		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
-			t.Fatal("reconnect restored a disabled plugin selection", after.Profile)
+		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || len(after.Profile.McpServers) != 0 {
+			t.Fatal("reconnect restored a disabled plugin selection or lost private Notebook Skills", after.Profile)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
 	}) {

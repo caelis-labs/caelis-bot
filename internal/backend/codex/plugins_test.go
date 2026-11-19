@@ -372,7 +372,7 @@ func TestPluginRollbackFailureFencesCodexConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(bot, ".codex", "config.toml")
-	if err := os.WriteFile(configPath, []byte("# user config\n"), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte("[malformed\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	s.state.Connection = "ready"

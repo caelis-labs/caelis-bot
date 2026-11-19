@@ -546,7 +546,6 @@
   "agent_breeze": "Quick lookups, focused edits and lightweight checks.",
   "agent_orbit": "Everyday implementation, review and multi-file analysis.",
   "agent_zenith": "Complex design, difficult debugging and deep analysis.",
-  "agent_toolSearch": "Find and select the right tools for each task.",
   "agent_guardian": "Review action risks and permissions.",
   "agentClassifierOptional": "Not set",
   "agentClassifierMissing": "No compatible classifier connected",

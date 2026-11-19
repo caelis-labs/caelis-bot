@@ -339,6 +339,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if err := s.defaultNotebookTrust(ctx, host); err != nil {
+		s.componentError("notebook_trust", "", err)
+	}
 	if e = s.ensureSession(ctx, host); e != nil {
 		return e
 	}

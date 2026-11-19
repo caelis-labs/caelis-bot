@@ -280,7 +280,8 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 		a.queuePluginReconcile() // Reconcile original adapter receipts; never reinstall or replay OAuth.
 		return a.pluginDesiredView(a.plugins.Snapshot()), nil
 	}
-	snapshot, err := a.plugins.Mutate(ctx, id, action, nil)
+	version, _ := ctx.Value(workspacePluginVersionKey{}).(string)
+	snapshot, err := a.plugins.MutateVersion(ctx, id, action, version, nil)
 	if err != nil {
 		return snapshot, err
 	}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 	}
 	var mu sync.Mutex
 	level := initial
+	userVersion := "active-user-version"
 	writes := 0
 	methods := []string{}
 	var peers []net.Conn
@@ -52,7 +54,7 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 					result = map[string]any{"account": map[string]string{"type": "apiKey"}, "requiresOpenaiAuth": true}
 				case "config/read":
 					projects := map[string]any{}
-					if level != "" {
+					if level != "" && level != "concurrent_untrusted" && level != "missing_version" {
 						trust := level
 						if level == "trusted_policy" || level == "trusted_with_disabled_ancestor" {
 							trust = "trusted"
@@ -69,13 +71,20 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 					} else if level != "trusted" {
 						reason = "untrusted"
 					}
-					result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{map[string]any{"name": map[string]string{"type": "project"}, "disabledReason": reason}}}
+					layers := []any{map[string]any{"name": map[string]string{"type": "project", "dotCodexFolder": filepath.Join(directory, ".codex")}, "disabledReason": reason}}
 					if level == "trusted_with_disabled_ancestor" {
-						result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{
+						layers = []any{
 							map[string]any{"name": map[string]string{"type": "project", "dotCodexFolder": filepath.Join(directory, ".codex")}},
 							map[string]any{"name": map[string]string{"type": "project", "dotCodexFolder": filepath.Join(root, ".codex")}, "disabledReason": "ancestor checkout is untrusted"},
-						}}
+						}
 					}
+					if level != "missing_version" {
+						layers = append(layers,
+							map[string]any{"name": map[string]string{"type": "user", "profile": "fixture"}, "version": userVersion},
+							map[string]any{"name": map[string]string{"type": "user"}, "version": "base-user-version"},
+						)
+					}
+					result = map[string]any{"config": map[string]any{"projects": projects}, "layers": layers}
 				case "config/batchWrite":
 					if level == "write_unknown" {
 						writes++
@@ -92,13 +101,21 @@ func trustSessionFixture(t *testing.T, initial string) (*Session, func() (int, [
 							Value         string `json:"value"`
 							MergeStrategy string `json:"mergeStrategy"`
 						} `json:"edits"`
-						Reload bool `json:"reloadUserConfig"`
+						Reload          bool   `json:"reloadUserConfig"`
+						ExpectedVersion string `json:"expectedVersion"`
 					}
 					_ = json.Unmarshal(m.Params, &params)
-					if len(params.Edits) != 1 || params.Edits[0].KeyPath != "projects."+strconvQuoteConfigKey(directory)+".trust_level" || params.Edits[0].Value != "trusted" || params.Edits[0].MergeStrategy != "replace" || !params.Reload {
+					if len(params.Edits) != 1 || params.Edits[0].KeyPath != "projects."+strconvQuoteConfigKey(directory)+".trust_level" || params.Edits[0].Value != "trusted" || params.Edits[0].MergeStrategy != "replace" || !params.Reload || params.ExpectedVersion != userVersion {
 						t.Errorf("unsafe trust edit: %+v", params)
 					}
 					writes++
+					if level == "concurrent_untrusted" {
+						level, userVersion = "untrusted", "user-edited-version"
+						if params.ExpectedVersion != "" {
+							nativeErr = &NativeError{Code: -32600, Message: "Configuration was modified since last read", Data: raw(map[string]string{"config_write_error_code": "configVersionConflict"})}
+							break
+						}
+					}
 					level = "trusted"
 				case "thread/start", "thread/resume", "thread/read":
 					result = map[string]any{"thread": nativeThread{ID: "resident"}, "model": "fixture"}
@@ -184,6 +201,55 @@ func TestBotWorkspaceTrustGate(t *testing.T) {
 				}
 			} else if s.Snapshot().Connection != "ready" {
 				t.Fatal("trusted Bot did not become ready", s.Snapshot())
+			}
+		})
+	}
+}
+
+func TestBotWorkspaceTrustPreservesConcurrentUntrustedDecision(t *testing.T) {
+	s, observe := trustSessionFixture(t, "concurrent_untrusted")
+	if err := s.Connect(t.Context()); err == nil {
+		t.Fatal("stale trust write unexpectedly succeeded")
+	}
+	if err := s.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	writes, methods := observe()
+	state := s.Snapshot()
+	if writes != 1 || slices.Contains(methods, "thread/start") || state.Connection == "ready" || len(state.Approvals) != 1 || state.Approvals[0].Status != "pending" {
+		t.Fatal("concurrent untrusted choice was not preserved", methods, state.Connection, state.Approvals)
+	}
+}
+
+func TestBotWorkspaceTrustRequiresVersionBeforeWrite(t *testing.T) {
+	s, observe := trustSessionFixture(t, "missing_version")
+	if err := s.Connect(t.Context()); err == nil {
+		t.Fatal("trust write without a native version unexpectedly succeeded")
+	}
+	_, methods := observe()
+	if slices.Contains(methods, "config/batchWrite") || slices.Contains(methods, "thread/start") {
+		t.Fatal("unversioned trust was dispatched or resident initialized", methods)
+	}
+}
+
+func TestWorkspaceTrustIsLimitedToResidentNotebook(t *testing.T) {
+	for _, owner := range []string{"ordinary", "worker", "mismatched"} {
+		t.Run(owner, func(t *testing.T) {
+			s, observe := trustSessionFixture(t, "")
+			switch owner {
+			case "ordinary":
+				s.opts.BotTools = nil
+			case "worker":
+				s.workerOnly = true
+			case "mismatched":
+				s.opts.Directory = filepath.Dir(s.opts.Directory)
+			}
+			if err := s.Connect(t.Context()); (err != nil) != (owner == "mismatched") {
+				t.Fatal(err)
+			}
+			_, methods := observe()
+			if slices.Contains(methods, "config/read") || slices.Contains(methods, "config/batchWrite") {
+				t.Fatal("Notebook trust ran for a different workspace or owner", methods)
 			}
 		})
 	}

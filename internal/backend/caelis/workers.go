@@ -171,6 +171,13 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 	}
 	if p != nil {
 		status := value(p.State.Run.Status)
+		// An idle v0.83.1 snapshot can omit the finished run. Its exact
+		// lifecycle remains in the canonical feed after reconnect.
+		if status == "" && !workerNativeActive(p.State) && currentTurn != "" && currentTurn == operationTurn {
+			if lifecycle := p.Turns[currentTurn]; terminalDream(lifecycle) {
+				status = lifecycle
+			}
+		}
 		if value(p.State.Run.Active) {
 			out.Status = "working"
 		} else if status != "" {

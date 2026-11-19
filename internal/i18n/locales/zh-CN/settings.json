@@ -545,7 +545,6 @@
   "agent_breeze": "快速查找、简单修改与轻量检查。",
   "agent_orbit": "日常实现、代码审查与多文件分析。",
   "agent_zenith": "复杂设计、疑难排查与深入分析。",
-  "agent_toolSearch": "按任务查找并筛选合适的工具。",
   "agent_guardian": "审核操作风险与权限。",
   "agentClassifierOptional": "未设置",
   "agentClassifierMissing": "尚未连接可用的分类器模型",

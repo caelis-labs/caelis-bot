@@ -141,6 +141,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	binary := s.tools.Command
 	builtins := append([]string(nil), s.tools.BuiltinSkillRoots...)
+	workspace := s.tools.NotebookDirectory
 	sid := s.state.Session.SessionId
 	connected := s.connected
 	capable := slices.Contains(s.info.Capabilities, atomicCapabilities)
@@ -152,7 +153,11 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	s.mu.Unlock()
 	servers, roots, _ := corePlugins(selection, binary, builtins)
-	if connected && !capable && (len(servers) > 0 || len(roots) > 0) {
+	skillDirs, err := notebookSkillDirs(workspace)
+	if err != nil {
+		return err
+	}
+	if connected && !capable && (len(servers) > 0 || len(roots) > 0 || len(skillDirs) > 0) {
 		return errors.New("Caelis Core requires session-atomic-capabilities-v1")
 	}
 	if connected && sid != "" {
@@ -163,7 +168,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		// A new user action gets a fresh journaled ID. Unknown actions are
 		// recovered above by their original ID, never submitted again.
 		operation := "plugin-" + rand.Text()
-		_, err = s.updateConfiguration(ctx, sid, operation, string(current.Revision), map[string]any{"mcp_servers": servers, "skill_roots": roots, "skill_dirs": []string{}})
+		_, err = s.updateConfiguration(ctx, sid, operation, string(current.Revision), map[string]any{"mcp_servers": servers, "skill_roots": roots, "skill_dirs": skillDirs})
 		if err != nil {
 			var remote *remoteError
 			if !errors.As(err, &remote) || remote.Status >= 500 {
@@ -182,7 +187,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	s.profile.McpServers = servers
 	s.profile.SkillRoots = roots
-	s.profile.SkillDirs = []string{}
+	s.profile.SkillDirs = skillDirs
 	s.mu.Unlock()
 	return nil
 }
@@ -236,6 +241,8 @@ type mcpToolStatus struct {
 type mcpServerStatus struct {
 	Name        string          `json:"name"`
 	Status      string          `json:"status"`
+	Ready       *bool           `json:"ready"`
+	ListFailed  bool            `json:"refresh_failed"`
 	Tools       []string        `json:"tools"`
 	ToolDetails []mcpToolStatus `json:"tool_details"`
 }
@@ -274,15 +281,15 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 			continue
 		}
 		out := plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}
-		switch server.Status {
-		case "running":
-			out.State = "connected"
-		case "inactive":
-			out.State = "not_started"
-		case "connecting":
-			out.State = "pending"
-		case "failed":
+		switch {
+		case server.Status == "failed" || server.ListFailed:
 			out.State = "failed"
+		case server.Status == "running" && (server.Ready == nil || *server.Ready):
+			out.State = "connected"
+		case server.Status == "inactive":
+			out.State = "not_started"
+		case server.Status == "running" || server.Status == "connecting":
+			out.State = "pending"
 		}
 		if out.State == "connected" {
 			descriptions := make(map[string]string, len(server.ToolDetails))

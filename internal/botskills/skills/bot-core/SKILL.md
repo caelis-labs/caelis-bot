@@ -80,5 +80,5 @@ Load only the references needed for the current work:
 - [Expression](references/expression.md): add an occasional gesture.
 - [Telegram](references/telegram-setup.md): set up pairing or diagnose delivery.
 - [Weixin](references/weixin-setup.md): pair, use channel commands or recover delivery.
-- [Plugins](references/plugins.md): discover tools, connect a capability or use
-  computer interaction.
+- [Extensions](references/plugins.md): save a reusable workflow as a private Skill,
+  manage a Notebook MCP server or plugin, discover tools, or use computer interaction.

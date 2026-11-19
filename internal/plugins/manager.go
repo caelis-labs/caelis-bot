@@ -144,7 +144,7 @@ type Manager struct {
 	oauthClient   *http.Client
 }
 
-func Open(root string) (*Manager, error) {
+func reviewedEntries() ([]Entry, error) {
 	body, err := reviewed.ReadFile("catalog.json")
 	if err != nil {
 		return nil, err
@@ -153,14 +153,43 @@ func Open(root string) (*Manager, error) {
 	if json.Unmarshal(body, &c) != nil || c.Version != 1 {
 		return nil, errors.New("invalid reviewed plugin catalog")
 	}
-	sources := make(map[string]fs.FS, len(c.Packages))
-	for _, entry := range c.Packages {
+	return c.Packages, nil
+}
+
+type ReviewedPackage struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Version string `json:"version"`
+}
+
+// ReviewedCatalog reads the bundled offers without opening or changing the store.
+func ReviewedCatalog() ([]ReviewedPackage, error) {
+	entries, err := reviewedEntries()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReviewedPackage, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.Legacy {
+			out = append(out, ReviewedPackage{ID: entry.ID, Title: entry.Title, Version: entry.Version})
+		}
+	}
+	return out, nil
+}
+
+func Open(root string) (*Manager, error) {
+	entries, err := reviewedEntries()
+	if err != nil {
+		return nil, err
+	}
+	sources := make(map[string]fs.FS, len(entries))
+	for _, entry := range entries {
 		files, err := fs.Sub(reviewed, "packages/"+entry.ID)
 		if err == nil {
 			sources[entry.ID] = files
 		}
 	}
-	return openCatalog(root, c.Packages, sources)
+	return openCatalog(root, entries, sources)
 }
 
 func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manager, error) {
@@ -493,11 +522,20 @@ func (m *Manager) save(next state) error {
 // assembly after the store commit. Legacy enable/disable actions remain for
 // older callers and saved state, but are not part of the Settings flow.
 func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(context.Context, Selection) error) (Snapshot, error) {
+	return m.MutateVersion(ctx, id, action, "", apply)
+}
+
+// MutateVersion checks the requested catalog version under the same lock as
+// mutation. An empty version retains ordinary Settings semantics.
+func (m *Manager) MutateVersion(ctx context.Context, id, action, version string, apply func(context.Context, Selection) error) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entry(id)
 	if !ok {
 		return Snapshot{}, errors.New("plugin is not in the reviewed catalog")
+	}
+	if version != "" && e.Version != version {
+		return m.snapshotLocked(), errors.New("requested plugin version is not reviewed")
 	}
 	current, has := m.state.Installed[id]
 	currentConnection := m.state.Connections[id]

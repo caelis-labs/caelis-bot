@@ -2,17 +2,17 @@ package main
 
 import (
 	"embed"
+	"io/fs"
+	"log"
+	"os"
+
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/desktop"
 	"github.com/caelis-labs/caelis-bot/internal/headless"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/sshtransport"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/windowsupdate"
-	"io/fs"
-	"log"
-	"os"
-
-	"github.com/caelis-labs/caelis-bot/internal/desktop"
 )
 
 //go:embed all:frontend/dist

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 type fixture struct {
@@ -339,6 +341,54 @@ func TestCorruptUnacknowledgedCandidateRecoversPrevious(t *testing.T) {
 		t.Fatal(n.Status())
 	}
 }
+func TestPluginStoreSurvivesReleaseSwitchAndRollback(t *testing.T) {
+	m, f := fixtureManager(t)
+	store, err := plugins.OpenWorkspace(f.profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Mutate(t.Context(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := store.Selection()
+	if len(want.SkillRoots) != 1 || store.Root() != filepath.Join(f.profile, "Plugins") {
+		t.Fatal("initial store did not select a private package generation")
+	}
+	checkBoot := func(wantRelease string) {
+		t.Helper()
+		if id, err := selected(f.root); id != wantRelease || err != nil {
+			t.Fatalf("wrong selected release: %s (%v)", id, err)
+		}
+		var reopened *plugins.Manager
+		var err error
+		if wantRelease == f.a.ID {
+			reopened, err = plugins.Open(filepath.Join(f.profile, "Plugins"))
+		} else {
+			reopened, err = plugins.OpenWorkspace(f.profile)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := reopened.Selection(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("release switch changed plugin registration: %+v", got)
+		}
+	}
+	m.state.Transaction = &transaction{ID: "plugin-store-switch", Offer: f.b.ID, Previous: f.a.ID, Phase: "committed"}
+	if err := m.switchRelease(); err != nil {
+		t.Fatal(err)
+	}
+	checkBoot(f.b.ID)
+	if err := m.rollback(); err != nil {
+		t.Fatal(err)
+	}
+	checkBoot(f.a.ID)
+	m.state.Transaction = &transaction{ID: "plugin-store-switch-again", Offer: f.b.ID, Previous: f.a.ID, Phase: "committed"}
+	if err := m.switchRelease(); err != nil {
+		t.Fatal(err)
+	}
+	checkBoot(f.b.ID)
+}
+
 func TestUnavailableRollbackPersistsUnknown(t *testing.T) {
 	m, f := fixtureManager(t)
 	m.state.Transaction = &transaction{ID: "original-recovery", Offer: f.b.ID, Previous: f.a.ID, Phase: "switched"}

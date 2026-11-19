@@ -31,12 +31,17 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	var state atomic.Value
 	state.Store("running")
 	var includeDetails atomic.Bool
+	var catalogState atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		if r.URL.Path != "/api/control/v1/sessions/main/mcp-status" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		server := map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": state.Load().(string), "tools": []string{toolName}}
+		if catalog := catalogState.Load(); catalog != 0 {
+			server["ready"] = catalog == 3
+			server["refresh_failed"] = catalog == 2
+		}
 		if includeDetails.Load() {
 			server["tool_details"] = []any{map[string]any{"name": toolName, "description": description}, map[string]any{"name": "candidate", "description": "Not callable"}}
 		}
@@ -80,9 +85,21 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 			t.Fatal(status, detail, err)
 		}
 	}
+	state.Store("running")
+	for _, test := range []struct {
+		catalog int32
+		state   string
+		count   int
+	}{{1, "pending", 0}, {2, "failed", 0}, {3, "connected", 1}} {
+		catalogState.Store(test.catalog)
+		detail, err = s.BotPluginServer(t.Context(), name)
+		if err != nil || detail.State != test.state || len(detail.Tools) != test.count {
+			t.Fatal(test, detail, err)
+		}
+	}
 	s.tools.Plugins.Servers = nil
 	detail, err = s.BotPluginServer(t.Context(), name)
-	if err != nil || detail.State != "not_configured" || hits.Load() != 5 {
+	if err != nil || detail.State != "not_configured" || hits.Load() != 8 {
 		t.Fatal("unselected MCP was queried", detail, err, hits.Load())
 	}
 }

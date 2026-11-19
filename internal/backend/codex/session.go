@@ -131,6 +131,7 @@ type Session struct {
 	cachedComposer         atomic.Pointer[api.Snapshot]
 	cachedRecovery         atomic.Pointer[api.RecoveryState]
 	residentSyncNeeded     bool
+	workspaceMCPRevision   [32]byte
 	workItems              map[string][]api.Item // bounded, task-owned live snapshot; not a journal
 	workerOnly             bool                  // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool

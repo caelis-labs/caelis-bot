@@ -94,6 +94,7 @@ type Application struct {
 	skillPath               string
 	initialization          *bot.Initializer
 	plugins                 *plugins.Manager
+	workspacePluginMu       sync.Mutex
 	pluginDetailMu          sync.Mutex
 	pluginIndexMu           sync.Mutex
 	pluginDetailCache       map[string]pluginDetailCacheEntry
@@ -204,7 +205,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	app := &Application{Backend: service, engine: engine, resolve: resolve, root: root, host: host, initialization: initialization}
 	service.SetGuardianNoticeAccepted(func(id string) bool { return app.workerInteractionNoticeAccepted("approval", id) })
-	app.plugins, err = plugins.Open(filepath.Join(root, "Plugins"))
+	app.plugins, err = plugins.OpenWorkspace(root)
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
@@ -510,7 +511,11 @@ func (a *Application) Start() error {
 	defer a.pluginAdmission.Unlock()
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
-	return a.startRuntime()
+	if err := a.startRuntime(); err != nil {
+		return err
+	}
+	a.queueWorkspaceExtensions()
+	return nil
 }
 
 func (a *Application) startRuntime() error {
@@ -637,6 +642,7 @@ func (a *Application) startRuntime() error {
 				return nil
 			}
 			config.FinishTurn = func() {
+				a.queueWorkspaceExtensions()
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()

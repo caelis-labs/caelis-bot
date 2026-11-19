@@ -232,3 +232,22 @@ func TestWorkerStateReadsRetainMessageFreeSuccessor(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerIdleSnapshotUsesLifecycleOfOriginalPrompt(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") })
+	addServiceWorker(s, "task", "work", wire.SessionState{})
+	w := s.state.Workers["task"]
+	w.PromptID = "prompt"
+	w.Task.Status = "pending"
+	s.state.Operations["prompt"] = journal{TurnID: "one", Outcome: "accepted"}
+	v := s.state.Views["work"]
+	v.HeadTarget = wire.TurnTarget{TurnId: "one"}
+	v.Turns = map[string]string{"one": "cancelled", "other": "completed"}
+	if got := s.workerViewLocked(w); got.Status != "interrupted" {
+		t.Fatal("lost the original terminal lifecycle", got.Status)
+	}
+	v.HeadTarget.TurnId = "other"
+	if got := s.workerViewLocked(w); got.Status != "pending" {
+		t.Fatal("a different turn settled this worker", got.Status)
+	}
+}
