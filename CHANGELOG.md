@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.5](https://github.com/caelis-labs/caelis-bot/compare/v0.22.4...v0.22.5) (2026-11-19)
+
+
+### Bug Fixes
+
+* **codex:** keep shared reconnection running unattended ([#292](https://github.com/caelis-labs/caelis-bot/issues/292)) ([5f564ba](https://github.com/caelis-labs/caelis-bot/commit/5f564ba6c47f63533c5ca0781f73ced4784ccbb4))
+* **codex:** start the shared daemon on reconnect ([#290](https://github.com/caelis-labs/caelis-bot/issues/290)) ([21c21db](https://github.com/caelis-labs/caelis-bot/commit/21c21db1b8c530f51a6cfdaa2151b682ee1ef2c6))
+
 ## [0.22.4](https://github.com/caelis-labs/caelis-bot/compare/v0.22.3...v0.22.4) (2026-11-17)
 
 
