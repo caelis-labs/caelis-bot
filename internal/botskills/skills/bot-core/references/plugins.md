@@ -62,6 +62,8 @@ On Caelis with Code Mode, discover deferred plugin tools through `js_exec` with 
 then use `tools.call(name, args)` with the returned name and arguments that match
 its schema. Follow the Runtime's Code Mode guidance and return original reply or part references to retain
 output and media. When the Runtime exposes standalone `tool_search` and `mcp_call`, use their returned schemas for discovery and invocation. Keep shell execution on native shell tools.
+If a Caelis command yields a Task handle, use the native `Task` tool with
+`action: "wait"` and the original handle to collect its result.
 
 Proceed within the user's requested target and scope. If a provider is absent,
 state the limitation and continue available work. Do not invent login controls or

@@ -1180,7 +1180,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 			t.Fatal("missing approved command handle")
 		}
 		model.mu.Lock()
-		model.plans["CASE_APPROVAL"] = append(model.plans["CASE_APPROVAL"][:2], modelStep{Name: "Task", Args: map[string]string{"action": "read", "handle": handle}}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		model.plans["CASE_APPROVAL"] = append(model.plans["CASE_APPROVAL"][:2], modelStep{Name: "Task", Args: map[string]string{"action": "wait", "handle": handle}}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
 		model.mu.Unlock()
 		if err = s.Decide(ctx, api.Decision{ID: a.ID, Choice: choice}); err != nil {
 			t.Fatal(err)
