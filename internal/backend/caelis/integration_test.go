@@ -198,9 +198,8 @@ func waitTurn(t *testing.T, ctx context.Context, s *Session, previous string) {
 		case "failed", "interrupted":
 			t.Fatalf("turn ended %s: %s", v.Phase, v.Message)
 		case "idle":
-			return slices.ContainsFunc(v.Items, func(i api.Item) bool {
-				return i.TurnKey == v.CurrentTurn && i.Kind == "assistant" && i.Status == "completed"
-			})
+			observed := s.ConversationState()
+			return observed.Turn == v.CurrentTurn && observed.Status == "completed"
 		}
 		return false
 	})
