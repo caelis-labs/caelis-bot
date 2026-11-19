@@ -4,6 +4,7 @@ source "$(dirname "$0")/env.sh"
 go run ./cmd/contract-gen --check
 node script/check-public-tree.mjs
 python3 script/test_caelis_runtime.py
+python3 internal/botskills/test_extensions.py
 python3 script/test_linux_installer.py
 node script/check-caelis-protocol.mjs
 node script/asset-pack.mjs verify

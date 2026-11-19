@@ -27,12 +27,42 @@ func (a *Application) queuePluginIndex() {
 	}()
 }
 
+func (a *Application) workspaceMCPChanged() bool {
+	adapter, ok := a.currentEngine().(interface{ BotWorkspaceMCPChanged() bool })
+	return ok && adapter.BotWorkspaceMCPChanged()
+}
+
+func (a *Application) queueWorkspaceExtensions() {
+	a.mu.Lock()
+	if !a.started || a.closed {
+		a.mu.Unlock()
+		return
+	}
+	a.workers.Add(1)
+	a.mu.Unlock()
+	go func() {
+		defer a.workers.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.consumeWorkspacePluginRequest(ctx); err != nil && a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+		if a.workspaceMCPChanged() {
+			a.queuePluginReconcile()
+		}
+	}()
+}
+
+func (a *Application) pluginSelection() plugins.Selection {
+	if a.plugins == nil {
+		return plugins.Selection{}
+	}
+	return a.plugins.Selection()
+}
+
 // Package and credential writes confirm first. Runtime assembly follows on a
 // separate worker and never changes the original management result.
 func (a *Application) queuePluginReconcile() {
-	if a.plugins == nil {
-		return
-	}
 	a.mu.Lock()
 	if !a.started || a.closed {
 		a.mu.Unlock()
@@ -92,11 +122,11 @@ func (a *Application) reconcilePlugins() {
 		a.pluginSyncPending = false
 		a.pluginSyncMu.Unlock()
 
-		selection := a.plugins.Selection()
+		selection := a.pluginSelection()
 		a.pluginSyncMu.Lock()
 		alreadyProjected := selection.Revision == a.pluginSyncRevision
 		a.pluginSyncMu.Unlock()
-		if alreadyProjected {
+		if alreadyProjected && !a.workspaceMCPChanged() {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -115,12 +145,14 @@ func (a *Application) reconcilePlugins() {
 		a.mu.Unlock()
 		var err error
 		projectedRevision := uint64(0)
+		dispatched := false
 		if !closed {
 			err = adapter.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
 				// Actions may have changed while waiting for the Runtime lock.
 				// Publish the newest confirmed selection once that lock is ours.
-				latest := a.plugins.Selection()
+				latest := a.pluginSelection()
 				projectedRevision = latest.Revision
+				dispatched = true
 				return apply(ctx, latest)
 			})
 		}
@@ -132,7 +164,7 @@ func (a *Application) reconcilePlugins() {
 			a.pluginSyncMu.Unlock()
 			return
 		}
-		if projectedRevision == 0 && errors.Is(err, context.DeadlineExceeded) {
+		if !dispatched && errors.Is(err, context.DeadlineExceeded) {
 			// The Runtime lock was never acquired, so no native update was
 			// dispatched. Wait for a free turn and retry the latest selection.
 			a.pluginSyncMu.Lock()
@@ -141,7 +173,7 @@ func (a *Application) reconcilePlugins() {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		if err == nil && projectedRevision == 0 {
+		if err == nil && !dispatched {
 			err = errors.New("plugin Runtime admission returned without applying a selection")
 		}
 		if err != nil {
@@ -152,7 +184,7 @@ func (a *Application) reconcilePlugins() {
 			}
 			return
 		}
-		latestRevision := a.plugins.Selection().Revision
+		latestRevision := a.pluginSelection().Revision
 		a.pluginSyncMu.Lock()
 		a.pluginSyncRevision = projectedRevision
 		a.pluginSyncError = false
@@ -160,8 +192,10 @@ func (a *Application) reconcilePlugins() {
 			a.pluginSyncPending = true
 		}
 		a.pluginSyncMu.Unlock()
-		if cleanupErr := a.plugins.ConfirmOAuthProjection(projectedRevision); cleanupErr != nil && a.host.ReportError != nil {
-			a.host.ReportError(cleanupErr)
+		if a.plugins != nil {
+			if cleanupErr := a.plugins.ConfirmOAuthProjection(projectedRevision); cleanupErr != nil && a.host.ReportError != nil {
+				a.host.ReportError(cleanupErr)
+			}
 		}
 		a.pluginDetailMu.Lock()
 		a.pluginDetailCache = nil

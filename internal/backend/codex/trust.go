@@ -16,8 +16,9 @@ import (
 // private cwd to be trusted before thread/start or thread/resume loads it.
 // Read through the connected App Server so shared and private owners agree.
 type workspaceTrust struct {
-	level  string // trusted, untrusted, or absent
-	reason string
+	level       string // trusted, untrusted, or absent
+	reason      string
+	userVersion string
 }
 
 func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (workspaceTrust, error) {
@@ -36,6 +37,7 @@ func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (works
 				DotCodexFolder string `json:"dotCodexFolder"`
 			} `json:"name"`
 			DisabledReason string `json:"disabledReason"`
+			Version        string `json:"version"`
 		} `json:"layers"`
 	}
 	if err := callDecode(ctx, c, "config/read", map[string]any{"includeLayers": true, "cwd": directory}, &response); err != nil {
@@ -64,6 +66,14 @@ func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (works
 		}
 	}
 	for _, layer := range *response.Layers {
+		// Codex returns layers from highest to lowest precedence. Its write
+		// targets the active user layer, including a selected native profile.
+		if layer.Name.Type == "user" {
+			state.userVersion = layer.Version
+			break
+		}
+	}
+	for _, layer := range *response.Layers {
 		// Ancestor project layers may remain disabled while the private Notebook
 		// layer is enabled. Never widen trust to the surrounding checkout.
 		if layer.Name.DotCodexFolder != "" && filepath.Clean(layer.Name.DotCodexFolder) != filepath.Join(directory, ".codex") {
@@ -88,9 +98,16 @@ func readWorkspaceTrust(ctx context.Context, c *Client, directory string) (works
 	return state, nil
 }
 
-func writeBotWorkspaceTrust(ctx context.Context, c *Client, directory string) error {
+func writeBotWorkspaceTrust(ctx context.Context, c *Client, directory, userVersion string) error {
+	if userVersion == "" {
+		return errors.New("Codex 未返回保存工作目录信任所需的配置版本；请更新 Codex")
+	}
 	key := "projects." + strconvQuoteConfigKey(directory) + ".trust_level"
-	params := map[string]any{"edits": []any{map[string]any{"keyPath": key, "value": "trusted", "mergeStrategy": "replace"}}, "reloadUserConfig": true}
+	params := map[string]any{
+		"edits":            []any{map[string]any{"keyPath": key, "value": "trusted", "mergeStrategy": "replace"}},
+		"expectedVersion":  userVersion,
+		"reloadUserConfig": true,
+	}
 	if err := callDecode(ctx, c, "config/batchWrite", params, nil); err != nil {
 		var native *NativeError
 		if errors.As(err, &native) {
@@ -155,7 +172,10 @@ func (s *Session) trustReadFailure(err error) error {
 }
 
 func (s *Session) requireBotWorkspaceTrust(ctx context.Context, c *Client) error {
-	directory := s.opts.Directory
+	directory := s.opts.BotTools.NotebookDirectory
+	if directory != s.opts.Directory {
+		return s.trustFailure("Bot 工作目录与笔记本目录不一致", errors.New("resident cwd differs from Bot Notebook"))
+	}
 	state, err := readWorkspaceTrust(ctx, c, directory)
 	if err != nil {
 		return s.trustReadFailure(err)
@@ -187,7 +207,7 @@ func (s *Session) requireBotWorkspaceTrust(ctx context.Context, c *Client) error
 		return nil
 	}
 	if state.level != "trusted" {
-		if err := writeBotWorkspaceTrust(ctx, c, directory); err != nil {
+		if err := writeBotWorkspaceTrust(ctx, c, directory, state.userVersion); err != nil {
 			return s.trustWriteFailure(err)
 		}
 	}
@@ -257,7 +277,7 @@ func (s *Session) decideWorkspaceTrust(ctx context.Context, d api.Decision) erro
 		if uncertain {
 			err = errors.New("上次工作目录信任写入结果未确认；请在 Codex 中核对原配置，Bot 不会重复写入")
 		} else {
-			err = writeBotWorkspaceTrust(ctx, c, s.opts.Directory)
+			err = writeBotWorkspaceTrust(ctx, c, s.opts.Directory, state.userVersion)
 			if err != nil {
 				return s.trustWriteFailure(err)
 			}

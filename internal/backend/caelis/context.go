@@ -51,7 +51,7 @@ func (s *Session) conversationLocked() api.ConversationState {
 			}
 		}
 		for id, operation := range s.state.Operations {
-			if operation.Outcome == "unknown" && !operation.deferredRenewal(id) {
+			if operation.Outcome == "unknown" && operation.Path != workspaceTrustPath && !operation.deferredRenewal(id) {
 				out.Idle = false
 			}
 		}

@@ -237,7 +237,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		unknown = true
 	}
 	for id, j := range s.state.Operations {
-		if j.Outcome == "unknown" && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) {
+		if j.Outcome == "unknown" && j.Path != workspaceTrustPath && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) {
 			if s.dispatching[id] {
 				dispatching = true
 			} else {
@@ -637,8 +637,14 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 	var snapshotID string
 	var page int
 	return c.stream(ctx, path, "", func(f frame) error {
+		var finish func()
 		s.mu.Lock()
-		defer s.mu.Unlock()
+		defer func() {
+			s.mu.Unlock()
+			if finish != nil {
+				finish()
+			}
+		}()
 		if s.closed || ctx.Err() != nil || s.state.InstanceID != instance {
 			return errors.New("旧 Host 观察已失效")
 		}
@@ -806,7 +812,13 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 		if d.NextCursor != nil {
 			v.Cursor = *d.NextCursor
 		}
+		previous := s.state.FinishedTurn
+		if d.Kind == "append_page" && v.CommandCaughtUp && !transientProse(d) {
+			finish = s.takeFinishedTurnLocked(sid, v)
+		}
 		if e := s.publishProjectionLocked(d, time.Now()); e != nil {
+			s.state.FinishedTurn = previous
+			finish = nil
 			return e
 		}
 		if v.ApprovalDirty {
@@ -985,21 +997,37 @@ func (s *Session) refreshMain(ctx context.Context, c *client, sid string) error 
 	reconcileApproval(v, before, approvalVersion, state)
 	s.observeApprovalHeadLocked(v.State)
 	s.ensureStreamLocked(sid)
-	turn := observedTurn(v)
-	finished := turn != "" && !value(v.State.Run.Active) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status)) && s.state.FinishedTurn != turn
-	if finished {
-		s.state.FinishedTurn = turn
-	}
+	previous := s.state.FinishedTurn
+	finish := s.takeFinishedTurnLocked(sid, v)
 	e := s.saveLocked()
+	if e != nil {
+		s.state.FinishedTurn = previous
+	}
 	s.bumpLocked()
 	s.mu.Unlock()
-	if e != nil {
-		return e
+	if e == nil && finish != nil {
+		finish()
 	}
-	if finished && s.tools != nil && s.tools.FinishTurn != nil {
-		s.tools.FinishTurn()
+	return e
+}
+
+// A released Host may already report an idle head when the state read follows
+// the terminal feed event. Both observers share the same durable turn identity.
+func (s *Session) takeFinishedTurnLocked(sid string, v *view) func() {
+	if s.retainedWorkers || sid != s.state.Session.SessionId || value(v.State.Run.Active) || s.tools == nil {
+		return nil
 	}
-	return nil
+	switch value(v.State.Run.Status) {
+	case "completed", "failed", "interrupted", "cancelled", "stopped":
+	default:
+		return nil
+	}
+	turn := observedTurn(v)
+	if turn == "" || turn == s.state.FinishedTurn {
+		return nil
+	}
+	s.state.FinishedTurn = turn
+	return s.tools.FinishTurn
 }
 
 func (s *Session) recoverOperations(ctx context.Context) error {
@@ -1015,7 +1043,12 @@ func (s *Session) recoverSelectedOperations(ctx context.Context, selected observ
 		if j.Outcome != "unknown" || !selected.includes("operation:"+id) {
 			continue
 		}
-		failures = errors.Join(failures, s.recoverOperation(ctx, id))
+		err := s.recoverOperation(ctx, id)
+		if j.Path == workspaceTrustPath {
+			s.componentError("notebook_trust", "", err)
+			continue
+		}
+		failures = errors.Join(failures, err)
 	}
 	return failures
 }

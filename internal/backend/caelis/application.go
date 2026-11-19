@@ -21,7 +21,6 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	if c == nil || c.Host == nil {
 		return errors.New("应用工具绑定无效或已固定")
 	}
-	s.tools = c.Clone()
 	catalog := map[string]api.ApplicationTools{}
 	formats := map[string]bool{}
 	profile := wire.SessionProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.SessionToolDefinition{}}
@@ -72,8 +71,14 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		profile.Workspace = &wire.SessionWorkspace{Cwd: &c.NotebookDirectory}
 	}
 	profile.Permissions = &wire.SessionPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}
+	// Core discovers project MCP from the Session CWD under native workspace
+	// trust. Only Bot-managed packages belong in the explicit profile.
 	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
-	profile.SkillDirs = []string{}
+	skillDirs, err := notebookSkillDirs(c.NotebookDirectory)
+	if err != nil {
+		return err
+	}
+	profile.SkillDirs = skillDirs
 	s.mu.Lock()
 	if s.catalogs == nil {
 		s.catalogs = map[string]map[string]api.ApplicationTools{}
@@ -135,6 +140,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	}
 	s.catalogs[profile.ToolsVersion] = catalog
 	s.catalog = catalog
+	s.tools = c.Clone()
 	s.profile = profile
 	s.mu.Unlock()
 	return nil
@@ -151,7 +157,7 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 			return errors.New("Bot tools require Caelis session-tool-result-content-v1; update and restart the Host")
 		}
 	}
-	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
+	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
 		return errors.New("Bot plugins require Caelis session-atomic-capabilities-v1")
 	}
 	return nil

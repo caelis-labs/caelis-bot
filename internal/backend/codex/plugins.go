@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/botworkspace"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
@@ -120,12 +121,6 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 	if err := ensureProjectDir(skillDir); err != nil {
 		return err
 	}
-	configPath := filepath.Join(configDir, "config.toml")
-	if body, err := os.ReadFile(configPath); err == nil && !strings.HasPrefix(string(body), projectMarker) {
-		return errors.New("Bot project config is not owned by Bot")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
 	configs, _ := codexPluginConfigs(c.Plugins, c.Command)
 	names := make([]string, 0, len(configs))
 	for n := range configs {
@@ -223,7 +218,7 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 			return err
 		}
 	}
-	if err := writeProjectFile(configPath, []byte(body.String())); err != nil {
+	if err := botworkspace.WriteCodexPlugins(directory, []byte(body.String())); err != nil {
 		return err
 	}
 	for name, target := range previous {
@@ -279,6 +274,18 @@ func writeProjectFile(path string, body []byte) error {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+func (s *Session) BotWorkspaceMCPChanged() bool {
+	s.mu.Lock()
+	if s.opts.BotTools == nil || s.opts.BotTools.NotebookDirectory == "" {
+		s.mu.Unlock()
+		return false
+	}
+	workspace, applied := s.opts.Directory, s.workspaceMCPRevision
+	s.mu.Unlock()
+	revision, err := botworkspace.CodexRevision(workspace)
+	return err == nil && revision != applied
 }
 
 func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Selection) error {
@@ -342,6 +349,13 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		return err
 	}
 	if err := projectCodexWorkspace(dir, next); err != nil {
+		if errors.Is(err, botworkspace.ErrProjectWriteBusy) {
+			return err // The competing writer prevented publication.
+		}
+		return fail(err)
+	}
+	revision, err := botworkspace.CodexRevision(dir)
+	if err != nil {
 		return fail(err)
 	}
 	if c != nil {
@@ -354,6 +368,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	s.mu.Lock()
 	s.opts.BotTools = next
+	s.workspaceMCPRevision = revision
 	s.mu.Unlock()
 	return nil
 }

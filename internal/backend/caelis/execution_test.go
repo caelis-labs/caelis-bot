@@ -14,9 +14,10 @@ import (
 
 func TestExecutionEnvironmentIsExplicitWithoutCopyingHostValues(t *testing.T) {
 	t.Setenv("BOT_EXECUTION_SECRET_FIXTURE", "not-a-real-secret")
+	notebook := t.TempDir()
 	for _, toolsOnly := range []bool{false, true} {
 		s := New(Options{Directory: t.TempDir(), ToolsOnly: toolsOnly})
-		if err := s.ConfigureBotTools(&api.ToolConnection{Host: &acceptanceTools{defs: fixtureDefinitions("string")}, NotebookDirectory: "/fixture/notebook"}); err != nil {
+		if err := s.ConfigureBotTools(&api.ToolConnection{Host: &acceptanceTools{defs: fixtureDefinitions("string")}, NotebookDirectory: notebook}); err != nil {
 			t.Fatal(err)
 		}
 		c := s.profile.ExecutionConfig
@@ -30,7 +31,7 @@ func TestExecutionEnvironmentIsExplicitWithoutCopyingHostValues(t *testing.T) {
 			t.Fatal("wrong runtime assembly")
 		}
 		encoded, _ := json.Marshal(s.profile)
-		if value(s.profile.Workspace.Cwd) != "/fixture/notebook" || !slices.Contains(required, "execution-configuration-v1") || strings.Contains(string(encoded), "not-a-real-secret") {
+		if value(s.profile.Workspace.Cwd) != notebook || !slices.Contains(required, "execution-configuration-v1") || strings.Contains(string(encoded), "not-a-real-secret") {
 			t.Fatal("missing workspace/capability")
 		}
 	}

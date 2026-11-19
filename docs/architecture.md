@@ -169,6 +169,24 @@ second profile guide. Neither installs globally or copies the private catalog/No
 into ordinary sessions/Workers. Running Workers retain start context. Behavior changes
 require checking Bot guidance; architecture-only edits do not.
 
+Resident project Skills live under `Notebook/.agents/skills`. Codex discovers
+this directory natively. The Bot adapter registers it as a Skill directory for
+Caelis's explicit Application Session. The `bot-core` script uses Python 3.11 or
+newer to validate and write standalone MCP entries directly to
+`Notebook/.codex/config.toml` for Codex or `Notebook/.mcp.json` for Caelis.
+Bot defaults the application-owned Notebook to trusted through each Runtime's
+native configuration when its trust is undecided. An explicit untrusted choice
+is preserved. Native approvals still apply to discovered tools. Codex applies
+changes at the app's existing reconciliation boundary through native reload.
+The native writer and bundled script save the Codex projection under the same
+workspace lock. A private-mode copy in `.codex/.caelis-bot-upgrade.toml`
+preserves their last published settings across v0.22.4, which regenerates
+the entire project file. On re-upgrade the Bot restores the native entries
+and regenerates plugin entries from the current catalog selection. Caelis watches the trusted project directly and
+keeps Notebook MCP out of the explicit resident profile. Ordinary sessions
+opened in that project can discover it. Workers in their own workspaces retain
+their native defaults.
+
 Introduction is an ordinary user message with durable identity, not host-written memory.
 `bot_dream` performs a gated context handoff after its owning native turn terminates.
 Private durable handoff data retains goal, constraints, original tasks/uncertain receipts
@@ -283,6 +301,14 @@ not call tools; service claims do not extend built-in approval exemptions. Gener
 fenced relays inject write-only private credentials only at dispatch, cap responses and
 block redirects; unknown tool effects are not retried. Hosted service implementation is
 publisher-owned and cannot be byte-pinned by a local package hash.
+
+The app consumes Notebook plugin registration requests from `bot-core` through
+the same package manager as Settings. Private operation receipts fence replay.
+The workspace exposes a derived result by request ID. Once that result is
+recorded, the submission slot is free even when the outcome is unknown.
+The private `Plugins` directory retains checked generations, package data,
+registration and request receipts at the shipped paths across upgrades and
+rollbacks. Account credentials retain their existing scope.
 
 Caelis owns its complete Desktop World MCP/Skill source and native App × Turn approval,
 execution and recovery; Bot supplies no proxy, installer, switch or alternative authority.

@@ -74,7 +74,7 @@ test('built-in separates installation, connection, and optional Team without exp
  const installed=panel({...base,state:'models'});assert.match(installed,/Connect a model/);assert.match(installed,/Check for updates/);assert.ok(installed.indexOf('Agent Team')<installed.indexOf('Current version'));
  const role=id=>({id,selection:{model:id==='guardian-screen'?'classifier':id==='guardian'?'review-model':''},modelIds:[],inherited:true});
  const html=renderToStaticMarkup(React.createElement(TeamSettings,{inline:true,team:{available:true,roles:['self','breeze','orbit','zenith','tool-search','guardian','guardian-screen','reviewer','custom'].map(role)},models:[{model:'classifier',name:'Jev classifier'},{model:'review-model',name:'Luna reviewer'}],client:{},onRefresh:async()=>{}}));
- assert.equal((html.match(/class="team-agent-card"/g)||[]).length,5);
+ assert.equal((html.match(/class="team-agent-card"/g)||[]).length,4);assert.doesNotMatch(html,/tool-search/);
  assert.match(html,/Jev classifier/);assert.match(html,/Luna reviewer/);assert.match(html,/Classifier \(optional\)/);assert.doesNotMatch(html,/>guardian-screen<|>self<|>reviewer<|>custom</);
 });
 

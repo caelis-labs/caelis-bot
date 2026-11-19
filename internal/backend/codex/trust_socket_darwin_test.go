@@ -63,7 +63,10 @@ func TestSharedAppServerChecksBotWorkspaceTrust(t *testing.T) {
 					projects[workspace] = map[string]string{"trust_level": "trusted"}
 					reason = ""
 				}
-				result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{map[string]any{"name": map[string]string{"type": "project"}, "disabledReason": reason}}}
+				result = map[string]any{"config": map[string]any{"projects": projects}, "layers": []any{
+					map[string]any{"name": map[string]string{"type": "project"}, "disabledReason": reason},
+					map[string]any{"name": map[string]string{"type": "user"}, "version": "shared-user-version"},
+				}}
 			case "config/batchWrite":
 				writes++
 				trusted = true

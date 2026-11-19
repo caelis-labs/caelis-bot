@@ -825,7 +825,7 @@ func TestPluginInstallPersistsWhileRuntimeIsUnavailable(t *testing.T) {
 	if !installed {
 		t.Fatal("package install required activation or a credential")
 	}
-	reopened, err := plugins.Open(filepath.Join(root, "Plugins"))
+	reopened, err := plugins.OpenWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
 	}

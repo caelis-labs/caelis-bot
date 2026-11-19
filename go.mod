@@ -4,6 +4,7 @@ go 1.26.11
 
 require (
 	cel.dev/cel-go v0.33.2
+	github.com/BurntSushi/toml v1.6.0
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/caelis-labs/memory v0.6.1
 	github.com/coder/websocket v1.8.15

@@ -215,8 +215,28 @@ for line in sys.stdin:
 	if !installed {
 		t.Fatal("package install incorrectly required an account credential")
 	}
+	workspaceConfigPath := filepath.Join(workspace, ".codex", "config.toml")
+	workspaceConfig, err := os.ReadFile(workspaceConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceServer := fmt.Sprintf("\n[mcp_servers.workspace_docs]\ncommand = 'python3'\nargs = ['-u', %q, 'documents']\n", serviceScript)
+	if err = os.WriteFile(workspaceConfigPath, append(workspaceConfig, workspaceServer...), 0600); err != nil {
+		t.Fatal("workspace MCP configuration could not be saved", err)
+	}
+	if !s.BotWorkspaceMCPChanged() {
+		t.Fatal("workspace MCP change did not trigger reconciliation")
+	}
 	if err = s.UpdateBotPlugins(ctx, selection); err != nil {
 		t.Fatal("restoring synthetic service selection failed", err)
+	}
+	var workspaceStatus any
+	if err = callDecode(ctx, s.client, "mcpServerStatus/list", map[string]any{"threadId": s.binding.ThreadID, "serverName": "workspace_docs"}, &workspaceStatus); err != nil {
+		t.Fatal("workspace MCP registration was not visible to the native thread", err)
+	}
+	workspaceJSON, _ := json.Marshal(workspaceStatus)
+	if s.BotWorkspaceMCPChanged() || !strings.Contains(string(workspaceJSON), "workspace_docs") || !strings.Contains(string(workspaceJSON), "lookup_fixture") {
+		t.Fatal("workspace MCP registration did not settle on the native thread")
 	}
 	late := plugins.RuntimeName("test-late", "late")
 	withLate := selection.Clone()

@@ -1,12 +1,16 @@
 package botskills
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 func TestSkillMetadataAcceptsCheckoutLineEndings(t *testing.T) {
@@ -35,6 +39,40 @@ func TestInstalledComputerInteractionGuidance(t *testing.T) {
 	}
 	if strings.Contains(string(body), "`desktop-world` Skill") {
 		t.Fatal("retired Skill identity remains in current guidance")
+	}
+}
+
+func TestInstallProjectsReviewedPluginCatalog(t *testing.T) {
+	root := t.TempDir()
+	oldScripts := filepath.Join(root, "app-skills", "bot-core", "scripts")
+	if err := os.MkdirAll(oldScripts, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"application.txt", "notebook.txt"} {
+		if err := os.WriteFile(filepath.Join(oldScripts, name), []byte("retired launcher path\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, err := Install(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"application.txt", "notebook.txt"} {
+		if _, err := os.Stat(filepath.Join(oldScripts, name)); !os.IsNotExist(err) {
+			t.Fatalf("retired launcher metadata %s remains: %v", name, err)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(path), "assets", "plugin-catalog.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []plugins.ReviewedPackage
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	want, err := plugins.ReviewedCatalog()
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("installed plugin catalog differs from the reviewed projection: %v", err)
 	}
 }
 

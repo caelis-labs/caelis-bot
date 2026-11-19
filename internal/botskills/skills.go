@@ -3,12 +3,15 @@ package botskills
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 //go:embed skills
@@ -44,6 +47,17 @@ func Install(root string) (string, error) {
 		return installFile(filepath.Join(stage, filepath.FromSlash(strings.TrimPrefix(name, "skills/"))), body)
 	})
 	if err != nil {
+		return "", err
+	}
+	catalog, err := plugins.ReviewedCatalog()
+	if err != nil {
+		return "", err
+	}
+	body, err := json.Marshal(catalog)
+	if err != nil {
+		return "", err
+	}
+	if err := installFile(filepath.Join(stage, "bot-core", "assets", "plugin-catalog.json"), body); err != nil {
 		return "", err
 	}
 	for _, name := range []string{"bot-core"} {

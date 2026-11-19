@@ -5,6 +5,7 @@ try {
   Invoke-BotCommand go run ./cmd/contract-gen --check
   Invoke-BotCommand node script/check-public-tree.mjs
   Invoke-BotCommand python script/test_caelis_runtime.py
+  Invoke-BotCommand python internal/botskills/test_extensions.py
   Invoke-BotCommand node script/check-caelis-protocol.mjs
   Invoke-BotCommand node script/asset-pack.mjs verify
   Invoke-BotCommand npm.cmd run check:i18n
