@@ -7,41 +7,54 @@ in `.agents/skills/<name>/SKILL.md` relative to the Bot Notebook. Give it a `nam
 and `description` in YAML frontmatter. Write concise repeatable steps and a way
 to verify the result. Keep supporting files beside the Skill and link to them
 as needed. Leave credentials, private conversation and one-off case details out.
-Update an existing matching Skill with native file tools. Use the native approval
-path if the Runtime protects the directory. On Caelis, call the native `Skill` tool with the
-new Skill's name and verify the returned instructions. The model's Skill list
-refreshes when the Session adopts a new compaction summary. A known Skill can
-already be loaded by name. On Codex, check native discovery and read the
-returned Skill path. After editing a Skill, verify the new body before using it.
+Update an existing matching Skill with native file tools and verify its current
+body before using it. On Codex, use native discovery and read the returned path.
+Catalog metadata can lag a file edit. If the listing is stale, check again in a
+later turn. On Caelis, load a known name directly with the native `Skill` tool.
+The model's Skill list refreshes when the Session adopts a new compaction
+summary. Remove only a private Skill you own or the user has named for removal,
+then confirm its absence through native discovery.
 
 ## Manage Notebook MCP servers and plugin packages
 
-Run the bundled `scripts/extensions.py` with an available Python 3.11 or newer.
-Resolve the script path from this Skill bundle and run it from the Notebook root.
-Use it for Notebook MCP and plugin changes. If Python is unavailable, use the
-relevant native configuration or Settings → Plugins workflow. Keep shared
-installations in the harness's own workflow and ask before widening scope. Use
-the Runtime's native approval flow if needed.
+Check `python3 --version`. Run the installed `scripts/extensions.py` from the
+Bot Notebook root with Python 3.11 or newer. If `python3` is older, use the full
+path to a compatible interpreter. Resolve the script path from this Skill bundle.
+Use the Runtime's native approval flow for protected writes. If no compatible
+interpreter is available, use native Notebook configuration for MCP or Settings
+→ Plugins for reviewed packages. Ask before widening the scope to a shared
+installation.
 
-- For an MCP server, prepare a JSON object in Notebook with `command` and optional
-  `args` and `cwd`, or with `url`. Keep credentials out of this file. Run
-  `mcp <codex|caelis> set <server-id> <file>` to validate and save in one step.
-  Use `check` with the same arguments for validation only, or
-  `mcp <codex|caelis> remove <server-id>` to remove a managed entry.
-  Bot sets native workspace trust for Notebook by default when there is no
-  existing decision. If Notebook is explicitly untrusted, respect that choice
-  and let the user decide through the Runtime's trust workflow.
-- Run `plugin catalog` to find the reviewed package ID and available version.
-  Use `plugin install <package-id> [version]` or
-  `plugin update <package-id> <exact-version>`. Use `plugin enable`,
-  `plugin disable` or `plugin uninstall` with the package ID. Use
-  `plugin status <request-id>` after the current turn to check the ID returned by
-  submission. Leave installed package files intact. Use the existing connection
-  surface for account authorization.
+- Save the MCP candidate as a JSON object inside Notebook. Use `command` with
+  optional `args` and `cwd`, or use `url`. Leave credentials out. For example,
+  pass `mcp codex check probe notes/probe.json` after the script path. Use a
+  Notebook-relative candidate path. Absolute paths are rejected.
+  Replace `codex` with `caelis` for the Caelis Runtime.
+- Use `mcp <runtime> set <server-id> <file>` to validate and save. `check` validates
+  the declaration without starting or contacting the server. `saved` confirms
+  the requested declaration is on disk. Keep it when the effective configuration
+  is already correct. Confirm a new tool or schema through current native
+  discovery and a safe call when the result needs verification. If discovery
+  still shows the old catalog, check it again in a later turn. Codex applies
+  project changes through native MCP reload. Caelis discovers them from the
+  trusted Notebook project.
+- Use `mcp <runtime> remove <server-id>` for a Notebook entry you own or the user
+  has named for removal, then confirm the tool disappears from native discovery.
+  Codex protects entries outside the script-managed section. Caelis `set` and
+  `remove` address entries by ID in `.mcp.json`. Confirm the ID before changing
+  an existing entry. Respect an explicit untrusted decision for Notebook and
+  let the user decide through the Runtime's trust workflow.
+- Run `plugin catalog` for the reviewed package ID and available version. Use
+  `plugin install <package-id> [version]` or `plugin update <package-id> <exact-version>`.
+  Use `plugin enable`, `plugin disable` or `plugin uninstall` with the package ID.
+  Keep the returned request ID. `pending` means the request is queued. Use
+  `plugin status <request-id>` after the current turn and confirm the contribution
+  through native discovery. `saved` confirms the requested package state. An
+  update to the current version can return `saved` with the same revision.
+  Leave installed package files intact and use Settings → Plugins to connect accounts.
 
-If the configuration is busy, stop the current write and continue independent work.
-A saved change may still be waiting for Runtime assembly. Check native discovery
-before claiming availability. If an outcome is unknown, keep the original ID and
+If the configuration is busy, stop the current write and continue independent
+work. If a request status is `unknown` or `unavailable`, keep the original ID and
 check the current package state in Settings before deciding how to proceed. Do not
 resubmit to recover an outcome. Once the status is recorded, the slot can accept
 independent requests and the original ID remains queryable. Keep raw diagnostics
@@ -49,26 +62,23 @@ out of chat.
 
 ## Discover and use extensions
 
-Discover the current catalog when an extra capability is needed. Read a matching
-Skill body and returned tool schema on demand. Use Settings → Plugins to find reviewed packages and connect accounts. Describe a
-capability as connected only after a confirmed connection result.
+Use the active Runtime's catalog. Read a matching Skill body or the returned tool
+schema on demand. Describe a capability as connected only after a confirmed
+connection result. If `../mcp-tools.json` exists beside this Skill directory, use
+its last-confirmed entries as clues and verify them through native discovery.
 
-When an external tool's name is unclear, read `../mcp-tools.json` beside this
-Skill directory for last-confirmed connected tool names/descriptions. Use those
-as clues for the active Runtime's native discovery, then read the returned schema.
-The index grants no permission; do not invent calls when it or search is unavailable.
-
-On Caelis with Code Mode, discover deferred plugin tools through `js_exec` with `tools.search`,
-then use `tools.call(name, args)` with the returned name and arguments that match
-its schema. Follow the Runtime's Code Mode guidance and return original reply or part references to retain
-output and media. When the Runtime exposes standalone `tool_search` and `mcp_call`, use their returned schemas for discovery and invocation. Keep shell execution on native shell tools.
+On Codex, use the native tools listed for the current turn. In Code Mode, check
+`ALL_TOOLS` and call the tool under its current name. On Caelis with Code Mode,
+use `js_exec` with `tools.search` and call the returned name and schema with
+`tools.call(name, args)`. Return original reply or part references when needed to
+preserve output and media. Where the Runtime exposes standalone `tool_search`
+and `mcp_call`, use their returned schemas. Keep shell work on native shell tools.
 If a Caelis command yields a Task handle, use the native `Task` tool with
 `action: "wait"` and the original handle to collect its result.
 
-Proceed within the user's requested target and scope. If a provider is absent,
-state the limitation and continue available work. Do not invent login controls or
-ask for tokens in chat. For failed actions, retain the original receipt and use
-[Recovery](recovery.md) before switching routes.
+Proceed within the user's requested scope. If a provider is unavailable, state
+the limitation and continue available work. For failed actions, retain the
+original receipt and use [Recovery](recovery.md) before switching routes.
 
 ## Computer interaction
 

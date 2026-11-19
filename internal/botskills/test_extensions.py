@@ -133,6 +133,17 @@ class ExtensionsTest(unittest.TestCase):
             self.invoke("mcp", runtime, "set", "fixture", self.candidate.name)
             self.assertTrue(config.is_file())
 
+    def test_mcp_candidate_paths_are_relative_to_notebook(self):
+        for runtime in ("codex", "caelis"):
+            with self.subTest(runtime=runtime):
+                args = ("mcp", runtime, "check", "fixture")
+                self.assertEqual(self.invoke(*args, self.candidate.name), {"state": "validated"})
+                for path in (str(self.candidate), "../Notebook/candidate.json"):
+                    error = self.invoke(*args, path, expected=1)
+                    self.assertIn("Notebook-relative JSON file", error)
+        self.assertFalse((self.workspace / ".codex").exists())
+        self.assertFalse((self.workspace / ".mcp.json").exists())
+
     def test_caelis_checks_candidate_and_preserves_siblings(self):
         config = self.workspace / ".mcp.json"
         original = b'{"other":4,"mcpServers":{"existing":{"disabled_option":true}}}'
@@ -163,11 +174,15 @@ class ExtensionsTest(unittest.TestCase):
         self.assertEqual(json.loads(request.read_bytes()), submitted)
         self.assertEqual(self.invoke("plugin", "status", pending["id"]), pending)
         receipt = {**submitted, "state": "unknown"}
-        (directory / f"bot-plugin-status-{pending['id']}.json").write_text(json.dumps(receipt), encoding="utf-8")
+        status = directory / f"bot-plugin-status-{pending['id']}.json"
+        status.write_text(json.dumps(receipt), encoding="utf-8")
         request.unlink()
         later = self.invoke("plugin", "install", "another-package")
         self.assertEqual(self.invoke("plugin", "status", pending["id"]), receipt)
         self.assertEqual(self.invoke("plugin", "status", later["id"]), later)
+        confirmed = {**receipt, "state": "saved", "revision": 4}
+        status.write_text(json.dumps(confirmed), encoding="utf-8")
+        self.assertEqual(self.invoke("plugin", "status", pending["id"]), confirmed)
         self.assertEqual(self.invoke("plugin", "status", "missing"), {"id": "missing", "state": "unavailable"})
         self.invoke("plugin", "status", "../outside", expected=1)
 

@@ -107,7 +107,7 @@ def as_object(value):
 def candidate_for(workspace, name):
     source = Path(name)
     if source.is_absolute() or ".." in source.parts or not (workspace / source).resolve().is_relative_to(workspace):
-        raise ValueError("Provide a JSON file inside Notebook.")
+        raise ValueError("Provide a Notebook-relative JSON file, such as notes/server.json.")
     body = read_file(workspace / source)
     if body is None:
         raise ValueError("The MCP candidate file is missing.")
@@ -286,7 +286,7 @@ def mcp(workspace, args):
         candidate = None
     else:
         if args.file is None:
-            raise ValueError("Provide a JSON file inside Notebook.")
+            raise ValueError("Provide a Notebook-relative JSON file, such as notes/server.json.")
         candidate = candidate_for(workspace, args.file)
         if args.action == "check":
             return {"state": "validated"}
@@ -368,8 +368,10 @@ def main():
         result = mcp(workspace, args) if args.command == "mcp" else plugin(workspace, skill, args)
     except (json.JSONDecodeError, tomllib.TOMLDecodeError, UnicodeError):
         parser.exit(1, "Invalid configuration format. No change was saved.\n")
+    except PermissionError:
+        parser.exit(1, "Workspace access was denied. Check file permissions or use the Runtime's native approval flow.\n")
     except OSError:
-        parser.exit(1, "The workspace file could not be accessed.\n")
+        parser.exit(1, "The workspace file could not be accessed. Check the Notebook path and file access.\n")
     except ValueError as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result))
