@@ -48,17 +48,29 @@ func TestReviewPresentationMustNotReverseChoiceMeaning(t *testing.T) {
 }
 
 func TestReviewUnknownOldSchemaReplayMustKeepNewQuestion(t *testing.T) {
-	s, _ := Open(t.TempDir(), nil)
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	old := lifecycleQuestion()
-	card, _ := s.AsyncCard(old, "owner")
+	card, err := s.AsyncCard(old, "owner")
+	if err != nil || len(card.QuestionCards) != 1 {
+		t.Fatalf("present original question: cards=%d error=%v", len(card.QuestionCards), err)
+	}
 	s.SetAsyncAnswerer(func(context.Context, Inbound, string) (api.Receipt, error) {
 		return api.Receipt{Outcome: "unknown"}, nil
 	})
 	s.HandleDesktopQuestion(t.Context(), "uncertain-answer", "Q1", card.QuestionCards[0].Binding, "1", api.Snapshot{RuntimeOwner: "owner", Connection: "ready"})
 	next := lifecycleQuestion()
 	next.AsyncQuestions = []api.AsyncQuestion{{Title: "Updated question", Options: []string{"New one", "New two"}}}
-	current, _ := s.AsyncCard(next, "owner")
-	replay, _ := s.AsyncCard(old, "owner")
+	current, err := s.AsyncCard(next, "owner")
+	if err != nil || len(current.QuestionCards) != 1 {
+		t.Fatalf("present replacement question: cards=%d error=%v", len(current.QuestionCards), err)
+	}
+	replay, err := s.AsyncCard(old, "owner")
+	if err != nil {
+		t.Fatalf("replay original question: %v", err)
+	}
 	if len(replay.QuestionCards) != 1 || replay.QuestionCards[0].Binding != current.QuestionCards[0].Binding || replay.QuestionCards[0].State != "" {
 		t.Fatalf("stale unknown generation displaced the pending replacement: %#v; replacement state=%q", replay.QuestionCards, s.state.AsyncQuestions[current.QuestionCards[0].ShortID].State)
 	}

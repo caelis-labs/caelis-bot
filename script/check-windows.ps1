@@ -50,9 +50,20 @@ try {
       if ($taskOtherCases.Count -lt 1 -or ($taskOtherCases.Count + 1) -ne $taskCases.Count) { throw "Partitions do not cover the original suite in $($taskPartition.Package)" }
       Write-Host "$($taskPartition.Package) original cases=$($taskCases.Count); stress partition=1; remaining=$($taskOtherCases.Count); each keeps 180s"
     }
-    $taskOtherPackages = @($taskPackages | Where-Object { $_ -notin $taskPartitions.Package })
+    # Native state writes in these packages hit the runner's FlushFileBuffers
+    # path during concurrent tests. Run them a package at a time with the same
+    # test cases, durability checks and timeout.
+    $taskStatePackages = @(
+      'github.com/caelis-labs/caelis-bot/internal/textchannel'
+      'github.com/caelis-labs/caelis-bot/internal/weixin'
+      'github.com/caelis-labs/caelis-bot/internal/windowsupdate'
+      'github.com/caelis-labs/caelis-bot/internal/workerpeer'
+    )
+    $taskOtherPackages = @($taskPackages | Where-Object { $_ -notin $taskPartitions.Package -and $_ -notin $taskStatePackages })
     try { Invoke-BotCommand go test -json -p 2 -timeout 180s @taskOtherPackages }
     catch { $taskFullSuiteError = $_ }
+    try { Invoke-BotCommand go test -json -p 1 -timeout 180s @taskStatePackages }
+    catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
     foreach ($taskPartition in $taskPartitions) {
       try { Invoke-BotCommand go test -json -p 2 -timeout 180s -count=1 -run "^$($taskPartition.Case)$" $taskPartition.Package }
       catch { if (-not $taskFullSuiteError) { $taskFullSuiteError = $_ } }
