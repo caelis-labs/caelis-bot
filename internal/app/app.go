@@ -626,9 +626,11 @@ func (a *Application) startRuntime() error {
 						return api.ContextSeed{}, err
 					}
 				}
-				handoff := resident.PrepareHandoffContext()
-				if session := api.ContextSession(ctx); session != "" {
-					handoff = resident.PrepareHandoffContextFor(session)
+				var handoff api.ContextSeed
+				if session, renewedBy := api.ContextSession(ctx); session != "" {
+					handoff = resident.PrepareHandoffContextFor(session, renewedBy)
+				} else {
+					handoff = resident.PrepareHandoffContext()
 				}
 				seed.Text += handoff.Text
 				seed.HandoffDigest = handoff.HandoffDigest

@@ -27,13 +27,13 @@ func TestPrivateHandoffPersistsAcrossRestartAndConsumesOnlyAcceptedDigest(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.prepare().Text != "" || h.prepareFor("old-session").Text != "" {
+	if h.prepare().Text != "" || h.prepareFor("old-session", "").Text != "" {
 		t.Fatal("handoff entered the old context before new session receipt")
 	}
 	if err := h.record("call-1", "new-session", "committed"); err != nil {
 		t.Fatal(err)
 	}
-	if h.prepareFor("old-session").Text != "" {
+	if h.prepareFor("old-session", "").Text != "" {
 		t.Fatal("handoff replayed into old session")
 	}
 	seed := h.prepare()
@@ -163,8 +163,8 @@ func TestDreamToolKeepsOriginalCallAndFencesBotEffectsThroughFirstInput(t *testi
 	if accepted := r.CallTool(t.Context(), "bot_schedule", other); !accepted.IsError {
 		t.Fatal("old-session Bot effect crossed native renewal", accepted)
 	}
-	seed := r.PrepareHandoffContextFor("new-session")
-	if !strings.Contains(seed.Text, "receipt-456") || r.PrepareHandoffContextFor("old-session").Text != "" {
+	seed := r.PrepareHandoffContextFor("new-session", "")
+	if !strings.Contains(seed.Text, "receipt-456") || r.PrepareHandoffContextFor("old-session", "").Text != "" {
 		t.Fatal("handoff session binding wrong", seed)
 	}
 	if err := r.ConsumeHandoffContext(seed); err != nil {
@@ -185,6 +185,41 @@ func TestDreamToolKeepsOriginalCallAndFencesBotEffectsThroughFirstInput(t *testi
 	}
 	if r2.handoff.pending().CallID != "" || len(r2.handoff.pending().Receipts) != 1 || r2.handoff.pending().Receipts[0].CallID != invocation.CallID {
 		t.Fatal("original receipt not durable across restart")
+	}
+}
+
+func TestFirstInputAfterRestartRecoversHandoffFromOriginalNativeBinding(t *testing.T) {
+	r, _, _ := fixture(t)
+	if err := r.openHandoff(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handoff.saveTurn("original-call", "old-session", "original-turn", "Original Worker receipt-456."); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.openHandoff(); err != nil { // Restart before recording private adoption.
+		t.Fatal(err)
+	}
+	if err := r.handoff.supersede(); err != nil { // New human input arrives before the background recovery.
+		t.Fatal(err)
+	}
+	for _, target := range [][2]string{{"old-session", "original-call"}, {"new-session", "other-call"}} {
+		if seed := r.PrepareHandoffContextFor(target[0], target[1]); seed.Text != "" {
+			t.Fatal("seed escaped its proven destination", target)
+		}
+	}
+	seed := r.PrepareHandoffContextFor("new-session", "original-call")
+	if seed.HandoffDigest == "" || !strings.Contains(seed.Text, "receipt-456") {
+		t.Fatal("first input lost the committed handoff")
+	}
+	if err := r.ConsumeHandoffContext(seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.openHandoff(); err != nil {
+		t.Fatal(err)
+	}
+	state := r.handoff.pending()
+	if len(state.Receipts) != 1 || state.Receipts[0].NewSession != "new-session" || state.CallID != "" || r.PrepareHandoffContextFor("new-session", "original-call").Text != "" {
+		t.Fatal("original adoption was lost or injected again")
 	}
 }
 
@@ -230,7 +265,7 @@ func TestHandoffReceiptWriteFailureKeepsCurrentProcessAndOriginalDiskRecoverable
 			if err := h.record("original-call", newSession, outcome); err == nil {
 				t.Fatal("synthetic disk failure was not observed")
 			}
-			if outcome == "committed" && h.prepareFor("new-session").Text == "" {
+			if outcome == "committed" && h.prepareFor("new-session", "").Text == "" {
 				t.Fatal("accepted new Session cannot receive in-memory handoff")
 			}
 			if outcome == "fallback" && h.pending().CallID != "" {

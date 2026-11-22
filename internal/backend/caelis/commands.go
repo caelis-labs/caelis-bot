@@ -297,7 +297,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		s.mu.Lock()
 		var seed string
 		s.cleanupContextLocked()
-		seed, e = s.state.Context.Prepare(api.WithContextSession(ctx, sid), s.tools, in.ID)
+		seed, e = s.state.Context.Prepare(api.WithContextSession(ctx, sid, s.state.RenewedBy), s.tools, in.ID)
 		if e == nil && seed != "" {
 			if s.state.ContextInputs == nil {
 				s.state.ContextInputs = map[string]int{}

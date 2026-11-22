@@ -22,15 +22,17 @@ var ErrConversationRenewalDeferred = errors.New("conversation renewal deferred")
 type renewalGuardKey struct{}
 type renewalCommitKey struct{}
 type contextSessionKey struct{}
+type contextSession struct{ session, renewedBy string }
 
-// WithContextSession binds seed preparation to the native submission target.
-func WithContextSession(ctx context.Context, session string) context.Context {
-	return context.WithValue(ctx, contextSessionKey{}, session)
+// WithContextSession binds seed preparation to the persisted native target and
+// its original renewal identity, including after a crash during adoption.
+func WithContextSession(ctx context.Context, session, renewedBy string) context.Context {
+	return context.WithValue(ctx, contextSessionKey{}, contextSession{session, renewedBy})
 }
 
-func ContextSession(ctx context.Context) string {
-	session, _ := ctx.Value(contextSessionKey{}).(string)
-	return session
+func ContextSession(ctx context.Context) (session, renewedBy string) {
+	binding, _ := ctx.Value(contextSessionKey{}).(contextSession)
+	return binding.session, binding.renewedBy
 }
 
 // Checks may read required memory outside native locks. Commit performs the
