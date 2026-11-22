@@ -77,6 +77,7 @@ type Session struct {
 	observationBudgets    map[string]*sharedruntime.ObservationBudget
 	wake                  chan struct{}
 	streams               map[string]bool
+	callObservers         map[string]bool
 	projectionSavedAt     time.Time
 	projectionPublishedAt time.Time
 
@@ -130,10 +131,6 @@ func (s *Session) Connect(ctx context.Context) error {
 		s.ctx, s.cancel = context.WithCancel(context.Background())
 		s.wg.Add(1)
 		go s.pollLoop(s.ctx)
-		if !s.retainedWorkers {
-			s.wg.Add(1)
-			go s.callLoop(s.ctx)
-		}
 	}
 	life := s.ctx
 	s.mu.Unlock()
@@ -330,6 +327,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.streamCtx = nil
 	s.streamCancel = nil
 	s.streams = map[string]bool{}
+	s.callObservers = nil
 	s.state.InstanceID = value(info.InstanceId)
 	e = s.saveLocked()
 	s.mu.Unlock()

@@ -126,6 +126,7 @@ export interface Item {
   task?: TaskPresentation | null;
   questionCards?: Array<QuestionCard>;
   questionReply?: QuestionReply | null;
+  remoteCommand?: boolean | null;
 }
 export interface LocalWorkerSettings {
   runtime: string;

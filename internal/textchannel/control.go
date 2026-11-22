@@ -33,6 +33,7 @@ type Reference struct{ Conversation, MessageID string }
 type Inbound struct {
 	Channel, Conversation, ID, Text string
 	Reference                       *Reference // transport supplied; quoted text is never authority
+	ControlCommand                  bool       // recognized from the original transport input
 	observed                        bool
 	expectedQuestionBinding         string // immutable desktop card generation; never inferred from prose
 }
@@ -724,6 +725,22 @@ func label(c api.Choice) string {
 }
 func IsCommand(text string) bool { return strings.HasPrefix(strings.TrimSpace(text), "/") }
 
+// RecognizedCommand identifies shared controls without changing the handling of
+// unknown slash input. Recognized commands can still return validation feedback.
+func RecognizedCommand(text string) bool {
+	return sharedCommand(strings.Fields(text)) != ""
+}
+
+func sharedCommand(fields []string) string {
+	if len(fields) != 0 {
+		switch fields[0] {
+		case "/approve", "/answer", "/dismiss":
+			return fields[0]
+		}
+	}
+	return ""
+}
+
 func cardKey(channel, conversation, messageID string) string {
 	return channel + "\x00" + conversation + "\x00" + messageID
 }
@@ -943,7 +960,8 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 	if len(parts) == 0 {
 		return "空命令。"
 	}
-	if parts[0] == "/dismiss" {
+	command := sharedCommand(parts)
+	if command == "/dismiss" {
 		if len(parts) != 2 {
 			return s.reply(key, "请使用 /dismiss Q编号 关闭普通异步问题。")
 		}
@@ -955,7 +973,7 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 		}
 		return s.reply(key, s.DismissQuestion(ctx, in.ID, parts[1], q.Fingerprint))
 	}
-	if parts[0] != "/approve" && parts[0] != "/answer" {
+	if command == "" {
 		return s.reply(key, "未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。")
 	}
 	if len(parts) < 3 {

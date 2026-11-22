@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
 // SubmitRemote uses the same resident submission and admission checks as the
@@ -74,6 +75,9 @@ func ResolveRemoteArtifact(s *Service, id string) (string, error) {
 // ResolveRemoteArtifactCopy keeps the verified native name beside the owned
 // local bytes. It is host-only; TaskFileCopy.Path is never serialized to clients.
 func ResolveRemoteArtifactCopy(s *Service, id string) (api.TaskFileCopy, error) {
+	if workerfiles.IsInputReference(id) {
+		return s.uploadArtifactCopy(id)
+	}
 	if value, ok, err := s.taskArtifactCopy(id); ok {
 		return value, err
 	}

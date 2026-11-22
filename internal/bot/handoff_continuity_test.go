@@ -126,7 +126,7 @@ func TestDreamReadsRequiredMemoryBeforeEndingTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = r.CallTool(ctx, "bot_dream", json.RawMessage(`{"handoff":"Keep task-original and authorization limits."}`))
-	if out.IsError || !out.TurnComplete || r.handoff.pending().MemoryDigest == "" {
+	if out.IsError || out.CheckTurnComplete == nil || r.handoff.pending().MemoryDigest == "" {
 		t.Fatal("repaired memory did not allow the original unaccepted call", out)
 	}
 }
@@ -166,7 +166,7 @@ func TestMemoryChangeDuringCreationKeepsOldConversation(t *testing.T) {
 			}
 			invocation := api.ToolInvocation{Provider: "codex", CallID: "original", Session: "old", Turn: "turn"}
 			out := r.CallTool(api.WithToolInvocation(t.Context(), invocation), "bot_dream", json.RawMessage(`{"handoff":"Original goal; task-original; pending question; revoked scope; uncertain operation receipt-original."}`))
-			if out.IsError || !out.TurnComplete {
+			if out.IsError || out.CheckTurnComplete == nil {
 				t.Fatal(out)
 			}
 			if err := r.RenewPendingToolHandoff(t.Context()); err != nil {

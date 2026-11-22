@@ -103,6 +103,23 @@ func inputReference(key string, index int, digest string) string {
 // owner instead of falling through to an unrelated resident artifact resolver.
 func IsInputReference(id string) bool { return strings.HasPrefix(id, inputReferencePrefix) }
 
+// References returns the original ordered metadata without reading file bytes.
+func (s *Inputs) References(submission string) []InputReference {
+	if s == nil || submission == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.checkDirectories() != nil {
+		return nil
+	}
+	manifest, err := s.manifest(inputHash([]byte(submission)))
+	if err != nil {
+		return nil
+	}
+	return manifest.Files
+}
+
 func parseInputReference(id string) (key string, index int, digest string, ok bool) {
 	parts := strings.Split(strings.TrimPrefix(id, inputReferencePrefix), ":")
 	if !IsInputReference(id) || len(parts) != 3 || !inputHex(parts[0]) || !inputHex(parts[2]) {

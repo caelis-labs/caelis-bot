@@ -14,9 +14,12 @@ import (
 // Track only native command identities associated with observed approvals. This
 // is a finite completion notice, never a replay of the command or a new grant.
 type commandFollowup struct {
+	Session         string `json:"session,omitempty"`
 	Done            bool   `json:"done,omitempty"`
 	DeliveryFailure string `json:"deliveryFailure,omitempty"`
 }
+
+func (f commandFollowup) belongsTo(sid string) bool { return f.Session == "" || f.Session == sid }
 
 // This is optional Host observation support, not part of the Bot connection
 // contract. Recheck the current handshake after reconnect before any request.
@@ -30,7 +33,7 @@ func (s *Session) trackCommandApprovalLocked(sid, callID, kind string) {
 		s.state.CommandFollowups = map[string]commandFollowup{}
 	}
 	if _, exists := s.state.CommandFollowups[callID]; !exists {
-		s.state.CommandFollowups[callID] = commandFollowup{}
+		s.state.CommandFollowups[callID] = commandFollowup{Session: sid}
 	}
 }
 
@@ -111,7 +114,7 @@ func (s *Session) prepareCommandNotice(ctx context.Context) (*commandNotice, err
 	}
 	pending := []string{}
 	for id, f := range s.state.CommandFollowups {
-		if !f.Done && f.DeliveryFailure == "" {
+		if !f.Done && f.DeliveryFailure == "" && f.belongsTo(sid) {
 			pending = append(pending, id)
 		}
 	}
@@ -203,7 +206,9 @@ func (s *Session) prepareCommandNotice(ctx context.Context) (*commandNotice, err
 func (s *Session) finishCommandFollowup(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state.CommandFollowups[id] = commandFollowup{Done: true}
+	f := s.state.CommandFollowups[id]
+	f.Done, f.DeliveryFailure = true, ""
+	s.state.CommandFollowups[id] = f
 	return s.saveLocked()
 }
 

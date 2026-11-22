@@ -107,7 +107,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 			s.profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}}
 			s.tools = &api.ToolConnection{RuntimeVersion: "new-version"}
 			if toolCall {
-				s.state.Calls["original-tool-call"] = callRecord{Call: wire.SessionToolCall{Id: "original-tool-call", SessionId: "main", TurnId: "turn"}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+				s.state.Calls["original-tool-call"] = callRecord{Phase: "completed", Call: wire.SessionToolCall{Name: "bot_dream", Id: "original-tool-call", SessionId: "main", TurnId: "turn"}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded"}}
 			} else {
 				s.state.Operations["dream"] = journal{Path: "/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
 			}

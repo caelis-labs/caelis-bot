@@ -150,7 +150,7 @@ func TestDreamToolKeepsOriginalCallAndFencesBotEffectsThroughFirstInput(t *testi
 	invocation := api.ToolInvocation{Provider: "codex", CallID: `"mcp-call-7"`, Session: "old-session", Turn: "original-turn"}
 	ctx := api.WithToolInvocation(t.Context(), invocation)
 	out := r.CallTool(ctx, "bot_dream", json.RawMessage(`{"handoff":"Identity; task handle task-123; unknown receipt receipt-456; next action."}`))
-	if out.IsError || !out.TurnComplete || r.handoff.pending().CallID != invocation.CallID {
+	if out.IsError || out.CheckTurnComplete == nil || r.handoff.pending().CallID != invocation.CallID {
 		t.Fatal("original terminal call not saved", out)
 	}
 	other := json.RawMessage(`{"request":{"type":"context"}}`)
@@ -194,7 +194,7 @@ func TestFailedDreamHandoffPreservesRecoverableSummaryAndOldContext(t *testing.T
 		t.Fatal(err)
 	}
 	invocation := api.ToolInvocation{Provider: "codex", CallID: `"mcp-call-unknown"`, Session: "old-session", Turn: "original-turn"}
-	if out := r.CallTool(api.WithToolInvocation(t.Context(), invocation), "bot_dream", json.RawMessage(`{"handoff":"Keep original task receipt-unknown."}`)); out.IsError || !out.TurnComplete {
+	if out := r.CallTool(api.WithToolInvocation(t.Context(), invocation), "bot_dream", json.RawMessage(`{"handoff":"Keep original task receipt-unknown."}`)); out.IsError || out.CheckTurnComplete == nil {
 		t.Fatal(out)
 	}
 	if err := r.handoff.record(invocation.CallID, "", "unknown_fallback"); err != nil {

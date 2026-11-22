@@ -1899,6 +1899,32 @@ func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	}
 }
 
+func TestTelegramChatClassificationUsesOriginalTextAndKeepsStatusFeedback(t *testing.T) {
+	var recorded []textchannel.Inbound
+	var submitted []api.Submission
+	b, f := testBridge(t, Host{
+		RecordInput: func(in textchannel.Inbound, _ bool) { recorded = append(recorded, in) },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submitted = append(submitted, in)
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	caption := message(3, 10, 20, "")
+	caption.Message.Caption = "/status"
+	for _, update := range []tg.Update{message(1, 10, 20, "/status"), message(2, 10, 20, "/usr/local/bin"), caption} {
+		if !b.input(t.Context(), f, update) {
+			t.Fatal("could not process fixture ingress")
+		}
+	}
+	if len(recorded) != 3 || !recorded[0].ControlCommand || recorded[1].ControlCommand || recorded[2].ControlCommand || recorded[2].Text != "/status" {
+		t.Fatalf("chat classification used the caption or generic slash routing: %+v", recorded)
+	}
+	if len(submitted) != 1 || submitted[0].ID != recorded[2].ID || len(f.texts) == 0 || !strings.Contains(f.texts[0], "online") {
+		t.Fatalf("original status feedback or caption submission was lost: %+v / %v", submitted, f.texts)
+	}
+}
+
 func TestOldControlNoticesAreSeededWithoutReplayingNewOnes(t *testing.T) {
 	root := t.TempDir()
 	control, err := textchannel.Open(root, nil)

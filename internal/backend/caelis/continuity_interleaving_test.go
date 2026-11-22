@@ -85,8 +85,8 @@ func TestCallbackAfterAcceptedHumanSteeringIsNonterminalAndNotReplayed(t *testin
 	host := &acceptanceTools{call: func(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 		effects.Add(1)
 		out := r.CallTool(ctx, name, args)
-		if out.IsError || !out.TurnComplete {
-			t.Error("initial Dream was not terminal", out)
+		if out.IsError || out.CheckTurnComplete == nil {
+			t.Error("initial Dream was not accepted", out)
 		}
 		receipt, err := service.Submit(ctx, api.Submission{ID: "correction", Text: "Keep the original work; wait for my review."})
 		if err != nil || receipt.Outcome != "accepted" {
@@ -101,11 +101,11 @@ func TestCallbackAfterAcceptedHumanSteeringIsNonterminalAndNotReplayed(t *testin
 			t.Fatal(err)
 		}
 	}
-	if effects.Load() != 1 || steers.Load() != 1 || results.Load() != 2 {
+	if effects.Load() != 1 || steers.Load() != 1 || results.Load() != 1 {
 		t.Fatal("replayed original effect or input", effects.Load(), steers.Load(), results.Load())
 	}
 	for _, receipt := range receipts {
-		if receipt.Outcome != "failed" || value(receipt.TurnComplete) {
+		if receipt.Outcome != "failed" {
 			t.Fatal("stale Dream terminated accepted steering", receipt)
 		}
 	}
@@ -150,7 +150,7 @@ func TestHumanIngressAfterLastReadCannotBeOvertakenByNativeAdoption(t *testing.T
 			wrapped := &pausedContinuitySession{Session: s, checked: make(chan struct{}), release: make(chan struct{})}
 			resident, service := continuityResident(t, wrapped)
 			result := resident.CallTool(api.WithToolInvocation(t.Context(), call), "bot_dream", json.RawMessage(`{"handoff":"Original task and authorization; review note path and unread scope remain pending."}`))
-			if result.IsError || !result.TurnComplete {
+			if result.IsError || result.CheckTurnComplete == nil {
 				t.Fatal(result)
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

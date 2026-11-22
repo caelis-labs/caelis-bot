@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,10 +23,23 @@ import (
 // Both the Host store and model endpoint are isolated under this test.
 func TestNativeHostBotDreamRenewal(t *testing.T) {
 	ctx, s, resident, model := nativeDreamFixture(t, nil)
+	oldModelEntered, release := make(chan struct{}, 1), make(chan struct{})
+	finishOld := sync.OnceFunc(func() { close(release) })
+	defer finishOld()
+	model.set("CASE_DREAM",
+		modelStep{Name: "bot_dream", Args: map[string]string{"handoff": "Identity: fixture Bot. Original task task-123; uncertain receipt receipt-456. Continue on the next user request."}},
+		modelStep{Entered: oldModelEntered, Block: release, Reply: "Original conversation finished late."},
+	)
 	old := s.ConversationState().Session
 	oldGeneration := s.BotPluginGeneration()
-	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_dream", Text: "CASE_DREAM"}, nil); err != nil || receipt.Outcome != "accepted" {
+	initial := api.Submission{ID: "case_dream", Text: "CASE_DREAM"}
+	if receipt, err := resident.SubmitUser(ctx, initial, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
+	}
+	select {
+	case <-oldModelEntered:
+	case <-ctx.Done():
+		t.Fatal("old turn did not continue naturally", ctx.Err())
 	}
 	waitAcceptance(t, ctx, func() bool {
 		state := s.ConversationState()
@@ -34,32 +48,56 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	if s.BotPluginGeneration() == oldGeneration {
 		t.Fatal("new Core Session retained old tool discovery generation")
 	}
-	if len(model.seen("CASE_DREAM")) != 1 {
-		t.Fatal("old Core Turn entered a second model step")
-	}
-	var originalCall string
+	var original wire.SessionToolCall
+	s.mu.Lock()
 	for id, record := range s.state.Calls {
 		if record.Call.Name == "bot_dream" {
-			originalCall = id
-			if record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
+			if record.Phase != "completed" || record.Receipt == nil || record.Receipt.Outcome != "succeeded" {
+				s.mu.Unlock()
 				t.Fatal("original terminal callback receipt missing", record)
+			}
+			original = record.Call
+			if id != original.Id || s.state.RenewedBy != id || !value(s.state.Views[old].State.Run.Active) {
+				s.mu.Unlock()
+				t.Fatal("handoff waited for old turn or lost original identity")
 			}
 		}
 	}
-	if originalCall == "" || s.state.RenewedBy != originalCall {
-		t.Fatal("new session not bound to original callback ID", originalCall, s.state.RenewedBy)
+	s.mu.Unlock()
+	if original.Id == "" {
+		t.Fatal("registered tool did not produce an original callback")
 	}
-	if receipt, err := resident.SubmitSystem(ctx, api.SystemMessage{ID: "case_next", Source: api.SystemWorkerQuestion, Text: "CASE_NEXT original Worker question awaits a response."}); err != nil || receipt.Outcome != "accepted" {
+	invocation := api.ToolInvocation{Provider: "caelis", CallID: original.Id, Session: old, Turn: original.TurnId}
+	if session, err := s.RenewAfterTool(ctx, invocation); err != nil || session != s.ConversationState().Session {
+		t.Fatal("duplicate handoff did not return its original destination", session, err)
+	}
+	if receipt, err := resident.SubmitUser(ctx, initial, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal("duplicate source message lost its receipt", receipt, err)
+	}
+	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_next", Text: "CASE_NEXT continue the original task."}, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
 	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_NEXT")) != 0 })
 	first, _ := json.Marshal(model.seen("CASE_NEXT")[0])
-	if !strings.Contains(string(first), "receipt-456") || strings.Contains(string(first), originalCall) {
+	if !strings.Contains(string(first), "receipt-456") || strings.Contains(string(first), original.Id) || strings.Contains(string(first), "CASE_DREAM") {
 		t.Fatal("new first prompt lost private handoff or inherited old call", string(first))
 	}
-	if len(s.state.PastSessions) == 0 || s.state.PastSessions[len(s.state.PastSessions)-1] != old {
-		t.Fatal("old Core Session identity not retained")
+	s.mu.Lock()
+	oldStillRunning := value(s.state.Views[old].State.Run.Active)
+	owned := s.state.Operations["case_next"].Path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt"
+	s.mu.Unlock()
+	if !oldStillRunning || !owned {
+		t.Fatal("next message did not run independently in the new session")
 	}
+	finishOld()
+	waitAcceptance(t, ctx, func() bool {
+		for _, item := range s.Snapshot().Items {
+			if item.Text == "Original conversation finished late." && item.TurnKey == original.TurnId && item.Status == "completed" {
+				return true
+			}
+		}
+		return false
+	})
 
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_later", Text: "CASE_LATER keep the original limits."}, nil); err != nil || receipt.Outcome != "accepted" {
@@ -142,19 +180,12 @@ func nativeDreamFixture(t *testing.T, beforeConnect func(api.RuntimeSettings)) (
 		if err != nil {
 			return seed, err
 		}
-		handoff := resident.PrepareHandoffContext()
+		handoff := resident.PrepareHandoffContextFor(api.ContextSession(ctx))
 		seed.Text += handoff.Text
 		seed.HandoffDigest = handoff.HandoffDigest
 		return seed, nil
 	}
 	config.ConsumeContext = resident.ConsumeHandoffContext
-	config.FinishTurn = func() {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			_ = resident.RenewPendingToolHandoff(ctx)
-		}()
-	}
 	if beforeConnect != nil {
 		beforeConnect(settings)
 	}

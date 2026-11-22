@@ -2,20 +2,37 @@ package telegram
 
 import (
 	"context"
-	tg "github.com/mymmrac/telego"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
+	tg "github.com/mymmrac/telego"
 )
+
+func ingressCommandName(text string) string {
+	name, _, _ := strings.Cut(text, " ")
+	return name
+}
+
+func localCommand(name string) bool {
+	switch name {
+	case "/status", "/stop", "/start":
+		return true
+	default:
+		return false
+	}
+}
+
+func RecognizedCommand(text string) bool {
+	return localCommand(ingressCommandName(text)) || textchannel.RecognizedCommand(text)
+}
 
 func ingressKind(u tg.Update) int {
 	if u.CallbackQuery != nil {
 		return 0
 	}
-	if u.Message != nil {
-		switch strings.Split(u.Message.Text, " ")[0] {
-		case "/status", "/stop", "/start":
-			return 1
-		}
+	if u.Message != nil && localCommand(ingressCommandName(u.Message.Text)) {
+		return 1
 	}
 	return 2
 }

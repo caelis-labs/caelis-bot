@@ -119,6 +119,9 @@ type Item struct {
 	QuestionCards []QuestionCard `json:"questionCards,omitempty"`
 	// QuestionReply is a receipt-backed display copy, never a decision target.
 	QuestionReply *QuestionReply `json:"questionReply,omitempty"`
+	// RemoteCommand marks the original remote input, before captions or private
+	// answers are substituted for display. Nil also covers pre-upgrade history.
+	RemoteCommand *bool `json:"remoteCommand,omitempty"`
 	// Native async call metadata is host-only. QuestionCards carry only the
 	// presentation-safe short references registered by the shared controller.
 	AsyncCallID    string          `json:"-"`

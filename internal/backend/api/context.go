@@ -21,6 +21,17 @@ var ErrConversationRenewalDeferred = errors.New("conversation renewal deferred")
 
 type renewalGuardKey struct{}
 type renewalCommitKey struct{}
+type contextSessionKey struct{}
+
+// WithContextSession binds seed preparation to the native submission target.
+func WithContextSession(ctx context.Context, session string) context.Context {
+	return context.WithValue(ctx, contextSessionKey{}, session)
+}
+
+func ContextSession(ctx context.Context) string {
+	session, _ := ctx.Value(contextSessionKey{}).(string)
+	return session
+}
 
 // Checks may read required memory outside native locks. Commit performs the
 // final human-priority check and adoption in one short host critical section.

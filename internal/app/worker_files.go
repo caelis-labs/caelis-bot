@@ -6,6 +6,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
+	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ func (a *Application) configureTaskFiles(m *tasks.Manager) {
 		return
 	}
 	backend.ConfigureWorkerInputs(a.Backend, filepath.Join(a.root, "WorkerInputs"))
+	a.Backend.ConfigureUploadArtifactCopies(workerfiles.OpenOutputs(filepath.Join(a.root, "Tasks", ".files")))
 	m.ConfigureInputResolver(a.residentWorkerFile)
 	a.Backend.ConfigureWorkerTaskView(m)
 	a.Backend.ConfigureWorkerFiles(filepath.Join(a.root, "WorkerFiles"), m)

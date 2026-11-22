@@ -89,7 +89,7 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 	if stopped {
 		return result(nil, errors.New("Bot 已停止"))
 	}
-	if r.handoff != nil && r.handoff.pending().CallID != "" {
+	if r.handoffBlocksTool(ctx, name) {
 		return result(nil, errors.New("Bot context handoff is completing"))
 	}
 	available := false

@@ -165,6 +165,9 @@ func (l *Log) observeLocked(item api.Item, lookup bool) {
 func mergeObservedItem(item, old api.Item) api.Item {
 	if item.Kind == "user" {
 		preserveQuestionReply(&item, old)
+		if item.RemoteCommand == nil {
+			item.RemoteCommand = old.RemoteCommand
+		}
 		nativeEcho := !strings.HasPrefix(item.ID, "outgoing:") && !strings.HasPrefix(item.ID, "channel-input:") && !strings.HasPrefix(item.ID, "control-input:")
 		if nativeEcho && old.Text != "" {
 			item.Text = old.Text

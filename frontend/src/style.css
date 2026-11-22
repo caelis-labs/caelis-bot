@@ -115,6 +115,14 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 .artifact-link { display:inline-flex; align-items:baseline; gap:5px; max-width:100%; min-width:0; padding:0; border:0; background:transparent; color:var(--caelis-link); font:inherit; font-size:12px; font-weight:600; text-align:left; text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
 .artifact-link:hover { color:var(--accent); }
 .artifact-link span { flex:none; font-size:10px; text-decoration:none; }
+.sent-files { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+.message.user > :not(.sent-files) + .sent-files { margin-top:7px; }
+.sent-file { display:inline-flex; align-items:center; min-width:0; max-width:min(100%, 20rem); padding:3px 8px; border:1px solid var(--line); border-radius:7px; background:var(--wash); color:var(--ink); font:inherit; font-size:12px; line-height:1.6; text-align:start; }
+.sent-file svg { flex:none; margin-inline-end:6px; color:var(--muted); }
+.sent-file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sent-file-extension { flex:none; }
+button.sent-file:hover { background:var(--caelis-hover); }
+button.sent-file:focus-visible { outline:2px solid var(--caelis-focus); outline-offset:2px; }
 .artifact-context-menu { position:fixed; z-index:80; width:195px; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b; }
 .artifact-context-menu button { display:block; width:100%; padding:7px 9px; border:0; border-radius:7px; background:transparent; color:var(--ink); font:inherit; font-size:12px; text-align:left; }
 .artifact-context-menu button:hover,.artifact-context-menu button:focus-visible { background:var(--caelis-hover); }

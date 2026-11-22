@@ -761,7 +761,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		// Request-ID deduplication keeps the later dispatch echo in its place.
 		if b.host.RecordInput != nil {
 			for _, in := range received {
-				b.host.RecordInput(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID, Text: in.Text}, in.Secret)
+				b.recordInput(owner, in)
 			}
 		}
 	}
@@ -856,7 +856,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	owner := b.state.OwnerID
 	b.mu.Unlock()
 	if b.host.RecordInput != nil {
-		b.host.RecordInput(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID, Text: in.Text}, in.Secret)
+		b.recordInput(owner, in)
 	}
 	if control {
 		if localCommand(in.Text) {

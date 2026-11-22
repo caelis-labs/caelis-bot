@@ -229,6 +229,18 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		return api.Receipt{ID: in.ID, Outcome: "rejected", Deferred: true}, nil
 	}
 	original, retry := s.state.Operations[in.ID]
+	if retry && source == "user" && s.pastResidentOperationLocked(original.Path) {
+		fingerprint := s.state.ContextRequests[in.ID]
+		s.mu.Unlock()
+		if fingerprint == "" {
+			return api.Receipt{ID: in.ID, Outcome: "unknown"}, nil
+		}
+		if fingerprint != submissionFingerprint(in, files) {
+			receipt.Message = "同一标识不能用于不同消息"
+			return receipt, nil
+		}
+		return api.Receipt{ID: in.ID, Outcome: productOutcome(wire.Outcome(original.Outcome))}, nil
+	}
 	if retry && in.HostNotice && original.hostNotice() {
 		// Reconcile the original intent, including legacy summary sources.
 		// command still checks its exact path/body digest and never re-POSTs it.
@@ -275,36 +287,22 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 			s.state.ContextInputs = map[string]int{}
 		}
 		s.state.ContextInputs[in.ID] = len(in.ModelQuotePrefix())
-		if in.ModelQuotePrefix() != "" {
-			if s.state.ContextRequests == nil {
-				s.state.ContextRequests = map[string]string{}
-			}
-			original, _ := json.Marshal(struct {
-				Input api.Submission
-				Files []api.InputFile
-			}{in, files})
-			s.state.ContextRequests[in.ID] = digest(original)
+		if s.state.ContextRequests == nil {
+			s.state.ContextRequests = map[string]string{}
 		}
+		s.state.ContextRequests[in.ID] = submissionFingerprint(in, files)
 		s.mu.Unlock()
 	}
 	if !retry && v.CanSend {
 		s.mu.Lock()
 		var seed string
 		s.cleanupContextLocked()
-		seed, e = s.state.Context.Prepare(ctx, s.tools, in.ID)
+		seed, e = s.state.Context.Prepare(api.WithContextSession(ctx, sid), s.tools, in.ID)
 		if e == nil && seed != "" {
 			if s.state.ContextInputs == nil {
 				s.state.ContextInputs = map[string]int{}
 			}
 			s.state.ContextInputs[in.ID] += len(seed)
-			if s.state.ContextRequests == nil {
-				s.state.ContextRequests = map[string]string{}
-			}
-			original, _ := json.Marshal(struct {
-				Input api.Submission
-				Files []api.InputFile
-			}{in, files})
-			s.state.ContextRequests[in.ID] = digest(original)
 			text := seed + modelText
 			req.Input = &text
 		}
@@ -316,11 +314,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		s.mu.Lock()
 		j := s.state.Operations[in.ID]
 		if s.state.ContextInputs[in.ID] > 0 {
-			original, _ := json.Marshal(struct {
-				Input api.Submission
-				Files []api.InputFile
-			}{in, files})
-			if s.state.ContextRequests[in.ID] != digest(original) {
+			if s.state.ContextRequests[in.ID] != submissionFingerprint(in, files) {
 				s.mu.Unlock()
 				receipt.Message = "同一标识不能用于不同消息"
 				return receipt, nil
@@ -365,6 +359,13 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		return api.Receipt{ID: in.ID, Outcome: "unknown", Message: "发送回执未能保存，请重新连接核对"}, nil
 	}
 	return receipt, nil
+}
+
+func submissionFingerprint(in api.Submission, files []api.InputFile) string {
+	return api.WorkFingerprint(struct {
+		Input api.Submission
+		Files []api.InputFile
+	}{in, files})
 }
 func (s *Session) Interrupt(ctx context.Context) error {
 	s.step.Lock()

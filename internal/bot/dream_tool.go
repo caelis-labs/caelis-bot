@@ -36,7 +36,7 @@ func (r *Runtime) callDreamTool(ctx context.Context, args map[string]any) api.To
 		return compactError("handoff_unavailable", err)
 	}
 	out := compactValue(map[string]any{"ok": true, "data": map[string]any{"callId": invocation.CallID, "sourceSession": invocation.Session, "turn": invocation.Turn, "status": "accepted"}}, false)
-	out.TurnComplete = true
+	out.TurnComplete = invocation.Provider == "codex"
 	out.CheckTurnComplete = func() error { return r.checkDreamCompletion(invocation) }
 	return out
 }
@@ -91,8 +91,8 @@ func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 	return nil
 }
 
-// RenewPendingToolHandoff runs after the resident callback Turn becomes
-// terminal. The original callback receipt remains the only create authority.
+// RenewPendingToolHandoff reconciles the original handoff request without
+// redispatching its tool effect.
 func (r *Runtime) RenewPendingToolHandoff(ctx context.Context) error {
 	return r.renewToolHandoff(ctx)
 }

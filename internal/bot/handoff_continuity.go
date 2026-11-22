@@ -47,6 +47,28 @@ func (r *Runtime) checkDreamCompletion(invocation api.ToolInvocation) error {
 	return nil
 }
 
+func (r *Runtime) handoffBlocksTool(ctx context.Context, name string) bool {
+	invocation, bound := api.ToolInvocationFromContext(ctx)
+	nativeCall := bound && invocation.Provider == "caelis"
+	if name != "bot_dream" && r.handoff != nil {
+		pending := r.handoff.pending()
+		if pending.CallID != "" && (!nativeCall || pending.Source == invocation.Session) {
+			return true
+		}
+	}
+	if nativeCall {
+		r.mu.Lock()
+		engine := r.engine
+		r.mu.Unlock()
+		if native, ok := engine.(api.ConversationRuntime); ok {
+			if session := native.ConversationState().Session; session != "" && session != invocation.Session {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Runtime) guardRenewal(ctx context.Context, pending handoffState) context.Context {
 	check := func() error {
 		current := r.handoff.pending()
@@ -56,6 +78,9 @@ func (r *Runtime) guardRenewal(ctx context.Context, pending handoffState) contex
 		return nil
 	}
 	ctx = api.WithRenewalGuard(ctx, func() error {
+		if err := check(); err != nil {
+			return err
+		}
 		// Required memory is read outside the host commit lock and native locks.
 		digest, err := r.dreamMemoryDigest(ctx)
 		if err != nil || pending.MemoryDigest != "" && digest != pending.MemoryDigest {

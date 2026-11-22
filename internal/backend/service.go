@@ -26,6 +26,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	legacyRemoteCommand         func(api.Item) bool
 	processEpoch                string // Protected with engine by engineMu; revisions belong to this binding.
 	workerInteractionMu         sync.RWMutex
 	chat                        *chatlog.Log
@@ -36,6 +37,7 @@ type Service struct {
 	workerView                  api.WorkerTaskViewer
 	workerFileRoot              string
 	workerInputs                *workerfiles.Inputs
+	uploadArtifactCopies        *workerfiles.Outputs
 	workerInputsError           error
 	machines                    api.MachineController
 	admission                   sync.RWMutex
@@ -493,6 +495,12 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
+		item = s.presentChatAttachments(item)
+		if item.Kind == "user" && item.QuestionReply == nil {
+			if item.RemoteCommand != nil && *item.RemoteCommand || item.RemoteCommand == nil && s.legacyRemoteCommand != nil && s.legacyRemoteCommand(item) {
+				continue
+			}
+		}
 		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.Kind == "tool" && (item.Status == "completed" || item.Status == "accepted") && len(item.Artifacts) > 0 {
 			item.Details = ""
 			items = append(items, item)
@@ -521,6 +529,11 @@ func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
 	s.mu.Unlock()
 }
 func (s *Service) ConfigureChat(path string) { s.chat = chatlog.Open(path) }
+
+func (s *Service) ConfigureLegacyRemoteCommand(classify func(api.Item) bool) {
+	s.legacyRemoteCommand = classify
+}
+
 func (s *Service) ObserveChat(v api.Snapshot) {
 	if s.chat != nil {
 		s.chat.Observe(v.Items)
@@ -916,6 +929,13 @@ func (s *Service) CancelLogin(ctx context.Context) error {
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
+	if workerfiles.IsInputReference(id) {
+		value, err := ResolveRemoteArtifactCopy(s, id)
+		if err != nil {
+			return errors.New("文件已不可用")
+		}
+		return s.reveal(value.Path)
+	}
 	if path, ok, err := s.taskArtifact(id); ok {
 		if err != nil {
 			return err
