@@ -63,7 +63,11 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 	if dream {
 		decision = modelStep{Name: "bot_dream", Args: map[string]string{"handoff": "Identity: fixture Bot. Preference: short replies. Goal: original task; no deployment. Original task handle: task-123. Authorization: read only; deployment revoked. Unknown receipt: receipt-456; reconcile only. Review path: review-notes.md; reviewed src/a; unread src/b. Next: inspect original Worker question."}}
 	}
-	model.set("CASE_ORIGINAL", modelStep{Reply: "Original task retained."}, modelStep{Name: "Read", Args: map[string]string{"path": memoryReference}}, decision)
+	steps := []modelStep{{Reply: "Original task retained."}, {Name: "Read", Args: map[string]string{"path": memoryReference}}, decision}
+	if dream {
+		steps = append(steps, modelStep{Reply: api.SilentReminder})
+	}
+	model.set("CASE_ORIGINAL", steps...)
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
 	if err := os.Mkdir(filepath.Join(root, "home"), 0700); err != nil {
 		t.Fatal(err)
@@ -205,9 +209,7 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 	if s.BotPluginGeneration() == oldGeneration {
 		t.Fatal("new Core Session retained old tool discovery generation")
 	}
-	if len(model.seen("CASE_ORIGINAL")) != 3 {
-		t.Fatal("old Core Turn entered a second model step")
-	}
+	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_ORIGINAL")) == 4 })
 	requests := model.seen("CASE_ORIGINAL")
 	beforeRead, _ := json.Marshal(requests[1])
 	afterRead, _ := json.Marshal(requests[2])
@@ -218,7 +220,7 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 	for id, record := range s.state.Calls {
 		if record.Call.Name == "bot_dream" {
 			originalCall = id
-			if record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
+			if record.Phase != "completed" || record.Receipt == nil || record.Receipt.Outcome != "succeeded" {
 				t.Fatal("original terminal callback receipt missing", record)
 			}
 		}

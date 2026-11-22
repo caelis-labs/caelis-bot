@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
 func localCommand(body string) bool {
@@ -17,6 +19,17 @@ func localCommand(body string) bool {
 		return true
 	}
 	return false
+}
+
+func RecognizedCommand(body string) bool {
+	return localCommand(body) || textchannel.RecognizedCommand(body)
+}
+
+func (b *Bridge) recordInput(owner string, in inbound) {
+	b.host.RecordInput(textchannel.Inbound{
+		Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID, Text: in.Text,
+		ControlCommand: in.Secret || RecognizedCommand(in.Text),
+	}, in.Secret)
 }
 
 func (b *Bridge) localFeedback(ctx context.Context, p *protocol, in inbound, body string) {

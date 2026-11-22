@@ -87,7 +87,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
 	b.dispatch(t.Context(), p)
 	b.dispatch(t.Context(), p)
-	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" {
+	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" || !input[0].ControlCommand {
 		t.Fatal("owner command was not journaled once", input)
 	}
 	if sent.Load() != 1 || len(texts) != 1 {

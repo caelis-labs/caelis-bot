@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,7 +53,7 @@ func continuityFixture(t *testing.T, onCreate func(), extra ...http.HandlerFunc)
 		}
 	})
 	call := api.ToolInvocation{Provider: "caelis", CallID: "original", Session: "main", Turn: "turn"}
-	s.state.Calls[call.CallID] = callRecord{Call: wire.SessionToolCall{Id: call.CallID, SessionId: call.Session, TurnId: call.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+	s.state.Calls[call.CallID] = callRecord{Phase: "completed", Call: wire.SessionToolCall{Name: "bot_dream", Id: call.CallID, SessionId: call.Session, TurnId: call.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded"}}
 	v := s.state.Views[call.Session]
 	v.CommandCaughtUp = true
 	v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer(call.Turn)
@@ -157,6 +158,73 @@ func TestRenewalKeepsPendingWorkerInteractionsAndOperations(t *testing.T) {
 	}
 }
 
+func TestHandoffResumesOriginalPreparedBindingAfterStartupReadFails(t *testing.T) {
+	s, creates, call := continuityFixture(t, nil)
+	transport := s.client.http.Transport
+	s.client.http.Transport = unavailableHandoffState{transport}
+	_, err := s.RenewAfterTool(t.Context(), call)
+	if err == nil || creates.Load() != 1 || s.ConversationState().Session != call.Session {
+		t.Fatal("incomplete preparation changed the original binding", err)
+	}
+	s.client.http.Transport = transport
+	restored := New(Options{Directory: filepath.Dir(s.path)})
+	restored.client, restored.connected = s.client, true
+	for range 2 {
+		if sid, err := restored.RenewAfterTool(t.Context(), call); err != nil || sid != "next" || creates.Load() != 1 {
+			t.Fatal("reattachment did not use the original create receipt", sid, err, creates.Load())
+		}
+	}
+}
+
+type unavailableHandoffState struct{ http.RoundTripper }
+
+func (tr unavailableHandoffState) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(req.URL.Path, "/next/state") {
+		return nil, errors.New("destination startup read unavailable")
+	}
+	return tr.RoundTripper.RoundTrip(req)
+}
+
+func TestLateCallbackFromRetiredConversationCannotStartBotWork(t *testing.T) {
+	late := wire.SessionToolCall{Id: "late", SessionId: "main", TurnId: "turn", ItemId: "item", PrincipalId: "owner", Name: "bot_delegate", State: "pending", ToolsVersion: "original", Source: wire.SessionSource{Kind: "user", OperationId: "original-prompt"}}
+	var results atomic.Int32
+	s, _, call := continuityFixture(t, nil, func(w http.ResponseWriter, req *http.Request) {
+		switch strings.TrimPrefix(req.URL.Path, "/api/control/v1") {
+		case "/sessions/main/tool-calls/late/claim":
+			claimed := late
+			claimed.State = "claimed"
+			writeFixture(w, claimed)
+		case "/sessions/main/tool-calls/late/result":
+			var result wire.SessionToolCallResult
+			if err := json.NewDecoder(req.Body).Decode(&result); err != nil || result.Outcome != "failed" {
+				t.Error("retired callback did not receive its own refusal", result, err)
+			}
+			results.Add(1)
+			writeFixture(w, struct{}{})
+		default:
+			t.Errorf("late callback changed target: %s", req.URL.Path)
+			http.NotFound(w, req)
+		}
+	})
+	s.state.Operations[late.Source.OperationId] = journal{Path: "/sessions/main/prompt", Source: late.Source, Outcome: "accepted"}
+	s.catalogs = map[string]map[string]api.ApplicationTools{"original": {"bot_delegate": &acceptanceTools{call: func(context.Context, string, json.RawMessage) api.ToolResult {
+		t.Error("retired callback executed a Bot effect")
+		return api.ToolResult{}
+	}}}}
+	original := s.state.Session
+	if _, err := s.RenewAfterTool(t.Context(), call); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.handleCall(t.Context(), s.client, original, original.PrincipalId, late); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if results.Load() != 1 || s.state.Calls[late.Id].Call.SessionId != original.SessionId || !s.Snapshot().CanSend {
+		t.Fatal("late callback changed resident admission or duplicated its receipt")
+	}
+}
+
 func TestRenewalStillBlocksUnresolvedResidentAndUnownedEffects(t *testing.T) {
 	for _, path := range []string{"/sessions/main/prompt", "/plugins/example"} {
 		t.Run(path, func(t *testing.T) {
@@ -201,7 +269,7 @@ func TestUnknownToolCreationKeepsOldChatWithoutReplayingOrAdoptingLateResult(t *
 			http.NotFound(w, r)
 		}
 	})
-	s.state.Calls[call.CallID] = callRecord{Call: wire.SessionToolCall{Id: call.CallID, SessionId: call.Session, TurnId: call.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+	s.state.Calls[call.CallID] = callRecord{Phase: "completed", Call: wire.SessionToolCall{Name: "bot_dream", Id: call.CallID, SessionId: call.Session, TurnId: call.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded"}}
 	v := s.state.Views[call.Session]
 	v.CommandCaughtUp = true
 	v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer(call.Turn)
@@ -267,7 +335,7 @@ func TestOriginalRenewalSettlesBeforeNewTurnAdmission(t *testing.T) {
 			next := call
 			next.CallID = "B"
 			next.Turn = "human-new-turn"
-			s.state.Calls[next.CallID] = callRecord{Call: wire.SessionToolCall{Id: next.CallID, SessionId: next.Session, TurnId: next.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+			s.state.Calls[next.CallID] = callRecord{Phase: "completed", Call: wire.SessionToolCall{Name: "bot_dream", Id: next.CallID, SessionId: next.Session, TurnId: next.Turn}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded"}}
 			if id, err := s.RenewAfterTool(t.Context(), next); err != nil || id != "next" || creates.Load() != 2 {
 				t.Fatal("unused original blocked later Dream", id, err, creates.Load())
 			}

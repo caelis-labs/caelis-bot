@@ -25,8 +25,8 @@ type ToolResult struct {
 	StructuredContent map[string]any      `json:"structuredContent,omitzero"`
 	// TurnComplete is an adapter disposition, never a model-visible instruction.
 	TurnComplete bool `json:"-"`
-	// Recheck after taking native input admission, before first publishing a
-	// terminal result. Persisted result retries retain their original bytes.
+	// Recheck whether the original handoff is still valid before acknowledging
+	// it. Persisted result retries retain their original bytes.
 	CheckTurnComplete func() error `json:"-"`
 }
 
@@ -50,13 +50,12 @@ func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 }
 
 // ToolTurnTerminator stops the exact Codex Turn after a terminal Bot MCP tool.
-// Application callback results instead use Core's persisted turn_complete bit.
 type ToolTurnTerminator interface {
 	CompleteToolTurn(context.Context, ToolInvocation) error
 }
 
-// ToolContextRenewer creates and commits a fresh resident Session after the
-// original terminal tool Turn is observed. Repeated calls use the original ID.
+// ToolContextRenewer creates and commits a fresh resident Session for a durable
+// handoff. Repeated calls use the original ID.
 type ToolContextRenewer interface {
 	RenewAfterTool(context.Context, ToolInvocation) (string, error)
 }

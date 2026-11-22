@@ -524,6 +524,7 @@ type CommandResource struct {
 type CommandResult struct {
 	AcpConnect      *ACPConnectReceipt      `json:"acp_connect,omitempty"`
 	BackgroundGrant *SessionBackgroundGrant `json:"background_grant,omitempty"`
+	CheckpointId    *string                 `json:"checkpoint_id,omitempty"`
 	Configuration   *SessionConfiguration   `json:"configuration,omitempty"`
 	Detail          *string                 `json:"detail,omitempty"`
 	ErrorCode       ErrorCode               `json:"error_code,omitempty"`
@@ -1667,7 +1668,6 @@ type SessionContentCallResult struct {
 	Outcome           string                      `json:"outcome"`
 	ResultFormat      string                      `json:"result_format"`
 	StructuredContent JSONObject                  `json:"structuredContent,omitzero"`
-	TurnComplete      *bool                       `json:"turn_complete,omitempty"`
 }
 
 type SessionContentToolDefinition struct {
@@ -1713,9 +1713,8 @@ type SessionInterruptRequest struct {
 }
 
 type SessionLegacyCallResult struct {
-	Content      JSONValue `json:"content"`
-	Outcome      string    `json:"outcome"`
-	TurnComplete *bool     `json:"turn_complete,omitempty"`
+	Content JSONValue `json:"content"`
+	Outcome string    `json:"outcome"`
 }
 
 type SessionLegacyToolDefinition struct {
@@ -2002,7 +2001,6 @@ type SessionToolCallResult struct {
 	Outcome           string     `json:"outcome"`
 	ResultFormat      *string    `json:"result_format,omitempty"`
 	StructuredContent JSONObject `json:"structuredContent,omitzero"`
-	TurnComplete      *bool      `json:"turn_complete,omitempty"`
 }
 
 type SessionToolDefinition struct {

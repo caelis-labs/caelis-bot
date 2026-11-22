@@ -246,6 +246,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err != nil {
 		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
 	}
+	service.ConfigureLegacyRemoteCommand(app.legacyRemoteCommand)
 	showNotice := func(notice textchannel.Notice) {
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
 	}
@@ -285,14 +286,20 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			}
 		}
 		body := app.textControl.DisplayInput(in, false)
-		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "accepted"}}})
+		item := api.Item{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "accepted"}
+		if in.Channel == "telegram" || in.Channel == "weixin" {
+			command := body == in.Text && textchannel.RecognizedCommand(in.Text)
+			item.RemoteCommand = &command
+		}
+		service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
 	})
 	recordInput := func(in textchannel.Inbound, secret bool) {
 		if in.ID == "" || app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}) != nil {
 			return
 		}
 		body := app.textControl.DisplayInput(in, secret)
-		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "received"}}})
+		command := body == in.Text && in.ControlCommand
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "received", RemoteCommand: &command}}})
 	}
 	// Import only the previous visible window into the local IM transcript.
 	// Delivery ledgers still prevent any channel from replaying old notices.
@@ -619,7 +626,12 @@ func (a *Application) startRuntime() error {
 						return api.ContextSeed{}, err
 					}
 				}
-				handoff := resident.PrepareHandoffContext()
+				var handoff api.ContextSeed
+				if session, renewedBy := api.ContextSession(ctx); session != "" {
+					handoff = resident.PrepareHandoffContextFor(session, renewedBy)
+				} else {
+					handoff = resident.PrepareHandoffContext()
+				}
 				seed.Text += handoff.Text
 				seed.HandoffDigest = handoff.HandoffDigest
 				return seed, nil
@@ -643,13 +655,6 @@ func (a *Application) startRuntime() error {
 			}
 			config.FinishTurn = func() {
 				a.queueWorkspaceExtensions()
-				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
-					if err := resident.RenewPendingToolHandoff(ctx); err != nil && a.host.ReportError != nil {
-						a.host.ReportError(err)
-					}
-				}()
 				// Core can assemble a fresh MCP manager during this turn. Refresh
 				// the host index after readiness without delaying the Runtime's
 				// completion notification or replaying any tool operation.

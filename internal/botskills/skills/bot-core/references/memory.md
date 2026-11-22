@@ -84,10 +84,11 @@ reviewed, the unread scope and the next checkpoint. Let Workers continue; recove
 their current status and pending interactions from the original records.
 Keep completed results brief; omit transcripts, tool schemas and secrets.
 
-Finish necessary file writes and delivery before the call. An accepted Dream
-ends the owning turn; do not place other effects alongside it or depend on another
-step in that turn. If a user correction supersedes Dream and the tool returns a
-nonterminal refusal, continue with that correction in the current conversation.
+Finish necessary file writes and delivery before the call. After Dream is
+accepted, finish the source turn without starting more work or issuing another
+handoff. The Bot can route new messages to the fresh context while the source
+turn finishes. If a user correction supersedes Dream and the tool refuses the
+handoff, continue with that correction in the current conversation.
 Preserve original work and receipts if handoff fails, and follow
 [Recovery](recovery.md). A handoff does not answer pending questions, expand
 permission or authorize replay of uncertain effects.

@@ -49,7 +49,7 @@ func (v previousCompactTools) CallTool(ctx context.Context, name string, raw jso
 	if stopped {
 		return compactError("stopped", errors.New("Bot stopped"))
 	}
-	if name != "bot_dream" && r.handoff != nil && r.handoff.pending().CallID != "" {
+	if r.handoffBlocksTool(ctx, name) {
 		return compactError("context_handoff", errors.New("Bot context handoff is completing; retry after the new session is ready"))
 	}
 	var def *api.ToolDefinition

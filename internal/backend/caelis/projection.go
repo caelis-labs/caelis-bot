@@ -189,6 +189,8 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			item.NoticeKey = "chat.caelisApproval"
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
+			} else if slices.Contains(s.state.PastSessions, sid) {
+				item.Owner = "previousConversation"
 			} else if sid != "" {
 				item.NoticeKey = "chat.workerApproval"
 				for _, worker := range s.state.Workers {
@@ -215,7 +217,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	}
 	slices.SortFunc(out.Reviews, func(a, b api.Review) int { return strings.Compare(a.ID, b.ID) })
 	for id, f := range s.state.CommandFollowups {
-		if f.DeliveryFailure != "" && !f.Done {
+		if f.DeliveryFailure != "" && !f.Done && f.belongsTo(s.state.Session.SessionId) {
 			if v != nil && v.CommandResults[id].Received {
 				continue
 			}
@@ -226,7 +228,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	}
 	slices.SortFunc(out.Approvals, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
 	for _, approval := range out.Approvals {
-		if approval.Owner != "task" {
+		if approval.Owner != "task" && approval.Owner != "previousConversation" {
 			out.Phase = "waiting_approval"
 			break
 		}
@@ -237,7 +239,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		unknown = true
 	}
 	for id, j := range s.state.Operations {
-		if j.Outcome == "unknown" && j.Path != workspaceTrustPath && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) {
+		if j.Outcome == "unknown" && j.Path != workspaceTrustPath && id != s.sendingScheduled && !s.workerOperationLocked(j) && !j.deferredRenewal(id) && !s.pastResidentOperationLocked(j.Path) {
 			if s.dispatching[id] {
 				dispatching = true
 			} else {
@@ -253,10 +255,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if unknown && s.connected {
 		out.Phase = "unknown"
 	}
-	terminalReceipt := s.terminalReceiptPendingLocked()
-	out.CanSend = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
+	out.CanSend = s.connected && !s.closed && !unknown && !dispatching && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
-	out.CanSteer = !terminalReceipt && s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
+	out.CanSteer = s.connected && !s.closed && !unknown && !dispatching && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	if v != nil {
 		var past []api.Item
 		for _, sid := range s.state.PastSessions {
@@ -570,6 +571,7 @@ func (s *Session) ensureStreamLocked(sid string) {
 	if s.streamCtx == nil {
 		s.streamCtx, s.streamCancel = context.WithCancel(s.ctx)
 	}
+	s.ensureCallObserverLocked(sid)
 	ctx := s.streamCtx
 	generation := s.generation
 	instance := s.state.InstanceID
@@ -665,7 +667,6 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if retiredRunHead(v, value(st.Run.TurnId)) {
 				return errors.New("恢复状态引用已被后续任务替代的 Turn")
 			}
-			s.retainTerminalCallTurns(v, v, sid)
 			retireRunHead(v, value(st.Run.TurnId))
 			observeStateHead(v, st.Run)
 			v.State = st
@@ -772,7 +773,6 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				}
 				staged.WorkerOutput.retainMissing(v.WorkerOutput)
 			}
-			s.retainTerminalCallTurns(staged, v, sid)
 			staged.HeadTarget = retainHeadTarget(staged.HeadTarget, v.HeadTarget)
 			observeStateHead(staged, bootstrap.Run)
 			staged.State = *bootstrap
@@ -945,6 +945,20 @@ func (s *Session) refreshSelected(ctx context.Context, selected observationPlan)
 	if !s.retainedWorkers && selected.includes("main") {
 		if err := s.refreshMain(ctx, c, sid); err != nil {
 			s.componentError("session_state", sid, err)
+		}
+	}
+	s.mu.Lock()
+	var pastSessions []string
+	for _, past := range s.state.PastSessions {
+		v := s.state.Views[past]
+		if selected["past:"+past] || selected == nil && v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil || v.ApprovalDirty) {
+			pastSessions = append(pastSessions, past)
+		}
+	}
+	s.mu.Unlock()
+	for _, past := range pastSessions {
+		if err := s.refreshMain(ctx, c, past); err != nil {
+			s.componentError("session_state", past, err)
 		}
 	}
 	if err := s.refreshSelectedWorkers(ctx, c, selected); err != nil {

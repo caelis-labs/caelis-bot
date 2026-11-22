@@ -39,7 +39,7 @@ func TestWorkerInteractionProducersWaitForHandoffAndDoNotInvalidateIt(t *testing
 	owner.states["work-one"] = api.WorkState{Task: api.Task{ID: "work-one"}, AsyncQuestions: []api.Item{{ID: "worker-question:original", TurnKey: "worker-turn", Kind: "assistant", AsyncCallID: "original-question", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"A", "B"}}}}}}
 	call := api.ToolInvocation{Provider: e.ProviderInfo().ID, CallID: "original-dream", Session: "old-session", Turn: "terminal"}
 	out := a.companion.CallTool(api.WithToolInvocation(t.Context(), call), "bot_dream", json.RawMessage(`{"handoff":"Original tasks and read-only limits; Notebook/review.md lines 30 onward unread."}`))
-	if out.IsError || !out.TurnComplete {
+	if out.IsError || out.CheckTurnComplete == nil {
 		t.Fatal(out)
 	}
 	renewed := make(chan error, 1)
@@ -101,7 +101,7 @@ func TestHumanWorkerAnswerSupersedesDreamButAgentAnswerDoesNot(t *testing.T) {
 			a.observeWorkerQuestions(t.Context())
 			call := api.ToolInvocation{Provider: e.ProviderInfo().ID, CallID: "dream-before-answer", Session: "old", Turn: "turn"}
 			out := a.companion.CallTool(api.WithToolInvocation(t.Context(), call), "bot_dream", json.RawMessage(`{"handoff":"Original Worker question remains pending; keep its original records."}`))
-			if out.IsError || !out.TurnComplete {
+			if out.IsError || out.CheckTurnComplete == nil {
 				t.Fatal(out)
 			}
 			if channel == "bot" {

@@ -149,6 +149,14 @@ window.fixtureMedia=()=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
  Object.assign(snapshot,{items:[{id:'media-fixture',requestId:'media-fixture-request',turnKey:'fixture',kind:'user',text:'请看这两张图片。\nfirst.png\nsecond.png',status:'completed',artifacts:[],media:{caption:'请看这两张图片。',images:[{id:'media-fixture-one',name:'first.png',width:180,height:180},{id:'media-fixture-two',name:'second.png',width:180,height:180}]}}],phase:'completed',currentTurn:'',canInterrupt:false,canSend:true,activity:null});
 };
+if(previewParams.get('fixture')==='sent-files'){
+ window.fixtureMedia();
+ snapshot.items[0].artifacts=[{id:'fixture-summary',name:'review-notes.txt'}];
+ snapshot.items.push({id:'file-only',kind:'user',text:'',status:'completed',artifacts:[
+  {id:'fixture-long',name:'华东区域季度合规审查与风险评估补充材料—2026年第十一期最终交付版本—附完整明细和审批记录.pdf'},
+  {id:'fixture-sheet',name:'costs.csv'},{id:'fixture-package',name:'handoff.zip'},
+ ]},{id:'previous-file',kind:'user',text:'昨天发的版本。',status:'completed',artifacts:[{id:'fixture-old',name:'archive-notes.txt'}]});
+}
 window.fixtureAvatar=kind=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
  if(kind==='stream'){
@@ -384,7 +392,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
  if(method==='Submit'){
-  sendCount++;const history=[...snapshot.items],input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:[input.text,...selected.map(file=>file.name)].join('\n'),quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[...history,outgoing];
+  sendCount++;const history=[...snapshot.items],input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,quoted:input.quoted,status:'sending',artifacts:selected.map(file=>({id:file.id,name:file.name}))};snapshot.items=[...history,outgoing];
   if(sendMode.startsWith('attachments-')){if(selected.length!==1)throw Error('original attachment missing');setTimeout(()=>window.dispatchEvent(new Event('files-changed')),100);}
   await delay(600);
   const outcome=sendMode.endsWith('rejected')?'rejected':sendMode==='unknown'?'unknown':'accepted';
@@ -435,7 +443,7 @@ export const Call={ByName:async(name,...args)=>{
 const root=resolve('frontend/dist');
 const server=createServer((req,res)=>{
  const path=new URL(req.url,'http://127.0.0.1').pathname;
- if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replace('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v1/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64')));return;}
+ if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replaceAll('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v1/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64')));return;}
  const file=resolve(root,'.'+(path==='/'?'/index.html':path));
  if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}

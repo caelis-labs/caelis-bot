@@ -133,7 +133,12 @@ func TestAsyncInputAndUnknownFieldHaveAccurateDurableDisplay(t *testing.T) {
 			t.Fatal("ordinary/unknown answer display classification failed")
 		}
 	}
-	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "", "").Snapshot.Items }, ordinary.ID, missing.ID))
+	assertDisplay(waitChatInputs(t, func() []api.Item { return a.Backend.Snapshot().Items }, ordinary.ID, missing.ID))
+	for _, item := range waitChatInputs(t, func() []api.Item { return a.Backend.ChatSnapshot(0, "", "").Snapshot.Items }, missing.ID) {
+		if item.RequestID == ordinary.ID && item.QuestionReply == nil {
+			t.Fatal("raw remote answer command entered desktop chat")
+		}
+	}
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}

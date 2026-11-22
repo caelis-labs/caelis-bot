@@ -49,7 +49,7 @@ func TestCallbackRecoveryThenWaitKeepsClaimedReceipts(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	s.wg.Add(1)
-	go s.callLoop(ctx)
+	go s.callLoop(ctx, s.client, s.state.Session, s.generation)
 	for _, ch := range []chan struct{}{entered, submitted} {
 		select {
 		case <-ch:

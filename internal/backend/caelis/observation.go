@@ -14,6 +14,9 @@ type observationPlan map[string]bool
 func (p observationPlan) includes(key string) bool { return p == nil || p[key] }
 
 func (s *Session) sessionObservationKeyLocked(sid string) string {
+	if slices.Contains(s.state.PastSessions, sid) {
+		return "past:" + sid
+	}
 	for id, w := range s.state.Workers {
 		if w.Binding.SessionId == sid {
 			return "worker:" + id
@@ -59,6 +62,11 @@ func (s *Session) pendingObservationsLocked() observationPlan {
 		if v == nil || !s.streams[sid] || v.ApprovalDirty ||
 			!value(v.State.Run.Active) && observedTurn(v) != "" && s.state.FinishedTurn != observedTurn(v) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status)) {
 			pending["main"] = true
+		}
+		for _, past := range s.state.PastSessions {
+			if v := s.state.Views[past]; v != nil && (v.ApprovalDirty || !s.streams[past] && (value(v.State.Run.Active) || v.State.Approval.Active != nil)) {
+				pending["past:"+past] = true
+			}
 		}
 	}
 	return pending

@@ -6,19 +6,38 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-func (s *Session) callLoop(ctx context.Context) {
+func (s *Session) ensureCallObserverLocked(sid string) {
+	if sid == "" || s.retainedWorkers || s.callObservers[sid] || sid != s.state.Session.SessionId && !slices.Contains(s.state.PastSessions, sid) {
+		return
+	}
+	if s.callObservers == nil {
+		s.callObservers = map[string]bool{}
+	}
+	s.callObservers[sid] = true
+	binding := wire.SessionBinding{SessionId: sid, PrincipalId: s.state.PrincipalID}
+	s.wg.Add(1)
+	go s.callLoop(s.streamCtx, s.client, binding, s.generation)
+}
+
+func (s *Session) callLoop(ctx context.Context, c *client, binding wire.SessionBinding, generation uint64) {
 	defer s.wg.Done()
+	defer func() {
+		s.mu.Lock()
+		if s.generation == generation {
+			delete(s.callObservers, binding.SessionId)
+		}
+		s.mu.Unlock()
+	}()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	var recoveredClient *client
-	var recoveredSession string
-	var recoveredGeneration uint64
+	recovered := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -26,35 +45,32 @@ func (s *Session) callLoop(ctx context.Context) {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		ready := s.connected && !s.closed
-		c := s.client
-		binding := s.state.Session
-		principal := s.state.PrincipalID
-		generation, observationCtx := s.generation, s.streamCtx
+		current := s.state.Session.SessionId == binding.SessionId
+		v := s.state.Views[binding.SessionId]
+		settled := !current && v != nil && v.CommandCaughtUp && !value(v.State.Run.Active) && v.State.Approval.Active == nil && value(v.State.Run.Status) != "unknown"
+		ready := s.connected && !s.closed && s.client == c && s.generation == generation
 		s.mu.Unlock()
-		if !ready || binding.SessionId == "" {
-			recoveredClient = nil
+		if settled {
+			return
+		}
+		if !ready {
+			recovered = false
 			continue
 		}
 		var e error
-		if recoveredClient != c || recoveredSession != binding.SessionId || recoveredGeneration != generation {
+		if !recovered {
 			// Recovery includes claimed calls; waiting only returns new pending
 			// calls and must never replace this uncertain-effect reconciliation.
-			e = s.pollCalls(ctx, c, binding, principal)
-			if e == nil {
-				recoveredClient, recoveredSession, recoveredGeneration = c, binding.SessionId, generation
-			}
+			e = s.pollCalls(ctx, c, binding, binding.PrincipalId)
+			recovered = e == nil
 		} else {
-			if observationCtx == nil {
-				observationCtx = ctx
-			}
 			var calls []wire.SessionToolCall
-			calls, e = waitCalls(observationCtx, c, binding.SessionId)
+			calls, e = waitCalls(ctx, c, binding.SessionId)
 			s.mu.Lock()
-			current := s.connected && !s.closed && s.client == c && s.generation == generation && s.state.Session.SessionId == binding.SessionId
+			ready = s.connected && !s.closed && s.client == c && s.generation == generation
 			s.mu.Unlock()
-			if !current {
-				recoveredClient = nil
+			if !ready {
+				recovered = false
 				continue
 			}
 			if e == nil {
@@ -63,14 +79,14 @@ func (s *Session) callLoop(ctx context.Context) {
 						e = errors.New("Caelis 等待调用返回无效状态")
 						break
 					}
-					if e = s.handleCall(ctx, c, binding, principal, call); e != nil {
+					if e = s.handleCall(ctx, c, binding, binding.PrincipalId, call); e != nil {
 						break
 					}
 				}
 			}
 		}
 		if e != nil && ctx.Err() == nil {
-			recoveredClient = nil
+			recovered = false
 			s.componentError("application_calls", binding.SessionId, e)
 		}
 	}
@@ -130,6 +146,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 	if exists && !sameInvocation(record.Call, call) {
 		return errors.New("Caelis 工具调用内容发生改变")
 	}
+	if exists && record.Phase == "completed" {
+		return nil
+	}
 	path := "/sessions/" + idPath(b.SessionId) + "/tool-calls/" + idPath(call.Id)
 	if !exists {
 		record = callRecord{Call: call, Phase: "claiming"}
@@ -151,18 +170,17 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 				} else if host != nil {
 					invocation := api.ToolInvocation{Provider: "caelis", CallID: call.Id, Session: call.SessionId, Turn: call.TurnId, TurnKey: call.TurnId}
 					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
-					result = host.CallTool(callCtx, call.Name, args)
-				}
-				if result.TurnComplete {
-					// Serialize only terminal publication with native user input.
-					// The tool and its memory reads ran outside this admission lock.
-					s.step.Lock()
-					defer s.step.Unlock()
-					if result.CheckTurnComplete != nil {
-						if err := result.CheckTurnComplete(); err != nil {
-							result = api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "User activity superseded this Dream; continue in the current conversation."}}}
-						}
+					s.mu.Lock()
+					resident := s.state.Session.SessionId == call.SessionId
+					s.mu.Unlock()
+					if resident {
+						result = host.CallTool(callCtx, call.Name, args)
+					} else {
+						result.Content = []map[string]string{{"type": "text", "text": "This conversation has handed off. Finish the current turn without starting more work."}}
 					}
+				}
+				if result.CheckTurnComplete != nil && result.CheckTurnComplete() != nil {
+					result = api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "User activity superseded this Dream; continue in the current conversation."}}}
 				}
 				blocks := result.Content
 				if contentV1 {
@@ -174,9 +192,6 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 					outcome = "failed"
 				}
 				record.Receipt = &wire.SessionToolCallResult{Outcome: outcome, Content: json.RawMessage(content)}
-				if result.TurnComplete && outcome == "succeeded" {
-					record.Receipt.TurnComplete = pointer(true)
-				}
 				if contentV1 {
 					record.Receipt.ResultFormat = pointer("content-v1")
 					record.Receipt.StructuredContent = result.StructuredContent
@@ -251,59 +266,44 @@ func (s *Session) saveCall(id string, r callRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Calls[id] = r
-	if r.Receipt != nil && value(r.Receipt.TurnComplete) {
-		s.bumpLocked() // publish the admission fence before potentially slow persistence
-	}
 	return s.saveLocked()
 }
 
-// A saved terminal result is immutable, including after an unknown /result
-// response. Core ends the Turn before consuming queued steering. Keep native
-// input admission closed until that exact Turn is observed terminal, not merely
-// until /result succeeds. Calls and canonical Turn state already persist this
-// fence; Stop remains the independent native cancellation path.
-func (s *Session) terminalReceiptPendingLocked() bool {
-	sid := s.state.Session.SessionId
-	v := s.state.Views[sid]
-	for _, record := range s.state.Calls {
-		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
-			continue
-		}
-		if confirmedTerminalTurn(v, record.Call.TurnId) == "" {
-			return true
+// A saved result is not acknowledgement. If the response was lost, read the
+// original callback before authorizing a new resident binding.
+func (s *Session) confirmHandoff(ctx context.Context, c *client, id, source, turn string) error {
+	s.mu.Lock()
+	record := s.state.Calls[id]
+	s.mu.Unlock()
+	if !record.handoffFrom(id, source, turn) {
+		if record.Call.Id == "" || record.Receipt != nil {
+			return api.ErrConversationRenewalRejected
 		}
 	}
-	return false
-}
-
-// A bounded reconnect transcript may omit a callback's already confirmed Turn.
-// Retain only that exact finality; a later head or a delivered result is not proof.
-func (s *Session) retainTerminalCallTurns(current, prior *view, sid string) {
-	for _, record := range s.state.Calls {
-		if record.Call.SessionId != sid || record.Receipt == nil || !value(record.Receipt.TurnComplete) || record.Receipt.Outcome != "succeeded" {
-			continue
+	if record.Phase == "completed" && record.Receipt != nil {
+		return nil
+	}
+	var readback wire.SessionToolCall
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(source)+"/tool-calls/"+idPath(id), nil, &readback, "", ""); err != nil {
+		if isRemoteStatus(err, 404) || isRemoteStatus(err, 410) {
+			return api.ErrConversationRenewalRejected
 		}
-		turn := record.Call.TurnId
-		if status := confirmedTerminalTurn(prior, turn); status != "" {
-			if current.Turns == nil {
-				current.Turns = map[string]string{}
-			}
-			current.Turns[turn] = status
-		}
+		return err
 	}
-}
-
-func confirmedTerminalTurn(v *view, turn string) string {
-	if v == nil {
-		return ""
+	if !sameInvocation(record.Call, readback) || slices.Contains([]string{"cancelled", "unknown"}, readback.State) {
+		return api.ErrConversationRenewalRejected
 	}
-	if status := v.Turns[turn]; terminalDream(status) {
-		return status
+	if readback.State != "completed" {
+		return errors.New("original handoff callback is still pending")
 	}
-	if value(v.State.Run.TurnId) == turn && !value(v.State.Run.Active) {
-		if status := value(v.State.Run.Status); terminalDream(status) {
-			return status
-		}
+	if !record.handoffFrom(id, source, turn) {
+		return api.ErrConversationRenewalRejected
 	}
-	return ""
+	want, _ := json.Marshal(record.Receipt)
+	got, _ := json.Marshal(readback.Result)
+	if !bytes.Equal(want, got) {
+		return api.ErrConversationRenewalRejected
+	}
+	record.Phase = "completed"
+	return s.saveCall(id, record)
 }

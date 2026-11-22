@@ -98,6 +98,12 @@ type callRecord struct {
 	Phase   string                      `json:"phase"`
 	Receipt *wire.SessionToolCallResult `json:"receipt,omitempty"`
 }
+
+func (r callRecord) handoffFrom(id, session, turn string) bool {
+	return r.Call.Name == "bot_dream" && r.Call.Id == id && r.Call.SessionId == session && r.Call.TurnId == turn &&
+		r.Receipt != nil && r.Receipt.Outcome == "succeeded"
+}
+
 type binding struct {
 	Continuity        continuity.State `json:"continuity,omitempty"`
 	migrationSource   json.RawMessage

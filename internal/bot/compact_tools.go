@@ -49,10 +49,8 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	if stopped {
 		return compactError("stopped", errors.New("Bot stopped"))
 	}
-	if name != "bot_dream" && r.handoff != nil {
-		if pending := r.handoff.pending(); pending.CallID != "" {
-			return compactError("context_handoff", errors.New("Bot context handoff is completing; retry after the new session is ready"))
-		}
+	if r.handoffBlocksTool(ctx, name) {
+		return compactError("context_handoff", errors.New("Bot context is handing off; finish this turn without starting more work"))
 	}
 	var def *api.ToolDefinition
 	for _, d := range r.Definitions() {

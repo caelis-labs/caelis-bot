@@ -113,6 +113,10 @@ func (h *handoffStore) supersede() error {
 func (h *handoffStore) record(callID, newSession, outcome string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.recordLocked(callID, newSession, outcome)
+}
+
+func (h *handoffStore) recordLocked(callID, newSession, outcome string) error {
 	if h.state.CallID != callID || callID == "" {
 		return errors.New("original handoff receipt no longer matches")
 	}
@@ -159,10 +163,18 @@ func (h *handoffStore) prepare() api.ContextSeed {
 	return api.ContextSeed{Text: "\n[Private Bot handoff: saved context, not a new user message or authorization.]\n" + h.state.Text + "\n[End private handoff]\n", HandoffDigest: h.state.Digest}
 }
 
-func (h *handoffStore) prepareFor(session string) api.ContextSeed {
+func (h *handoffStore) prepareFor(session, renewedBy string) api.ContextSeed {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if session == "" || h.state.NewSession != session || h.state.CallID == "" {
+	if session == "" || h.state.CallID == "" {
+		return api.ContextSeed{}
+	}
+	if h.state.NewSession == "" && session != h.state.Source && renewedBy == h.state.CallID {
+		// The native binding can survive a crash before the private store writes
+		// its committed receipt. Recover it before accepting the first input.
+		_ = h.recordLocked(renewedBy, session, "committed")
+	}
+	if h.state.NewSession != session {
 		return api.ContextSeed{}
 	}
 	return api.ContextSeed{Text: "\n[Private Bot handoff: saved context, not a new user message or authorization.]\n" + h.state.Text + "\n[End private handoff]\n", HandoffDigest: h.state.Digest}
@@ -213,11 +225,11 @@ func (r *Runtime) PrepareHandoffContext() api.ContextSeed {
 	}
 	return r.handoff.prepare()
 }
-func (r *Runtime) PrepareHandoffContextFor(session string) api.ContextSeed {
+func (r *Runtime) PrepareHandoffContextFor(session, renewedBy string) api.ContextSeed {
 	if r.handoff == nil {
 		return api.ContextSeed{}
 	}
-	return r.handoff.prepareFor(session)
+	return r.handoff.prepareFor(session, renewedBy)
 }
 func (r *Runtime) ConsumeHandoffContext(seed api.ContextSeed) error {
 	if r.handoff == nil {

@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,18 +46,18 @@ func (s *Session) conversationLocked() api.ConversationState {
 			out.Status = value(v.State.Run.Status)
 		}
 		out.Idle = s.connected && !s.closed && !value(v.State.Run.Active) && value(v.State.Run.Status) != "unknown"
-		for _, view := range s.state.Views {
-			if view.State.Approval.Active != nil {
+		for sid, view := range s.state.Views {
+			if view.State.Approval.Active != nil && !slices.Contains(s.state.PastSessions, sid) {
 				out.Idle = false
 			}
 		}
 		for id, operation := range s.state.Operations {
-			if operation.Outcome == "unknown" && operation.Path != workspaceTrustPath && !operation.deferredRenewal(id) {
+			if operation.Outcome == "unknown" && operation.Path != workspaceTrustPath && !operation.deferredRenewal(id) && !s.pastResidentOperationLocked(operation.Path) {
 				out.Idle = false
 			}
 		}
 		for _, f := range s.state.CommandFollowups {
-			if !f.Done {
+			if !f.Done && f.belongsTo(out.Session) {
 				out.Idle = false
 			}
 		}
@@ -164,8 +165,12 @@ func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocat
 	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn); err != nil {
 		return "", err
 	}
-	return s.ConversationState().Session, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.Operations[toolRenewalID(invocation.CallID)].Resource, nil
 }
+
+func toolRenewalID(id string) string { return "tool-renew-" + digest([]byte(id)) }
 
 func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string) error {
 	s.step.Lock()
@@ -177,44 +182,45 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	op := "dream-renew-" + digest([]byte(id))
 	if toolTurn != "" {
-		op = "tool-renew-" + digest([]byte(id))
+		op = toolRenewalID(id)
 	}
 	if pending, exists := s.state.Operations[op]; toolTurn != "" && exists {
+		if !pending.RenewalDeferred && succeeded(wire.Outcome(pending.Outcome)) && slices.Contains(s.state.PastSessions, pending.Resource) {
+			s.mu.Unlock()
+			return nil // An earlier successful handoff has its own binding receipt.
+		}
 		// Original create receipts precede current-Turn admission. Recovery
 		// reads the same operation; it cannot dispatch another create.
 		if pending.Outcome == "unknown" {
 			s.mu.Unlock()
-			if err := s.recoverOperations(ctx); err != nil {
+			if err := s.recoverOperation(ctx, op); err != nil {
 				return err
 			}
 			s.mu.Lock()
 			pending = s.state.Operations[op]
 		}
-		current := s.conversationLocked()
-		if pending.RenewalDeferred || pending.Outcome == "unknown" || current.Session != source || current.Turn != toolTurn {
+		if pending.RenewalDeferred || pending.Outcome == "unknown" || s.state.Session.SessionId != source {
 			s.mu.Unlock()
 			return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
 		}
 	}
 	current := s.conversationLocked()
 	j := s.state.Operations[id]
+	pending, exists := s.state.Operations[op]
 	boundTurn := j.TurnID
-	if toolTurn != "" {
-		boundTurn = toolTurn
-		record, exists := s.state.Calls[id]
-		if !exists || record.Call.SessionId != source || record.Call.TurnId != toolTurn || record.Call.Id != id || record.Receipt == nil || record.Receipt.Outcome != "succeeded" || !value(record.Receipt.TurnComplete) {
-			s.mu.Unlock()
-			if current.Status == "completed" && current.Turn == toolTurn {
-				return api.ErrConversationRenewalRejected
-			}
-			return errors.New("original terminal callback receipt is unavailable")
-		}
-	}
-	if !current.Observed || current.Session != source || (toolTurn == "" && !j.Dream) || current.Turn != boundTurn || current.Status != "completed" {
+	if current.Session != source {
 		s.mu.Unlock()
-		if toolTurn != "" && (current.Session != source || current.Turn != boundTurn || terminalDream(current.Status)) {
-			return api.ErrConversationRenewalRejected
+		return api.ErrConversationRenewalRejected
+	}
+	if toolTurn != "" && current.Turn != "" && current.Turn != toolTurn {
+		s.mu.Unlock()
+		if exists {
+			return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
 		}
+		return api.ErrConversationRenewalRejected
+	}
+	if toolTurn == "" && (!current.Observed || !j.Dream || current.Turn != boundTurn || current.Status != "completed") {
+		s.mu.Unlock()
 		return errors.New("对话已有新活动，暂不能交接")
 	}
 	for original, operation := range s.state.Operations {
@@ -223,19 +229,23 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			return errors.Join(api.ErrConversationRenewalRejected, errors.New("original context creation is unresolved; retain its receipt"))
 		}
 	}
-	pending, exists := s.state.Operations[op]
 	c, principal := s.client, s.state.PrincipalID
 	grants := clone(s.state.Grants)
-	ready := s.renewalIdleLocked(source, op)
+	ready := s.connected && !s.closed && c != nil && s.renewalReadyLocked(source, op, toolTurn != "")
 	s.mu.Unlock()
 	if err := s.checkRenewalGuard(ctx, op); err != nil {
 		return err
 	}
+	if !ready {
+		return errors.New("对话暂不能交接")
+	}
+	if toolTurn != "" {
+		if err := s.confirmHandoff(ctx, c, id, source, toolTurn); err != nil {
+			return err
+		}
+	}
 	var renewalErr error
 	if !exists {
-		if !ready {
-			return errors.New("对话暂不能交接")
-		}
 		config, err := s.configuration(ctx, source)
 		if err != nil {
 			return err
@@ -315,7 +325,12 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	s.mu.Lock()
 	current = s.conversationLocked()
-	if !current.Observed || current.Session != source || current.Turn != boundTurn || current.Status != "completed" || !s.renewalIdleLocked(source, op) {
+	if toolTurn != "" && current.Turn != "" && current.Turn != toolTurn {
+		s.mu.Unlock()
+		return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
+	}
+	if current.Session != source || !s.connected || s.closed || s.client != c || !s.renewalReadyLocked(source, op, toolTurn != "") ||
+		toolTurn == "" && (!current.Observed || current.Turn != boundTurn || current.Status != "completed") {
 		s.mu.Unlock()
 		return errors.New("原对话已有新活动，交接未切换")
 	}
@@ -323,6 +338,13 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		old := s.state
 		s.state.Session, s.state.RenewedBy, s.state.Grants = next, id, grants
 		s.state.Context = contextseed.State{}
+		s.state.CommandFollowups = clone(old.CommandFollowups)
+		for id, followup := range s.state.CommandFollowups {
+			if followup.Session == "" {
+				followup.Session = source
+				s.state.CommandFollowups[id] = followup
+			}
+		}
 		s.state.PastSessions = append(append([]string{}, old.PastSessions...), source)
 		s.state.Views[sid] = &view{State: state, Items: []api.Item{}, Seen: map[string]bool{}}
 		if err := s.saveLocked(); err != nil {
@@ -340,6 +362,15 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 
 func (s *Session) checkRenewalGuard(ctx context.Context, op string) error {
 	return s.recordDeferredRenewal(op, api.CheckRenewalGuard(ctx))
+}
+
+func (s *Session) pastResidentOperationLocked(path string) bool {
+	for _, sid := range s.state.PastSessions {
+		if strings.HasPrefix(path, "/sessions/"+idPath(sid)+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Session) recordDeferredRenewal(op string, err error) error {
@@ -379,21 +410,23 @@ func (s *Session) deferRenewal(op string) error {
 
 // Renewal changes only the resident binding. Durable Worker requests and
 // reports keep their owners; their activity is not a global-quiescence gate.
-func (s *Session) renewalIdleLocked(source, renewal string) bool {
+func (s *Session) renewalReadyLocked(source, renewal string, toolHandoff bool) bool {
 	v := s.state.Views[source]
-	if v == nil || value(v.State.Run.Active) || v.State.Approval.Active != nil {
+	if v == nil || !toolHandoff && (value(v.State.Run.Active) || v.State.Approval.Active != nil) {
 		return false
 	}
 	for id, operation := range s.state.Operations {
-		if operation.Outcome == "unknown" && id != renewal && !s.workerOperationLocked(operation) {
+		if operation.Outcome == "unknown" && id != renewal && !s.workerOperationLocked(operation) && !s.pastResidentOperationLocked(operation.Path) {
 			return false
 		}
 	}
 	// Native commands yielded by the resident still require their original
 	// completion observation before its terminal handoff can be committed.
-	for _, followup := range s.state.CommandFollowups {
-		if !followup.Done {
-			return false
+	if !toolHandoff {
+		for _, followup := range s.state.CommandFollowups {
+			if !followup.Done && followup.belongsTo(source) {
+				return false
+			}
 		}
 	}
 	return true

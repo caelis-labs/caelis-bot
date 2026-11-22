@@ -67,6 +67,13 @@ model authority. Required native Guardian/Agent Team capabilities gate execution
 Bot and TUI share the Host principal; Bot configures only its explicit resident profile.
 Native Team settings select reviewer models; existing work keeps its execution snapshot.
 
+Caelis Dream saves a private handoff against the exact application callback. After
+Core confirms that result, Bot prepares an empty Session and commits the resident
+binding through the existing operation journal and human-input guard. New input
+uses that binding and consumes its handoff seed on native acceptance. The source
+Turn can finish naturally. Its late messages and pending approvals retain their
+source Session, and retired application callbacks cannot start new Bot work.
+
 Codex defaults to `on-request`, `auto_review` and `workspace-write`; Caelis uses native
 Guardian auto-review and its workspace boundary. Only explicitly listed built-in Bot
 tools receive direct approval policy in [botpolicy](../internal/botpolicy/policy.go).

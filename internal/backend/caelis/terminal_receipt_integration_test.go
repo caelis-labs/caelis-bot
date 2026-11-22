@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 
 // Real pinned Core and real resident/callback admission; only the provider's
 // choices and the first /result transport failure are synthetic.
-func TestNativeTerminalResultRecoveryKeepsCorrection(t *testing.T) {
+func TestNativeHandoffResultRecoveryKeepsCorrection(t *testing.T) {
 	for _, lost := range []bool{false, true} {
 		name := "before-Core-acceptance"
 		if lost {
@@ -87,6 +88,11 @@ func TestNativeTerminalResultRecoveryKeepsCorrection(t *testing.T) {
 					t.Fatal(err)
 				}
 			})
+			source := s.ConversationState().Session
+			oldRelease := make(chan struct{})
+			finishOld := sync.OnceFunc(func() { close(oldRelease) })
+			defer finishOld()
+			model.set("CASE_DREAM", modelStep{Name: "bot_dream", Args: map[string]string{"handoff": "Wait for the user before changing the original review scope."}}, modelStep{Block: oldRelease})
 			// Ensure the proxy cannot retain a native callback when this test fails.
 			released := false
 			defer func() {
@@ -107,25 +113,18 @@ func TestNativeTerminalResultRecoveryKeepsCorrection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !lost && (receipt.Outcome != "rejected" || !receipt.Deferred) {
-				t.Fatal("accepted correction into a Turn awaiting terminal replay", receipt)
-			}
-			if receipt.Outcome != "accepted" && (receipt.Outcome != "rejected" || !receipt.Deferred) {
-				t.Fatal(receipt)
+			if receipt.Outcome != "accepted" || s.ConversationState().Session != source {
+				t.Fatal("correction did not keep the original owner", receipt)
 			}
 			close(release)
 			released = true
-			waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
-			// No accepted steer was queued behind the immutable terminal result. An
-			// unaccepted correction retains its original ID and becomes a new prompt.
-			for range 2 {
-				receipt, err = resident.SubmitUser(ctx, input, nil)
-				if err != nil || receipt.Outcome != "accepted" {
-					t.Fatal(receipt, err)
-				}
+			receipt, err = resident.SubmitUser(ctx, input, nil)
+			if err != nil || receipt.Outcome != "accepted" {
+				t.Fatal(receipt, err)
 			}
+			finishOld()
 			waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_CORRECTION")) > 0 && s.Snapshot().CanSend })
-			if steers.Load() != 0 || len(model.seen("CASE_CORRECTION")) != 1 || len(model.seen("CASE_DREAM")) != 1 {
+			if steers.Load() != 1 || len(model.seen("CASE_CORRECTION")) != 1 || s.ConversationState().Session != source {
 				t.Fatal("native input lost or replayed", steers.Load(), len(model.seen("CASE_CORRECTION")), len(model.seen("CASE_DREAM")))
 			}
 			s.mu.Lock()
@@ -134,11 +133,11 @@ func TestNativeTerminalResultRecoveryKeepsCorrection(t *testing.T) {
 			for _, record := range s.state.Calls {
 				if record.Call.Name == "bot_dream" {
 					count++
-					if record.Receipt == nil || !value(record.Receipt.TurnComplete) {
+					if record.Receipt == nil || record.Receipt.Outcome != "succeeded" {
 						t.Fatal("original receipt mutated")
 					}
-					if !terminalDream(s.state.Views[record.Call.SessionId].Turns[record.Call.TurnId]) {
-						t.Fatal("original Turn not confirmed terminal")
+					if record.Call.SessionId != source {
+						t.Fatal("original callback changed owners")
 					}
 				}
 			}

@@ -866,7 +866,8 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		return true, false
 	}
 	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
-	controlIn := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}
+	command := ingressCommandName(m.Text)
+	controlIn := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text, ControlCommand: RecognizedCommand(m.Text)}
 	if m.ReplyToMessage != nil {
 		controlIn.Reference = &textchannel.Reference{Conversation: fmt.Sprint(chat), MessageID: fmt.Sprint(m.ReplyToMessage.MessageID)}
 	}
@@ -881,9 +882,8 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 		return true, false
 	}
-	command := strings.Split(m.Text, " ")[0]
 	var ingressFence string
-	if command != "/start" && command != "/stop" && command != "/status" && !textchannel.IsCommand(m.Text) && !referenced {
+	if !localCommand(command) && !textchannel.IsCommand(m.Text) && !referenced {
 		state := b.recoveryState()
 		connecting := b.host.Snapshot != nil && b.host.Snapshot().Connection == "connecting"
 		if state.Automatic || state.InProgress || connecting {

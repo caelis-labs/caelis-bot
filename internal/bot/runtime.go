@@ -397,8 +397,8 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 	if r.handoff != nil {
 		pending := r.handoff.pending()
 		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
-			// Feedback and scheduled input keep their original receipts while
-			// the terminal Turn is reconciled and its new context is prepared.
+			// Keep queued feedback and scheduled input on their original receipts
+			// while the native handoff is reconciled and the destination prepared.
 			if err := r.renewToolHandoff(ctx); err != nil {
 				return nil
 			}
