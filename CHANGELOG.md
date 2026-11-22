@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.6](https://github.com/caelis-labs/caelis-bot/compare/v0.22.5...v0.22.6) (2026-11-22)
+
+
+### Bug Fixes
+
+* **bot-core:** correct extension guidance and stabilize Windows CI ([#295](https://github.com/caelis-labs/caelis-bot/issues/295)) ([3db38da](https://github.com/caelis-labs/caelis-bot/commit/3db38da588d21802a2d8bb98b13810ecfecf28c2))
+* preserve Bot chat and Core handoffs ([#297](https://github.com/caelis-labs/caelis-bot/issues/297)) ([6cb245e](https://github.com/caelis-labs/caelis-bot/commit/6cb245e8fe153cfbc4778c1d10d301f373f71b6c))
+
 ## [0.22.5](https://github.com/caelis-labs/caelis-bot/compare/v0.22.4...v0.22.5) (2026-11-19)
 
 
