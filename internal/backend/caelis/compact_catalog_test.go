@@ -131,10 +131,13 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 			return
 		}
 		if strings.HasSuffix(req.URL.Path, "/result") {
-			results.Add(1)
 			var receipt wire.SessionToolCallResult
 			if err := json.NewDecoder(req.Body).Decode(&receipt); err != nil || receipt.Outcome != "succeeded" {
 				t.Errorf("old callback lost: %+v %v", receipt, err)
+			}
+			if results.Add(1) == 1 {
+				drop(w) // Lose the original acknowledgement, then restart.
+				return
 			}
 			writeFixture(w, struct{}{})
 			return
@@ -159,8 +162,8 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 		t.Fatal("old compact callback catalog not restored at its original digest")
 	}
 	upgraded.client = s.client
-	if err := upgraded.handleCall(t.Context(), s.client, upgraded.state.Session, upgraded.state.PrincipalID, call); err != nil {
-		t.Fatal(err)
+	if err := upgraded.handleCall(t.Context(), s.client, upgraded.state.Session, upgraded.state.PrincipalID, call); err == nil {
+		t.Fatal("the first result acknowledgement should be lost")
 	}
 	restarted := New(Options{Directory: filepath.Dir(s.path)})
 	if err := restarted.ConfigureBotTools(&api.ToolConnection{Host: r, ApprovedTools: botpolicy.ApprovedTools()}); err != nil {
@@ -168,8 +171,10 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 	}
 	restarted.client = s.client
 	call.State = "claimed"
-	if err := restarted.handleCall(t.Context(), s.client, restarted.state.Session, restarted.state.PrincipalID, call); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err := restarted.handleCall(t.Context(), s.client, restarted.state.Session, restarted.state.PrincipalID, call); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if claims.Load() != 1 || results.Load() != 2 || worker.starts.Load() != 1 {
 		t.Fatalf("persisted result was replayed or not delivered: claims=%d results=%d starts=%d", claims.Load(), results.Load(), worker.starts.Load())
