@@ -19,6 +19,13 @@ func TestNativeIdleResidentRenewal(t *testing.T) {
 	if os.Getenv("CAELIS_BOT_TEST_BINARY") == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY for isolated external Host acceptance")
 	}
+	for _, channel := range []string{"desktop", "telegram"} {
+		t.Run(channel, func(t *testing.T) { testNativeIdleResidentRenewal(t, channel) })
+	}
+}
+
+func testNativeIdleResidentRenewal(t *testing.T, channel string) {
+	t.Helper()
 	root := t.TempDir()
 	history := filepath.Join(root, "ChatHistory", "conversation.jsonl")
 	var service *backend.Service
@@ -27,17 +34,15 @@ func TestNativeIdleResidentRenewal(t *testing.T) {
 			return service.BotConversationActivity(ctx, id, nil)
 		})
 	})
-	service = backend.NewService(s, nil, nil, nil, nil)
+	service = backend.NewService(s, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil)
 	service.ConfigureChat(filepath.Join(root, "chat.sqlite"))
 	defer service.Shutdown()
 	service.SetUserSubmitter(resident.SubmitUser)
 	service.StartBotHistoryFile(history, nil)
-	const remoteID = "telegram:synthetic:1"
-	ingress := api.Item{ID: "channel-input:" + remoteID, RequestID: remoteID, Kind: "user", Text: "Synthetic channel message", Status: "received"}
+	requestID := channel + ":synthetic:1"
 	service.ObserveChat(api.Snapshot{Items: []api.Item{
 		{ID: "original-input", RequestID: "case_idle_old", Kind: "user", Text: "Original fixture user message", Status: "accepted", SeenAt: time.Now().Add(-49 * time.Hour).UnixMicro()},
 		{ID: "test-history", Kind: "assistant", Text: "CORE_NATIVE_HISTORY_FOUND", Status: "completed"},
-		ingress,
 	}})
 	waitAcceptance(t, ctx, func() bool {
 		body, _ := os.ReadFile(history)
@@ -56,20 +61,33 @@ func TestNativeIdleResidentRenewal(t *testing.T) {
 	if s.ConversationState().Session != original.Session {
 		t.Fatal("background input replaced the resident")
 	}
+	// The App ingress regression exercises the handler that writes this receipt.
+	service.ObserveChat(api.Snapshot{Items: []api.Item{
+		{ID: "control-input:desktop-status", RequestID: "desktop-status", Kind: "user", Text: "/status", Status: "accepted"},
+	}})
+	submit := service.Submit
+	if channel == "telegram" {
+		submit = func(ctx context.Context, in api.Submission) (api.Receipt, error) {
+			service.ObserveChat(api.Snapshot{Items: []api.Item{
+				{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: in.Text, Status: "received"},
+			}})
+			return backend.SubmitRemote(ctx, service, in, nil)
+		}
+	}
 	args, _ := json.Marshal(map[string]string{"path": history})
 	model.set("CASE_IDLE_NEW", modelStep{Name: "js_exec", Args: map[string]any{
 		"code": "await tools.search({name:'Read'}); return await tools.call('Read'," + string(args) + ");",
 	}})
 	before := s.Snapshot().CurrentTurn
-	input := api.Submission{ID: remoteID, Text: "CASE_IDLE_NEW"}
-	if receipt, err := backend.SubmitRemote(ctx, service, input, nil); err != nil || receipt.Outcome != "accepted" {
+	input := api.Submission{ID: requestID, Text: "CASE_IDLE_NEW"}
+	if receipt, err := submit(ctx, input); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal("native foreground input did not reach the replacement resident", receipt, err)
 	}
 	waitTurn(t, ctx, s, before)
 	next := s.ConversationState()
 	s.mu.Lock()
 	oldPath := s.state.Operations[wake.ID].Path
-	newPath := s.state.Operations[remoteID].Path
+	newPath := s.state.Operations[requestID].Path
 	s.mu.Unlock()
 	if next.Session == original.Session || newPath != "/sessions/"+idPath(next.Session)+"/prompt" ||
 		oldPath != "/sessions/"+idPath(original.Session)+"/prompt" {
@@ -87,10 +105,9 @@ func TestNativeIdleResidentRenewal(t *testing.T) {
 	if !strings.Contains(result, "CORE_NATIVE_HISTORY_FOUND") {
 		t.Fatal("native Read did not retrieve the SQLite projection", result)
 	}
-	service.ObserveChat(api.Snapshot{Items: []api.Item{ingress}})
-	if receipt, err := backend.SubmitRemote(ctx, service, input, nil); err != nil || receipt.Outcome != "accepted" ||
+	if receipt, err := submit(ctx, input); err != nil || receipt.Outcome != "accepted" ||
 		s.ConversationState().Session != next.Session || len(model.seen("CASE_IDLE_NEW")) != len(calls) {
-		t.Fatal("channel retry did not retain the original native result", receipt, err)
+		t.Fatal("retry did not retain the original native result", receipt, err)
 	}
-	t.Log("Remote ingress after 49 idle hours used the next native Session once; the Worker notice stayed with the old Session, and the new Session retrieved projected history through Read")
+	t.Logf("%s ingress after 49 idle hours and a desktop control receipt used the next native Session once; the Worker notice stayed with the old Session, and the new Session retrieved projected history through Read", channel)
 }

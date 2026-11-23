@@ -30,6 +30,7 @@ func TestHistoryFileIsARebuildableSQLiteProjection(t *testing.T) {
 		{ID: "answer", Kind: "assistant", Text: "partial", Status: "inProgress"},
 		{ID: "channel-input:remote", RequestID: "remote", Kind: "user", Text: "hidden modern command", Status: "completed", SeenAt: recorded.Add(time.Hour).UnixMicro(), RemoteCommand: &hidden},
 		{ID: "channel-input:old-command", RequestID: "old-command", Kind: "user", Text: "hidden legacy command", Status: "completed", SeenAt: recorded.Add(time.Hour).UnixMicro()},
+		{ID: "control-input:desktop-command", RequestID: "desktop-command", Kind: "user", Text: "hidden desktop command", Status: "accepted", SeenAt: recorded.Add(time.Hour).UnixMicro()},
 		{ID: "control-1", Kind: "controlNotice", Text: "hidden decision", Status: "completed"},
 	})
 	if err := log.flush(ctx); err != nil {

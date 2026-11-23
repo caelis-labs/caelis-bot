@@ -16,6 +16,9 @@ type HistoryFilter func(api.Item) bool
 
 func conversationItem(item api.Item, exclude HistoryFilter) bool {
 	return (item.Kind == "user" || item.Kind == "assistant") &&
+		// The shared control handler records its own accepted receipts in
+		// this namespace. They never represent an admitted model message.
+		(item.Kind != "user" || item.ID != "control-input:"+item.RequestID) &&
 		(item.RemoteCommand == nil || !*item.RemoteCommand) && item.QuestionReply == nil &&
 		(exclude == nil || !exclude(item))
 }
