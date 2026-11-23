@@ -82,21 +82,25 @@ Native deferred tool discovery, external MCP services and ordinary sessions reta
 policies. Tool annotations, prose and character state are never permission grants.
 Review failure, rejection or timeout cannot turn into a manual Allow bypass.
 
-The resident's private stdio services receive distinct launch bearers. The Bot
-bridge checks the bearer against the requested tool. Existing Codex aggregate
-threads retain their original service identity. Caelis binds the task service
-to the current resident Session, principal and Host connection through a private
-launch file. Reconnect, context renewal and shutdown revoke that connection's
-bearer. The Core profile stores the launch path.
+Codex's resident stdio services use distinct launch bearers. The Bot bridge
+checks each bearer against its tool catalog. Existing aggregate threads retain
+their original service identity.
 
-On Caelis, `bot_delegate` and `bot_tasks` use native MCP discovery in automatic and
-manual approval modes. Bot checks the authenticated Session configuration, active
-Turn and exact tool and arguments against the Guardian review or the accepted
-native manual decision, then records a single claim for that decision.
-It derives its own submission identity and uses native Worker create, prompt and
-steer receipts. Existing callback catalogs remain readable for prior calls.
-Legacy background grants and the remaining resident tools use the callback
-contract. Worker Sessions keep their native configuration and load their own tools.
+Caelis exposes resident task operations through Core's authenticated Application
+callback transport. The Core v0.85.0 stdio MCP request carries the tool name and
+arguments. A native callback claim binds the originating Control Session,
+principal and call identity to the exact Bot prompt and catalog. Bot sends the
+claimed operation through standard MCP framing on an in-process connection
+scoped to that call. Core profiles carry no private Bot launch credentials.
+Worker Sessions keep their native configuration and load their own tools.
+
+Manual Allow records the exact native tool call with the original approval
+operation before ResolveApproval. The callback can proceed after that
+operation is committed. A lost reply is reconciled by the original operation
+ID. Reject and cancel decisions create no allow evidence. Guardian applies
+Core's automatic policy. Existing callback catalogs stay available under
+their original version for in-flight calls. Legacy background grants
+and the remaining resident tools use the callback contract.
 Native Worker attachments use typed images or private Bot-owned file copies
 readable through the Worker's native file tool. Application Sessions continue
 to use Core resource uploads.
@@ -180,8 +184,9 @@ independent directories/instructions; these scopes do not isolate processes of t
 OS user or full-access execution.
 
 Private SQLite IM stores visible user/assistant messages, control receipts and completed
-Artifact-bearing tool labels with stable request/item IDs. Ingress precedes submission;
-original receipts and streaming patch the same item. Chat pages local IM even offline;
+Artifact-bearing tool labels with stable request/item IDs. Channel ingress can precede Runtime submission. The original native receipt and
+streaming updates patch the same item. A transport receipt alone does not count
+as a prior submission when testing idle renewal. Chat pages local IM even offline;
 Runtime owns execution/tool history. Reconnect reads a recent Turn, not full history.
 Optional display sync/Worker reads cannot block admission. Damaged display databases are
 preserved before rebuilding; disk failure retains live cache. Artifacts are host-resolved

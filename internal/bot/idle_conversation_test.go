@@ -3,10 +3,12 @@ package bot
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/chatlog"
 )
 
 type idleConversationFixture struct {
@@ -99,5 +101,45 @@ func TestContinuousUserConversationsNeverAgeOut(t *testing.T) {
 	}
 	if engine.calls != 0 {
 		t.Fatal("regular user activity was ignored")
+	}
+}
+
+func TestChannelTransportReceiptDoesNotSuppressIdleRenewal(t *testing.T) {
+	for _, request := range []string{"telegram:123:1", "weixin:test"} {
+		t.Run(request, func(t *testing.T) {
+			r, _, now := fixture(t)
+			engine := &idleConversationFixture{legacyDreamEngine: legacyDreamEngine{
+				fakeEngine: fakeEngine{view: api.Snapshot{CanSend: true}, outcome: "accepted"},
+				state:      api.ConversationState{Session: "original", Turn: "original-turn", Observed: true},
+			}}
+			r.engine = engine
+			previous := *now
+			*now = now.Add(49 * time.Hour)
+			log := chatlog.Open(filepath.Join(t.TempDir(), "chat.sqlite"))
+			defer log.Close()
+			ingress := api.Item{ID: "channel-input:" + request, RequestID: request, Kind: "user", Status: "received", SeenAt: now.UnixMicro()}
+			log.Observe([]api.Item{
+				{ID: "outgoing:previous", RequestID: "previous", Kind: "user", Status: "accepted", SeenAt: previous.UnixMicro()},
+				ingress,
+			})
+			read := func(ctx context.Context, id string) (time.Time, bool, error) {
+				return log.ConversationActivity(ctx, id, nil)
+			}
+			r.ConfigureIdleConversation(read)
+			input := api.Submission{ID: request, Text: "first channel message after idle"}
+			if out, err := r.SubmitUser(t.Context(), input, nil); err != nil || out.Outcome != "accepted" ||
+				engine.calls != 1 || engine.state.Session != "fresh" {
+				t.Fatal("channel ingress did not rotate before submission", out, err, engine.calls)
+			}
+			accepted := ingress
+			accepted.ID, accepted.Status = "outgoing:"+request, "accepted"
+			log.Observe([]api.Item{accepted})
+			*now = now.Add(49 * time.Hour)
+			log.Observe([]api.Item{ingress})  // A redelivered transport receipt cannot erase native admission.
+			r.ConfigureIdleConversation(read) // Simulate restart without cached request identity.
+			if out, err := r.SubmitUser(t.Context(), input, nil); err != nil || out.Outcome != "accepted" || engine.calls != 1 {
+				t.Fatal("retry renewed the conversation again", out, err, engine.calls)
+			}
+		})
 	}
 }

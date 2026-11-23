@@ -125,6 +125,7 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 	// Only the authenticated opaque ID is an effect identity. Arguments and the
 	// provider's reusable call_id are never trusted invocation context.
 	s.mu.Lock()
+	generation := s.generation
 	host := s.catalogs[call.ToolsVersion][call.Name]
 	contentV1 := s.state.ContentCatalogs[call.ToolsVersion][call.Name]
 	s.mu.Unlock()
@@ -169,7 +170,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.SessionBindi
 					result.Content = []map[string]string{{"type": "text", "text": "This tool is retired; use schedule. No effect was performed."}}
 				} else if host != nil {
 					invocation := api.ToolInvocation{Provider: "caelis", CallID: call.Id, Session: call.SessionId, Turn: call.TurnId, TurnKey: call.TurnId}
-					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
+					claim := callbackClaim{client: c, generation: generation, call: claimed}
+					callCtx := context.WithValue(ctx, callbackClaimKey{}, claim)
+					callCtx = api.WithToolInvocation(context.WithValue(callCtx, invocationKey{}, call), invocation)
 					s.mu.Lock()
 					resident := s.state.Session.SessionId == call.SessionId
 					s.mu.Unlock()

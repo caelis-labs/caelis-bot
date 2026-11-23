@@ -138,8 +138,10 @@ type ToolConnection struct {
 	ApprovedTools  []string
 	// Services partitions the compact built-in catalog for the resident only.
 	// Names are protocol identities, never user-facing plugin titles.
-	Services          []ToolService
-	OpenPrivateStdio  func(ToolService, PrivateToolAdmission) (PrivateToolLaunch, error)
+	Services []ToolService
+	// CallResidentMCP accepts only a Runtime adapter's claimed native call.
+	// Its endpoint and request context stay inside the Bot process.
+	CallResidentMCP   func(context.Context, string, json.RawMessage) ToolResult
 	Plugins           plugins.Selection
 	BuiltinSkillRoots []string
 }
@@ -166,15 +168,6 @@ type ToolService struct {
 	Token string `json:"-"`
 }
 
-// A host-owned launcher and admission hook. The adapter binds them to one
-// native owner and derives the invocation from authenticated Runtime facts.
-type PrivateToolLaunch struct {
-	Args    []string
-	WorkDir string
-	Revoke  func()
-}
-
-type PrivateToolAdmission func(context.Context, string, json.RawMessage) (context.Context, error)
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 
 func (c *ToolConnection) Clone() *ToolConnection {

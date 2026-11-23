@@ -166,6 +166,9 @@ func (l *Log) observeLocked(item api.Item, lookup bool) {
 
 func mergeObservedItem(item, old api.Item) api.Item {
 	if item.Kind == "user" {
+		if (item.Status == "received" || item.Status == "sending") && settledInput(old.Status) {
+			return old
+		}
 		preserveQuestionReply(&item, old)
 		if item.RemoteCommand == nil {
 			item.RemoteCommand = old.RemoteCommand

@@ -26,6 +26,7 @@ type pendingInput struct {
 }
 
 type journal struct {
+	ManualMCP      *manualMCPAction   `json:"manualMCP,omitempty"`
 	SystemSource   api.SystemSource   `json:"systemSource,omitempty"`
 	StopTarget     *wire.TurnTarget   `json:"stopTarget,omitempty"`
 	Work           *workIntent        `json:"work,omitempty"`
@@ -124,8 +125,6 @@ type binding struct {
 	StoreDirectory     string                               `json:"storeDirectory,omitempty"`
 	Endpoint           string                               `json:"endpoint"`
 	InstanceID         string                               `json:"instanceID"`
-	PrivateMCPClaims   map[string]string                    `json:"privateMCPClaims,omitempty"`
-	ManualMCPApprovals map[string]reviewFact                `json:"manualMCPApprovals,omitempty"`
 	PrincipalID        string                               `json:"principalID"`
 	Session            wire.SessionBinding                  `json:"session"`
 	CreateID           string                               `json:"createID"`

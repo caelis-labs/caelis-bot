@@ -31,12 +31,15 @@ func (l *Log) ConversationActivity(ctx context.Context, request string, exclude 
 		return time.Time{}, false, err
 	}
 	defer db.Close()
-	var known bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?)", "input:"+request).Scan(&known); err != nil {
+	var recorded []byte
+	err = db.QueryRowContext(ctx, "SELECT body FROM messages WHERE id=?", "input:"+request).Scan(&recorded)
+	if err == nil {
+		var item api.Item
+		if json.Unmarshal(recorded, &item) == nil && conversationItem(item, exclude) && settledInput(item.Status) {
+			return time.Time{}, true, nil
+		}
+	} else if err != sql.ErrNoRows {
 		return time.Time{}, false, err
-	}
-	if known {
-		return time.Time{}, true, nil
 	}
 	rows, err := db.QueryContext(ctx, `SELECT body FROM messages
 		WHERE CASE WHEN json_valid(body) THEN json_extract(body,'$.kind') = 'user' ELSE 0 END
@@ -53,10 +56,20 @@ func (l *Log) ConversationActivity(ctx context.Context, request string, exclude 
 		var item api.Item
 		if json.Unmarshal(raw, &item) == nil && conversationItem(item, exclude) && item.SeenAt > 0 &&
 			(item.Status == "accepted" || item.Status == "completed") {
-			return time.UnixMicro(item.SeenAt), known, nil
+			return time.UnixMicro(item.SeenAt), false, nil
 		}
 	}
-	return time.Time{}, known, rows.Err()
+	return time.Time{}, false, rows.Err()
+}
+
+// The channel's incoming receipt precedes Runtime admission. Native receipts
+// (including an uncertain original attempt) preserve request identity on retry.
+func settledInput(status string) bool {
+	switch status {
+	case "accepted", "completed", "unknown", "rejected":
+		return true
+	}
+	return false
 }
 
 // StartHistoryFile publishes a disposable read-only view of the committed IM.

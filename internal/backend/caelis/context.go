@@ -320,36 +320,20 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if state.SessionId != sid || value(state.Run.Active) {
 		return errors.New("新上下文状态不匹配")
 	}
-	s.mu.Lock()
-	pendingConfiguration := s.configurationRecoveryPendingLocked()
-	s.mu.Unlock()
-	if pendingConfiguration && s.tools != nil && s.tools.OpenPrivateStdio != nil {
-		if err := s.recoverConfigurations(ctx); err != nil {
-			return err
-		}
-	}
-	scope, err := s.openPrivateMCP(next)
-	if err != nil {
-		return err
-	}
-	installed := false
-	defer func() {
-		if !installed {
-			scope.close()
-		}
-	}()
-	if scope != nil {
+	if s.tools != nil && s.tools.CallResidentMCP != nil {
 		config, err := s.configuration(ctx, sid)
 		if err != nil {
 			return err
 		}
-		servers := scope.servers(config.Profile.McpServers)
-		profile := privateApplicationCatalog(s.profile)
-		intent, _ := json.Marshal(servers)
-		change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))
-		patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
-		if _, err := s.updateConfiguration(ctx, sid, change, string(config.Revision), patch); err != nil {
-			return err
+		servers := withoutPrivateMCP(config.Profile.McpServers)
+		profile := s.profile
+		if config.Profile.ToolsVersion != profile.ToolsVersion || len(servers) != len(config.Profile.McpServers) {
+			patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
+			intent, _ := json.Marshal(patch)
+			change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))
+			if _, err := s.updateConfiguration(ctx, sid, change, string(config.Revision), patch); err != nil {
+				return err
+			}
 		}
 	}
 	if err := s.checkRenewalGuard(ctx, op); err != nil {
@@ -380,8 +364,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		s.mu.Unlock()
 		return errors.New("原对话已有新活动，交接未切换")
 	}
-	previous := s.privateMCP
-	err = api.CommitRenewal(ctx, sid, func() error {
+	err := api.CommitRenewal(ctx, sid, func() error {
 		old := s.state
 		s.state.Session, s.state.RenewedBy, s.state.Grants = next, id, grants
 		s.state.Context = contextseed.State{}
@@ -399,16 +382,11 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			s.state = old
 			return err
 		}
-		s.privateMCP = scope
-		installed = true
 		s.ensureStreamLocked(sid)
 		s.bumpLocked()
 		return nil
 	})
 	s.mu.Unlock()
-	if installed {
-		previous.close()
-	}
 	return s.recordDeferredRenewal(op, err)
 }
 

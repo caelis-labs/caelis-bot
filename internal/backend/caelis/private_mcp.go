@@ -1,11 +1,13 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -13,35 +15,24 @@ import (
 )
 
 const privateTasksService = "caelis_tasks"
+const privateTasksPrefix = privateTasksService + "__"
 
 var privateTasksTools = []string{"bot_delegate", "bot_tasks"}
 
-type privateMCP struct {
-	session, principal, instance string
-	client                       *client
-	server                       wire.SessionMCPServer
-	revoke                       func()
+type privateInvocationKey struct{}
+
+type callbackClaim struct {
+	client     *client
+	generation uint64
+	call       wire.SessionToolCall
 }
 
-type privateInvocationKey struct{}
+type callbackClaimKey struct{}
 
 func withoutPrivateMCP(servers []wire.SessionMCPServer) []wire.SessionMCPServer {
 	return slices.DeleteFunc(slices.Clone(servers), func(server wire.SessionMCPServer) bool {
 		return server.Name == privateTasksService
 	})
-}
-
-func (p *privateMCP) servers(servers []wire.SessionMCPServer) []wire.SessionMCPServer {
-	if p == nil {
-		return servers
-	}
-	return append(withoutPrivateMCP(servers), p.server)
-}
-
-func (p *privateMCP) close() {
-	if p != nil {
-		p.revoke()
-	}
 }
 
 func privateApplicationCatalog(profile wire.SessionProfile) wire.SessionProfile {
@@ -53,158 +44,159 @@ func privateApplicationCatalog(profile wire.SessionProfile) wire.SessionProfile 
 	return profile
 }
 
-func (s *Session) openPrivateMCP(b wire.SessionBinding) (*privateMCP, error) {
-	s.mu.Lock()
-	tools, client, instance := s.tools, s.client, s.state.InstanceID
-	s.mu.Unlock()
-	if tools == nil || tools.OpenPrivateStdio == nil {
-		return nil, nil
-	}
-	// A Worker never runs this application assembly.
-	scope := &privateMCP{session: b.SessionId, principal: b.PrincipalId, client: client, instance: instance}
-	launch, err := tools.OpenPrivateStdio(api.ToolService{Name: privateTasksService, Tools: privateTasksTools}, func(ctx context.Context, name string, args json.RawMessage) (context.Context, error) {
-		return s.admitPrivateMCP(ctx, scope, name, args)
-	})
-	if err != nil {
-		return nil, err
-	}
-	scope.server = wire.SessionMCPServer{Name: privateTasksService, Transport: "stdio", Command: pointer(tools.Command), Args: append(slices.Clone(tools.Args), launch.Args...), WorkDir: pointer(launch.WorkDir)}
-	scope.revoke = launch.Revoke
-	return scope, nil
+// Core's public MCP request carries only name and arguments. Its authenticated
+// Application callback supplies the native Session, principal and opaque claim.
+type residentMCPTools struct {
+	*Session
+	callTool func(context.Context, string, json.RawMessage) api.ToolResult
 }
 
-func (s *Session) privateMPCCurrentLocked(scope *privateMCP) bool {
-	return scope != nil && s.privateMCP == scope && s.connected && !s.closed && s.client == scope.client &&
-		s.state.Session.SessionId == scope.session && s.state.PrincipalID == scope.principal && s.state.InstanceID == scope.instance
+func (h residentMCPTools) Definitions() []api.ToolDefinition { return nil }
+
+func (h residentMCPTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	claim, ok := ctx.Value(callbackClaimKey{}).(callbackClaim)
+	tool, scoped := residentMCPName(name)
+	digest := argumentsDigest(args)
+	if !ok || !scoped || claim.call.Name != name || digest == "" || digest != nativeArgumentsDigest(claim.call.Arguments) || !h.admitResidentMCP(ctx, claim) {
+		return api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "The original resident tool call could not be confirmed."}}}
+	}
+	return h.callTool(context.WithValue(ctx, privateInvocationKey{}, claim), tool, args)
 }
 
-func (s *Session) admitPrivateMCP(ctx context.Context, scope *privateMCP, name string, args json.RawMessage) (context.Context, error) {
-	unauthorized := errors.New("reviewed Bot invocation unavailable")
-	s.mu.Lock()
-	owned := s.privateMPCCurrentLocked(scope)
-	s.mu.Unlock()
-	if !owned || !slices.Contains(privateTasksTools, name) {
-		return nil, unauthorized
+func residentMCPName(name string) (string, bool) {
+	tool, prefixed := strings.CutPrefix(name, privateTasksPrefix)
+	return tool, prefixed && slices.Contains(privateTasksTools, tool)
+}
+
+func residentMCPCatalog(profile wire.SessionProfile, catalog map[string]api.ApplicationTools, handler residentMCPTools) (wire.SessionProfile, map[string]api.ApplicationTools) {
+	result := privateApplicationCatalog(profile)
+	handlers := make(map[string]api.ApplicationTools, len(catalog))
+	for _, d := range result.Tools {
+		handlers[d.Name] = catalog[d.Name]
 	}
-	var input map[string]any
-	if json.Unmarshal(args, &input) != nil || input == nil {
-		return nil, unauthorized
+	for _, d := range profile.Tools {
+		if slices.Contains(privateTasksTools, d.Name) {
+			d.Name = privateTasksPrefix + d.Name
+			d.ApprovalPolicy = pointer("required")
+			result.Tools = append(result.Tools, d)
+			handlers[d.Name] = handler
+		}
+	}
+	sort.Slice(result.Tools, func(i, j int) bool { return result.Tools[i].Name < result.Tools[j].Name })
+	raw, _ := json.Marshal(result.Tools)
+	result.ToolsVersion = digest(raw)
+	return result, handlers
+}
+
+func (s *Session) residentMCPClaimCurrentLocked(claim callbackClaim) bool {
+	call := claim.call
+	return s.connected && !s.closed && !s.retainedWorkers && claim.client != nil && s.client == claim.client && s.generation == claim.generation &&
+		call.SessionId != "" && call.PrincipalId != "" &&
+		call.SessionId == s.state.Session.SessionId && call.PrincipalId == s.state.PrincipalID &&
+		call.State == "claimed" && call.TurnId != "" && call.ItemId != "" && call.Id != "" && call.CallId != ""
+}
+
+func (s *Session) admitResidentMCP(ctx context.Context, claim callbackClaim) bool {
+	s.mu.Lock()
+	current := s.residentMCPClaimCurrentLocked(claim)
+	permissions := s.state.Session.Profile.Permissions
+	s.mu.Unlock()
+	if !current || ctx.Err() != nil {
+		return false
+	}
+	// Core emits the claimed callback only after its own tool policy allows it.
+	// For manual mode also require Bot's durable, committed original decision.
+	if permissions != nil && value(permissions.ApprovalMode) == "auto-review" {
+		return true
 	}
 	proof, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	var configuration wire.SessionConfiguration
-	if err := scope.client.json(proof, "GET", "/sessions/"+idPath(scope.session)+"/configuration", nil, &configuration, "", ""); err != nil {
-		return nil, err
+	call := claim.call
+	args := nativeArgumentsDigest(call.Arguments)
+	if args == "" {
+		return false
 	}
-	if configuration.SessionId != scope.session || configuration.Profile == nil ||
-		!slices.ContainsFunc(configuration.Profile.McpServers, func(server wire.SessionMCPServer) bool { return reflect.DeepEqual(server, scope.server) }) {
-		return nil, unauthorized
-	}
-	var state wire.SessionState
-	if err := scope.client.json(proof, "GET", "/sessions/"+idPath(scope.session)+"/state", nil, &state, "", ""); err != nil {
-		return nil, err
-	}
-	turn := value(state.Run.TurnId)
-	if state.SessionId != scope.session || !value(state.Run.Active) || turn == "" {
-		return nil, unauthorized
-	}
-	nativeName := privateTasksService + "__" + name
 	for {
 		s.mu.Lock()
-		if !s.privateMPCCurrentLocked(scope) || proof.Err() != nil {
+		if !s.residentMCPClaimCurrentLocked(claim) || proof.Err() != nil {
 			s.mu.Unlock()
-			return nil, unauthorized
+			return false
 		}
-		var match reviewFact
-		if view := s.state.Views[scope.session]; view != nil {
-			for index, reviews := range []map[string]reviewFact{view.Reviews, view.LiveReviews, s.state.ManualMCPApprovals} {
-				for _, review := range reviews {
-					if review.Status != "approved" || review.TurnID != turn || index < 2 && review.ItemID == "" || review.ApprovalID == "" || review.ToolCallID == "" ||
-						s.state.PrivateMCPClaims[review.ID] == turn || !reviewedMCPAction(review, nativeName, input) {
-						continue
-					}
-					if match.ID != "" && match.ID != review.ID {
-						s.mu.Unlock()
-						return nil, unauthorized // Identical concurrent actions have no unique proof.
-					}
-					match = review
+		var original, outcome string
+		for op, j := range s.state.Operations {
+			if j.ManualMCP != nil && j.ManualMCP.matches(call, args) &&
+				j.Path == "/sessions/"+idPath(call.SessionId)+"/approvals/"+idPath(j.ManualMCP.RequestID)+"/resolve" {
+				if original != "" {
+					s.mu.Unlock()
+					return false
 				}
+				original, outcome = op, j.Outcome
 			}
 		}
-		if match.ID != "" {
-			prior := s.state.PrivateMCPClaims
-			claims := map[string]string{match.ID: turn}
-			for id, claimedTurn := range prior {
-				if claimedTurn == turn {
-					claims[id] = claimedTurn
-				}
-			}
-			s.state.PrivateMCPClaims = claims
-			if err := s.saveLocked(); err != nil {
-				s.state.PrivateMCPClaims = prior
-				s.mu.Unlock()
-				return nil, err
-			}
-			s.mu.Unlock()
-			invocation := api.ToolInvocation{Provider: "caelis", Session: scope.session, Turn: turn, TurnKey: turn,
-				CallID: "bot-mcp-" + digest([]byte(scope.instance+"\x00"+scope.session+"\x00"+match.ApprovalID+"\x00"+match.ToolCallID))}
-			return api.WithToolInvocation(context.WithValue(ctx, privateInvocationKey{}, scope), invocation), nil
-		}
-		changed := s.changed
 		s.mu.Unlock()
+		switch outcome {
+		case "committed":
+			return true
+		case "unknown", "accepted":
+			_ = s.recoverOperation(proof, original)
+		default:
+			return false
+		}
 		select {
-		case <-changed:
+		case <-time.After(100 * time.Millisecond):
 		case <-proof.Done():
-			return nil, unauthorized
+			return false
 		}
 	}
 }
 
-// Manual decisions are acknowledged by Control before being spendable.
-// The original head supplies the exact tool, raw arguments and call ID.
-func (s *Session) recordManualMCPApproval(sid string, head *wire.ActiveApproval, permission nativePermission) error {
-	if head.Subject == nil || head.Subject.Tool.State != wire.ApprovalFieldStateKnown || head.Target == nil || permission.ToolCall.ID == "" {
-		return nil
+type manualMCPAction struct {
+	SessionID, PrincipalID, TurnID, RequestID, CallID, Name, Arguments string
+}
+
+type manualMCPActionKey struct{}
+
+func (a manualMCPAction) matches(call wire.SessionToolCall, args string) bool {
+	return a.SessionID == call.SessionId && a.PrincipalID == call.PrincipalId && a.TurnID == call.TurnId &&
+		a.CallID == call.CallId && a.Name == call.Name && a.Arguments == args
+}
+
+func (a manualMCPAction) matchesReceipt(receipt wire.CommandResult) bool {
+	return (value(receipt.SessionId) == "" || value(receipt.SessionId) == a.SessionID) &&
+		(receipt.Target == nil || value(receipt.Target.TurnId) == "" || value(receipt.Target.TurnId) == a.TurnID)
+}
+
+func captureManualMCPAction(sid, principal string, a *wire.ActiveApproval, p nativePermission) (*manualMCPAction, error) {
+	if a.Subject == nil || a.Subject.Tool.State != wire.ApprovalFieldStateKnown {
+		return nil, nil
 	}
-	tool := value(head.Subject.Tool.Text)
-	if !slices.ContainsFunc(privateTasksTools, func(name string) bool { return tool == privateTasksService+"__"+name }) {
-		return nil
+	name := value(a.Subject.Tool.Text)
+	if _, scoped := residentMCPName(name); !scoped {
+		return nil, nil
 	}
-	action, err := json.Marshal(struct {
-		Tool      string          `json:"tool"`
-		Arguments json.RawMessage `json:"arguments"`
-	}{tool, permission.ToolCall.RawInput})
+	args := argumentsDigest(p.ToolCall.RawInput)
+	if sid == "" || principal == "" || a.RequestId == "" || a.Target == nil || a.Target.TurnId == "" || p.ToolCall.ID == "" || args == "" {
+		return nil, errors.New("original resident tool approval identity is incomplete")
+	}
+	return &manualMCPAction{SessionID: sid, PrincipalID: principal, TurnID: a.Target.TurnId, RequestID: a.RequestId,
+		CallID: p.ToolCall.ID, Name: name, Arguments: args}, nil
+}
+
+func nativeArgumentsDigest(args wire.JSONValue) string {
+	raw, err := json.Marshal(args)
 	if err != nil {
-		return err
+		return ""
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.state.Session.SessionId != sid || !s.privateMPCCurrentLocked(s.privateMCP) {
-		return nil
-	}
-	turn := head.Target.TurnId
-	id := reviewID(sid, turn, head.RequestId)
-	before := s.state.ManualMCPApprovals
-	decisions := map[string]reviewFact{}
-	for key, fact := range before {
-		if fact.TurnID == turn {
-			decisions[key] = fact
-		}
-	}
-	decisions[id] = reviewFact{Review: api.Review{ID: id, Status: "approved", Action: string(action)}, TurnID: turn, ApprovalID: head.RequestId, ToolCallID: permission.ToolCall.ID}
-	s.state.ManualMCPApprovals = decisions
-	if err := s.saveLocked(); err != nil {
-		s.state.ManualMCPApprovals = before
-		return err
-	}
-	s.bumpLocked()
-	return nil
+	return argumentsDigest(raw)
 }
 
-func reviewedMCPAction(review reviewFact, tool string, args map[string]any) bool {
-	var action struct {
-		Tool      string         `json:"tool"`
-		Arguments map[string]any `json:"arguments"`
+func argumentsDigest(raw json.RawMessage) string {
+	var args map[string]any
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	if !json.Valid(raw) || d.Decode(&args) != nil || args == nil {
+		return ""
 	}
-	return json.Unmarshal([]byte(review.Action), &action) == nil && action.Tool == tool && reflect.DeepEqual(action.Arguments, args)
+	canonical, _ := json.Marshal(args)
+	return digest(canonical)
 }

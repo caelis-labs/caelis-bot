@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -282,59 +281,31 @@ func TestPrivateBridgeAuthenticatesServiceAndVersion(t *testing.T) {
 	}
 }
 
-func TestPrivateLaunchRejectsCrossServiceAndRevokedBearer(t *testing.T) {
-	resident, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+func TestResidentMCPRequiresCaelisInvocationAndToolScope(t *testing.T) {
+	r, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge, err := Serve(resident)
+	bridge, err := Serve(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bridge.Close()
-	var admissions atomic.Int32
-	config := bridge.Config("fixture")
-	launch, err := config.OpenPrivateStdio(api.ToolService{Name: "caelis_tasks", Tools: []string{"bot_tasks"}}, func(ctx context.Context, name string, args json.RawMessage) (context.Context, error) {
-		admissions.Add(1)
-		if name != "bot_tasks" {
-			t.Error("scope admitted an unrelated tool", name)
-		}
-		return ctx, nil
-	})
-	if err != nil {
-		t.Fatal(err)
+	connection := bridge.Config("fixture")
+	if connection.CallResidentMCP == nil {
+		t.Fatal("resident MCP is unavailable")
 	}
-	defer launch.Revoke()
-	raw, err := os.ReadFile(launch.Args[0])
-	var env map[string]string
-	if err != nil || json.Unmarshal(raw, &env) != nil {
-		t.Fatal("private launch file unreadable", err)
+	args := json.RawMessage(`{"request":{"type":"list"}}`)
+	if out := connection.CallResidentMCP(t.Context(), "bot_tasks", args); !out.IsError {
+		t.Fatal("private tool accepted an unbound invocation")
 	}
-	call := toolRequest{Token: env["CAELIS_BOT_TOKEN"], Version: 3, Name: "bot_tasks", Arguments: json.RawMessage(`{"request":{"type":"list"}}`)}
-	forward(env["CAELIS_BOT_ENDPOINT"], call)
-	if admissions.Load() != 1 {
-		t.Fatal("private grant did not authenticate")
+	ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "caelis", Session: "main", Turn: "turn", CallID: "claim"})
+	if out := connection.CallResidentMCP(ctx, "bot_gesture", json.RawMessage(`{"action":"nod"}`)); !out.IsError {
+		t.Fatal("resident task service exposed another service's tool")
 	}
-	refuse := func(req toolRequest) {
-		t.Helper()
-		out := forward(env["CAELIS_BOT_ENDPOINT"], req)
-		if !out.IsError || admissions.Load() != 1 {
-			t.Fatal("request reached private admission outside its scope")
-		}
-	}
-	wrong := call
-	wrong.Name = "bot_gesture"
-	refuse(wrong)
-	wrong = call
-	wrong.Token = config.Env["CAELIS_BOT_TOKEN"]
-	refuse(wrong)
-	wrong = call
-	wrong.Version = 2
-	refuse(wrong)
-	launch.Revoke()
-	refuse(call)
-	if _, err := os.Stat(launch.Args[0]); !os.IsNotExist(err) {
-		t.Fatal("revoked launch file remains")
+	bridge.Close()
+	if out := connection.CallResidentMCP(ctx, "bot_tasks", args); !out.IsError {
+		t.Fatal("closed resident connection still admitted a call")
 	}
 }
 func TestGestureAllowlist(t *testing.T) {

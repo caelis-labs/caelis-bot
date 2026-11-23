@@ -55,7 +55,6 @@ type Session struct {
 	executionMode         string
 	requireApproval       bool
 	tools                 *api.ToolConnection
-	privateMCP            *privateMCP
 	catalog               map[string]api.ApplicationTools
 	catalogs              map[string]map[string]api.ApplicationTools
 	profile               wire.SessionProfile
@@ -311,8 +310,6 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	old := s.client
-	previous := s.privateMCP
-	s.privateMCP = nil
 	s.client = host
 	s.info = info
 	s.state.StoreID = value(info.StoreId)
@@ -334,7 +331,6 @@ func (s *Session) connect(ctx context.Context) error {
 	s.state.InstanceID = value(info.InstanceId)
 	e = s.saveLocked()
 	s.mu.Unlock()
-	previous.close()
 	if old != nil {
 		old.http.CloseIdleConnections()
 	}
@@ -369,8 +365,6 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 	s.closed = true
 	s.connected = false
-	private := s.privateMCP
-	s.privateMCP = nil
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -379,7 +373,6 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 	s.bumpLocked()
 	s.mu.Unlock()
-	private.close()
 	done := make(chan struct{})
 	go func() { s.wg.Wait(); close(done) }()
 	select {

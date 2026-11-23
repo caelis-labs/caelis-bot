@@ -139,18 +139,26 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		}
 	}
 	s.catalogs[profile.ToolsVersion] = catalog
-	if c.OpenPrivateStdio != nil && !s.retainedWorkers {
-		// Preserve the original catalog for callbacks already leased or replayed
-		// by Core. Only the next configuration drops the migrated entries.
-		version := privateApplicationCatalog(profile).ToolsVersion
-		scoped := make(map[string]api.ApplicationTools, len(catalog))
-		for name, handler := range catalog {
-			if !slices.Contains(privateTasksTools, name) {
-				scoped[name] = handler
+	if c.CallResidentMCP != nil && !s.retainedWorkers {
+		// Retain the previous MCP-era callback catalog for unaffected calls
+		// already leased against it. Only the next profile advertises aliases.
+		previous := privateApplicationCatalog(profile)
+		handlers := make(map[string]api.ApplicationTools, len(previous.Tools))
+		for _, tool := range previous.Tools {
+			handlers[tool.Name] = catalog[tool.Name]
+		}
+		s.catalogs[previous.ToolsVersion] = handlers
+		s.state.ContentCatalogs[previous.ToolsVersion] = formats
+		profile, catalog = residentMCPCatalog(profile, catalog, residentMCPTools{Session: s, callTool: c.CallResidentMCP})
+		profile.McpServers = withoutPrivateMCP(profile.McpServers)
+		currentFormats := make(map[string]bool, len(profile.Tools))
+		for _, tool := range profile.Tools {
+			if value(tool.ResultFormat) == "content-v1" {
+				currentFormats[tool.Name] = true
 			}
 		}
-		s.catalogs[version] = scoped
-		s.state.ContentCatalogs[version] = formats
+		s.catalogs[profile.ToolsVersion] = catalog
+		s.state.ContentCatalogs[profile.ToolsVersion] = currentFormats
 		if err := s.saveLocked(); err != nil {
 			s.mu.Unlock()
 			return err
@@ -174,8 +182,7 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 			return errors.New("Bot tools require Caelis session-tool-result-content-v1; update and restart the Host")
 		}
 	}
-	private := s.tools != nil && s.tools.OpenPrivateStdio != nil && !s.retainedWorkers
-	if (private || len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
+	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
 		return errors.New("Bot plugins require Caelis session-atomic-capabilities-v1")
 	}
 	return nil
@@ -286,9 +293,8 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	s.mu.Lock()
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
 	pendingConfiguration := s.configurationRecoveryPendingLocked()
-	previous := s.privateMCP
 	s.mu.Unlock()
-	if pendingConfiguration && s.tools != nil && s.tools.OpenPrivateStdio != nil {
+	if pendingConfiguration && s.tools != nil && s.tools.CallResidentMCP != nil {
 		if err := s.recoverConfigurations(ctx); err != nil {
 			return err
 		}
@@ -298,21 +304,8 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		}
 		pendingPlugin = false
 	}
-	scope, e := s.openPrivateMCP(b)
-	if e != nil {
-		return e
-	}
-	installed := false
-	defer func() {
-		if !installed {
-			scope.close()
-		}
-	}()
 	profile := s.profile
-	if scope != nil {
-		profile = privateApplicationCatalog(profile)
-	}
-	servers := scope.servers(profile.McpServers)
+	servers := profile.McpServers
 	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, servers, func(a, b wire.SessionMCPServer) bool {
 		left, _ := json.Marshal(a)
 		right, _ := json.Marshal(b)
@@ -334,15 +327,6 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	if e != nil {
 		return e
 	}
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return errors.New("连接已停止")
-	}
-	s.privateMCP = scope
-	installed = true
-	s.mu.Unlock()
-	previous.close()
 	return nil
 }
 

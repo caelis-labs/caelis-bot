@@ -107,8 +107,8 @@ func (s *Session) typedMutation(ctx context.Context, op, path string, body any, 
 	// A committed receipt and the old configuration must never be persisted
 	// together as if the old profile were current. A subsequent public GET
 	// establishes the actual configuration before sending is admitted.
-	if strings.HasSuffix(path, "/configuration") {
-		delete(s.state.Configurations, s.state.Session.SessionId)
+	if configuration, ok := out.(*wire.SessionConfiguration); ok {
+		delete(s.state.Configurations, configuration.SessionId)
 	}
 	e = s.saveLocked()
 	s.mu.Unlock()
@@ -186,15 +186,19 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 	hadPluginRecovery := s.BotPluginRecoveryPending()
 	s.mu.Lock()
 	records := clone(s.state.Typed)
+	sid := s.state.Session.SessionId
 	s.mu.Unlock()
+	if sid == "" {
+		return nil
+	}
+	path := "/sessions/" + idPath(sid) + "/configuration"
 	for op, r := range records {
-		if !strings.HasSuffix(r.Path, "/configuration") {
+		if r.Path != path {
 			continue
 		}
 		if r.Outcome == "committed" {
 			s.mu.Lock()
-			sid := s.state.Session.SessionId
-			missing := r.Path == "/sessions/"+idPath(sid)+"/configuration" && s.state.Configurations[sid].Revision == ""
+			missing := s.state.Configurations[sid].Revision == ""
 			s.mu.Unlock()
 			if missing {
 				if _, e := s.configuration(ctx, sid); e != nil {
@@ -210,12 +214,7 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		if e := s.typedMutation(ctx, op, r.Path, json.RawMessage(r.Body), &v); e != nil {
 			return e
 		}
-		// Context handoff can prepare a separately owned next Session before
-		// adopting it. Reconcile the exact original journal path.
-		if v.SessionId == "" || r.Path != "/sessions/"+idPath(v.SessionId)+"/configuration" || v.Revision == "" || v.Profile == nil {
-			return errors.New("Caelis 配置恢复回执不匹配")
-		}
-		if _, e := s.configuration(ctx, v.SessionId); e != nil {
+		if _, e := s.configuration(ctx, sid); e != nil {
 			return e
 		}
 	}
@@ -233,11 +232,15 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 // both required even while the Bot is idle and its event stream is healthy.
 func (s *Session) configurationRecoveryPendingLocked() bool {
 	sid := s.state.Session.SessionId
+	if sid == "" {
+		return false
+	}
+	path := "/sessions/" + idPath(sid) + "/configuration"
 	for _, record := range s.state.Typed {
-		if !strings.HasSuffix(record.Path, "/configuration") {
+		if record.Path != path {
 			continue
 		}
-		if record.Outcome == "unknown" || record.Outcome == "committed" && record.Path == "/sessions/"+idPath(sid)+"/configuration" && s.state.Configurations[sid].Revision == "" {
+		if record.Outcome == "unknown" || record.Outcome == "committed" && s.state.Configurations[sid].Revision == "" {
 			return true
 		}
 	}
@@ -278,6 +281,10 @@ func typedPayload(operation, path string, receipt wire.CommandResult) (json.RawM
 	case strings.HasSuffix(path, "/configuration"):
 		if receipt.Configuration == nil {
 			return nil, errors.New("Caelis 配置回执缺失")
+		}
+		cfg := receipt.Configuration
+		if cfg.SessionId == "" || cfg.Revision == "" || cfg.Profile == nil || path != "/sessions/"+idPath(cfg.SessionId)+"/configuration" {
+			return nil, errors.New("Caelis 配置操作回执不匹配")
 		}
 		payload = receipt.Configuration
 	case strings.HasSuffix(path, "/resources"):

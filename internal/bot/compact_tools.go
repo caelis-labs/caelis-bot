@@ -349,5 +349,6 @@ func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
 		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorPresenceTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
 		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
+		{Host: priorIdleTools{r}, ApprovedTools: []string{"bot_tasks", "bot_interactions", "bot_schedule", "bot_gesture", "bot_dream"}},
 	}
 }

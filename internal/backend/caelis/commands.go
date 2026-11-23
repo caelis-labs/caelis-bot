@@ -74,6 +74,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		source = wire.SessionSource{Kind: value(prompt.SourceKind), OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0].Scheduled}
+	if approval, ok := ctx.Value(manualMCPActionKey{}).(*manualMCPAction); ok {
+		j := s.state.Operations[op]
+		j.ManualMCP = approval
+		s.state.Operations[op] = j
+	}
 	if intent, ok := ctx.Value(workIntentKey{}).(*workIntent); ok {
 		j := s.state.Operations[op]
 		copy := *intent
@@ -183,8 +188,19 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	}
 	s.mu.Lock()
 	j := s.state.Operations[op]
+	if j.ManualMCP != nil && !j.ManualMCP.matchesReceipt(out) {
+		s.mu.Unlock()
+		return wire.CommandResult{OperationId: op, Outcome: "unknown"}, errors.New("Caelis 原审批回执目标不匹配")
+	}
 	prior := j
 	j.Outcome = string(out.Outcome)
+	if j.ManualMCP != nil {
+		if prior.Outcome == "committed" {
+			j.Outcome = "committed"
+		} else if out.Outcome == "accepted" {
+			j.Outcome = "unknown"
+		}
+	}
 	if j.Outcome != "unknown" {
 		j.PendingInput = nil
 	}
@@ -201,11 +217,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j.Resource = value(out.SessionId)
 	}
 	s.state.Operations[op] = j
-	s.state.Context.Resolve(op, productOutcome(out.Outcome))
+	s.state.Context.Resolve(op, productOutcome(wire.Outcome(j.Outcome)))
 	e = s.saveLocked()
-	if e != nil && j.Work != nil && j.Work.Kind == "stop" {
-		// Keep unconfirmed stop receipts aligned with the durable journal.
-		// An ACK that the tool could not confirm must not mute its report.
+	if e != nil && (j.ManualMCP != nil || j.Work != nil && j.Work.Kind == "stop") {
+		// A receipt that could not be recorded cannot grant a new effect or
+		// suppress a Worker's report. Reconcile the durable original operation.
 		s.state.Operations[op] = prior
 	}
 	if e == nil {
@@ -421,6 +437,8 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op s
 		ok = ok && owned && ref.sid == worker.Binding.SessionId
 	}
 	c := s.client
+	principal := s.state.PrincipalID
+	resident := ref.sid == s.state.Session.SessionId
 	connected := s.connected
 	s.mu.Unlock()
 	if !ok {
@@ -472,15 +490,24 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op s
 	}
 	s.mu.Unlock()
 	approved := strings.HasPrefix(choice.Kind, "allow")
+	if approved && resident {
+		action, err := captureManualMCPAction(ref.sid, principal, a, permission)
+		if err != nil {
+			return err
+		}
+		if action != nil {
+			if head.SessionId != ref.sid {
+				return errors.New("original resident approval Session does not match")
+			}
+			ctx = context.WithValue(ctx, manualMCPActionKey{}, action)
+		}
+	}
 	out, e := s.command(ctx, op, path, wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: approved})
 	if e != nil {
 		return e
 	}
 	if !succeeded(out.Outcome) {
 		return errors.New("审批决定尚未被接受")
-	}
-	if approved {
-		return s.recordManualMCPApproval(ref.sid, a, permission)
 	}
 	return nil
 }

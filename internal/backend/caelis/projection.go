@@ -1105,8 +1105,11 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	if op.OperationId != receiptID {
+	if op.OperationId != receiptID || j.ManualMCP != nil && !j.ManualMCP.matchesReceipt(op) {
 		return errors.New("Caelis 操作恢复回执不匹配")
+	}
+	if j.ManualMCP != nil && op.Outcome == "accepted" {
+		return nil // The original manual Allow may still be committing.
 	}
 	if !slices.Contains([]wire.Outcome{"accepted", "committed", "rejected", "conflicted"}, op.Outcome) {
 		return nil

@@ -22,17 +22,15 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
-	life      context.Context
-	cancel    context.CancelFunc
-	runtime   *Runtime
-	listener  *localipc.Listener
-	token     string
-	services  []api.ToolService
-	privateMu sync.Mutex
-	private   map[string]*privateToolService
-	once      sync.Once
-	done      chan struct{}
-	wg        sync.WaitGroup
+	life     context.Context
+	cancel   context.CancelFunc
+	runtime  *Runtime
+	listener *localipc.Listener
+	token    string
+	services []api.ToolService
+	once     sync.Once
+	done     chan struct{}
+	wg       sync.WaitGroup
 }
 type toolRequest struct {
 	Token     string          `json:"token"`
@@ -186,10 +184,6 @@ func Serve(r *Runtime) (*Bridge, error) {
 				if json.NewDecoder(io.LimitReader(conn, 128*1024)).Decode(&req) != nil {
 					return
 				}
-				if req.Version == 3 {
-					_ = json.NewEncoder(conn).Encode(b.callPrivate(conn, req))
-					return
-				}
 				if !b.authorizes(req) {
 					_ = json.NewEncoder(conn).Encode(result(nil, errors.New("拒绝未授权调用")))
 					return
@@ -248,6 +242,9 @@ func Serve(r *Runtime) (*Bridge, error) {
 }
 
 func (b *Bridge) authorizes(req toolRequest) bool {
+	if b.runtime.provider == "caelis" && (req.Name == "bot_tasks" || req.Name == "bot_delegate") {
+		return false
+	}
 	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.token)) == 1 {
 		return true
 	}
@@ -268,8 +265,8 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 		ApprovedTools: botpolicy.ApprovedTools(), Services: b.services}
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
-	config.OpenPrivateStdio = func(service api.ToolService, admit api.PrivateToolAdmission) (api.PrivateToolLaunch, error) {
-		return b.openPrivateStdio(config, service, admit)
+	if b.runtime.provider == "caelis" {
+		config.CallResidentMCP = b.callResidentMCP
 	}
 	return config.Clone()
 }
@@ -318,6 +315,16 @@ func RunStdio(in io.Reader, out io.Writer) error {
 }
 
 func runStdio(in io.Reader, out io.Writer, env func(string) string) error {
+	return serveStdio(in, out, env, func(call toolRequest) toolResult {
+		call.Token = env("CAELIS_BOT_TOKEN")
+		if env("CAELIS_BOT_TOOLS_VERSION") == "2" {
+			call.Version = 2
+		}
+		return forward(env("CAELIS_BOT_ENDPOINT"), call)
+	})
+}
+
+func serveStdio(in io.Reader, out io.Writer, env func(string) string, callTool func(toolRequest) toolResult) error {
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 4096), 128*1024)
 	enc := json.NewEncoder(out)
@@ -376,14 +383,8 @@ func runStdio(in io.Reader, out io.Writer, env func(string) string) error {
 					rpcError = map[string]any{"code": -32602, "message": "Invalid tool arguments"}
 					break
 				}
-				call.Token = env("CAELIS_BOT_TOKEN")
 				call.ID = req.ID
-				if env("CAELIS_BOT_TOOLS_VERSION") == "3" {
-					call.Version = 3
-				} else if env("CAELIS_BOT_TOOLS_VERSION") == "2" {
-					call.Version = 2
-				}
-				value = forward(env("CAELIS_BOT_ENDPOINT"), call)
+				value = callTool(call)
 			default:
 				rpcError = map[string]any{"code": -32601, "message": "Method not supported"}
 			}
@@ -424,7 +425,7 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if req.Name == "bot_dream" {
 		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
-	} else if req.Name == "bot_delegate" && (req.Version == 2 || req.Version == 3) {
+	} else if req.Name == "bot_delegate" && req.Version == 2 {
 		_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
 	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
@@ -448,7 +449,7 @@ func delegationBridgeTimeout(raw json.RawMessage) time.Duration {
 }
 
 func forwardFailure(req toolRequest, message string) toolResult {
-	if req.Version != 2 && req.Version != 3 {
+	if req.Version != 2 {
 		return result(nil, errors.New(message))
 	}
 	out := compactError("unconfirmed", errors.New(message))
