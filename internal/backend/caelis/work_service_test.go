@@ -275,7 +275,7 @@ func TestWorkServiceInputsUseWorkerNativeEncoderAndBindBytes(t *testing.T) {
 			prompts.Add(1)
 			var body wire.PromptRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if len(body.ContentParts) != 1 || !strings.Contains(value(body.ContentParts[0].Text), "input") {
+			if len(body.ContentParts) != 2 || value(body.ContentParts[0].Text) != value(body.Input) || !strings.Contains(value(body.ContentParts[1].Text), "input") {
 				t.Error("attachment native resource reference absent")
 			}
 			writeFixture(w, wire.CommandResult{OperationId: value(body.OperationId), Outcome: "accepted"})

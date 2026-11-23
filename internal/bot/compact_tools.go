@@ -18,6 +18,9 @@ import (
 
 func (r *Runtime) Definitions() []api.ToolDefinition {
 	out := toolDefinitions()
+	if r.idle != nil {
+		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool { return d.Name == "bot_dream" })
+	}
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {

@@ -24,6 +24,7 @@ type workerStart struct {
 	Prompt        string              `json:"prompt"`
 	Authorization string              `json:"authorization"`
 	Files         []workerInput       `json:"files,omitempty"`
+	PrivateMCP    bool                `json:"privateMCP,omitempty"`
 }
 
 // The latest outbound prompt owns the Worker generation until its original
@@ -75,9 +76,22 @@ func (s *Session) currentInvocation(ctx context.Context) (wire.SessionToolCall, 
 	}
 	return call, nil
 }
+func (s *Session) workerInvocation(ctx context.Context) (source string, private bool, err error) {
+	if scope, ok := ctx.Value(privateInvocationKey{}).(*privateMCP); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if ctx.Err() == nil && s.privateMPCCurrentLocked(scope) {
+			return "", true, nil
+		}
+		return "", true, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("需要当前助手请求的明确授权来源")}
+	}
+	call, err := s.currentInvocation(ctx)
+	return call.Source.OperationId, false, err
+}
+
 func (s *Session) WorkAdmission(ctx context.Context) error {
-	_, e := s.currentInvocation(ctx)
-	return e
+	_, _, err := s.workerInvocation(ctx)
+	return err
 }
 func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
@@ -228,9 +242,8 @@ func (s *Session) workerWriteAllowed(w worker) error {
 	return nil
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
-	call, e := s.currentInvocation(ctx)
-	if e != nil {
-		return api.Task{}, e
+	if err := s.WorkAdmission(ctx); err != nil {
+		return api.Task{}, err
 	}
 	if in.ID == "" || in.RequestID == "" || !filepath.IsAbs(in.Workspace) {
 		return api.Task{}, errors.New("工作配置无效")
@@ -247,6 +260,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	hostIntent := &workIntent{in.ID, in.RequestID, "start", api.WorkFingerprint(in)}
 	s.step.Lock()
 	defer s.step.Unlock()
+	source, private, e := s.workerInvocation(ctx)
+	if e != nil {
+		return api.Task{}, e
+	}
 	fp := digest([]byte(in.Title + "\x00" + in.Prompt))[:32]
 	if in.TaskStart.Workspace != "" {
 		fp = digest([]byte(in.Title + "\x00" + in.Prompt + "\x00" + in.TaskStart.Workspace))[:32]
@@ -277,7 +294,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 	}
 	profile := wire.SessionProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{HostStart: hostIntent, Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId, Files: inputs}}
+	w := worker{HostStart: hostIntent, Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: source, Files: inputs, PrivateMCP: private}}
 	if s.workSourceIdentity != "" {
 		w.NativeScope = digest([]byte(s.workSourceIdentity + "\x00" + rand.Text()))
 	}
@@ -316,6 +333,16 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	_, createRecorded := s.state.Operations[op]
 	s.mu.Unlock()
 	if w.Binding.SessionId == "" {
+		if w.Start.PrivateMCP && !createRecorded {
+			_, private, err := s.workerInvocation(ctx)
+			if err != nil || !private {
+				// Before the first native operation, an old preparation does
+				// not carry the revoked connection's authority into recovery.
+				w.Task.Status, w.Task.Outcome, w.Start = "failed", "rejected", nil
+				cause := errors.Join(errors.New("private Worker preparation lost its original authority"), err)
+				return w.Task, errors.Join(&api.WorkMessageRejection{Code: "source_not_authorized", Cause: cause}, s.saveWorker(w))
+			}
+		}
 		path := "/sessions"
 		var request any = wire.CreateSessionRequest{OperationId: &op, Profile: &w.Start.Profile}
 		if w.Native {
@@ -362,7 +389,7 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	}
 	sid := w.Binding.SessionId
 	var result wire.CommandResult
-	parts, e := s.encodeWorkerInputs(ctx, sid, w.PromptID, w.Start.Files)
+	parts, e := s.encodeWorkerInputs(ctx, sid, w.PromptID, w.Start.Files, w.Start.PrivateMCP)
 	if e != nil {
 		return w.Task, e
 	}
@@ -494,6 +521,15 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 			// about whether its transcript can be read successfully.
 			switch value(state.Run.Status) {
 			case "completed", "failed", "cancelled", "stopped", "interrupted":
+			case "":
+				// An unloaded native Worker can have an empty run snapshot.
+				// The agent status endpoint samples the exact Session's live
+				// controller and active-turn registry independently of history.
+				var status wire.AgentStatusSnapshot
+				if !w.Native || c.json(ctx, "POST", "/sessions/"+idPath(sid)+"/agents/status", wire.AgentRequest{SessionId: &sid}, &status, "", "") != nil ||
+					value(status.SessionId) != sid || value(status.ControllerKind) == "" || value(status.HasActiveTurn) {
+					return projected, errors.New("original worker activity unconfirmed")
+				}
 			default:
 				return projected, errors.New("original worker activity unconfirmed")
 			}
@@ -655,9 +691,8 @@ func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, ca
 }
 
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
-	call, e := s.currentInvocation(ctx)
-	if e != nil {
-		return api.Task{}, e
+	if err := s.WorkAdmission(ctx); err != nil {
+		return api.Task{}, err
 	}
 	inputs, e := readWorkerInputs(in.Files)
 	if e != nil {
@@ -671,6 +706,10 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	ctx = withWorkIntent(ctx, in.ID, in.RequestID, "send", api.WorkFingerprint(in))
 	s.step.Lock()
 	defer s.step.Unlock()
+	source, private, e := s.workerInvocation(ctx)
+	if e != nil {
+		return api.Task{}, e
+	}
 	s.mu.Lock()
 	w, ok := s.state.Workers[in.ID]
 	v := s.state.Views[w.Binding.SessionId]
@@ -691,7 +730,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	sid := w.Binding.SessionId
 	if retry && w.PromptID == op && w.Native {
-		parts, encodeErr := s.encodeWorkerInputs(ctx, sid, op, inputs)
+		parts, encodeErr := s.encodeWorkerInputs(ctx, sid, op, inputs, private)
 		if encodeErr != nil {
 			return projected, encodeErr
 		}
@@ -716,11 +755,11 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 			return projected, &api.WorkMessageRejection{Code: "workspace_unavailable", Cause: err}
 		}
 	}
-	parts, e := s.encodeWorkerInputs(ctx, sid, op, inputs)
+	parts, e := s.encodeWorkerInputs(ctx, sid, op, inputs, private)
 	if e != nil {
 		return projected, e
 	}
-	if w.Native || s.isSteeringRetry(op) || busy && !retry {
+	if w.Native || private || s.isSteeringRetry(op) || busy && !retry {
 		w, e = s.beginWorkerSubmission(w, op, busy)
 		if e != nil {
 			return projected, e
@@ -728,7 +767,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, parts, busy)
 		return s.finishWorkerSubmission(w, res, err)
 	}
-	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), call.Source.OperationId)
+	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), source)
 	if e != nil {
 		return w.Task, e
 	}

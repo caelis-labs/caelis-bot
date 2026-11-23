@@ -41,6 +41,8 @@ type Log struct {
 	issue            error
 	revision         uint64
 	closeOnce        sync.Once
+	projectionOnce   sync.Once
+	projection       sync.WaitGroup
 	visibleLimit     int
 }
 
@@ -204,7 +206,7 @@ func (l *Log) Snapshot() ([]api.Item, bool) {
 func (l *Log) Revision() uint64 { l.mu.Lock(); defer l.mu.Unlock(); return l.revision }
 func (l *Log) Close() {
 	if l != nil {
-		l.closeOnce.Do(func() { l.cancel(); <-l.done })
+		l.closeOnce.Do(func() { l.cancel(); <-l.done; l.projection.Wait() })
 	}
 }
 func (l *Log) open(ctx context.Context) (*sql.DB, error) {

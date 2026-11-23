@@ -22,14 +22,17 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
-	life     context.Context
-	cancel   context.CancelFunc
-	runtime  *Runtime
-	listener *localipc.Listener
-	token    string
-	once     sync.Once
-	done     chan struct{}
-	wg       sync.WaitGroup
+	life      context.Context
+	cancel    context.CancelFunc
+	runtime   *Runtime
+	listener  *localipc.Listener
+	token     string
+	services  []api.ToolService
+	privateMu sync.Mutex
+	private   map[string]*privateToolService
+	once      sync.Once
+	done      chan struct{}
+	wg        sync.WaitGroup
 }
 type toolRequest struct {
 	Token     string          `json:"token"`
@@ -75,7 +78,8 @@ func (r *Runtime) legacyDefinitions(retiredMemory bool) []api.ToolDefinition {
 	return out
 }
 
-// CallTool is shared by the private MCP bridge and future native callbacks.
+// The legacy entry point serves retained catalogs and compact operations that
+// share their original implementation.
 func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 	if name == "bot_care" || name == "bot_care_read" {
 		return compactError("retired", errors.New("This tool is retired; use schedule. No effect was performed."))
@@ -128,14 +132,6 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 			return result(r.State(), nil)
 		case "save":
 			in.Schedule.OriginRequests = r.scheduleOrigin(ctx)
-			if b, ok := r.engine.(api.BackgroundRuntime); ok {
-				definition := in.Schedule
-				definition.OriginRequests = nil
-				raw, _ := json.Marshal(definition)
-				if e := b.AuthorizeBackground(ctx, in.ID, string(raw)); e != nil {
-					return result(nil, e)
-				}
-			}
 			s, e := r.Upsert(in.Schedule)
 			s.OriginRequests = nil
 			return result(s, e)
@@ -164,6 +160,15 @@ func Serve(r *Runtime) (*Bridge, error) {
 		return nil, e
 	}
 	b := &Bridge{runtime: r, listener: listener, token: rand.Text(), done: make(chan struct{})}
+	b.services = []api.ToolService{
+		{Name: "caelis_context", Token: rand.Text(), Tools: []string{"bot_dream"}},
+		{Name: "caelis_tasks", Token: rand.Text(), Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
+		{Name: "caelis_schedule", Token: rand.Text(), Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
+		{Name: "caelis_personal", Token: rand.Text(), Tools: []string{"bot_gesture"}},
+	}
+	if r.idle != nil {
+		b.services = b.services[1:]
+	}
 	b.life, b.cancel = context.WithCancel(context.Background())
 	go func() {
 		defer close(b.done)
@@ -181,7 +186,11 @@ func Serve(r *Runtime) (*Bridge, error) {
 				if json.NewDecoder(io.LimitReader(conn, 128*1024)).Decode(&req) != nil {
 					return
 				}
-				if subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.token)) != 1 {
+				if req.Version == 3 {
+					_ = json.NewEncoder(conn).Encode(b.callPrivate(conn, req))
+					return
+				}
+				if !b.authorizes(req) {
 					_ = json.NewEncoder(conn).Encode(result(nil, errors.New("拒绝未授权调用")))
 					return
 				}
@@ -202,10 +211,14 @@ func Serve(r *Runtime) (*Bridge, error) {
 						// and transport; it never settles an already dispatched effect.
 						go func() { _, _ = io.Copy(io.Discard, conn); cancel() }()
 					}
-					if runtime, ok := r.engine.(api.ConversationRuntime); ok {
-						state := runtime.ConversationState()
-						invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn, TurnKey: state.TurnKey}
-						callCtx = api.WithToolInvocation(callCtx, invocation)
+					// Codex's existing resident bridge binds this stdio request to
+					// the active Codex turn. Caelis requires native call provenance.
+					if r.provider == "codex" {
+						if runtime, ok := r.engine.(api.ConversationRuntime); ok {
+							state := runtime.ConversationState()
+							invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn, TurnKey: state.TurnKey}
+							callCtx = api.WithToolInvocation(callCtx, invocation)
+						}
 					}
 					out = r.CallTool(callCtx, req.Name, req.Arguments)
 					if out.TurnComplete {
@@ -233,19 +246,32 @@ func Serve(r *Runtime) (*Bridge, error) {
 	}()
 	return b, nil
 }
+
+func (b *Bridge) authorizes(req toolRequest) bool {
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.token)) == 1 {
+		return true
+	}
+	if req.Version != 2 {
+		return false
+	}
+	for _, service := range b.services {
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(service.Token)) == 1 {
+			return slices.Contains(service.Tools, req.Name)
+		}
+	}
+	return false
+}
+
 func (b *Bridge) Config(executable string) *api.ToolConnection {
 	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token, "CAELIS_BOT_TOOLS_VERSION": "2"},
-		ApprovedTools: botpolicy.ApprovedTools()}
+		ApprovedTools: botpolicy.ApprovedTools(), Services: b.services}
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
-	config.Services = []api.ToolService{
-		{Name: "caelis_context", Tools: []string{"bot_dream"}},
-		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
-		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
-		{Name: "caelis_personal", Tools: []string{"bot_gesture"}},
+	config.OpenPrivateStdio = func(service api.ToolService, admit api.PrivateToolAdmission) (api.PrivateToolLaunch, error) {
+		return b.openPrivateStdio(config, service, admit)
 	}
-	return config
+	return config.Clone()
 }
 func (b *Bridge) Close() {
 	b.once.Do(func() { b.cancel(); _ = b.listener.Close(); <-b.done; b.wg.Wait() })
@@ -288,6 +314,10 @@ func retiredMemorySpec() map[string]any {
 // RunStdio implements the small MCP 2025-06-18 tools subset used by the pinned
 // Codex client. stdout is protocol-only; invalid/oversized input fails closed.
 func RunStdio(in io.Reader, out io.Writer) error {
+	return runStdio(in, out, os.Getenv)
+}
+
+func runStdio(in io.Reader, out io.Writer, env func(string) string) error {
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 4096), 128*1024)
 	enc := json.NewEncoder(out)
@@ -312,7 +342,7 @@ func RunStdio(in io.Reader, out io.Writer) error {
 		var rpcError any
 		switch req.Method {
 		case "initialize":
-			name := os.Getenv("CAELIS_BOT_SERVICE_NAME")
+			name := env("CAELIS_BOT_SERVICE_NAME")
 			if name == "" {
 				name = "caelis-bot"
 			}
@@ -327,13 +357,13 @@ func RunStdio(in io.Reader, out io.Writer) error {
 			switch req.Method {
 			case "tools/list":
 				var specs any
-				if raw := os.Getenv("CAELIS_BOT_TOOL_CATALOG"); raw != "" {
+				if raw := env("CAELIS_BOT_TOOL_CATALOG"); raw != "" {
 					var defs []api.ToolDefinition
 					if json.Unmarshal([]byte(raw), &defs) != nil {
 						return errors.New("invalid native Bot catalog")
 					}
 					specs = slices.DeleteFunc(defs, func(d api.ToolDefinition) bool { return d.Name == "bot_care" || d.Name == "bot_care_read" })
-				} else if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "2" {
+				} else if env("CAELIS_BOT_TOOLS_VERSION") == "2" {
 					defs := toolDefinitions()
 					specs = defs
 				} else {
@@ -346,12 +376,14 @@ func RunStdio(in io.Reader, out io.Writer) error {
 					rpcError = map[string]any{"code": -32602, "message": "Invalid tool arguments"}
 					break
 				}
-				call.Token = os.Getenv("CAELIS_BOT_TOKEN")
+				call.Token = env("CAELIS_BOT_TOKEN")
 				call.ID = req.ID
-				if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "2" {
+				if env("CAELIS_BOT_TOOLS_VERSION") == "3" {
+					call.Version = 3
+				} else if env("CAELIS_BOT_TOOLS_VERSION") == "2" {
 					call.Version = 2
 				}
-				value = forward(os.Getenv("CAELIS_BOT_ENDPOINT"), call)
+				value = forward(env("CAELIS_BOT_ENDPOINT"), call)
 			default:
 				rpcError = map[string]any{"code": -32601, "message": "Method not supported"}
 			}
@@ -392,7 +424,7 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if req.Name == "bot_dream" {
 		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
-	} else if req.Name == "bot_delegate" && req.Version == 2 {
+	} else if req.Name == "bot_delegate" && (req.Version == 2 || req.Version == 3) {
 		_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
 	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
@@ -416,7 +448,7 @@ func delegationBridgeTimeout(raw json.RawMessage) time.Duration {
 }
 
 func forwardFailure(req toolRequest, message string) toolResult {
-	if req.Version != 2 {
+	if req.Version != 2 && req.Version != 3 {
 		return result(nil, errors.New(message))
 	}
 	out := compactError("unconfirmed", errors.New(message))

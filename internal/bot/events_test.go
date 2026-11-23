@@ -18,7 +18,7 @@ func (f *eventFixtureTools) CollectEvent(context.Context, string, string, string
 	f.calls++
 	return json.RawMessage(`{"count":23}`), nil
 }
-func TestRegisteredToolArrangementUsesNativeGrantAndNaturalWake(t *testing.T) {
+func TestRegisteredCollectorRunsThroughAnArrangementWithoutAnotherGrant(t *testing.T) {
 	r, base, now := fixture(t)
 	configureNativeSources(t, r)
 	grant := &scheduleGrantEngine{fakeEngine: base}
@@ -34,8 +34,8 @@ func TestRegisteredToolArrangementUsesNativeGrantAndNaturalWake(t *testing.T) {
 		t.Fatal(out)
 	}
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"mail-check","event":"event:mail","seconds":10,"when":"event.count >= 20"}}`)
-	if grant.authorized != "schedule:mail-check" {
-		t.Fatal(grant.authorized)
+	if grant.authorized != "event:mail" {
+		t.Fatal("creating an arrangement changed the existing collector authorization", grant.authorized)
 	}
 	*now = now.Add(10 * time.Second)
 	if err := r.Tick(t.Context()); err != nil {

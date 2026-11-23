@@ -34,7 +34,7 @@ func (s *Session) submitNativeInput(ctx context.Context, sid, op, text string, p
 			if err := json.Unmarshal(previous.Body, &saved); err != nil {
 				return wire.CommandResult{}, err
 			}
-			if value(saved.Input) != text || !reflect.DeepEqual(saved.ContentParts, parts) {
+			if value(saved.Input) != text || !reflect.DeepEqual(saved.ContentParts, parts) && !reflect.DeepEqual(saved.ContentParts, promptWithResourceText(text, parts)) {
 				return wire.CommandResult{OperationId: op, Outcome: "conflicted"}, errors.New("操作标识已用于不同消息")
 			}
 			target = saved.Target

@@ -44,12 +44,13 @@ func TestExistingWorkerConversationReadPath(t *testing.T) {
 	transport := c.http.Transport.(*http.Transport)
 	path := "/api/control/v1/sessions/" + idPath(w.Binding.SessionId)
 	// This preflight hook is also retained by the observation transport's
-	// Clone. Always connect directly, and refuse anything beyond target GETs.
+	// Clone. Connect directly and permit only reads for the original target.
 	transport.Proxy = func(in *http.Request) (*url.URL, error) {
-		if in.Method != http.MethodGet || in.URL.Path != path+"/state" && in.URL.Path != path+"/reconnect" {
-			return nil, errors.New("read-only probe refused a mutation or different native owner")
+		if in.Method == http.MethodGet && (in.URL.Path == path+"/state" || in.URL.Path == path+"/reconnect") ||
+			in.Method == http.MethodPost && in.URL.Path == path+"/agents/status" {
+			return nil, nil
 		}
-		return nil, nil
+		return nil, errors.New("read-only probe refused a mutation or different native owner")
 	}
 	defer transport.CloseIdleConnections()
 	s := New(Options{Directory: filepath.Join(t.TempDir(), "private")})

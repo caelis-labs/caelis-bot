@@ -224,7 +224,7 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
 		return rejected, nil
 	}
-	if r.handoff != nil {
+	if r.idle == nil && r.handoff != nil {
 		if pending := r.handoff.pending(); pending.CallID != "" && pending.NewSession == "" {
 			return rejected, nil
 		}

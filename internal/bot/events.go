@@ -296,7 +296,7 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 		p.Event = v.ID
 	}
 	// Fingerprint the original relative specification, not wall-clock-derived Next.
-	saved, err := r.events.Save(p, r.now(), func() error { return r.authorizeEvent(ctx, "schedule:"+p.ID, p) })
+	saved, err := r.events.Save(p, r.now())
 	if err != nil {
 		return fail(err)
 	}

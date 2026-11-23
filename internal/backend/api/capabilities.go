@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -134,9 +136,10 @@ type ToolConnection struct {
 	Args           []string
 	Env            map[string]string
 	ApprovedTools  []string
-	// Services partitions the compact built-in catalog for new Codex resident
-	// threads. Names are protocol identities, never user-facing plugin titles.
+	// Services partitions the compact built-in catalog for the resident only.
+	// Names are protocol identities, never user-facing plugin titles.
 	Services          []ToolService
+	OpenPrivateStdio  func(ToolService, PrivateToolAdmission) (PrivateToolLaunch, error)
 	Plugins           plugins.Selection
 	BuiltinSkillRoots []string
 }
@@ -160,7 +163,18 @@ type PluginInspector interface {
 type ToolService struct {
 	Name  string
 	Tools []string
+	Token string `json:"-"`
 }
+
+// A host-owned launcher and admission hook. The adapter binds them to one
+// native owner and derives the invocation from authenticated Runtime facts.
+type PrivateToolLaunch struct {
+	Args    []string
+	WorkDir string
+	Revoke  func()
+}
+
+type PrivateToolAdmission func(context.Context, string, json.RawMessage) (context.Context, error)
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 
 func (c *ToolConnection) Clone() *ToolConnection {
@@ -172,7 +186,8 @@ func (c *ToolConnection) Clone() *ToolConnection {
 	v.ApprovedTools = append([]string(nil), c.ApprovedTools...)
 	v.Services = make([]ToolService, len(c.Services))
 	for i, service := range c.Services {
-		v.Services[i] = ToolService{Name: service.Name, Tools: append([]string(nil), service.Tools...)}
+		v.Services[i] = service
+		v.Services[i].Tools = append([]string(nil), service.Tools...)
 	}
 	v.Plugins = c.Plugins.Clone()
 	v.BuiltinSkillRoots = append([]string(nil), c.BuiltinSkillRoots...)

@@ -42,6 +42,9 @@ func (r *Runtime) callDreamTool(ctx context.Context, args map[string]any) api.To
 }
 
 func (r *Runtime) completeCodexDream(ctx context.Context, invocation api.ToolInvocation) error {
+	if r.idle != nil {
+		return api.ErrConversationRenewalDeferred
+	}
 	terminator, ok := r.engine.(api.ToolTurnTerminator)
 	if !ok {
 		return errors.New("native turn termination is unavailable")
@@ -56,7 +59,7 @@ func (r *Runtime) completeCodexDream(ctx context.Context, invocation api.ToolInv
 func (r *Runtime) renewToolHandoff(ctx context.Context) error {
 	r.handoffRenewal.Lock()
 	defer r.handoffRenewal.Unlock()
-	if r.handoff == nil {
+	if r.idle != nil || r.handoff == nil {
 		return nil
 	}
 	pending := r.handoff.pending()

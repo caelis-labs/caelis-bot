@@ -139,6 +139,23 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		}
 	}
 	s.catalogs[profile.ToolsVersion] = catalog
+	if c.OpenPrivateStdio != nil && !s.retainedWorkers {
+		// Preserve the original catalog for callbacks already leased or replayed
+		// by Core. Only the next configuration drops the migrated entries.
+		version := privateApplicationCatalog(profile).ToolsVersion
+		scoped := make(map[string]api.ApplicationTools, len(catalog))
+		for name, handler := range catalog {
+			if !slices.Contains(privateTasksTools, name) {
+				scoped[name] = handler
+			}
+		}
+		s.catalogs[version] = scoped
+		s.state.ContentCatalogs[version] = formats
+		if err := s.saveLocked(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	s.catalog = catalog
 	s.tools = c.Clone()
 	s.profile = profile
@@ -157,7 +174,8 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 			return errors.New("Bot tools require Caelis session-tool-result-content-v1; update and restart the Host")
 		}
 	}
-	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
+	private := s.tools != nil && s.tools.OpenPrivateStdio != nil && !s.retainedWorkers
+	if (private || len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
 		return errors.New("Bot plugins require Caelis session-atomic-capabilities-v1")
 	}
 	return nil
@@ -239,10 +257,11 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 		}
 	}
-	if e := c.json(ctx, "GET", "/sessions/"+idPath(b.SessionId)+"/profile", nil, &b, "", ""); e != nil {
+	sid := b.SessionId
+	if e := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/profile", nil, &b, "", ""); e != nil {
 		return e
 	}
-	if b.PrincipalId != principal || b.Archived || b.Profile.Execution != s.executionMode {
+	if b.SessionId != sid || b.PrincipalId != principal || b.Archived || b.Profile.Execution != s.executionMode {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
 	}
 	s.mu.Lock()
@@ -266,13 +285,40 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	// application-owned instructions/catalog; preserve user model changes.
 	s.mu.Lock()
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
+	pendingConfiguration := s.configurationRecoveryPendingLocked()
+	previous := s.privateMCP
 	s.mu.Unlock()
-	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.SessionMCPServer) bool {
+	if pendingConfiguration && s.tools != nil && s.tools.OpenPrivateStdio != nil {
+		if err := s.recoverConfigurations(ctx); err != nil {
+			return err
+		}
+		desired, e = s.configuration(ctx, b.SessionId)
+		if e != nil {
+			return e
+		}
+		pendingPlugin = false
+	}
+	scope, e := s.openPrivateMCP(b)
+	if e != nil {
+		return e
+	}
+	installed := false
+	defer func() {
+		if !installed {
+			scope.close()
+		}
+	}()
+	profile := s.profile
+	if scope != nil {
+		profile = privateApplicationCatalog(profile)
+	}
+	servers := scope.servers(profile.McpServers)
+	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, servers, func(a, b wire.SessionMCPServer) bool {
 		left, _ := json.Marshal(a)
 		right, _ := json.Marshal(b)
 		return string(left) == string(right)
-	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs)) {
-		patch := map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs}
+	}) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
+		patch := map[string]any{"instructions": profile.Instructions, "tools_version": profile.ToolsVersion, "tools": profile.Tools, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
 		// Operation IDs share the Host principal namespace. Include the Session
 		// and the exact structured intent; never rewrite retained receipt IDs.
 		intent, err := json.Marshal(struct {
@@ -285,7 +331,19 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		}
 		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest(intent), string(desired.Revision), patch)
 	}
-	return e
+	if e != nil {
+		return e
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New("连接已停止")
+	}
+	s.privateMCP = scope
+	installed = true
+	s.mu.Unlock()
+	previous.close()
+	return nil
 }
 
 func (s *Session) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {

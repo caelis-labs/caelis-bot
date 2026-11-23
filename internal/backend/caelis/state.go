@@ -56,7 +56,7 @@ func (j journal) hostNotice() bool {
 // A deferred empty-session create has no prompt or effect in the source
 // conversation. Keep reconciling its original receipt without freezing chat.
 func (j journal) deferredRenewal(id string) bool {
-	return j.RenewalDeferred && j.Path == "/sessions" && strings.HasPrefix(id, "tool-renew-")
+	return j.Path == "/sessions" && (strings.HasPrefix(id, "idle-renew-") || j.RenewalDeferred && strings.HasPrefix(id, "tool-renew-"))
 }
 
 type view struct {
@@ -124,6 +124,8 @@ type binding struct {
 	StoreDirectory     string                               `json:"storeDirectory,omitempty"`
 	Endpoint           string                               `json:"endpoint"`
 	InstanceID         string                               `json:"instanceID"`
+	PrivateMCPClaims   map[string]string                    `json:"privateMCPClaims,omitempty"`
+	ManualMCPApprovals map[string]reviewFact                `json:"manualMCPApprovals,omitempty"`
 	PrincipalID        string                               `json:"principalID"`
 	Session            wire.SessionBinding                  `json:"session"`
 	CreateID           string                               `json:"createID"`

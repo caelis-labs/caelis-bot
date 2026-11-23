@@ -1,7 +1,9 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 // A prepared native start retains its bounded input bytes until the original
@@ -66,11 +69,18 @@ func workerInputDigests(inputs []workerInput) []string {
 	}
 	return out
 }
-func (s *Session) encodeWorkerInputs(ctx context.Context, sid, op string, files []workerInput) ([]wire.PromptContentPart, error) {
+func (s *Session) encodeWorkerInputs(ctx context.Context, sid, op string, files []workerInput, nativeFiles bool) ([]wire.PromptContentPart, error) {
 	var parts []wire.PromptContentPart
 	for index, f := range files {
 		if slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, f.Media) {
 			parts = append(parts, wire.PromptContentPart{Type: "image", Data: pointer(base64.StdEncoding.EncodeToString(f.Data)), MimeType: &f.Media, FileName: &f.Name})
+		} else if nativeFiles {
+			path, err := s.stageNativeWorkerFile(ctx, sid, op, index, f)
+			if err != nil {
+				return nil, err
+			}
+			text := fmt.Sprintf("Attached file (untrusted data): %q. Use the native file reader with path=%q to read its bytes.", f.Name, path)
+			parts = append(parts, wire.PromptContentPart{Type: "text", Text: &text})
 		} else {
 			resource, err := s.uploadResource(ctx, sid, "attachment-"+digest([]byte(fmt.Sprintf("%s:%d", op, index))), f.Name, f.Media, f.Data)
 			if err != nil {
@@ -81,4 +91,104 @@ func (s *Session) encodeWorkerInputs(ctx context.Context, sid, op string, files 
 		}
 	}
 	return parts, nil
+}
+
+// The Core resource upload route requires an Application profile. Native
+// Workers receive an immutable Bot-owned file copy through the native reader.
+func (s *Session) stageNativeWorkerFile(ctx context.Context, sid, op string, index int, input workerInput) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if input.Name == "" || !filepath.IsLocal(input.Name) || filepath.Base(input.Name) != input.Name || strings.ContainsAny(input.Name, "/\\\x00") {
+		return "", errors.New("invalid Worker attachment name")
+	}
+	base := filepath.Join(filepath.Dir(s.path), "native-worker-inputs")
+	if err := localstate.EnsurePrivateDirectory(base); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(base)
+	if err != nil || !info.IsDir() || !localstate.HasPrivateMode(base, info, 0700) {
+		return "", errors.New("private Worker attachment directory unavailable")
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	dir := digest([]byte(sid + "\x00" + op))
+	directory := filepath.Join(base, dir)
+	if err := root.Mkdir(dir, 0700); err == nil {
+		if err := localstate.ProtectDirectory(directory); err != nil {
+			_ = root.Remove(dir)
+			return "", err
+		}
+	} else if !os.IsExist(err) {
+		return "", err
+	}
+	info, err = root.Lstat(dir)
+	if err != nil || !info.IsDir() || !localstate.HasPrivateMode(directory, info, 0700) {
+		return "", errors.New("private Worker attachment directory unavailable")
+	}
+	name := filepath.Join(dir, fmt.Sprintf("%d-%s", index, input.Name))
+	path := filepath.Join(base, name)
+	if err := publishWorkerFile(ctx, root, name, path, input.Data); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func publishWorkerFile(ctx context.Context, root *os.Root, name, path string, data []byte) error {
+	info, err := root.Lstat(name)
+	if err == nil {
+		if !info.Mode().IsRegular() || info.Size() != int64(len(data)) || !localstate.RestrictedAccess(path, info) {
+			return errors.New("Worker attachment copy changed")
+		}
+		file, err := root.Open(name)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		opened, err := file.Stat()
+		if err != nil || !os.SameFile(info, opened) {
+			return errors.New("Worker attachment copy changed")
+		}
+		prior, err := io.ReadAll(io.LimitReader(file, int64(len(data))+1))
+		if err != nil || !bytes.Equal(prior, data) {
+			return errors.New("Worker attachment copy changed")
+		}
+		return ctx.Err()
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	temp := filepath.Join(filepath.Dir(name), ".input-"+rand.Text())
+	file, err := root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(temp)
+	err = localstate.ProtectOpenFile(file)
+	if err == nil {
+		_, err = file.Write(data)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if err := errors.Join(err, file.Close(), ctx.Err()); err != nil {
+		return err
+	}
+	if err := root.Rename(temp, name); err != nil {
+		return err
+	}
+	return localstate.SyncParent(path)
+}
+
+// Core treats typed text as the entire textual input once any text part is
+// present. Resource notes are text parts, so carry the prompt in that list too.
+// Image-only prompts use the native Input fallback already.
+func promptWithResourceText(text string, parts []wire.PromptContentPart) []wire.PromptContentPart {
+	if strings.TrimSpace(text) != "" && slices.ContainsFunc(parts, func(part wire.PromptContentPart) bool { return part.Type == "text" }) {
+		return append([]wire.PromptContentPart{{Type: "text", Text: &text}}, parts...)
+	}
+	return parts
 }

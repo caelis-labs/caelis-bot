@@ -64,12 +64,13 @@ func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 		return false
 	}
 	actual := s.state.Configurations[sid]
-	if actual.Revision == "" || actual.Profile == nil || len(actual.Profile.McpServers) != len(s.profile.McpServers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
+	servers := s.privateMCP.servers(s.profile.McpServers)
+	if actual.Revision == "" || actual.Profile == nil || len(actual.Profile.McpServers) != len(servers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
 		return true
 	}
 	for i, server := range actual.Profile.McpServers {
 		got, _ := json.Marshal(server)
-		want, _ := json.Marshal(s.profile.McpServers[i])
+		want, _ := json.Marshal(servers[i])
 		if string(got) != string(want) {
 			return true
 		}
@@ -153,6 +154,9 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	s.mu.Unlock()
 	servers, roots, _ := corePlugins(selection, binary, builtins)
+	s.mu.Lock()
+	boundServers := s.privateMCP.servers(servers)
+	s.mu.Unlock()
 	skillDirs, err := notebookSkillDirs(workspace)
 	if err != nil {
 		return err
@@ -168,7 +172,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		// A new user action gets a fresh journaled ID. Unknown actions are
 		// recovered above by their original ID, never submitted again.
 		operation := "plugin-" + rand.Text()
-		_, err = s.updateConfiguration(ctx, sid, operation, string(current.Revision), map[string]any{"mcp_servers": servers, "skill_roots": roots, "skill_dirs": skillDirs})
+		_, err = s.updateConfiguration(ctx, sid, operation, string(current.Revision), map[string]any{"mcp_servers": boundServers, "skill_roots": roots, "skill_dirs": skillDirs})
 		if err != nil {
 			var remote *remoteError
 			if !errors.As(err, &remote) || remote.Status >= 500 {

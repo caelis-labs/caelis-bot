@@ -78,8 +78,9 @@ type Runtime struct {
 	eventsErr      error
 	eventTools     EventTools
 	eventDirectory string
-	dream          *dreamController // guarded by step
-	handoff        *handoffStore    // application-private context seed
+	dream          *dreamController  // guarded by step
+	idle           *idleConversation // guarded by step
+	handoff        *handoffStore     // application-private context seed
 	nativeErr      error
 	nativeSample   func() scheduledata.Sample
 	nativeSources  scheduledata.SourcesTracker
@@ -394,7 +395,7 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 	if r.userWaiting.Load() != 0 {
 		return nil
 	}
-	if r.handoff != nil {
+	if r.idle == nil && r.handoff != nil {
 		pending := r.handoff.pending()
 		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
 			// Keep queued feedback and scheduled input on their original receipts

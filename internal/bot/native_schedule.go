@@ -38,7 +38,7 @@ func (r *Runtime) saveNativeSchedule(ctx context.Context, q map[string]any) api.
 	_ = json.Unmarshal(raw, &timing)
 	n.CooldownSeconds = timing.CooldownSeconds
 	n.ExpiresSeconds = timing.ExpiresSeconds
-	p, err := r.events.SaveNative(n, r.now(), func(p eventplan.Plan) error { return r.authorizeEvent(ctx, p.Authorization(), n) })
+	p, err := r.events.SaveNative(n, r.now(), nil)
 	if err != nil {
 		return compactError("native_arrangement", err)
 	}

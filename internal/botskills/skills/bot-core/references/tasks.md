@@ -5,6 +5,10 @@ when continuing the same goal. Read the current tool schema and prepare a
 workspace through [Resources](resources.md) when needed. If its original directory
 is unavailable, follow [Recovery](recovery.md) instead of continuing the old binding.
 
+Use the exact tool names and schemas returned by native discovery. Discover
+`bot_delegate` and `bot_tasks` when coordinating work. Follow the Runtime's
+approval flow for individual calls.
+
 Write a focused assignment in the user's language: task goal, necessary context
 and acceptance criteria. Include relevant file ownership; give concurrent Workers
 distinct ownership and preserve each other's changes. Do not copy permission

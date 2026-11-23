@@ -25,6 +25,15 @@ func (e *commandNotDispatchedError) Unwrap() error { return e.error }
 // transport retries can never accidentally create a second native operation.
 // Caller serializes mutations with step; stream projection only takes mu.
 func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...api.Submission) (wire.CommandResult, error) {
+	legacy := req
+	switch input := req.(type) {
+	case wire.PromptRequest:
+		input.ContentParts = promptWithResourceText(value(input.Input), input.ContentParts)
+		req = input
+	case wire.SteerRequest:
+		input.ContentParts = promptWithResourceText(value(input.Input), input.ContentParts)
+		req = input
+	}
 	b, e := json.Marshal(req)
 	if e != nil {
 		return wire.CommandResult{}, &commandNotDispatchedError{e}
@@ -37,6 +46,12 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		oldHash := old.Digest
 		if oldHash == "" {
 			oldHash = digest(old.Body)
+		}
+		if oldHash != hash {
+			// An attachment operation already recorded in the older wire
+			// shape still returns its original receipt and is never reissued.
+			raw, _ := json.Marshal(legacy)
+			hash = digest(raw)
 		}
 		intent, _ := ctx.Value(workIntentKey{}).(*workIntent)
 		if old.Path != path || oldHash != hash || intent != nil && old.Work != nil && *intent != *old.Work {
@@ -275,7 +290,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		receipt.Message = fileErr.Error()
 		return receipt, nil
 	}
-	req.ContentParts, fileErr = s.encodeWorkerInputs(ctx, sid, in.ID, inputs)
+	req.ContentParts, fileErr = s.encodeWorkerInputs(ctx, sid, in.ID, inputs, false)
 	if fileErr != nil {
 		return api.Receipt{ID: in.ID, Outcome: "rejected", Message: fileErr.Error()}, nil
 	}
@@ -456,12 +471,16 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op s
 		}
 	}
 	s.mu.Unlock()
-	out, e := s.command(ctx, op, path, wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: strings.HasPrefix(choice.Kind, "allow")})
+	approved := strings.HasPrefix(choice.Kind, "allow")
+	out, e := s.command(ctx, op, path, wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: approved})
 	if e != nil {
 		return e
 	}
 	if !succeeded(out.Outcome) {
 		return errors.New("审批决定尚未被接受")
+	}
+	if approved {
+		return s.recordManualMCPApproval(ref.sid, a, permission)
 	}
 	return nil
 }

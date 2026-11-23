@@ -26,6 +26,8 @@ import (
 	notebookstore "github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
+const attachmentWorkerFixture = "synthetic-worker-attachment-read"
+
 // Synthetic decisions exercise the public transport and native execution, not
 // model judgment quality. No private Core imports or daily Store are involved.
 func TestGuardianHostIntegration(t *testing.T) {
@@ -56,7 +58,11 @@ func TestGuardianHostIntegration(t *testing.T) {
 		mu.Unlock()
 		if body["model"] != "codex/gpt-6-luna" {
 			r.Body = io.NopCloser(bytes.NewReader(raw))
-			main.serve(w, r)
+			if body["model"] == "deepseek-v4-flash" && bytes.Contains(raw, []byte(attachmentWorkerFixture)) {
+				main.serveCase(w, r, attachmentWorkerFixture)
+			} else {
+				main.serve(w, r)
+			}
 			return
 		}
 		mu.Lock()
@@ -126,6 +132,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 	workerSelector := fixtureModelSelector(t, ctx, host, "deepseek-v4-flash")
 	reviewerSelector := fixtureModelSelector(t, ctx, host, "codex/gpt-6-luna")
 	reviewerSelector = bindFixtureGuardian(t, ctx, host, reviewerSelector, "main-guardian-binding")
+	if !t.Run("G00_private_stdio_worker_round_trip", func(t *testing.T) {
+		configureReview(`{"option_id":"allow_once"}`, nil)
+		privateStdioWorkerRoundTrip(t, settings, mainSelector, workerSelector, main, configureReview)
+	}) {
+		return
+	}
+	configureReview(`{"option_id":"allow_once"}`, nil)
 	t.Logf("synthetic main=%s Worker=%s Runtime Guardian=%s", mainSelector, workerSelector, reviewerSelector)
 	notebook := filepath.Join(root, "Notebook")
 	if err = os.Mkdir(notebook, 0700); err != nil {

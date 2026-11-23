@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -244,6 +245,97 @@ func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
 	}
 	// The round trip above exercises localipc.Dial's native peer check on
 	// Windows; Named Pipe DACL and PID/SID checks have their own native tests.
+}
+
+func TestPrivateBridgeAuthenticatesServiceAndVersion(t *testing.T) {
+	r, _, _ := fixture(t)
+	r.action = func(string) error { return nil }
+	bridge, err := Serve(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	config := bridge.Config("fixture")
+	for _, service := range config.Services {
+		scoped := config.ForService(service)
+		if scoped == nil || scoped.Env["CAELIS_BOT_TOKEN"] == "" || scoped.Env["CAELIS_BOT_TOKEN"] == config.Env["CAELIS_BOT_TOKEN"] {
+			t.Fatal("missing independent bearer", service.Name)
+		}
+	}
+	personal := config.ForService(config.Services[3])
+	endpoint, token := personal.Env["CAELIS_BOT_ENDPOINT"], personal.Env["CAELIS_BOT_TOKEN"]
+	call := toolRequest{Token: token, ID: json.RawMessage(`1`), Version: 2, Name: "bot_gesture", Arguments: json.RawMessage(`{"action":"nod"}`)}
+	if out := forward(endpoint, call); out.IsError {
+		t.Fatal("scoped call failed")
+	}
+	call.Name, call.Arguments = "bot_schedule", json.RawMessage(`{"request":{"type":"context"}}`)
+	if out := forward(endpoint, call); !out.IsError {
+		t.Fatal("a valid bearer reached a sibling service")
+	}
+	call.Name, call.Arguments, call.Version = "bot_gesture", json.RawMessage(`{"action":"nod"}`), 1
+	if out := forward(endpoint, call); !out.IsError {
+		t.Fatal("a scoped bearer authenticated the legacy protocol")
+	}
+	call.Token = config.Env["CAELIS_BOT_TOKEN"]
+	if out := forward(endpoint, call); out.IsError {
+		t.Fatal("the original aggregate protocol no longer works")
+	}
+}
+
+func TestPrivateLaunchRejectsCrossServiceAndRevokedBearer(t *testing.T) {
+	resident, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := Serve(resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	var admissions atomic.Int32
+	config := bridge.Config("fixture")
+	launch, err := config.OpenPrivateStdio(api.ToolService{Name: "caelis_tasks", Tools: []string{"bot_tasks"}}, func(ctx context.Context, name string, args json.RawMessage) (context.Context, error) {
+		admissions.Add(1)
+		if name != "bot_tasks" {
+			t.Error("scope admitted an unrelated tool", name)
+		}
+		return ctx, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer launch.Revoke()
+	raw, err := os.ReadFile(launch.Args[0])
+	var env map[string]string
+	if err != nil || json.Unmarshal(raw, &env) != nil {
+		t.Fatal("private launch file unreadable", err)
+	}
+	call := toolRequest{Token: env["CAELIS_BOT_TOKEN"], Version: 3, Name: "bot_tasks", Arguments: json.RawMessage(`{"request":{"type":"list"}}`)}
+	forward(env["CAELIS_BOT_ENDPOINT"], call)
+	if admissions.Load() != 1 {
+		t.Fatal("private grant did not authenticate")
+	}
+	refuse := func(req toolRequest) {
+		t.Helper()
+		out := forward(env["CAELIS_BOT_ENDPOINT"], req)
+		if !out.IsError || admissions.Load() != 1 {
+			t.Fatal("request reached private admission outside its scope")
+		}
+	}
+	wrong := call
+	wrong.Name = "bot_gesture"
+	refuse(wrong)
+	wrong = call
+	wrong.Token = config.Env["CAELIS_BOT_TOKEN"]
+	refuse(wrong)
+	wrong = call
+	wrong.Version = 2
+	refuse(wrong)
+	launch.Revoke()
+	refuse(call)
+	if _, err := os.Stat(launch.Args[0]); !os.IsNotExist(err) {
+		t.Fatal("revoked launch file remains")
+	}
 }
 func TestGestureAllowlist(t *testing.T) {
 	r, _, _ := fixture(t)

@@ -404,34 +404,11 @@ func toolConfig(c *api.ToolConnection) map[string]any {
 }
 
 func serviceToolConfig(c *api.ToolConnection, service api.ToolService) map[string]any {
-	allowed := map[string]bool{}
-	for _, name := range service.Tools {
-		allowed[name] = true
-	}
-	var catalog []api.ToolDefinition
-	if json.Unmarshal([]byte(c.Env["CAELIS_BOT_TOOL_CATALOG"]), &catalog) != nil {
+	connection := c.ForService(service)
+	if connection == nil {
 		return nil
 	}
-	filtered := make([]api.ToolDefinition, 0, len(catalog))
-	for _, tool := range catalog {
-		if allowed[tool.Name] {
-			filtered = append(filtered, tool)
-		}
-	}
-	if len(filtered) == 0 {
-		return nil
-	}
-	copy := c.Clone()
-	raw, _ := json.Marshal(filtered)
-	copy.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
-	copy.Env["CAELIS_BOT_SERVICE_NAME"] = service.Name
-	copy.ApprovedTools = nil
-	for _, name := range c.ApprovedTools {
-		if allowed[name] {
-			copy.ApprovedTools = append(copy.ApprovedTools, name)
-		}
-	}
-	config := toolConfig(copy)
+	config := toolConfig(connection)
 	if service.Name == "caelis_context" {
 		config["tool_timeout_sec"] = 45
 	}

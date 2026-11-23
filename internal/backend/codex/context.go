@@ -143,20 +143,24 @@ func (s *Session) CancelDream(ctx context.Context, id string) error {
 }
 
 func (s *Session) RenewConversation(ctx context.Context, id, source string) error {
-	return s.renewConversation(ctx, id, source, "")
+	return s.renewConversation(ctx, id, source, "", nil)
+}
+
+func (s *Session) RenewIdleConversation(ctx context.Context, id string, head api.ConversationState) error {
+	return s.renewConversation(ctx, id, head.Session, "", &head.Turn)
 }
 
 func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocation) (string, error) {
 	if invocation.Provider != "codex" || invocation.CallID == "" || invocation.Session == "" || invocation.Turn == "" {
 		return "", errors.New("original Codex MCP invocation is unavailable")
 	}
-	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn); err != nil {
+	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn, nil); err != nil {
 		return "", err
 	}
 	return s.ConversationState().Session, nil
 }
 
-func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string) error {
+func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string, idleTurn *string) error {
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.historyMu.Lock()
@@ -192,12 +196,16 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	d, exists := s.binding.Dreams[id]
 	turn := s.binding.Scheduled[id]
-	if toolTurn != "" {
+	if idleTurn != nil {
+		turn = *idleTurn
+	} else if toolTurn != "" {
 		turn = toolTurn
 	}
-	if (toolTurn == "" && (!exists || d.Thread != source || s.runs[turn] != "completed")) ||
+	journalCreate := toolTurn != "" || idleTurn != nil
+	if (idleTurn == nil && toolTurn == "" && (!exists || d.Thread != source || s.runs[turn] != "completed")) ||
 		(toolTurn != "" && s.runs[turn] != "interrupted") ||
-		s.binding.ThreadID != source || s.lastTurn != turn || !s.state.CanSend || s.run != "" {
+		s.binding.ThreadID != source || s.lastTurn != turn || !s.state.CanSend || s.run != "" ||
+		idleTurn != nil && !s.conversationLocked().Observed {
 		terminalMismatch := toolTurn != "" && (s.binding.ThreadID != source || s.lastTurn != turn || terminal(s.runs[turn]) && s.runs[turn] != "interrupted")
 		s.mu.Unlock()
 		if terminalMismatch {
@@ -213,7 +221,16 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	c := s.client
 	var attempted toolRenewalRecord
 	freshAttempt := false
-	if toolTurn != "" {
+	if journalCreate {
+		if idleTurn != nil && s.binding.ToolRenewal != nil && s.binding.ToolRenewal.CallID != id &&
+			s.binding.ToolRenewal.NewThread != "" {
+			previous := s.binding.ToolRenewal.CallID
+			s.mu.Unlock()
+			if err := s.recordDeferredRenewal(previous, api.ErrConversationRenewalDeferred); !errors.Is(err, api.ErrConversationRenewalDeferred) {
+				return err
+			}
+			s.mu.Lock()
+		}
 		if s.binding.ToolRenewal != nil {
 			attempted = *s.binding.ToolRenewal
 			if attempted.CallID != id || attempted.Source != source || attempted.Turn != turn {
@@ -233,7 +250,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	s.mu.Unlock()
 	var response threadExecutionResponse
-	if toolTurn != "" && attempted.NewThread != "" {
+	if journalCreate && attempted.NewThread != "" {
 		// A known create result is read back under its original ID, never
 		// dispatched a second time after a crash or a lost save response.
 		params := s.connectionParams()
@@ -241,7 +258,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		if err := callDecode(ctx, c, "thread/resume", params, &response); err != nil {
 			return err
 		}
-	} else if toolTurn != "" && !freshAttempt {
+	} else if journalCreate && !freshAttempt {
 		// The persisted attempt may have been sent before this process began.
 		// A new thread/start would create a second unknown native thread.
 		return api.ErrConversationRenewalUnknown
@@ -249,12 +266,24 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		// thread/start creates only an empty native thread. The original
 		// binding remains authoritative until the new ID is durably saved.
 		if err := callDecode(ctx, c, "thread/start", s.connectionParams(), &response); err != nil {
-			if toolTurn != "" {
+			if idleTurn != nil && definiteTaskRejection(err) {
+				s.mu.Lock()
+				if s.binding.ToolRenewal != nil && s.binding.ToolRenewal.CallID == id {
+					prior := s.binding.ToolRenewal
+					s.binding.ToolRenewal = nil
+					if s.save() != nil {
+						s.binding.ToolRenewal = prior
+					}
+				}
+				s.mu.Unlock()
+				return err
+			}
+			if journalCreate {
 				return api.ErrConversationRenewalUnknown
 			}
 			return err
 		}
-		if toolTurn != "" {
+		if journalCreate {
 			if response.Thread.ID == "" || response.Thread.ID == source {
 				return api.ErrConversationRenewalUnknown
 			}
@@ -276,15 +305,16 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return err
 	}
 	s.mu.Lock()
-	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend || (toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
+	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend ||
+		(idleTurn == nil && toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
 		s.mu.Unlock()
 		return errors.New("原对话已有新活动，交接未切换")
 	}
 	err := api.CommitRenewal(ctx, response.Thread.ID, func() error {
 		old := s.binding
 		s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
-		if toolTurn != "" {
-			s.binding.ToolRenewal = nil // committed receipt is in Bot's private handoff store
+		if journalCreate {
+			s.binding.ToolRenewal = nil
 		}
 		if s.opts.BotTools != nil {
 			s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion

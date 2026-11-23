@@ -210,10 +210,9 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		if e := s.typedMutation(ctx, op, r.Path, json.RawMessage(r.Body), &v); e != nil {
 			return e
 		}
-		s.mu.Lock()
-		sid := s.state.Session.SessionId
-		s.mu.Unlock()
-		if v.SessionId != sid || v.Revision == "" || v.Profile == nil {
+		// Context handoff can prepare a separately owned next Session before
+		// adopting it. Reconcile the exact original journal path.
+		if v.SessionId == "" || r.Path != "/sessions/"+idPath(v.SessionId)+"/configuration" || v.Revision == "" || v.Profile == nil {
 			return errors.New("Caelis 配置恢复回执不匹配")
 		}
 		if _, e := s.configuration(ctx, v.SessionId); e != nil {

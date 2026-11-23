@@ -62,7 +62,7 @@ Load only the references needed for the current work:
 - [Recovery](references/recovery.md): reconcile an uncertain action or respond to
   an unavailable task, rejected submission or failed observation.
 - [Memory](references/memory.md): recall context, update core memory and notes,
-  review unfinished commitments or prepare a Dream handoff.
+  review unfinished commitments or resume work after automatic context renewal.
 - [Follow-ups](references/follow-ups.md): identify future work, choose a wake source
   and continue it without another user prompt.
 - [Events](references/events.md): register delayed work, conditional observations
