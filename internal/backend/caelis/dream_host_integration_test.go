@@ -19,7 +19,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
-// Requires the separately built Core Draft binary at the exact contract SHA.
 // Both the Host store and model endpoint are isolated under this test.
 func TestNativeHostBotDreamRenewal(t *testing.T) {
 	ctx, s, resident, model := nativeDreamFixture(t, nil)
@@ -110,11 +109,11 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	}
 }
 
-func nativeDreamFixture(t *testing.T, beforeConnect func(api.RuntimeSettings)) (context.Context, *Session, *bot.Runtime, *acceptanceModel) {
+func nativeDreamFixture(t *testing.T, beforeConnect func(api.RuntimeSettings), configureResident ...func(*bot.Runtime)) (context.Context, *Session, *bot.Runtime, *acceptanceModel) {
 	t.Helper()
 	bin := os.Getenv("CAELIS_BOT_TEST_BINARY")
 	if bin == "" {
-		t.Skip("set CAELIS_BOT_TEST_BINARY to the Draft Core binary")
+		t.Skip("set CAELIS_BOT_TEST_BINARY for isolated external Host acceptance")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	t.Cleanup(cancel)
@@ -173,6 +172,9 @@ func nativeDreamFixture(t *testing.T, beforeConnect func(api.RuntimeSettings)) (
 	}
 	if err := resident.ConfigureDream(vault, ""); err != nil {
 		t.Fatal(err)
+	}
+	for _, configure := range configureResident {
+		configure(resident)
 	}
 	config := &api.ToolConnection{Host: resident, ApprovedTools: []string{"bot_dream"}, NotebookDirectory: vault.Path(), Instructions: "Fixture Bot. Use only requested tool calls."}
 	config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {

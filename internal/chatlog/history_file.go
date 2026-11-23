@@ -164,5 +164,5 @@ func publishHistoryFile(ctx context.Context, db *sql.DB, path string, exclude Hi
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	return replaceHistoryFile(tmp.Name(), path)
 }

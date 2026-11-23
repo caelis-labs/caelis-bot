@@ -69,6 +69,9 @@ func TestHistoryFileIsARebuildableSQLiteProjection(t *testing.T) {
 	if strings.Contains(body, "partial") || strings.Contains(body, "model-only wrapper") || strings.Count(body, "original user text") != 1 {
 		t.Fatal("same-ID update or native echo appeared twice")
 	}
+	if info, err := os.Stat(projection); err != nil || info.Mode().Perm()&0222 != 0 {
+		t.Fatal("replacement lost the read-only attribute", err)
+	}
 	latest, seen, err := log.ConversationActivity(ctx, "next", exclude)
 	if err != nil || seen || !latest.Equal(recorded) {
 		t.Fatal(latest, seen, err)
