@@ -49,6 +49,27 @@ Check protocol generation only when changing its inputs; commit the manifest and
 consumed generated contracts together. CI routing and exact-source release gates
 are described in [branch policy](release.md#required-checks-and-branch-policy).
 
+### Worker completion delivery
+
+The opt-in product acceptance uses the actual Bot `serve` entry and an installed
+Codex App Server with disposable stores and local synthetic model responses.
+It observes the original Worker terminal turn, task execution key, report ID,
+resident input and durable delivery receipt in both healthy and faulted event
+storage. It checks the real event write on expiry, restores the obstructed
+document, and verifies that the original resident receives both the Worker
+report and the recovered scheduled wake exactly once.
+
+```sh
+source script/env.sh
+go build -tags production -o .cache/worker-report-bot .
+CAELIS_BOT_TEST_PRODUCT="$PWD/.cache/worker-report-bot" \
+  CAELIS_BOT_TEST_CODEX="$(command -v codex)" \
+  node script/worker-report-resident.mjs
+```
+
+The script writes a summary containing only synthetic identities under
+`.cache/worker-report-resident`.
+
 ## Native macOS review
 
 Launch through `script/build_and_run.sh`. Use synthetic conversations and a

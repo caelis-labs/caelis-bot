@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
@@ -20,13 +21,25 @@ func (r *Runtime) ConfigureNativeSources(sample func() scheduledata.Sample) erro
 		return errors.New("Bot stopped")
 	}
 	r.nativeSample = sample
+	if errors.Is(r.nativeErr, eventplan.ErrWritePending) {
+		return nil
+	}
 	return r.nativeErr
 }
+
+func (r *Runtime) nativeMigrationError() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.nativeErr
+}
+
 func (r *Runtime) saveNativeSchedule(ctx context.Context, q map[string]any) api.ToolResult {
 	if err := r.eventError(); err != nil {
 		return compactError("events_unavailable", err)
 	}
-	if r.nativeErr != nil {
+	if err := r.nativeMigrationError(); errors.Is(err, eventplan.ErrWritePending) {
+		return compactError("native_arrangements_unavailable", eventplan.ErrWritePending)
+	} else if err != nil {
 		return compactError("native_arrangements_unavailable", errors.New("saved native arrangements need recovery; original data preserved"))
 	}
 	trigger := q["trigger"].(map[string]any)

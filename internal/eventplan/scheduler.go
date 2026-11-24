@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // Tick never runs a collector under the caller's lock. One bounded job at a time
@@ -18,10 +18,11 @@ import (
 func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
-	before := clone(e.state)
+	changed := false
+	collected := false
 	select {
 	case done := <-e.results:
 		e.running = ""
@@ -30,6 +31,8 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			e.cancel = nil
 		}
 		e.finishCollection(done, now)
+		changed = true
+		collected = true
 	default:
 	}
 	for i := range e.state.Occurrences {
@@ -38,21 +41,33 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			switch d.Receipt(o.ID) {
 			case "accepted":
 				o.Status = "accepted"
+				changed = true
 			case "rejected":
 				o.Status = "failed"
 				o.Issue = "wake_rejected"
 				o.Finished = now
+				changed = true
 			}
 		}
 		if (o.Status == "accepted" || o.Status == "unknown_wake") && d.Complete(o.ID) {
 			o.Status = "completed"
 			o.Finished = now
+			changed = true
 		}
 	}
-	e.cleanup(now)
-	e.retire(now, d.Revoke)
-	if !reflect.DeepEqual(before, e.state) {
-		if err := e.persist(); err != nil {
+	if e.cleanup(now) || changed {
+		kind := writeChange
+		if collected {
+			kind = writeObservation
+		}
+		if err := e.persistAs(kind); err != nil {
+			return err
+		}
+	}
+	// Retirement acts on committed definitions. Only the result of a revoke
+	// that already ran may need a follow-up checkpoint.
+	if e.retire(now, d.Revoke) {
+		if err := e.persistAs(writeObservation); err != nil {
 			return err
 		}
 	}
@@ -62,16 +77,12 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if o.Status != "pending" {
 			continue
 		}
-		expiry := o.Expires
-		if expiry.IsZero() {
-			expiry = o.At.Add(time.Hour)
-		}
-		if !now.Before(expiry) {
+		if !now.Before(o.expiry()) {
 			o.Status = "expired"
 			o.Finished = now
 			return e.persist()
 		}
-		if !d.Ready || len(e.state.WakeAttempts)+len(e.state.WakeReservations) >= e.state.Policy.MaximumInterruptionsPer24Hours || len(e.state.WakeAttempts) > 0 && now.Before(e.state.WakeAttempts[len(e.state.WakeAttempts)-1].Add(time.Duration(e.state.Policy.MinimumGapSeconds)*time.Second)) {
+		if len(e.state.WakeAttempts)+len(e.state.WakeReservations) >= e.state.Policy.MaximumInterruptionsPer24Hours || len(e.state.WakeAttempts) > 0 && now.Before(e.state.WakeAttempts[len(e.state.WakeAttempts)-1].Add(time.Duration(e.state.Policy.MinimumGapSeconds)*time.Second)) {
 			continue
 		}
 		p := e.plan(o.Plan)
@@ -83,9 +94,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			o.Finished = now
 			return e.persist()
 		}
-		if slices.ContainsFunc(e.state.Occurrences, func(other Occurrence) bool {
-			return other.Plan == p.ID && other.ID != o.ID && (other.Status == "unknown_wake" || other.Status == "dispatching" || other.Status == "accepted")
-		}) {
+		if e.wakeBlocked(*o) || d.Ready == nil || !d.Ready() {
 			continue
 		}
 		v, _ := e.event(o.Event)
@@ -93,10 +102,14 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		p.LastWake = now
 		o.Status = "dispatching"
 		e.state.WakeAttempts = append(e.state.WakeAttempts, now)
-		if err := e.persist(); err != nil {
+		if err := e.persistAs(writeIntent); err != nil {
 			return err
 		}
-		outcome, err := d.Submit(ctx, o.ID, WakeText(v, *p, *o), p.ID)
+		origins := o.OriginRequests
+		if origins == nil {
+			origins = p.OriginRequests
+		}
+		outcome, err := d.Submit(ctx, Wake{ID: o.ID, Text: WakeText(v, *p, *o), Plan: p.ID, Grant: p.Authorization(), OriginRequests: slices.Clone(origins)})
 		if outcome == "deferred" {
 			// The adapter proved no operation was created. A busy race must not
 			// consume the five-minute gap or cooldown before a first real wake.
@@ -117,7 +130,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			o.Issue = "wake_rejected"
 			o.Finished = now
 		}
-		saveErr := e.persist()
+		saveErr := e.persistAs(writeObservation)
 		if outcome == "deferred" {
 			return errors.Join(err, saveErr)
 		}
@@ -128,12 +141,8 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 	}
 	// Preserve the original unknown collector; never execute it again implicitly.
 	// Earliest due first prevents short-interval plans starving later entries.
-	order := make([]int, len(e.state.Plans))
-	for i := range order {
-		order[i] = i
-	}
-	slices.SortFunc(order, func(a, b int) int { return e.state.Plans[a].Next.Compare(e.state.Plans[b].Next) })
-	for _, i := range order {
+	var selected *Plan
+	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
 		if p.Kind == "native" || p.Status != "active" || p.Next.After(now) || e.pending(p.ID) || e.unknownEvent(p.Event) {
 			continue
@@ -141,6 +150,11 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if !p.LastWake.IsZero() && now.Before(p.LastWake.Add(time.Duration(p.CooldownSeconds)*time.Second)) {
 			continue
 		}
+		if selected == nil || p.Next.Before(selected.Next) {
+			selected = p
+		}
+	}
+	if p := selected; p != nil {
 		v, ok := e.event(p.Event)
 		if !ok {
 			p.Status = "failed"
@@ -153,7 +167,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if p.Kind == "interval" || p.Kind == "completion" {
 			p.Next = now.Add(time.Duration(p.Seconds) * time.Second)
 		}
-		if err := e.persist(); err != nil {
+		if err := e.persistAs(writeIntent); err != nil {
 			return err
 		}
 		runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -165,6 +179,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			defer e.workers.Done()
 			out, err := e.runner(runCtx, v)
 			e.results <- completion{id: o.ID, output: out, err: err}
+			e.signal()
 		}()
 		return nil
 	}
@@ -278,9 +293,13 @@ func (e *Engine) finishCollection(done completion, now time.Time) {
 		return
 	}
 }
-func (e *Engine) cleanup(now time.Time) {
-	e.state.WakeReservations = slices.DeleteFunc(e.state.WakeReservations, func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) })
-	e.state.WakeAttempts = slices.DeleteFunc(e.state.WakeAttempts, func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) })
+func (e *Engine) cleanup(now time.Time) bool {
+	attempts, reservations := len(e.state.WakeAttempts), len(e.state.WakeReservations)
+	events, plans, occurrences := len(e.state.Events), len(e.state.Plans), len(e.state.Occurrences)
+	changed := false
+	cutoff := now.Add(-24 * time.Hour)
+	e.state.WakeReservations = slices.DeleteFunc(e.state.WakeReservations, func(t time.Time) bool { return !t.After(cutoff) })
+	e.state.WakeAttempts = slices.DeleteFunc(e.state.WakeAttempts, func(t time.Time) bool { return !t.After(cutoff) })
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
 		if !p.Finished.IsZero() {
@@ -292,6 +311,7 @@ func (e *Engine) cleanup(now time.Time) {
 		if !now.Before(p.Expires) {
 			p.Status = "expired"
 			p.Finished = now
+			changed = true
 			continue
 		}
 		if p.Kind == "interval" || p.Kind == "native" {
@@ -312,6 +332,7 @@ func (e *Engine) cleanup(now time.Time) {
 			}
 			p.Status = o.Status
 			p.Finished = now
+			changed = true
 			break
 		}
 	}
@@ -331,11 +352,15 @@ func (e *Engine) cleanup(now time.Time) {
 		}
 		if !used && !now.Before(v.LastUsed.Add(24*time.Hour)) {
 			v.Archived = now
+			changed = true
 		}
 	}
-	referenced := map[string]bool{}
+	var referenced map[string]bool
 	for _, o := range e.state.Occurrences {
 		if o.AttentionFor != "" {
+			if referenced == nil {
+				referenced = make(map[string]bool)
+			}
 			referenced[o.AttentionFor] = true
 		}
 	}
@@ -369,6 +394,8 @@ func (e *Engine) cleanup(now time.Time) {
 		}
 		return false
 	})
+	return changed || attempts != len(e.state.WakeAttempts) || reservations != len(e.state.WakeReservations) ||
+		events != len(e.state.Events) || plans != len(e.state.Plans) || occurrences != len(e.state.Occurrences)
 }
 func trimHistory[T any](items *[]T, now time.Time, finished func(T) time.Time) {
 	n := 0
@@ -427,10 +454,11 @@ func resultSummary(raw json.RawMessage) string {
 
 // Retire native grants after the last unresolved receipt has settled. Failed
 // revocation retains the definition and retries at a bounded cadence.
-func (e *Engine) retire(now time.Time, revoke func(string) error) {
+func (e *Engine) retire(now time.Time, revoke func(string) error) bool {
 	if now.Before(e.lastRevoke.Add(5 * time.Second)) {
-		return
+		return false
 	}
+	changed := false
 	apply := func(id string) bool {
 		if revoke == nil {
 			return true
@@ -445,8 +473,9 @@ func (e *Engine) retire(now time.Time, revoke func(string) error) {
 				return other.ID != p.ID && other.Authorization() == p.Authorization() && (other.Finished.IsZero() || e.pending(other.ID))
 			})
 			p.Retired = shared || apply(p.Authorization())
+			changed = changed || p.Retired
 			if revoke != nil {
-				return
+				return changed
 			}
 		}
 	}
@@ -454,11 +483,13 @@ func (e *Engine) retire(now time.Time, revoke func(string) error) {
 		v := &e.state.Events[i]
 		if !v.Retired && !v.Archived.IsZero() {
 			v.Retired = apply("event:" + v.ID)
+			changed = changed || v.Retired
 			if revoke != nil {
-				return
+				return changed
 			}
 		}
 	}
+	return changed
 }
 
 func (e *Engine) unknownEvent(id string) bool {

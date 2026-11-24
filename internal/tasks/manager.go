@@ -95,6 +95,7 @@ type Manager struct {
 	path, root, provider string
 	work                 api.WorkRuntime
 	reports              api.SystemDelivery
+	reportWake           func() // guarded by mu; non-blocking notification only
 	snapshot             func() api.Snapshot
 	localeMu             sync.RWMutex
 	locale               func() i18n.Locale
@@ -219,6 +220,38 @@ func (m *Manager) save() error {
 	return e
 }
 
+func (m *Manager) SetReportWake(wake func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reportWake = wake
+}
+
+// ReportWork uses the product ledger only. Retained Workers can advance
+// independently of the resident. A dispatched report only needs reconciliation
+// on a resident edge because its receipt belongs to that resident.
+func (m *Manager) ReportWork() (pending, poll bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.state.Records {
+		if !m.owns(r) {
+			continue
+		}
+		if r.ReportState == "pending" || r.ReportState == "" && !terminal(r.View.Status) {
+			return true, true
+		}
+		if r.ReportState == "dispatching" {
+			pending = true
+		}
+		for _, report := range r.PreviousReports {
+			if report.State == "dispatching" {
+				pending = true
+				break
+			}
+		}
+	}
+	return pending, false
+}
+
 // Only already-owned executions can enter this ledger. The host router retains
 // both providers; an unregistered provider remains inert, with no adopted IDs.
 func (m *Manager) refresh() error {
@@ -234,6 +267,7 @@ func (m *Manager) refresh() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var conflict error
+	reportChanged := false
 	for _, v := range states {
 		if r := m.state.Records[v.Task.ID]; r != nil && (!m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime) {
 			// Preserve the original owner; one conflicting observation cannot
@@ -263,6 +297,7 @@ func (m *Manager) refresh() error {
 		if r == nil {
 			r = &record{Runtime: v.Runtime, Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
 			m.state.Records[v.Task.ID] = r
+			reportChanged = true
 		}
 		if !m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime {
 			continue
@@ -270,6 +305,7 @@ func (m *Manager) refresh() error {
 		if retiredExecution(r, v) {
 			continue // A late old native snapshot cannot republish its report.
 		}
+		reportChanged = reportChanged || r.View.Status != v.Task.Status || (v.ExecutionKey != "" && r.Execution != v.ExecutionKey)
 		if v.ExecutionKey != "" && v.LegacyExecutionKey != "" && r.Execution == v.LegacyExecutionKey {
 			// Rename only an adapter-proven alias. Keep the existing report ID,
 			// text and delivery receipt, including unknown delivery, unchanged.
@@ -332,6 +368,9 @@ func (m *Manager) refresh() error {
 	m.metadataLocked()
 	if err := m.write(); err != nil {
 		return err
+	}
+	if reportChanged && m.reportWake != nil {
+		m.reportWake()
 	}
 	return conflict
 }
@@ -1138,41 +1177,35 @@ func (m *Manager) prepareTaskReport() (string, api.SystemMessage, error) {
 	}
 	s := m.snapshot()
 	m.mu.Lock()
+	changed := false
+	var selected *record
 	for _, r := range m.state.Records {
-		if m.owns(r) && r.ReportState == "dispatching" {
-			m.settleReportLocked(r.ReportID, &r.ReportState, m.reports.SystemReceipt(r.ReportID))
+		if !m.owns(r) {
+			continue
 		}
-		if m.owns(r) {
-			for i := range r.PreviousReports {
-				previous := &r.PreviousReports[i]
-				if previous.State == "dispatching" {
-					m.settleReportLocked(previous.ID, &previous.State, m.reports.SystemReceipt(previous.ID))
-					if previous.State == "pending" {
-						previous.State = "observed"
-					}
+		if r.ReportState == "dispatching" {
+			m.settleReportLocked(r.ReportID, &r.ReportState, m.reports.SystemReceipt(r.ReportID))
+			changed = changed || r.ReportState != "dispatching"
+		}
+		for i := range r.PreviousReports {
+			previous := &r.PreviousReports[i]
+			if previous.State == "dispatching" {
+				m.settleReportLocked(previous.ID, &previous.State, m.reports.SystemReceipt(previous.ID))
+				if previous.State == "pending" {
+					previous.State = "observed"
 				}
+				changed = changed || previous.State != "dispatching"
 			}
 		}
-	}
-	if e := m.write(); e != nil {
-		m.mu.Unlock()
-		return "", api.SystemMessage{}, e
-	}
-	if !s.CanSend {
-		m.mu.Unlock()
-		return "", api.SystemMessage{}, nil
-	}
-	ids := make([]string, 0, len(m.state.Records))
-	for id := range m.state.Records {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	var selected *record
-	for _, id := range ids {
-		r := m.state.Records[id]
-		if m.owns(r) && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
+		if s.CanSend && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" &&
+			(selected == nil || r.View.ID < selected.View.ID) {
 			selected = r
-			break
+		}
+	}
+	if changed {
+		if e := m.write(); e != nil {
+			m.mu.Unlock()
+			return "", api.SystemMessage{}, e
 		}
 	}
 	if selected == nil {

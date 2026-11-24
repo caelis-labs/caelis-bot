@@ -12,7 +12,31 @@ import (
 
 var writers sync.Map // One in-flight OS write per product document.
 
+func writerGate(path string) chan struct{} {
+	entry, _ := writers.LoadOrStore(path, make(chan struct{}, 1))
+	return entry.(chan struct{})
+}
+
+// ReadAfterWrites reads a checkpoint after any writer that outlived its caller.
+// A reopening owner must not rebuild state from a file about to be replaced.
+func ReadAfterWrites(path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	gate := writerGate(path)
+	select {
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
+		return os.ReadFile(path)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func Write(path string, value any) error {
+	return write(path, value, 2*time.Second, writeBytes)
+}
+
+func write(path string, value any, timeout time.Duration, commit func(string, []byte, *writeAttempt) error) error {
 	if path == "" {
 		return nil
 	}
@@ -24,24 +48,33 @@ func Write(path string, value any) error {
 		return attempt.failure(err)
 	}
 	body = append(body, '\n')
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	entry, _ := writers.LoadOrStore(path, make(chan struct{}, 1))
-	gate := entry.(chan struct{})
+	gate := writerGate(path)
 	attempt.stage.Store(writeQueue)
 	select {
 	case gate <- struct{}{}:
 	case <-ctx.Done():
 		return attempt.failure(ctx.Err())
 	}
+	if err := ctx.Err(); err != nil {
+		<-gate
+		return attempt.failure(err)
+	}
 	attempt.stage.Store(writeDispatch)
-	done := make(chan error, 1)
-	go func() { defer func() { <-gate }(); done <- writeBytes(path, body, attempt) }()
+	done := make(chan WriteCompletion, 1)
+	go func() {
+		defer func() { <-gate }()
+		err := commit(path, body, attempt)
+		done <- WriteCompletion{Err: err, Elapsed: time.Since(attempt.started)}
+	}()
 	select {
-	case err := <-done:
-		return err
+	case result := <-done:
+		return result.Err
 	case <-ctx.Done():
-		return attempt.failure(ctx.Err())
+		failure := attempt.failure(ctx.Err())
+		failure.Completion = done
+		return failure
 	}
 }
 
@@ -58,8 +91,7 @@ func WriteConfirmed(path string, value any) error {
 		return attempt.failure(err)
 	}
 	body = append(body, '\n')
-	entry, _ := writers.LoadOrStore(path, make(chan struct{}, 1))
-	gate := entry.(chan struct{})
+	gate := writerGate(path)
 	attempt.stage.Store(writeQueue)
 	gate <- struct{}{}
 	defer func() { <-gate }()

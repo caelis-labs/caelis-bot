@@ -310,6 +310,15 @@ Script registration reviews pinned interpreter/source and ongoing observation; i
 no Runtime sandbox bypass. Windows script registration is unavailable without equivalent
 process lifecycle guarantees. Unknown collector effects suspend the arrangement, never
 rerun automatically. Wakes persist identity before dispatch and reconcile original input.
+The resident scheduler waits for actual deadlines, collector results, and admission
+or work changes. Active retained Workers and desktop source subscriptions keep
+bounded observation where the original owner provides no wake edge. Event writes
+roll back on a confirmed failure and wait for the disk result of any timed-out
+writer before admitting another mutation. An unexecuted intent is cleared
+durably before fresh admission. Completed actions keep their original identities
+and receipts while their results are saved. Independent Worker reports and legacy
+reminders retain their admission paths. Diagnostics record the first failed write
+stage and error category and any eventual disk result.
 
 Busy admission, original grants, cancellation, deadlines, deduplication and shared wake
 budgets restrict dispatch; desktop presence/lock is not a global gate. Explicit collectors

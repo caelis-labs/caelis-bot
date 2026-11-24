@@ -17,6 +17,15 @@ type WriteError struct {
 	Stage   string
 	Elapsed time.Duration
 	Err     error
+	// Completion is set only when the wait expired after starting the writer.
+	// The original error remains a timeout even if this result confirms a
+	// later commit. This channel has one result and is for diagnostics only.
+	Completion <-chan WriteCompletion
+}
+
+type WriteCompletion struct {
+	Err     error
+	Elapsed time.Duration
 }
 
 func (e *WriteError) Error() string {
@@ -64,14 +73,14 @@ type writeAttempt struct {
 	stage   atomic.Int32
 }
 
-func (a *writeAttempt) failure(err error) error {
-	if err == nil {
-		return nil
-	}
+func (a *writeAttempt) failure(err error) *WriteError {
 	return &WriteError{Stage: writeStages[a.stage.Load()], Elapsed: time.Since(a.started), Err: err}
 }
 
 func (a *writeAttempt) run(stage int32, operation func() error) error {
 	a.stage.Store(stage)
-	return a.failure(operation())
+	if err := operation(); err != nil {
+		return a.failure(err)
+	}
+	return nil
 }

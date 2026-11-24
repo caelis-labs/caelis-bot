@@ -42,7 +42,10 @@ func DescribeFailure(err error) Failure {
 		f.Kind, f.OSCode = "filesystem", uint64(errno)
 	}
 	var path *os.PathError
-	if errors.As(err, &path) {
+	var link *os.LinkError
+	if errors.As(err, &link) && link.Op == "rename" {
+		f.Operation = "rename"
+	} else if errors.As(err, &path) {
 		// PathError.Op can also originate in a custom marshaler. Whitelist it.
 		switch path.Op {
 		case "mkdir", "open", "write", "sync", "close", "rename", "chmod":

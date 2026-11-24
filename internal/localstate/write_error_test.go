@@ -38,7 +38,7 @@ func TestWriteTimeoutKeepsOriginalWriterAdmission(t *testing.T) {
 	before := time.Now()
 	err := Write(path, map[string]string{"state": "new"})
 	var failure *WriteError
-	if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &failure) || failure.Stage != "queue" || failure.Elapsed < 2*time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &failure) || failure.Stage != "queue" || failure.Elapsed < 2*time.Second || failure.Completion != nil {
 		t.Fatalf("missing bounded-wait diagnostic: %v", err)
 	}
 	if time.Since(before) < 2*time.Second || len(gate) != 1 {
@@ -50,5 +50,78 @@ func TestWriteTimeoutKeepsOriginalWriterAdmission(t *testing.T) {
 	<-gate
 	if err := Write(path, map[string]string{"state": "after-original-completion"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteTimeoutRetainsActualCommitResult(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		name := "committed"
+		if fail {
+			name = "failed"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.json")
+			release := make(chan struct{})
+			err := write(path, map[string]int{"value": 1}, 100*time.Millisecond, func(path string, body []byte, a *writeAttempt) error {
+				a.stage.Store(writeSync)
+				<-release
+				if fail {
+					return a.run(writeRename, func() error { return os.ErrPermission })
+				}
+				return writeBytes(path, body, a)
+			})
+			close(release)
+			var timeout *WriteError
+			if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &timeout) || timeout.Completion == nil {
+				t.Fatalf("in-flight wait lost writer result: %v", err)
+			}
+			select {
+			case result := <-timeout.Completion:
+				_, stat := os.Stat(path)
+				if result.Elapsed < timeout.Elapsed || fail && (!errors.Is(result.Err, os.ErrPermission) || !errors.Is(stat, os.ErrNotExist)) ||
+					!fail && (result.Err != nil || stat != nil) {
+					t.Fatalf("wrong original writer outcome: result=%+v stat=%v", result, stat)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("writer completed without an observable result")
+			}
+		})
+	}
+}
+
+func TestReadAfterWritesSeesLateAtomicReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := Write(path, 1); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	err := write(path, 2, 100*time.Millisecond, func(path string, body []byte, a *writeAttempt) error {
+		<-release
+		return writeBytes(path, body, a)
+	})
+	var timeout *WriteError
+	if !errors.As(err, &timeout) || timeout.Completion == nil {
+		close(release)
+		t.Fatalf("expected a writer that survived the deadline: %v", err)
+	}
+	type readResult struct {
+		body []byte
+		err  error
+	}
+	reader := make(chan readResult, 1)
+	go func() {
+		body, err := ReadAfterWrites(path)
+		reader <- readResult{body, err}
+	}()
+	select {
+	case result := <-reader:
+		close(release)
+		t.Fatalf("read overtook the original writer: %+v", result)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	result := <-reader
+	if result.err != nil || string(result.body) != "2\n" {
+		t.Fatalf("did not read original writer's replacement: %+v", result)
 	}
 }

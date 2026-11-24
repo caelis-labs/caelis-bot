@@ -30,8 +30,16 @@ func (r *Runtime) ConfigureEvents(tools EventTools, directory string) {
 func (r *Runtime) initEvents() {
 	r.events, r.eventsErr = eventplan.Open(filepath.Join(filepath.Dir(r.path), "events-"+r.provider+".json"), r.runEvent, r.now())
 	if r.eventsErr == nil {
-		r.nativeErr = r.events.MigrateLegacy(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), r.now())
+		r.migrateNativeEvents()
 	}
+}
+
+func (r *Runtime) migrateNativeEvents() error {
+	err := r.events.MigrateLegacy(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), r.now())
+	r.mu.Lock()
+	r.nativeErr = err
+	r.mu.Unlock()
+	return err
 }
 func (r *Runtime) runEvent(ctx context.Context, v eventplan.Event) (json.RawMessage, error) {
 	r.mu.Lock()
@@ -141,11 +149,6 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 	}
 	if kind == "archive" {
 		err := r.events.ArchiveEvent(id, r.now())
-		if err == nil {
-			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
-				err = b.RevokeBackground(ctx, "event:"+id)
-			}
-		}
 		if err != nil {
 			return compactError("archive_unconfirmed", err)
 		}
@@ -302,7 +305,14 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 	// Explicit arrangements can run while the desktop is locked or presence is
 	// unknown. A collector may observe presence and its CEL may require it; that
 	// is task data, not a global admission policy. The adapter rechecks busy state.
-	if r.nativeErr == nil && r.events.HasNativePlans() {
+	nativeErr := r.nativeMigrationError()
+	if errors.Is(nativeErr, eventplan.ErrWritePending) {
+		nativeErr = r.migrateNativeEvents()
+		if errors.Is(nativeErr, eventplan.ErrWritePending) {
+			return nativeErr
+		}
+	}
+	if nativeErr == nil && r.events.HasNativePlans() {
 		sample := scheduledata.Sample{}
 		if r.nativeSample != nil {
 			sample = r.nativeSample()
@@ -311,34 +321,16 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return err
 		}
 	}
-	origins := map[string][]string{}
-	grants := map[string]string{}
-	occOrigins := map[string][]string{}
-	state := r.events.Snapshot()
-	for _, p := range state.Plans {
-		origins[p.ID] = p.OriginRequests
-		grants[p.ID] = p.Authorization()
-	}
-	for _, o := range state.Occurrences {
-		if o.OriginRequests != nil {
-			occOrigins[o.ID] = o.OriginRequests
-		}
-	}
-	ready := r.engine.Snapshot().CanSend
-	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: ready,
+	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: func() bool { return r.engine.Snapshot().CanSend },
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				return b.RevokeBackground(ctx, id)
 			}
 			return nil
 		},
-		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			source := origins[plan]
-			if original, ok := occOrigins[id]; ok {
-				source = original
-			}
-			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: id, Text: text, Source: api.SystemCallback, OriginRequests: source, Grants: []string{grants[plan]}})
-			if receipt.ID != id {
+		Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}})
+			if receipt.ID != wake.ID {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
 			if receipt.Outcome == "rejected" && receipt.Deferred {

@@ -34,7 +34,11 @@ func (r *Runtime) BeginUserActivity() (func(), error) {
 	}
 	r.registeringUser--
 	r.continuity.Unlock()
-	return func() { r.userWaiting.Add(-1) }, err
+	return func() {
+		if r.userWaiting.Add(-1) == 0 {
+			r.RequestTick()
+		}
+	}, err
 }
 
 func (r *Runtime) checkDreamCompletion(invocation api.ToolInvocation) error {

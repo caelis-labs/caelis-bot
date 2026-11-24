@@ -52,7 +52,7 @@ func (e *Engine) NativePlan(id string) (Plan, bool) {
 func (e *Engine) HasNativePlans() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return slices.ContainsFunc(e.state.Plans, func(p Plan) bool { return p.Kind == "native" && p.Status == "active" })
+	return !e.stopped && !e.writing && e.retry == nil && slices.ContainsFunc(e.state.Plans, func(p Plan) bool { return p.Kind == "native" && p.Status == "active" })
 }
 func normalizeNative(n NativeArrangement) (NativeArrangement, error) {
 	if !identifier.MatchString(n.ID) || strings.TrimSpace(n.Label) == "" || len(n.Label) > 200 || strings.TrimSpace(n.Prompt) == "" || len(n.Prompt) > 4096 {
@@ -87,11 +87,11 @@ func (e *Engine) SaveNative(n NativeArrangement, now time.Time, authorize func(P
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err = e.usable(); err != nil {
+	if err = e.prepareWrite(); err != nil {
 		return Plan{}, err
 	}
 	id := nativeID(n.ID)
-	p := Plan{ID: id, NativeID: n.ID, Event: id, Kind: "native", Sources: n.Sources, PendingSeconds: n.ExpiresSeconds, When: n.When, TimeZone: n.TimeZone, CooldownSeconds: n.CooldownSeconds, OriginRequests: n.OriginRequests, Created: now, Next: now, Expires: time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), Status: "active"}
+	p := Plan{ID: id, NativeID: n.ID, Event: id, Kind: "native", Sources: n.Sources, PendingSeconds: n.ExpiresSeconds, When: n.When, TimeZone: n.TimeZone, CooldownSeconds: n.CooldownSeconds, OriginRequests: slices.Clone(n.OriginRequests), Created: now, Next: now, Expires: time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), Status: "active"}
 	v := Event{ID: id, Label: n.Label, Context: n.Prompt, Kind: "native", OutputSchema: json.RawMessage(`{"type":"object"}`), Created: now, LastUsed: now}
 	for _, old := range e.state.Plans {
 		if old.NativeID == n.ID || old.ID == id {
@@ -123,7 +123,7 @@ func (e *Engine) SaveNative(n NativeArrangement, now time.Time, authorize func(P
 	}
 	e.state.Events = append(e.state.Events, v)
 	e.state.Plans = append(e.state.Plans, p)
-	return p, e.persist()
+	return clone(p), e.saveChanges()
 }
 
 // ReceiveNative only accepts the host's bounded sample stream. There is no MCP
@@ -131,14 +131,14 @@ func (e *Engine) SaveNative(n NativeArrangement, now time.Time, authorize func(P
 func (e *Engine) ReceiveNative(ctx context.Context, events []scheduledata.Event, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
-	before := clone(e.state)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	changed := false
 	for _, event := range events {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if !scheduledata.KnownSource(event.Source) || event.At.IsZero() || event.At.After(now) || !event.At.After(e.state.NativeWatermarks[event.Source]) {
 			continue
 		}
@@ -146,6 +146,7 @@ func (e *Engine) ReceiveNative(ctx context.Context, events []scheduledata.Event,
 			e.state.NativeWatermarks = map[string]time.Time{}
 		}
 		e.state.NativeWatermarks[event.Source] = event.At
+		changed = true
 		for i := range e.state.Plans {
 			p := &e.state.Plans[i]
 			if p.Kind != "native" || p.Status != "active" || !now.Before(p.Expires) || !slices.Contains(p.Sources, event.Source) || e.pending(p.ID) || !p.LastWake.IsZero() && now.Before(p.LastWake.Add(time.Duration(p.CooldownSeconds)*time.Second)) {
@@ -160,10 +161,10 @@ func (e *Engine) ReceiveNative(ctx context.Context, events []scheduledata.Event,
 			e.finishCollection(completion{id: o.ID, output: raw}, now)
 		}
 	}
-	if reflect.DeepEqual(before, e.state) {
+	if !changed {
 		return nil
 	}
-	return e.persist()
+	return e.persistAs(writeObservation)
 }
 
 type Policy struct {
@@ -178,7 +179,7 @@ func (p Policy) valid() bool {
 func (e *Engine) ConfigurePolicy(p Policy, authorize func() error) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
 	if !p.valid() {
@@ -193,5 +194,5 @@ func (e *Engine) ConfigurePolicy(p Policy, authorize func() error) error {
 		}
 	}
 	e.state.Policy = p
-	return e.persist()
+	return e.saveChanges()
 }

@@ -72,6 +72,8 @@ type Runtime struct {
 	deliveries      *systemDeliveryLog
 	deliveryErr     error
 	deliveryWarning sync.Once
+	eventWarning    sync.Once
+	wakeup          chan struct{}
 
 	userWaiting    atomic.Int32
 	events         *eventplan.Engine
@@ -125,7 +127,7 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 	if provider == "" {
 		return nil, errors.New("提醒需要明确的运行时")
 	}
-	r := &Runtime{path: path, provider: provider, now: time.Now, action: action, state: State{Version: 1, PersonalVersion: 1, ID: rand.Text(), Schedules: []Schedule{}}}
+	r := &Runtime{path: path, provider: provider, now: time.Now, action: action, wakeup: make(chan struct{}, 1), state: State{Version: 1, PersonalVersion: 1, ID: rand.Text(), Schedules: []Schedule{}}}
 	b, e := os.ReadFile(path)
 	if e == nil {
 		r.state = State{} // Existing files must supply identity; never fill missing fields with new defaults.
@@ -243,6 +245,7 @@ func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 		r.state.Schedules = previous
 		return s, e
 	}
+	r.RequestTick()
 	return s, nil
 }
 func (r *Runtime) Remove(id string) error {
@@ -287,6 +290,7 @@ func (r *Runtime) Remove(id string) error {
 		r.state.Wake = previousWake
 		return e
 	}
+	r.RequestTick()
 	return nil
 }
 
@@ -299,6 +303,10 @@ func (r *Runtime) ConfigureTasks(provider api.TaskProvider, reports api.TaskRepo
 	}
 	r.tasks = provider
 	r.reports = reports
+	if source, ok := reports.(interface{ SetReportWake(func()) }); ok {
+		source.SetReportWake(r.RequestTick)
+	}
+	r.RequestTick()
 	return nil
 }
 func (r *Runtime) Start(engine Engine) {
@@ -313,19 +321,7 @@ func (r *Runtime) Start(engine Engine) {
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.done = make(chan struct{})
-	go func() {
-		defer close(r.done)
-		timer := time.NewTicker(time.Second)
-		defer timer.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				_ = r.Tick(ctx)
-			}
-		}
-	}()
+	go r.run(ctx)
 }
 func (r *Runtime) Stop() {
 	r.mu.Lock()
@@ -364,6 +360,7 @@ func (r *Runtime) PauseIfIdle(guard func() error) error {
 func (r *Runtime) ResumeAfterUpdate() {
 	r.step.Lock()
 	r.paused = false
+	r.RequestTick()
 	r.step.Unlock()
 }
 
@@ -371,16 +368,18 @@ func (r *Runtime) ResumeAfterUpdate() {
 func (r *Runtime) Tick(ctx context.Context) error {
 	r.step.Lock()
 	err := r.tickLocked(ctx)
+	r.reportEventFault()
 	r.mu.Lock()
 	reports := r.reports
 	r.mu.Unlock()
 	r.step.Unlock()
 	// Producers may do native reads; their delivery returns through SubmitSystem.
-	if err == nil && reports != nil {
-		err = reports.DeliverTaskReport(ctx)
+	// A scheduling failure must not starve independently persisted task reports.
+	if pending, _ := r.reportWork(reports); pending && ctx.Err() == nil {
+		err = errors.Join(err, reports.DeliverTaskReport(ctx))
 	}
-	if err == nil {
-		err = r.ReviewContinuity(ctx)
+	if ctx.Err() == nil {
+		err = errors.Join(err, r.ReviewContinuity(ctx))
 	}
 	return err
 }
@@ -451,46 +450,45 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 		return nil
 	}
 	previous := r.state
-	previous.Schedules = append([]Schedule(nil), r.state.Schedules...)
+	changed := false
 	if r.state.Wake == nil || r.state.Wake.Status == "accepted" {
 		var ids, texts, origins []string
+		textBytes := 0
 		for i, s := range r.state.Schedules {
 			if s.Runtime != r.provider || !s.Enabled || s.Next.After(now) {
 				continue
 			}
-			if len(strings.Join(texts, "\n"))+len(s.Prompt) > 96000 {
+			if textBytes+len(s.Prompt) > 96000 {
 				break
 			}
-			if _, err := nextTime(s, now); err != nil {
+			next, err := nextTime(s, now)
+			if err != nil {
 				continue
 			}
-			if !scheduleAllowed(s, now) {
-				next, err := nextTime(s, now)
-				if err != nil {
-					r.mu.Unlock()
-					return err
-				}
-				s.Next = next
-				s.Enabled = !next.IsZero()
-				r.state.Schedules[i] = s
-				continue
-			}
+			allowed := scheduleAllowed(s, now)
 			// Do not combine known phone work with a different or missing source.
 			// A pending batch retains its captured origin through later edits.
-			if len(ids) > 0 && !slices.Equal(origins, s.OriginRequests) {
+			if allowed && len(ids) > 0 && !slices.Equal(origins, s.OriginRequests) {
 				continue
 			}
-			ids = append(ids, s.ID)
-			origins = slices.Clone(s.OriginRequests)
-			texts = append(texts, s.Label+"："+s.Prompt)
-			next, e := nextTime(s, now)
-			if e != nil {
-				r.mu.Unlock()
-				return e
+			if !changed {
+				r.state.Schedules = slices.Clone(r.state.Schedules)
+				changed = true
 			}
 			s.Next = next
 			s.Enabled = !next.IsZero()
 			r.state.Schedules[i] = s
+			if !allowed {
+				continue
+			}
+			ids = append(ids, s.ID)
+			origins = s.OriginRequests
+			if len(texts) > 0 {
+				textBytes++
+			}
+			message := s.Label + "：" + s.Prompt
+			texts = append(texts, message)
+			textBytes += len(message)
 			// Caelis grants authorize one schedule per native activation. Leave
 			// other due schedules untouched for the next idle tick.
 			if _, ok := r.engine.(api.BackgroundGrantRevoker); ok {
@@ -498,7 +496,7 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 			}
 		}
 		if len(ids) > 0 {
-			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, OriginRequests: origins, Status: "pending"}
+			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, OriginRequests: slices.Clone(origins), Status: "pending"}
 			if e := r.saveLocked(); e != nil {
 				r.state = previous
 				r.mu.Unlock()
@@ -508,7 +506,7 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 	}
 	if r.state.Wake == nil || r.state.Wake.Status != "pending" {
 		var err error
-		if !reflect.DeepEqual(previous.Schedules, r.state.Schedules) {
+		if changed {
 			err = r.saveLocked()
 			if err != nil {
 				r.state = previous
@@ -599,7 +597,7 @@ func (r *Runtime) Status() string {
 	if r.deliveryErr != nil {
 		return "System notices need recovery; chat remains available. Preserve local data and use the diagnostic report."
 	}
-	if r.nativeErr != nil {
+	if r.nativeErr != nil && !errors.Is(r.nativeErr, eventplan.ErrWritePending) {
 		return "Saved native arrangements need recovery; original data is preserved."
 	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {

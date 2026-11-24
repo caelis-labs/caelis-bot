@@ -66,6 +66,23 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
+      - name: Verify Worker reports in an isolated native Codex resident
+        timeout-minutes: 5
+        run: |
+          npm install --prefix "$RUNNER_TEMP/worker-report-codex" --no-audit --no-fund --ignore-scripts --no-package-lock --no-save @openai/codex@0.169.1
+          source script/env.sh
+          go build -tags production -o .cache/worker-report-bot .
+          CAELIS_BOT_TEST_PRODUCT="$PWD/.cache/worker-report-bot" \
+            CAELIS_BOT_TEST_CODEX="$RUNNER_TEMP/worker-report-codex/node_modules/.bin/codex" \
+            node script/worker-report-resident.mjs
+      - name: Preserve synthetic Worker delivery evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: worker-report-resident-${{ github.sha }}
+          path: .cache/worker-report-resident/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Exercise isolated native SSH recovery and ownership
         run: |
           make test-ssh-auth

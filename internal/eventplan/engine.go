@@ -24,42 +24,52 @@ type completion struct {
 	err    error
 }
 type Engine struct {
-	workers    sync.WaitGroup
-	mu         sync.Mutex
-	state      State
-	path       string
-	write      func(string, any) error
-	runner     Runner
-	results    chan completion
-	running    string
-	cancel     context.CancelFunc
-	stopped    bool
-	fault      error
-	lastStart  time.Time
-	lastRevoke time.Time
+	workers      sync.WaitGroup
+	mu           sync.Mutex
+	state        State
+	saved        State
+	writing      bool
+	retry        *State
+	path         string
+	write        func(string, any) error
+	runner       Runner
+	results      chan completion
+	changes      chan struct{}
+	running      string
+	cancel       context.CancelFunc
+	stopped      bool
+	firstFailure error
+	lastStart    time.Time
+	lastRevoke   time.Time
 }
 
 func Open(path string, run Runner, now time.Time) (*Engine, error) {
-	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
+	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), changes: make(chan struct{}, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
 	var interrupted []Occurrence
-	raw, err := os.ReadFile(path)
+	raw, err := localstate.ReadAfterWrites(path)
+	changed := errors.Is(err, os.ErrNotExist)
 	if err == nil {
 		if len(raw) > 16<<20 || json.Unmarshal(raw, &e.state) != nil || e.state.Version != 1 {
 			return nil, errors.New("event arrangements unavailable; preserve saved state")
 		}
+		e.saved = copyState(e.state)
 		for i := range e.state.Occurrences {
 			o := &e.state.Occurrences[i]
 			if o.Status == "collecting" {
 				o.Status = "unknown"
 				o.Issue = "collection_unconfirmed"
 				interrupted = append(interrupted, *o)
+				changed = true
 			}
 			if o.Status == "dispatching" {
 				o.Status = "unknown_wake"
+				changed = true
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	} else {
+		e.saved = copyState(e.state)
 	}
 	if e.state.Migration != nil && (e.state.Migration.Version != 1 || e.state.Migration.Digest == "" || e.state.Migration.Completed.IsZero()) {
 		return nil, errors.New("unsupported native migration checkpoint")
@@ -120,27 +130,41 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 			e.attention(o, now)
 		}
 	}
-	e.cleanup(now)
-	if err = e.persist(); err != nil {
-		return nil, err
+	if e.cleanup(now) || changed {
+		// Recovery of interrupted identities must settle before new dispatch.
+		// The decoded ledger remains usable for reads while storage recovers.
+		e.mu.Lock()
+		_ = e.persistAs(writeObservation)
+		e.mu.Unlock()
 	}
 	return e, nil
 }
-func (e *Engine) persist() error {
-	if err := e.write(e.path, e.state); err != nil {
-		e.fault = err
-		return err
-	}
-	return nil
+func (e *Engine) saveChanges() error {
+	defer e.signal()
+	return e.persist()
 }
-func (e *Engine) usable() error {
+func (e *Engine) signal() {
+	select {
+	case e.changes <- struct{}{}:
+	default:
+	}
+}
+
+func (e *Engine) Changes() <-chan struct{} { return e.changes }
+
+func (e *Engine) FirstStorageFailure() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.firstFailure
+}
+func (e *Engine) prepareWrite() error {
 	if e.stopped {
 		return errors.New("event scheduler stopped")
 	}
-	if e.fault != nil {
-		return errors.New("event storage unavailable; preserve original receipts")
+	if e.writing {
+		return ErrWritePending
 	}
-	return nil
+	return e.retryWrite()
 }
 func clone[T any](v T) T          { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
 func (e *Engine) Snapshot() State { e.mu.Lock(); defer e.mu.Unlock(); return clone(e.state) }
@@ -180,12 +204,16 @@ func validateEvent(v Event) error {
 func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Event, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return Event{}, err
 	}
-	e.cleanup(now)
 	if err := validateEvent(v); err != nil {
 		return Event{}, err
+	}
+	if e.cleanup(now) {
+		if err := e.saveChanges(); err != nil {
+			return Event{}, err
+		}
 	}
 	for _, old := range e.state.Events {
 		if old.ID == v.ID {
@@ -197,7 +225,7 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 			if !old.Archived.IsZero() || !reflect.DeepEqual(clone(n), clone(v)) {
 				return Event{}, errors.New("event id already bound; use a new id for a changed collector")
 			}
-			return old, nil
+			return clone(old), nil
 		}
 	}
 	if err := e.eventCapacity(); err != nil {
@@ -211,7 +239,7 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 	v.Created = now
 	v.LastUsed = now
 	e.state.Events = append(e.state.Events, clone(v))
-	return v, e.persist()
+	return v, e.saveChanges()
 }
 func activeEvents(s State) int {
 	n := 0
@@ -345,10 +373,14 @@ func definition(p Plan) Plan {
 func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return p, err
 	}
-	e.cleanup(now)
+	if e.cleanup(now) {
+		if err := e.saveChanges(); err != nil {
+			return p, err
+		}
+	}
 	// Identical retries preserve relative deadlines, even after one-shot completion.
 	for _, old := range e.state.Plans {
 		if old.ID == p.ID {
@@ -366,7 +398,7 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 				n.Seconds = 30
 			}
 			if reflect.DeepEqual(definition(old), definition(n)) {
-				return old, nil
+				return clone(old), nil
 			}
 			return p, errors.New("arrangement id already bound; remove it and use a new id")
 		}
@@ -394,13 +426,15 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 			return p, err
 		}
 	}
+	p.Sources = slices.Clone(p.Sources)
+	p.OriginRequests = slices.Clone(p.OriginRequests)
 	e.state.Plans = append(e.state.Plans, p)
 	for i := range e.state.Events {
 		if e.state.Events[i].ID == v.ID {
 			e.state.Events[i].LastUsed = now
 		}
 	}
-	return p, e.persist()
+	return clone(p), e.saveChanges()
 }
 
 // Count arrangements, not their reusable definitions. Cancellation does not
@@ -424,7 +458,7 @@ func (e *Engine) pending(id string) bool {
 func (e *Engine) Remove(id string, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
 	found := false
@@ -446,12 +480,12 @@ func (e *Engine) Remove(id string, now time.Time) error {
 			o.Finished = now
 		}
 	}
-	return e.persist()
+	return e.saveChanges()
 }
 func (e *Engine) ArchiveEvent(id string, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
 	for _, p := range e.state.Plans {
@@ -463,7 +497,7 @@ func (e *Engine) ArchiveEvent(id string, now time.Time) error {
 		v := &e.state.Events[i]
 		if v.ID == id {
 			v.Archived = now
-			return e.persist()
+			return e.saveChanges()
 		}
 	}
 	return errors.New("event not found")
