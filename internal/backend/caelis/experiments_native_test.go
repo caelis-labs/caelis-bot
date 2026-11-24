@@ -3,7 +3,6 @@ package caelis
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,37 +18,11 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	env := newExecutionFixture(t, root)
 	dir := filepath.Join(root, "bot")
-	var cmd *exec.Cmd
-	stop := func() {
-		if cmd != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
-			_ = cmd.Wait()
-			cmd = nil
-		}
-	}
-	defer stop()
-	start := func() {
-		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-		cmd.Dir, cmd.Env = root, env.env
-		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-		if e != nil {
-			t.Fatal(e)
-		}
-		cmd.Stdout, cmd.Stderr = log, log
-		e = cmd.Start()
-		log.Close()
-		if e != nil {
-			t.Fatal(e)
-		}
-		waitAcceptance(t, ctx, func() bool { _, _, e := Discover(settings); return e == nil })
-	}
+	hostFixture.Env = env.env
 	read := func() api.RuntimeExperiments {
 		v, e := ReadRuntimeExperiments(ctx, settings, dir)
 		if e != nil {
@@ -57,7 +30,7 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 		}
 		return v
 	}
-	start()
+	hostFixture.start(t, ctx)
 	v := read()
 	if !v.Supported {
 		t.Fatal("pinned Host missing experimental contract")
@@ -67,26 +40,28 @@ func TestNativeHostExperimentalPreferences(t *testing.T) {
 			t.Fatal("read initialized Core defaults", v)
 		}
 	}
-	if err = ProbeBinding(ctx, settings, dir); err != nil {
+	if err := ProbeBinding(ctx, settings, dir); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range experimentalIDs {
-		v, err = ChangeRuntimeExperiments(ctx, settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: true, ExpectedRevision: v.Revision})
-		if err != nil || v.SaveState != "saved" {
-			t.Fatal("explicit enable failed", v, err)
+		next, err := ChangeRuntimeExperiments(ctx, settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: true, ExpectedRevision: v.Revision})
+		if err != nil || next.SaveState != "saved" {
+			t.Fatal("explicit enable failed", next, err)
 		}
+		v = next
 	}
 	for _, id := range experimentalIDs {
-		v, err = ChangeRuntimeExperiments(ctx, settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: false, ExpectedRevision: v.Revision})
-		if err != nil || v.SaveState != "saved" {
-			t.Fatalf("save %s: %v %+v", id, err, v)
+		next, err := ChangeRuntimeExperiments(ctx, settings, dir, api.RuntimeExperimentChange{ID: id, Enabled: false, ExpectedRevision: v.Revision})
+		if err != nil || next.SaveState != "saved" {
+			t.Fatalf("save %s: %v %+v", id, err, next)
 		}
+		v = next
 	}
 	originalID, revision := v.OperationID, v.Revision
-	stop()
-	start()
+	hostFixture.stopForeground(t)
+	hostFixture.start(t, ctx)
 	for _, profile := range []string{dir, filepath.Join(root, "second-bot")} {
-		if err = ProbeBinding(ctx, settings, profile); err != nil {
+		if err := ProbeBinding(ctx, settings, profile); err != nil {
 			t.Fatal(err)
 		}
 		current, e := ReadRuntimeExperiments(ctx, settings, profile)

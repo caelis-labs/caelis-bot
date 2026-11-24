@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,11 +33,9 @@ func TestNativeCombinedReview(t *testing.T) {
 	model := newAcceptanceModel()
 
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
-	defer server.Close()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	defer closeNativeHTTP(server)
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 
 	skillPath, err := botskills.Install(root)
 	if err != nil {
@@ -60,24 +57,9 @@ func TestNativeCombinedReview(t *testing.T) {
 		{Reply: api.SilentReminder},
 	}
 	model.set("CASE_ORIGINAL", steps...)
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
-	if err := os.Mkdir(filepath.Join(root, "home"), 0700); err != nil {
-		t.Fatal(err)
-	}
 	environment := newExecutionFixture(t, root)
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	cmd.Dir, cmd.Env = root, environment.env
-	log, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Stdout, cmd.Stderr = log, log
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	_ = log.Close()
-	defer func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() }()
-	waitAcceptance(t, ctx, func() bool { _, _, err := Discover(settings); return err == nil })
+	hostFixture.Env = environment.env
+	hostFixture.start(t, ctx)
 	d, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +113,7 @@ func TestNativeCombinedReview(t *testing.T) {
 		}()
 	}
 	s := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+	defer closeNativeFixture(t, s)
 	resident.Start(s)
 	defer resident.Stop()
 	if err := s.ConfigureBotTools(config); err != nil {
@@ -139,7 +122,7 @@ func TestNativeCombinedReview(t *testing.T) {
 	if err := s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close(context.Background()) }()
+
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	old := s.ConversationState().Session
 	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_original", Text: "CASE_ORIGINAL continue within read-only authorization."}, nil); err != nil || receipt.Outcome != "accepted" {

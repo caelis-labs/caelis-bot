@@ -88,7 +88,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	defer resident.Close()
 	old := New(opts)
-	defer old.Close(context.Background())
+	defer closeNativeFixture(t, old)
 	legacy := &api.ToolConnection{Instructions: botskills.Bootstrap(), BuiltinSkillRoots: []string{filepath.Dir(skill)},
 		NotebookDirectory: filepath.Join(root, "Notebook")}
 	if err := os.Mkdir(legacy.NotebookDirectory, 0700); err != nil {
@@ -142,7 +142,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal(err)
 	}
 	s := New(opts)
-	defer func() { _ = s.Close(context.Background()) }()
+	defer closeNativeFixture(t, s)
 	manager, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", &reportLoopRuntime{Session: s}, resident, s.Snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -472,6 +472,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal("close original adapter", err)
 	}
 	s = New(opts)
+	defer closeNativeFixture(t, s)
 	resident, err = bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -598,7 +599,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal(err)
 	}
 	manual := New(manualOpts)
-	defer manual.Close(context.Background())
+	defer closeNativeFixture(t, manual)
 	legacyManual := legacy.Clone()
 	legacyManual.NotebookDirectory = manualNotebook
 	if err := manual.ConfigureBotTools(legacyManual); err != nil {
@@ -611,7 +612,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal(err)
 	}
 	resumedManual := New(manualOpts)
-	defer resumedManual.Close(context.Background())
+	defer closeNativeFixture(t, resumedManual)
 	manualResident, err := bot.NewForRuntime(filepath.Join(root, "manual-bot", "bot.json"), "caelis", nil)
 	if err != nil {
 		t.Fatal(err)

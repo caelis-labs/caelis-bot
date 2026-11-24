@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,26 +24,11 @@ func TestExternalHostMagpieProviderSelection(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	environment := newExecutionFixture(t, root)
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	cmd.Dir, cmd.Env = root, environment.env
-	logFile, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Stdout, cmd.Stderr = logFile, logFile
-	if err = cmd.Start(); err != nil {
-		_ = logFile.Close()
-		t.Fatal(err)
-	}
-	_ = logFile.Close()
-	defer func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() }()
-	waitAcceptance(t, ctx, func() bool { _, _, err := Discover(settings); return err == nil })
+	hostFixture.Env = environment.env
+	hostFixture.start(t, ctx)
 
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || r.URL.Path != "/v1/models" {
@@ -130,13 +114,14 @@ func TestExternalHostMagpieProviderSelection(t *testing.T) {
 	// The UI's Bot conversation setting patches its application session only;
 	// provider routing resolves from that exact Host-advertised model selector.
 	session := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: previous, ApprovalMode: "workspace-write"}})
+	defer closeNativeFixture(t, session)
 	if err = session.ConfigureBotTools(&api.ToolConnection{NotebookDirectory: root}); err != nil {
 		t.Fatal(err)
 	}
 	if err = session.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = session.Close(context.Background()) }()
+
 	persisted := 0
 	if err = session.ChangeExecution(ctx, api.ExecutionSettings{Model: selected, ApprovalMode: "workspace-write"}, func() error { persisted++; return nil }); err != nil {
 		t.Fatal(err)

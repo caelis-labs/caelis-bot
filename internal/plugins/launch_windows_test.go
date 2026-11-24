@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -29,43 +32,30 @@ func TestWindowsStdioPluginHasNoConsole(t *testing.T) {
 		}{console, input})
 		os.Exit(0)
 	}
-	source := fixturePackage(t, false, true)
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary, err := os.ReadFile(self)
+	image, err := os.ReadFile(self)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(filepath.Join(source, "bin", "probe.exe"), binary, 0600); err != nil {
-		t.Fatal(err)
-	}
+	// The installer creates the only on-disk copy. Source bytes stay in
+	// memory while the parent test keeps its original executable mapped.
 	manifest := `{"$schema":"` + mcpSchema + `","mcpServers":{"probe":{"type":"stdio","command":"./bin/probe.exe","args":["-test.run=^TestWindowsStdioPluginHasNoConsole$"],"env":{"BOT_TEST_STDIO_CONSOLE":"child"}}}}`
-	if err = os.WriteFile(filepath.Join(source, "mcp.json"), []byte(manifest), 0600); err != nil {
-		t.Fatal(err)
+	source := fstest.MapFS{
+		"plugin.json":   {Data: []byte(`{"$schema":"` + manifestSchema + `","name":"fixture","version":"0.1.0"}`)},
+		"mcp.json":      {Data: []byte(manifest)},
+		"bin/probe.exe": {Data: image},
 	}
-	files := map[string]string{}
-	if err = filepath.WalkDir(source, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() {
-			return walkErr
-		}
-		body, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		sum := sha256.Sum256(body)
-		rel, relErr := filepath.Rel(source, path)
-		if relErr != nil {
-			return relErr
-		}
-		files[filepath.ToSlash(rel)] = hex.EncodeToString(sum[:])
-		return nil
-	}); err != nil {
-		t.Fatal(err)
+	files := make(map[string]string, len(source))
+	for name, file := range source {
+		sum := sha256.Sum256(file.Data)
+		files[name] = hex.EncodeToString(sum[:])
 	}
+
 	entry := Entry{ID: "fixture", Title: "Fixture", Version: "0.1.0", Source: "bundled:test", Files: files, Executables: []string{"bin/probe.exe"}}
-	m, err := openCatalog(t.TempDir(), []Entry{entry}, map[string]fs.FS{"fixture": os.DirFS(source)})
+	m, err := openCatalog(t.TempDir(), []Entry{entry}, map[string]fs.FS{"fixture": source})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +63,10 @@ func TestWindowsStdioPluginHasNoConsole(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected := m.Selection().Servers[0]
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 	var out, diagnostics bytes.Buffer
-	if err = runStdio(t.Context(), m, "fixture", "probe", strings.NewReader("\"stdio-roundtrip\"\n"), &out, &diagnostics, filepath.Base(selected.Root)); err != nil {
+	if err = runStdio(ctx, m, "fixture", "probe", strings.NewReader("\"stdio-roundtrip\"\n"), &out, &diagnostics, filepath.Base(selected.Root)); err != nil {
 		t.Fatalf("stdio plugin: %v (%s)", err, diagnostics.String())
 	}
 	var reply struct {

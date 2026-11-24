@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -35,28 +34,14 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	model := newAcceptanceModel()
 	modelServer := httptest.NewServer(http.HandlerFunc(model.serve))
-	defer modelServer.Close()
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
+	defer closeNativeHTTP(modelServer)
 	environment := newExecutionFixture(t, root)
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	cmd.Dir, cmd.Env = root, environment.env
-	log, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Close()
-	cmd.Stdout, cmd.Stderr = log, log
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() }()
-	waitAcceptance(t, ctx, func() bool { _, _, err := Discover(settings); return err == nil })
+	hostFixture.Env = environment.env
+	hostFixture.start(t, ctx)
 	discovery, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -80,13 +65,14 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	modelSelector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	selection := plugins.Selection{Revision: 1, Servers: []plugins.SelectedServer{{PackageID: "fixture", Name: "catalog", Server: plugins.Server{Type: "streamable-http", URL: mcpURL}}}}
 	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+	defer closeNativeFixture(t, session)
 	if err := session.ConfigureBotTools(&api.ToolConnection{Plugins: selection}); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = session.Close(context.Background()) }()
+
 	waitAcceptance(t, ctx, func() bool { return session.Snapshot().CanSend })
 	name := plugins.RuntimeName("fixture", "catalog")
 	before, err := session.BotPluginServer(ctx, name)
@@ -202,13 +188,14 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	}
 	oldGeneration := session.BotPluginGeneration()
 	fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-fresh"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+	defer closeNativeFixture(t, fresh)
 	if err := fresh.ConfigureBotTools(&api.ToolConnection{Plugins: reconnected}); err != nil {
 		t.Fatal(err)
 	}
 	if err := fresh.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = fresh.Close(context.Background()) }()
+
 	waitAcceptance(t, ctx, func() bool { return fresh.Snapshot().CanSend })
 	freshBefore, err := fresh.BotPluginServer(ctx, name)
 	if err != nil || freshBefore.State != "not_started" || len(freshBefore.Tools) != 0 || fresh.BotPluginGeneration() == oldGeneration {

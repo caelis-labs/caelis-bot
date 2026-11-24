@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
 )
 
 // Opt-in real released Hosts and the full product assembly, with no UI, external
@@ -33,7 +33,9 @@ func TestWindowsCaelisApplicationUpdatePreservesActiveWork(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Second)
 	defer cancel()
-	root := t.TempDir()
+	fixture := hostfixture.New(t, current, "store")
+	fixture.IsolateRecoveryEnvironment(t)
+	root := fixture.Root
 	for key, relative := range map[string]string{"HOME": "home", "USERPROFILE": "home", "APPDATA": "home/AppData/Roaming", "LOCALAPPDATA": "home/AppData/Local"} {
 		path := filepath.Join(root, relative)
 		if err := os.MkdirAll(path, 0700); err != nil {
@@ -41,20 +43,12 @@ func TestWindowsCaelisApplicationUpdatePreservesActiveWork(t *testing.T) {
 		}
 		t.Setenv(key, path)
 	}
-	store, appRoot := filepath.Join(root, "store"), filepath.Join(root, "Bot")
+	fixture.Env = runtimeenv.Clean(os.Environ())
+	store, appRoot := fixture.Path, filepath.Join(root, "Bot")
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: old, CaelisStore: store}
 	if _, err := caelisruntime.Manage(ctx, "start", old, store); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
-		defer stop()
-		command := exec.CommandContext(cleanup, current, "service", "stop", "--store-dir", store, "--format", "json")
-		runtimeenv.BackgroundCommand(command)
-		if _, err := command.CombinedOutput(); err != nil {
-			t.Errorf("private Host cleanup: %v", err)
-		}
-	}()
 	beforeHost, _, err := caelis.Discover(settings)
 	if err != nil {
 		t.Fatal(err)

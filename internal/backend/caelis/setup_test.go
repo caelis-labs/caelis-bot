@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -140,29 +139,9 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(t.TempDir(), "store")}
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	for _, v := range os.Environ() {
-		if !strings.HasPrefix(v, "CAELIS_") {
-			cmd.Env = append(cmd.Env, v)
-		}
-	}
-	if e := cmd.Start(); e != nil {
-		t.Fatal(e)
-	}
-	defer func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() }()
-	tick := time.NewTicker(20 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if _, _, e := Discover(settings); e == nil {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatal("Host discovery timed out")
-		case <-tick.C:
-		}
-	}
+	hostFixture := newNativeHostFixture(t, bin)
+	settings := hostFixture.settings
+	hostFixture.start(t, ctx)
 	v, e := InspectSetup(ctx, settings)
 	if e != nil || v.State != "models" {
 		t.Fatal("empty Host should allow configuration before Bot creation", v.State, e)

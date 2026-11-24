@@ -94,6 +94,8 @@ func TestDisabledStdioGenerationStopsExistingProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected := m.Selection().Servers[0]
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 	launch := func(in io.Reader) error {
 		// RunStdio opens its own manager in the relay process. Share the
 		// committed store, not the resident manager's mutable state.
@@ -101,12 +103,27 @@ func TestDisabledStdioGenerationStopsExistingProcess(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return runStdio(t.Context(), relay, "fixture", "local-validator", in, io.Discard, io.Discard, filepath.Base(selected.Root))
+		return runStdio(ctx, relay, "fixture", "local-validator", in, io.Discard, io.Discard, filepath.Base(selected.Root))
 	}
 	in, writer := io.Pipe()
 	defer writer.Close()
+	defer in.Close()
+
 	done := make(chan error, 1)
+	// Join the relay before temporary files are removed, including on failure.
+	exited := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		_ = writer.Close()
+		_ = in.Close()
+		select {
+		case <-exited:
+		case <-time.After(3 * time.Second):
+			t.Error("stdio generation did not exit during cleanup")
+		}
+	})
 	go func() {
+		defer close(exited)
 		done <- launch(in)
 	}()
 	pidPath := filepath.Join(root, "data", "fixture", "pid")
