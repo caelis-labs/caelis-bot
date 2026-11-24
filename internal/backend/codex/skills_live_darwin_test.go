@@ -301,8 +301,8 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := s.Snapshot().CurrentTurn
-	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-		receipt, err := s.Submit(ctx, api.Submission{ID: id, Text: text, Scheduled: true}, nil)
+	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+		receipt, err := s.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Text, Scheduled: true}, nil)
 		return receipt.Outcome, err
 	}})
 	if err != nil {

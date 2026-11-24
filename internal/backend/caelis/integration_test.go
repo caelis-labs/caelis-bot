@@ -751,8 +751,8 @@ Use this fixture only when asked about private Notebook skill discovery.
 		}
 		model.set("CASE_NATIVE_EVENT_FIRE", modelStep{Reply: api.SilentReminder})
 		before := s.Snapshot().CurrentTurn
-		delivery := eventplan.Delivery{Ready: s.Snapshot().CanSend, Receipt: func(id string) string { return deliveryResident.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			receipt, err := deliveryResident.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemCallback, ID: id, Text: text, Grants: []string{"schedule:" + plan}})
+		delivery := eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return deliveryResident.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+			receipt, err := deliveryResident.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemCallback, ID: wake.ID, Text: wake.Text, Grants: []string{"schedule:" + wake.Plan}})
 			return receipt.Outcome, err
 		}}
 		err := nativeEngine.Tick(ctx, now, delivery)
@@ -768,7 +768,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if !result.Complete || result.Visible {
 			t.Fatal("native silent result was not retained", result)
 		}
-		delivery.Ready = false
+		delivery.Ready = nil
 		if err = nativeEngine.Tick(ctx, now, delivery); err != nil {
 			t.Fatal(err)
 		}
