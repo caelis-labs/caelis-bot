@@ -190,21 +190,20 @@ func TestTaskReadUsesCompletedMessageIdentityAndUTF8ByteFolding(t *testing.T) {
 		t.Fatal("unknown native message ID became empty success")
 	}
 }
-func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
+func TestCompactScheduleRegistrationAndNamespaces(t *testing.T) {
 	r, base, now := fixture(t)
 	configureNativeSources(t, r)
-	grant := &scheduleGrantEngine{fakeEngine: base}
+	grant := &scheduleGrantEngine{fakeEngine: base, deny: true}
 	r.engine = grant
 	calendar := `{"request":{"type":"save","id":"same-id","label":"Calendar","prompt":"Reminder","trigger":{"type":"calendar","timeZone":"UTC","schedule":{"type":"interval","everyMinutes":1}}}}`
 	event := `{"request":{"type":"save","id":"same-id","label":"Event","prompt":"Care","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`
 	invokeCompact(t, r, "bot_schedule_update", calendar)
-	if grant.authorized != "same-id" {
-		t.Fatal("calendar native grant changed")
+	if grant.authorized != "" {
+		t.Fatal("calendar registration called the old grant hook")
 	}
 	invokeCompact(t, r, "bot_schedule_update", event)
-	native, _ := r.events.NativePlan("same-id")
-	if grant.authorized != native.Authorization() {
-		t.Fatal("native schedule grant changed")
+	if _, ok := r.events.NativePlan("same-id"); !ok || grant.authorized != "" {
+		t.Fatal("native event schedule required a callback grant")
 	}
 	out := invokeCompact(t, r, "bot_schedule", `{"request":{"type":"list","limit":1}}`)
 	data := out.StructuredContent["data"].(map[string]any)
@@ -225,14 +224,10 @@ func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
 	if r.events.Snapshot().Plans[0].Status != "cancelled" {
 		t.Fatal("event remove")
 	}
-	grant.deny = true
-	if !r.CallTool(t.Context(), "bot_schedule_update", json.RawMessage(calendar)).IsError || len(r.State().Schedules) != 0 {
-		t.Fatal("denied schedule saved")
-	}
 	*now = now.Add(time.Minute)
 	r.Tick(t.Context())
 	if len(base.submissions) != 0 {
-		t.Fatal("ungranted dispatch")
+		t.Fatal("removed schedule still dispatched")
 	}
 	for _, raw := range []string{`{"request":{"type":"context","prompt":"write"}}`, `{"request":{"type":"test","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"},"event":{},"policy":{}}}`} {
 		if !r.CallTool(t.Context(), "bot_schedule", json.RawMessage(raw)).IsError {

@@ -67,12 +67,12 @@ model authority. Required native Guardian/Agent Team capabilities gate execution
 Bot and TUI share the Host principal; Bot configures only its explicit resident profile.
 Native Team settings select reviewer models; existing work keeps its execution snapshot.
 
-Caelis Dream saves a private handoff against the exact application callback. After
-Core confirms that result, Bot prepares an empty Session and commits the resident
-binding through the existing operation journal and human-input guard. New input
-uses that binding and consumes its handoff seed on native acceptance. The source
-Turn can finish naturally. Its late messages and pending approvals retain their
-source Session, and retired application callbacks cannot start new Bot work.
+When a real user message arrives after at least 48 hours of inactivity, Bot may
+create a fresh resident Session through the native runtime. It checks the observed
+resident head and defers while a foreground turn or manual decision is pending.
+An unsuccessful create keeps the existing binding and submits the message there
+under ordinary admission. Timers, reminders, Worker notices and transport commands
+leave the last conversation time unchanged.
 
 Codex defaults to `on-request`, `auto_review` and `workspace-write`; Caelis uses native
 Guardian auto-review and its workspace boundary. Only explicitly listed built-in Bot
@@ -81,6 +81,26 @@ Worker creation/continuation and persistent schedule mutations remain reviewed.
 Native deferred tool discovery, external MCP services and ordinary sessions retain their
 policies. Tool annotations, prose and character state are never permission grants.
 Review failure, rejection or timeout cannot turn into a manual Allow bypass.
+
+Codex's resident stdio services use distinct launch bearers. The Bot bridge
+checks each bearer against its tool catalog. Existing aggregate threads retain
+their original service identity.
+
+Caelis declares a standard stdio MCP server on the resident profile alongside
+its selected Skills. The declaration uses the Bot-owned Notebook as its
+working directory and passes the path to a restricted local bridge connection
+file. The bridge checks the service credential and its task-tool scope. The
+stdio server uses its transport request identity for original submission
+recovery. Core owns discovery, manual decisions and Guardian auto-review.
+Worker Sessions keep native configuration and load their own tools.
+
+Historical task callback catalogs stay available under their original version
+for in-flight calls. Their original committed approval, claim and receipt
+rules still apply. Legacy background grants and the remaining resident tools
+use the callback contract.
+Native Worker attachments use typed images or private Bot-owned file copies
+readable through the Worker's native file tool. Application Sessions continue
+to use Core resource uploads.
 
 Only safely typed, inspectable independent Worker requests can be coordinated by Bot;
 marked-secret, URL and opaque requests retain the user path. Uncertain private reports
@@ -161,8 +181,9 @@ independent directories/instructions; these scopes do not isolate processes of t
 OS user or full-access execution.
 
 Private SQLite IM stores visible user/assistant messages, control receipts and completed
-Artifact-bearing tool labels with stable request/item IDs. Ingress precedes submission;
-original receipts and streaming patch the same item. Chat pages local IM even offline;
+Artifact-bearing tool labels with stable request/item IDs. Channel ingress can precede Runtime submission. The original native receipt and
+streaming updates patch the same item. A transport receipt alone does not count
+as a prior submission when testing idle renewal. Chat pages local IM even offline;
 Runtime owns execution/tool history. Reconnect reads a recent Turn, not full history.
 Optional display sync/Worker reads cannot block admission. Damaged display databases are
 preserved before rebuilding; disk failure retains live cache. Artifacts are host-resolved
@@ -189,19 +210,26 @@ The native writer and bundled script save the Codex projection under the same
 workspace lock. A private-mode copy in `.codex/.caelis-bot-upgrade.toml`
 preserves their last published settings across v0.22.4, which regenerates
 the entire project file. On re-upgrade the Bot restores the native entries
-and regenerates plugin entries from the current catalog selection. Caelis watches the trusted project directly and
-keeps Notebook MCP out of the explicit resident profile. Ordinary sessions
-opened in that project can discover it. Workers in their own workspaces retain
-their native defaults.
+and regenerates plugin entries from the current catalog selection. Caelis
+watches user-configured MCP from the trusted project directly. The built-in task
+service is selected on the resident profile. Workers in their own workspaces
+retain their native defaults.
 
-Introduction is an ordinary user message with durable identity, not host-written memory.
-`bot_dream` performs a gated context handoff after its owning native turn terminates.
-Private durable handoff data retains goal, constraints, original tasks/uncertain receipts
-and next action; the first accepted input receives it with current `MEMORY.md` as saved
-context. Consumption follows exact acceptance once. Human ingress/Stop/decisions preempt
-adoption; failed or superseded renewal preserves the old binding and original creation
-receipt. Handoff prose supplies context, never permission or business-state authority.
-Idle, recovery, upgrades and age/turn count alone do not dispatch maintenance turns.
+Each resident Session begins with the current `MEMORY.md`. Bot reads Notebook
+paths on demand. `chat.sqlite` owns the IM transcript and accepted user activity.
+The app atomically publishes a read-only JSON Lines file from committed SQLite rows
+in display order, including earlier pages. Same-ID updates replace the row and
+original request identity coalesces native echoes. The file excludes hidden remote
+controls, and regenerates from SQLite on restart, database edits and deletions.
+The resident gets the file location for targeted Read or rg queries. Worker
+configuration and prompts omit it. Original Worker handles, reminders and delivery
+receipts remain in their owner records across a resident replacement.
+
+Calendar and event arrangements can be registered from any resident tool turn admitted
+by the native policy. The Bot owns the saved arrangement, due time and cancellation.
+New Caelis activations enter as native external material with the resident's current
+sandbox and permissions. Historical arrangements with Core grants retain their original
+grant and revocation checks.
 
 ## Workers, peers and files
 

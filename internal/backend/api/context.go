@@ -120,3 +120,9 @@ type ConversationRuntime interface {
 	CancelDream(context.Context, string) error
 	RenewConversation(context.Context, string, string) error
 }
+
+// IdleConversationRenewal changes only the resident binding at an observed
+// idle head. The request identifies this one attempt, independent of a turn.
+type IdleConversationRenewal interface {
+	RenewIdleConversation(context.Context, string, ConversationState) error
+}

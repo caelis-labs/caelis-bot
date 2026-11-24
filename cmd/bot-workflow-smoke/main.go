@@ -190,7 +190,7 @@ func run() error {
 }
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {
-		if bot.RunStdio(os.Stdin, os.Stdout) != nil {
+		if bot.RunStdioArgs(os.Args[2:], os.Stdin, os.Stdout) != nil {
 			os.Exit(1)
 		}
 		return

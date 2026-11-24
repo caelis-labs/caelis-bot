@@ -16,7 +16,7 @@ func (r *Runtime) BeginUserActivity() (func(), error) {
 	generation := r.userGeneration
 	r.registeringUser++
 	var err error
-	if r.handoff != nil {
+	if r.idle == nil && r.handoff != nil {
 		err = r.handoff.supersede()
 	}
 	r.continuity.Unlock()
@@ -41,7 +41,7 @@ func (r *Runtime) checkDreamCompletion(invocation api.ToolInvocation) error {
 	r.continuity.Lock()
 	defer r.continuity.Unlock()
 	pending := r.handoff.pending()
-	if pending.CallID != invocation.CallID || pending.Source != invocation.Session || pending.Turn != invocation.Turn || pending.Superseded || r.registeringUser != 0 {
+	if r.idle != nil || pending.CallID != invocation.CallID || pending.Source != invocation.Session || pending.Turn != invocation.Turn || pending.Superseded || r.registeringUser != 0 {
 		return api.ErrConversationRenewalDeferred
 	}
 	return nil
@@ -50,7 +50,7 @@ func (r *Runtime) checkDreamCompletion(invocation api.ToolInvocation) error {
 func (r *Runtime) handoffBlocksTool(ctx context.Context, name string) bool {
 	invocation, bound := api.ToolInvocationFromContext(ctx)
 	nativeCall := bound && invocation.Provider == "caelis"
-	if name != "bot_dream" && r.handoff != nil {
+	if r.idle == nil && name != "bot_dream" && r.handoff != nil {
 		pending := r.handoff.pending()
 		if pending.CallID != "" && (!nativeCall || pending.Source == invocation.Session) {
 			return true

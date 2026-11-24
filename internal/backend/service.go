@@ -530,6 +530,24 @@ func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
 }
 func (s *Service) ConfigureChat(path string) { s.chat = chatlog.Open(path) }
 
+func (s *Service) StartBotHistoryFile(path string, intro func() string) {
+	if s.chat != nil {
+		s.chat.StartHistoryFile(path, func(item api.Item) bool { return s.nonConversationItem(item, intro) })
+	}
+}
+
+func (s *Service) BotConversationActivity(ctx context.Context, request string, intro func() string) (time.Time, bool, error) {
+	if s.chat == nil {
+		return time.Time{}, false, nil
+	}
+	return s.chat.ConversationActivity(ctx, request, func(item api.Item) bool { return s.nonConversationItem(item, intro) })
+}
+
+func (s *Service) nonConversationItem(item api.Item, intro func() string) bool {
+	return item.Kind == "user" && (item.RequestID != "" && intro != nil && item.RequestID == intro() ||
+		item.RemoteCommand == nil && s.legacyRemoteCommand != nil && s.legacyRemoteCommand(item))
+}
+
 func (s *Service) ConfigureLegacyRemoteCommand(classify func(api.Item) bool) {
 	s.legacyRemoteCommand = classify
 }

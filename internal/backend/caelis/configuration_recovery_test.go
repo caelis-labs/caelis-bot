@@ -239,3 +239,40 @@ func TestResidentRejectsNativeWorkerConfigurationWithoutChangingBinding(t *testi
 		t.Fatal("rejected readback changed the original resident binding")
 	}
 }
+
+func TestCandidateConfigurationReadbackFailureLeavesResidentAdmitted(t *testing.T) {
+	var prompts, updates atomic.Int32
+	profile := &wire.SessionProfile{}
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		op := r.Header.Get("Idempotency-Key")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/api/control/v1/sessions/next/configuration":
+			updates.Add(1)
+			cfg := &wire.SessionConfiguration{SessionId: "next", Revision: "2", Profile: profile}
+			writeFixture(w, wire.CommandResult{OperationId: op, Outcome: "committed", Configuration: cfg})
+		case r.Method == "GET" && r.URL.Path == "/api/control/v1/sessions/next/configuration":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case r.Method == "POST" && r.URL.Path == "/api/control/v1/sessions/main/prompt":
+			prompts.Add(1)
+			writeFixture(w, wire.CommandResult{OperationId: op, Outcome: "committed"})
+		default:
+			t.Error("unexpected configuration or input operation", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	})
+	s.state.Configurations["main"] = wire.SessionConfiguration{SessionId: "main", Revision: "8", Profile: profile}
+	s.state.Configurations["next"] = wire.SessionConfiguration{SessionId: "next", Revision: "1", Profile: profile}
+	s.state.Typed["plugin-original"] = typedRecord{Path: "/sessions/main/configuration", Outcome: "committed"}
+	_, err := s.updateConfiguration(t.Context(), "next", "candidate-config", "1", map[string]any{"instructions": "candidate"})
+	if err == nil || updates.Load() != 1 {
+		t.Fatal("candidate fixture did not perform the native configure/readback", err)
+	}
+	if !isRemoteStatus(err, http.StatusServiceUnavailable) || s.state.Configurations["next"].Revision != "" ||
+		s.state.Configurations["main"].Revision != "8" || !s.Snapshot().CanSend || s.configurationRecoveryPendingLocked() {
+		t.Fatal("failed candidate readback affected current resident admission")
+	}
+	out, err := s.Submit(t.Context(), api.Submission{ID: "original-message", Text: "continue"}, nil)
+	if err != nil || out.Outcome != "accepted" || prompts.Load() != 1 {
+		t.Fatal("old resident did not take the original message", out, err)
+	}
+}

@@ -30,13 +30,12 @@ type ToolResult struct {
 	CheckTurnComplete func() error `json:"-"`
 }
 
-// ToolInvocation binds a Bot tool to the adapter's original native call and
-// resident Turn. The application callback uses its opaque receipt ID; Codex
-// uses the MCP request ID because app-server does not send provider call_id to
-// the MCP server.
+// ToolInvocation preserves a Bot tool's original delivery identity. MCP
+// uses a transport request ID; a callback uses its opaque Control receipt ID.
 type ToolInvocation struct {
 	Provider, CallID, Session, Turn string
 	TurnKey                         string // presentation identity of the original resident Turn
+	CaelisTaskMCP                   bool   // authenticated local task bridge; Turn is presentation only
 }
 
 type toolInvocationKey struct{}
@@ -46,7 +45,7 @@ func WithToolInvocation(ctx context.Context, invocation ToolInvocation) context.
 }
 func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 	invocation, ok := ctx.Value(toolInvocationKey{}).(ToolInvocation)
-	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && invocation.Turn != ""
+	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && (invocation.Turn != "" || invocation.CaelisTaskMCP)
 }
 
 // ToolTurnTerminator stops the exact Codex Turn after a terminal Bot MCP tool.

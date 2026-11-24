@@ -42,8 +42,8 @@ func (f *scheduleGrantEngine) RevokeBackground(_ context.Context, id string) err
 }
 func (f *scheduleGrantEngine) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
 	in, ids := message.NativeInput(), message.Grants
-	if len(ids) != 1 || ids[0] != f.authorized {
-		return api.Receipt{}, errors.New("wrong grant")
+	if len(ids) != 1 || f.revoked != "" && ids[0] == f.revoked {
+		return api.Receipt{ID: message.ID, Outcome: "rejected"}, errors.New("invalid or revoked arrangement")
 	}
 	f.submitted = ids[0]
 	return f.Submit(ctx, in, nil)

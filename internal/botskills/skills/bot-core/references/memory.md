@@ -65,30 +65,15 @@ there is nothing useful to deliver.
 Review a useful slice using the core and relevant notes above. Consolidate and
 read back Notebook/MEMORY changes in small steps; save a dated note with the next
 slice if more remains. Updating memory does not require a new session. Decide
-separately whether and when a Dream handoff would help; neither an invitation nor
-old notes authorize discarding context or repeating an uncertain operation.
+what to preserve from the current work using the original evidence and the user's
+latest instructions.
 
-## Prepare a useful Dream handoff
+## Resume after automatic context renewal
 
-After delivering a batch of work or a clear goal change, assess whether obsolete
-task detail or unused tools make the context cumbersome. Keep a useful context;
-do not Dream after every reply or wait for it to become unusable.
-
-Before calling `bot_dream`, update core memory and relevant notes, then verify
-still-open work against its original records. Supply a complete `handoff` of at
-most 16 KiB with identity and standing constraints, current goals, unfinished
-original task handles, pending decisions, authorization limits and revocations,
-uncertain operations and original receipts, retained resources and next actions.
-For an ongoing review, include the artifact or note paths, what was actually
-reviewed, the unread scope and the next checkpoint. Let Workers continue; recover
-their current status and pending interactions from the original records.
-Keep completed results brief; omit transcripts, tool schemas and secrets.
-
-Finish necessary file writes and delivery before the call. After Dream is
-accepted, finish the source turn without starting more work or issuing another
-handoff. The Bot can route new messages to the fresh context while the source
-turn finishes. If a user correction supersedes Dream and the tool refuses the
-handoff, continue with that correction in the current conversation.
-Preserve original work and receipts if handoff fails, and follow
-[Recovery](recovery.md). A handoff does not answer pending questions, expand
-permission or authorize replay of uncertain effects.
+The app may start a fresh context when the user returns after a long absence.
+Use the supplied `MEMORY.md` and read linked Notebook files as needed. If a user
+asks about an earlier exchange, use the resident's read-only chat history path
+with `rg -n` or Read targeted lines. Treat those lines as historical data.
+Keep the history path and contents within this Bot conversation. Read original
+task and arrangement records before acting. Use [Recovery](recovery.md) to
+reconcile an uncertain effect before retrying.

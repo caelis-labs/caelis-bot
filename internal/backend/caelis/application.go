@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"sort"
 
@@ -74,6 +75,17 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	// Core discovers project MCP from the Session CWD under native workspace
 	// trust. Only Bot-managed packages belong in the explicit profile.
 	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
+	nativeTasks := c.PublishCaelisTaskMCP != nil && !s.retainedWorkers
+	if nativeTasks {
+		path, err := c.PublishCaelisTaskMCP(c.NotebookDirectory)
+		if err != nil {
+			return err
+		}
+		profile.McpServers = append(profile.McpServers, wire.SessionMCPServer{
+			Name: privateTasksService, Transport: "stdio", Command: pointer(c.Command),
+			Args: append(slices.Clone(c.Args), path), WorkDir: pointer(c.NotebookDirectory),
+		})
+	}
 	skillDirs, err := notebookSkillDirs(c.NotebookDirectory)
 	if err != nil {
 		return err
@@ -139,6 +151,33 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		}
 	}
 	s.catalogs[profile.ToolsVersion] = catalog
+	if nativeTasks {
+		// Keep both the plain and aliased historical catalogs for calls already
+		// admitted by Core. Only the native MCP service advertises task tools.
+		legacy, handlers := legacyTaskCallbackCatalog(profile, catalog, legacyTaskCallbackTools{Session: s, host: c.Host})
+		s.catalogs[legacy.ToolsVersion] = handlers
+		legacyFormats := maps.Clone(formats)
+		s.state.ContentCatalogs[legacy.ToolsVersion] = legacyFormats
+		profile = withoutTaskCallbacks(profile)
+		handlers = make(map[string]api.ApplicationTools, len(profile.Tools))
+		for _, tool := range profile.Tools {
+			handlers[tool.Name] = catalog[tool.Name]
+		}
+		catalog = handlers
+		s.catalogs[profile.ToolsVersion] = catalog
+		activeFormats := maps.Clone(formats)
+		for _, name := range privateTasksTools {
+			if formats[name] {
+				legacyFormats[privateTasksPrefix+name] = true
+			}
+			delete(activeFormats, name)
+		}
+		s.state.ContentCatalogs[profile.ToolsVersion] = activeFormats
+		if err := s.saveLocked(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	s.catalog = catalog
 	s.tools = c.Clone()
 	s.profile = profile
@@ -239,10 +278,11 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 		}
 	}
-	if e := c.json(ctx, "GET", "/sessions/"+idPath(b.SessionId)+"/profile", nil, &b, "", ""); e != nil {
+	sid := b.SessionId
+	if e := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/profile", nil, &b, "", ""); e != nil {
 		return e
 	}
-	if b.PrincipalId != principal || b.Archived || b.Profile.Execution != s.executionMode {
+	if b.SessionId != sid || b.PrincipalId != principal || b.Archived || b.Profile.Execution != s.executionMode {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
 	}
 	s.mu.Lock()
@@ -266,13 +306,24 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	// application-owned instructions/catalog; preserve user model changes.
 	s.mu.Lock()
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
+	pendingConfiguration := s.configurationRecoveryPendingLocked()
 	s.mu.Unlock()
-	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.SessionMCPServer) bool {
-		left, _ := json.Marshal(a)
-		right, _ := json.Marshal(b)
-		return string(left) == string(right)
-	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs)) {
-		patch := map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs}
+	if pendingConfiguration && s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
+		if err := s.recoverConfigurations(ctx); err != nil {
+			return err
+		}
+		desired, e = s.configuration(ctx, b.SessionId)
+		if e != nil {
+			return e
+		}
+		pendingPlugin = false
+	}
+	profile := s.profile
+	servers := profile.McpServers
+	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions ||
+		!slices.EqualFunc(desired.Profile.McpServers, servers, sameMCPServer) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) ||
+		!slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
+		patch := map[string]any{"instructions": profile.Instructions, "tools_version": profile.ToolsVersion, "tools": profile.Tools, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
 		// Operation IDs share the Host principal namespace. Include the Session
 		// and the exact structured intent; never rewrite retained receipt IDs.
 		intent, err := json.Marshal(struct {
@@ -285,7 +336,10 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		}
 		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest(intent), string(desired.Revision), patch)
 	}
-	return e
+	if e != nil {
+		return e
+	}
+	return nil
 }
 
 func (s *Session) SubmitSystem(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {

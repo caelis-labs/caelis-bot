@@ -117,6 +117,9 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		rejected.Message = "应用正在更新，请稍后发送"
 		return reject()
 	}
+	if r.idle != nil {
+		return r.submitIdleConversation(ctx, in, files)
+	}
 	if err := r.reconcileLegacyDream(); err != nil {
 		// A bad historical file cannot disable the current bound conversation.
 		// Retain the original receipt on disk for a later repair/restart.

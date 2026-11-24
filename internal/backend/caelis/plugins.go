@@ -64,17 +64,15 @@ func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 		return false
 	}
 	actual := s.state.Configurations[sid]
-	if actual.Revision == "" || actual.Profile == nil || len(actual.Profile.McpServers) != len(s.profile.McpServers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
-		return true
-	}
-	for i, server := range actual.Profile.McpServers {
-		got, _ := json.Marshal(server)
-		want, _ := json.Marshal(s.profile.McpServers[i])
-		if string(got) != string(want) {
-			return true
-		}
-	}
-	return false
+	servers := s.profile.McpServers
+	return actual.Revision == "" || actual.Profile == nil || !slices.EqualFunc(actual.Profile.McpServers, servers, sameMCPServer) ||
+		!slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs)
+}
+
+func sameMCPServer(a, b wire.SessionMCPServer) bool {
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return string(left) == string(right)
 }
 
 func corePlugins(selection plugins.Selection, binary string, builtins []string) ([]wire.SessionMCPServer, []string, []plugins.Issue) {
@@ -142,17 +140,19 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	binary := s.tools.Command
 	builtins := append([]string(nil), s.tools.BuiltinSkillRoots...)
 	workspace := s.tools.NotebookDirectory
+	residentServers := s.profile.McpServers
 	sid := s.state.Session.SessionId
 	connected := s.connected
 	capable := slices.Contains(s.info.Capabilities, atomicCapabilities)
 	for _, record := range s.state.Typed {
-		if record.Outcome == "unknown" && strings.HasSuffix(record.Path, "/configuration") {
+		if record.Outcome == "unknown" && record.Path == "/sessions/"+idPath(sid)+"/configuration" {
 			s.mu.Unlock()
 			return errors.New("original plugin configuration update is unresolved; reconnect and read its receipt")
 		}
 	}
 	s.mu.Unlock()
 	servers, roots, _ := corePlugins(selection, binary, builtins)
+	servers = withResidentTaskMCP(servers, residentServers)
 	skillDirs, err := notebookSkillDirs(workspace)
 	if err != nil {
 		return err

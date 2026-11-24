@@ -90,7 +90,13 @@ func (s *Session) submitScheduledSystem(ctx context.Context, in api.Submission, 
 	s.mu.Lock()
 	g, ok := s.state.Grants[ids[0]]
 	s.mu.Unlock()
-	if !ok || g.Grant.Revoked {
+	if !ok {
+		// New Bot arrangements are admitted by the Runtime's tool policy at
+		// registration. Their wake is ordinary external evidence and cannot
+		// inherit a user-source grant. Existing grants retain their lifecycle.
+		return s.submit(ctx, in, nil, "external_material")
+	}
+	if g.Grant.Revoked {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("提醒授权不可用")
 	}
 	return s.submitGrant(ctx, in, nil, "authorized_background", g.Grant.Id)

@@ -54,7 +54,7 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {
-		if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
+		if err := bot.RunStdioArgs(os.Args[2:], os.Stdin, os.Stdout); err != nil {
 			os.Exit(1)
 		}
 		return

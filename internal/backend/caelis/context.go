@@ -2,6 +2,7 @@ package caelis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -155,14 +156,18 @@ func terminalDream(status string) bool {
 }
 
 func (s *Session) RenewConversation(ctx context.Context, id, source string) error {
-	return s.renewConversation(ctx, id, source, "")
+	return s.renewConversation(ctx, id, source, "", nil)
+}
+
+func (s *Session) RenewIdleConversation(ctx context.Context, id string, head api.ConversationState) error {
+	return s.renewConversation(ctx, id, head.Session, "", &head.Turn)
 }
 
 func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocation) (string, error) {
 	if invocation.Provider != "caelis" || invocation.CallID == "" || invocation.Session == "" || invocation.Turn == "" {
 		return "", errors.New("original application callback is unavailable")
 	}
-	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn); err != nil {
+	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn, nil); err != nil {
 		return "", err
 	}
 	s.mu.Lock()
@@ -172,7 +177,7 @@ func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocat
 
 func toolRenewalID(id string) string { return "tool-renew-" + digest([]byte(id)) }
 
-func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string) error {
+func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string, idleTurn *string) error {
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
@@ -181,7 +186,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return nil
 	}
 	op := "dream-renew-" + digest([]byte(id))
-	if toolTurn != "" {
+	if idleTurn != nil {
+		op = "idle-renew-" + digest([]byte(id))
+	} else if toolTurn != "" {
 		op = toolRenewalID(id)
 	}
 	if pending, exists := s.state.Operations[op]; toolTurn != "" && exists {
@@ -208,6 +215,12 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	j := s.state.Operations[id]
 	pending, exists := s.state.Operations[op]
 	boundTurn := j.TurnID
+	if idleTurn != nil {
+		boundTurn = *idleTurn
+	}
+	matchesBoundary := func(current api.ConversationState) bool {
+		return current.Observed && current.Turn == boundTurn && (idleTurn != nil || current.Status == "completed")
+	}
 	if current.Session != source {
 		s.mu.Unlock()
 		return api.ErrConversationRenewalRejected
@@ -219,7 +232,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		return api.ErrConversationRenewalRejected
 	}
-	if toolTurn == "" && (!current.Observed || !j.Dream || current.Turn != boundTurn || current.Status != "completed") {
+	if toolTurn == "" && (idleTurn == nil && !j.Dream || !matchesBoundary(current)) {
 		s.mu.Unlock()
 		return errors.New("对话已有新活动，暂不能交接")
 	}
@@ -251,6 +264,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			return err
 		}
 		profile := *config.Profile
+		profile.McpServers = withResidentTaskMCP(profile.McpServers, s.profile.McpServers)
 		if profile.Version != s.profile.Version {
 			// New product assembly adopts current host environment defaults; CWD,
 			// selected model and the independent sandbox scope remain preserved.
@@ -261,7 +275,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile})
 	} else if pending.Outcome == "unknown" {
-		renewalErr = s.recoverOperations(ctx)
+		renewalErr = s.recoverOperation(ctx, op)
 	}
 	s.mu.Lock()
 	pending = s.state.Operations[op]
@@ -276,7 +290,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return api.ErrConversationRenewalRejected
 	}
 	s.mu.Unlock()
-	if toolTurn != "" && pending.Path == "/sessions" && pending.Outcome == "unknown" {
+	if (toolTurn != "" || idleTurn != nil) && pending.Path == "/sessions" && pending.Outcome == "unknown" {
 		if err := s.deferRenewal(op); err != nil {
 			return err
 		}
@@ -306,6 +320,22 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if state.SessionId != sid || value(state.Run.Active) {
 		return errors.New("新上下文状态不匹配")
 	}
+	if s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
+		config, err := s.configuration(ctx, sid)
+		if err != nil {
+			return err
+		}
+		profile := s.profile
+		servers := withResidentTaskMCP(config.Profile.McpServers, profile.McpServers)
+		if config.Profile.ToolsVersion != profile.ToolsVersion || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
+			patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
+			intent, _ := json.Marshal(patch)
+			change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))
+			if _, err := s.updateConfiguration(ctx, sid, change, string(config.Revision), patch); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.checkRenewalGuard(ctx, op); err != nil {
 		return err
 	}
@@ -330,7 +360,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return s.recordDeferredRenewal(op, api.ErrConversationRenewalDeferred)
 	}
 	if current.Session != source || !s.connected || s.closed || s.client != c || !s.renewalReadyLocked(source, op, toolTurn != "") ||
-		toolTurn == "" && (!current.Observed || current.Turn != boundTurn || current.Status != "completed") {
+		toolTurn == "" && !matchesBoundary(current) {
 		s.mu.Unlock()
 		return errors.New("原对话已有新活动，交接未切换")
 	}

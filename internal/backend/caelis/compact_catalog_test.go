@@ -209,3 +209,64 @@ func TestV0183CallbackDigestRestoredWithoutRebindingRequest(t *testing.T) {
 		t.Fatal("new turns advertised the old catalog")
 	}
 }
+
+// Recorded by ConfigureBotTools at the exact PR base, 7b52ced1.
+const preIdleBaseToolsVersion = "7ac295cae3dbbf0dee7894a435ba956dc1406412d93402555c97766b3fc10e39"
+
+func TestUpgradeRoutesPendingBaseCallbackWithoutAdvertisingOldTools(t *testing.T) {
+	r, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.ConfigureIdleConversation(nil)
+	bridge, err := bot.Serve(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	call := wire.SessionToolCall{Id: "base-pending-call", CallId: "model-call", SessionId: "main", PrincipalId: "owner",
+		TurnId: "turn", ItemId: "item", Name: "bot_schedule", ToolsVersion: preIdleBaseToolsVersion,
+		ConfigurationRevision: "1", Source: wire.SessionSource{Kind: "user", OperationId: "original-prompt"}, State: "pending",
+		Arguments: map[string]any{"request": map[string]any{"type": "context"}}}
+	var claims, results atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/control/v1/sessions/main/tool-calls/base-pending-call/claim":
+			claims.Add(1)
+			claimed := call
+			claimed.State = "claimed"
+			writeFixture(w, claimed)
+		case "/api/control/v1/sessions/main/tool-calls/base-pending-call/result":
+			results.Add(1)
+			var receipt wire.SessionToolCallResult
+			if err := json.NewDecoder(req.Body).Decode(&receipt); err != nil || receipt.Outcome != "succeeded" {
+				t.Errorf("pending base callback did not use its original catalog: %v %v", receipt, err)
+			}
+			writeFixture(w, struct{}{})
+		default:
+			t.Error("unexpected callback operation", req.Method, req.URL.Path)
+			http.NotFound(w, req)
+		}
+	})
+	cfg := bridge.Config("fixture")
+	cfg.NotebookDirectory = t.TempDir()
+	if err := s.ConfigureBotTools(cfg); err != nil {
+		t.Fatal(err)
+	}
+	archived := s.catalogs[preIdleBaseToolsVersion]
+	if archived["bot_dream"] == nil || archived["bot_schedule"] == nil || archived["bot_delegate"] == nil ||
+		s.profile.ToolsVersion == preIdleBaseToolsVersion || s.catalog["bot_dream"] != nil ||
+		!hasNativeTaskMCP(&s.profile) {
+		t.Fatal("base lookup or current discovery changed")
+	}
+	s.state.Operations["original-prompt"] = journal{Path: "/sessions/main/prompt", Outcome: "committed", Source: call.Source}
+	for range 2 {
+		if err := s.handleCall(t.Context(), s.client, s.state.Session, "owner", call); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if claims.Load() != 1 || results.Load() != 1 {
+		t.Fatal("original callback was not settled exactly once")
+	}
+}

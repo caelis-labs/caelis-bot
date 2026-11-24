@@ -155,7 +155,8 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 		t.Fatal("real user input lost original steering receipt", steering.Outcome, steering.Path)
 	}
 	var originalInput wire.SteerRequest
-	if json.Unmarshal(steering.Body, &originalInput) != nil || value(originalInput.OperationId) != "report-loop-user-steer" || originalInput.Target.TurnId != reportTurn || len(originalInput.ContentParts) != 1 {
+	if json.Unmarshal(steering.Body, &originalInput) != nil || value(originalInput.OperationId) != "report-loop-user-steer" || originalInput.Target.TurnId != reportTurn ||
+		len(originalInput.ContentParts) != 2 || value(originalInput.ContentParts[0].Text) != value(originalInput.Input) {
 		t.Fatal("user input or attachment lost original operation/turn", originalInput)
 	}
 	reportCalls := 0

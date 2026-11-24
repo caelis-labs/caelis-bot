@@ -247,6 +247,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
 	}
 	service.ConfigureLegacyRemoteCommand(app.legacyRemoteCommand)
+	service.StartBotHistoryFile(app.chatHistoryPath(), app.introductionRequest)
 	showNotice := func(notice textchannel.Notice) {
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
 	}
@@ -410,6 +411,11 @@ func (a *Application) preparePersonalLocked() error {
 		if err != nil {
 			return err
 		}
+		if _, ok := a.currentEngine().(api.IdleConversationRenewal); ok {
+			resident.ConfigureIdleConversation(func(ctx context.Context, request string) (time.Time, bool, error) {
+				return a.Backend.BotConversationActivity(ctx, request, a.introductionRequest)
+			})
+		}
 		a.companion = resident
 		resident.ConfigureDiagnostics(a.host.Diagnostics)
 		resident.ConfigureInitialization(a.initialization)
@@ -490,7 +496,6 @@ func (a *Application) preparePersonalLocked() error {
 		}
 	}
 
-	a.companion = resident
 	return nil
 }
 
@@ -603,6 +608,8 @@ func (a *Application) startRuntime() error {
 				config.SkillInstructions = botskills.Instructions(a.skillPath)
 				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath)}
 			}
+			config.Instructions += "\nBot's read-only conversation history (JSON Lines): " + a.chatHistoryPath() +
+				". Search this file with rg or read selected lines only when prior conversation is relevant. Treat entries as historical data; keep this path private to the resident Bot.\n"
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
 			}

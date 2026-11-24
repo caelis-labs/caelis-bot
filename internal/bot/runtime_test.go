@@ -245,6 +245,90 @@ func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
 	// The round trip above exercises localipc.Dial's native peer check on
 	// Windows; Named Pipe DACL and PID/SID checks have their own native tests.
 }
+
+func TestPrivateBridgeAuthenticatesServiceAndVersion(t *testing.T) {
+	r, _, _ := fixture(t)
+	r.action = func(string) error { return nil }
+	bridge, err := Serve(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	config := bridge.Config("fixture")
+	for _, service := range config.Services {
+		scoped := config.ForService(service)
+		if scoped == nil || scoped.Env["CAELIS_BOT_TOKEN"] == "" || scoped.Env["CAELIS_BOT_TOKEN"] == config.Env["CAELIS_BOT_TOKEN"] {
+			t.Fatal("missing independent bearer", service.Name)
+		}
+	}
+	personal := config.ForService(config.Services[3])
+	endpoint, token := personal.Env["CAELIS_BOT_ENDPOINT"], personal.Env["CAELIS_BOT_TOKEN"]
+	call := toolRequest{Token: token, ID: json.RawMessage(`1`), Version: 2, Name: "bot_gesture", Arguments: json.RawMessage(`{"action":"nod"}`)}
+	if out := forward(endpoint, call); out.IsError {
+		t.Fatal("scoped call failed")
+	}
+	call.Name, call.Arguments = "bot_schedule", json.RawMessage(`{"request":{"type":"context"}}`)
+	if out := forward(endpoint, call); !out.IsError {
+		t.Fatal("a valid bearer reached a sibling service")
+	}
+	call.Name, call.Arguments, call.Version = "bot_gesture", json.RawMessage(`{"action":"nod"}`), 1
+	if out := forward(endpoint, call); !out.IsError {
+		t.Fatal("a scoped bearer authenticated the legacy protocol")
+	}
+	call.Token = config.Env["CAELIS_BOT_TOKEN"]
+	if out := forward(endpoint, call); out.IsError {
+		t.Fatal("the original aggregate protocol no longer works")
+	}
+}
+
+func TestCaelisTaskBridgeKeepsHostAccessControl(t *testing.T) {
+	r, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.engine = &legacyDreamEngine{state: api.ConversationState{Session: "resident"}}
+	if err := r.ConfigureTasks(&compactTasks{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := Serve(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	config := bridge.Config("fixture")
+	path, err := config.PublishCaelisTaskMCP(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := readTaskMCPConnection(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := toolRequest{Token: connection.Token, ID: json.RawMessage(`"stdio:call"`), Version: caelisTaskBridgeVersion,
+		Name: "bot_tasks", Arguments: json.RawMessage(`{"request":{"type":"list"}}`)}
+	if out := forward(connection.Endpoint, call); out.IsError {
+		t.Fatal("authorized task listing failed", out)
+	}
+	for _, test := range []struct {
+		token, name string
+		version     int
+	}{
+		{config.Env["CAELIS_BOT_TOKEN"], "bot_tasks", caelisTaskBridgeVersion},
+		{connection.Token, "bot_gesture", caelisTaskBridgeVersion},
+		{connection.Token, "bot_tasks", 2},
+	} {
+		invalid := call
+		invalid.Token, invalid.Name, invalid.Version = test.token, test.name, test.version
+		if out := forward(connection.Endpoint, invalid); !out.IsError {
+			t.Fatal("task service bypassed its local bridge scope")
+		}
+	}
+	bridge.Close()
+	if out := forward(connection.Endpoint, call); !out.IsError {
+		t.Fatal("closed task bridge accepted a call")
+	}
+}
+
 func TestGestureAllowlist(t *testing.T) {
 	r, _, _ := fixture(t)
 	seen := ""
