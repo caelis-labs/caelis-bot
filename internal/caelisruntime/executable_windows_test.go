@@ -14,7 +14,7 @@ func TestWindowsExplicitExecutableDoesNotRequirePOSIXMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "运行 工具.EXE")
-	if err = testutil.LinkExecutable(self, path); err != nil {
+	if err = testutil.StageExecutable(self, path); err != nil {
 		t.Fatal(err)
 	}
 	if found, err := Find(path); err != nil || found != path {

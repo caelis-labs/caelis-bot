@@ -26,7 +26,7 @@ func TestWindowsNPMLongTempNativeHandshake(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(native), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutil.LinkExecutable(binary, native); err != nil {
+	if err := testutil.StageExecutable(binary, native); err != nil {
 		t.Fatal(err)
 	}
 	native, err := filepath.EvalSymlinks(native)

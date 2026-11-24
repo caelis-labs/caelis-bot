@@ -4,14 +4,18 @@ import (
 	"errors"
 	"io"
 	"os"
+	"runtime"
 )
 
-// LinkExecutable stages a read-only test executable under a different name.
-// Copy only when the test's temporary directory is on a different volume or
-// the filesystem does not support hard links. Callers may unlink the alias.
-func LinkExecutable(source, target string) error {
-	if err := os.Link(source, target); err == nil {
-		return nil
+// StageExecutable places read-only fixture bytes at a path the test must
+// exercise. Use the original executable directly when its path does not matter.
+func StageExecutable(source, target string) error {
+	// On Windows, RemoveAll's image-section check can reject a hard link
+	// to a running executable even after the staged child has exited.
+	if runtime.GOOS != "windows" {
+		if err := os.Link(source, target); err == nil {
+			return nil
+		}
 	}
 	in, err := os.Open(source)
 	if err != nil {

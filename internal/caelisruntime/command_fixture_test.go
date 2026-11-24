@@ -7,12 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 // Reuse the native test executable as a CLI, so lifecycle/credential tests
@@ -31,7 +28,9 @@ func TestMain(m *testing.M) {
 			os.Exit(97)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		child := exec.CommandContext(ctx, "worker-tool", "worker-tool")
+		// Use a basename so the native child still has to find the
+		// executable through the PATH the Runtime exported.
+		child := exec.CommandContext(ctx, filepath.Base(os.Args[0]), "worker-tool")
 		child.WaitDelay = time.Second
 		out, err := child.Output()
 		cancel()
@@ -61,19 +60,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func nativeCommandFixture(t *testing.T, dir, name string) string {
+func nativeCommandFixture(t *testing.T) string {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path := filepath.Join(dir, name)
-	if err := testutil.LinkExecutable(self, path); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("CAELIS_RUNTIME_NATIVE_FIXTURE", "1")
-	return path
+	return self
 }

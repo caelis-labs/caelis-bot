@@ -34,7 +34,7 @@ func TestWindowsNativeHostDiscoveryAndLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	packageCLI := filepath.Join(packageDir, "caelis.exe")
-	if err := testutil.LinkExecutable(bin, packageCLI); err != nil {
+	if err := testutil.StageExecutable(bin, packageCLI); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(packageDir)

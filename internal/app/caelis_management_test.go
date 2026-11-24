@@ -16,20 +16,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
-	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing.T) {
-	fixtureRoot := t.TempDir()
-	binary := filepath.Join(fixtureRoot, "caelis-fixture")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
-	self, err := os.Executable()
+	binary, err := os.Executable()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testutil.LinkExecutable(self, binary); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"ready", "incompatible", "start-failed"} {
@@ -74,6 +65,10 @@ func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing
 			a, _ := fixtureApp(t, newTestEngine(), Host{})
 			defer a.Close()
 			result, err := a.manageCaelis(t.Context(), "update", api.RuntimeSettings{Runtime: "caelis", CLIPath: binary, CaelisStore: dir})
+			raw, readErr := os.ReadFile(calls)
+			if readErr != nil || strings.Count(string(raw), "service start") != 1 {
+				t.Fatal("did not select installed Host once", string(raw), readErr)
+			}
 			if runtime.GOOS == "windows" {
 				// The public CLI may run, but the Windows discovery owner is not
 				// implemented: do not claim a verified connection from CLI success.
@@ -88,11 +83,6 @@ func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing
 			}
 			if (err == nil) != (mode == "ready") {
 				t.Fatal(mode, result, err)
-			}
-			raw, _ := os.ReadFile(calls)
-
-			if mode == "ready" && strings.Count(string(raw), "service start") != 1 {
-				t.Fatal("did not select installed Host once", string(raw))
 			}
 			if err := a.PrepareUpdate(); err != nil {
 				t.Fatal("failed operation left admission frozen", err)
@@ -143,7 +133,7 @@ func TestCaelisServiceUpgrade(t *testing.T) {
 	t.Log("older Host build replaced through native lifecycle; Store retained and Bot protocol verified")
 }
 
-// Run in the read-only alias of the already built app test executable.
+// Run in a subprocess of the already built app test executable.
 func runUpgradeCLIFixture() int {
 	if len(os.Args) < 2 {
 		return 1

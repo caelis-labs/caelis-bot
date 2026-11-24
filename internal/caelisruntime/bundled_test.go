@@ -84,7 +84,7 @@ func TestBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := filepath.Join(contents, binaryDirectory, "test")
-	if err = testutil.LinkExecutable(current, child); err != nil {
+	if err = testutil.StageExecutable(current, child); err != nil {
 		t.Fatal(err)
 	}
 	fixture := []byte(`#!/bin/sh

@@ -69,7 +69,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 			t.Fatal(err)
 		}
 		for dst, src := range map[string]string{child: executable, helper: current, global: old} {
-			if err := testutil.LinkExecutable(src, dst); err != nil {
+			if err := testutil.StageExecutable(src, dst); err != nil {
 				t.Fatal(err)
 			}
 		}
