@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
@@ -139,11 +138,10 @@ type ToolConnection struct {
 	// Services partitions the compact built-in catalog for the resident only.
 	// Names are protocol identities, never user-facing plugin titles.
 	Services []ToolService
-	// CallResidentMCP accepts only a Runtime adapter's claimed native call.
-	// Its endpoint and request context stay inside the Bot process.
-	CallResidentMCP   func(context.Context, string, json.RawMessage) ToolResult
-	Plugins           plugins.Selection
-	BuiltinSkillRoots []string
+	// PublishCaelisTaskMCP writes the local bridge connection in the resident Notebook.
+	PublishCaelisTaskMCP func(string) (string, error)
+	Plugins              plugins.Selection
+	BuiltinSkillRoots    []string
 }
 
 // PluginConfigurator applies Bot-owned package selection in the Runtime.

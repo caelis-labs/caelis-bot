@@ -86,21 +86,18 @@ Codex's resident stdio services use distinct launch bearers. The Bot bridge
 checks each bearer against its tool catalog. Existing aggregate threads retain
 their original service identity.
 
-Caelis exposes resident task operations through Core's authenticated Application
-callback transport. The Core v0.85.0 stdio MCP request carries the tool name and
-arguments. A native callback claim binds the originating Control Session,
-principal and call identity to the exact Bot prompt and catalog. Bot sends the
-claimed operation through standard MCP framing on an in-process connection
-scoped to that call. Core profiles carry no private Bot launch credentials.
-Worker Sessions keep their native configuration and load their own tools.
+Caelis declares a standard stdio MCP server on the resident profile alongside
+its selected Skills. The declaration uses the Bot-owned Notebook as its
+working directory and passes the path to a restricted local bridge connection
+file. The bridge checks the service credential and its task-tool scope. The
+stdio server uses its transport request identity for original submission
+recovery. Core owns discovery, manual decisions and Guardian auto-review.
+Worker Sessions keep native configuration and load their own tools.
 
-Manual Allow records the exact native tool call with the original approval
-operation before ResolveApproval. The callback can proceed after that
-operation is committed. A lost reply is reconciled by the original operation
-ID. Reject and cancel decisions create no allow evidence. Guardian applies
-Core's automatic policy. Existing callback catalogs stay available under
-their original version for in-flight calls. Legacy background grants
-and the remaining resident tools use the callback contract.
+Historical task callback catalogs stay available under their original version
+for in-flight calls. Their original committed approval, claim and receipt
+rules still apply. Legacy background grants and the remaining resident tools
+use the callback contract.
 Native Worker attachments use typed images or private Bot-owned file copies
 readable through the Worker's native file tool. Application Sessions continue
 to use Core resource uploads.
@@ -213,10 +210,10 @@ The native writer and bundled script save the Codex projection under the same
 workspace lock. A private-mode copy in `.codex/.caelis-bot-upgrade.toml`
 preserves their last published settings across v0.22.4, which regenerates
 the entire project file. On re-upgrade the Bot restores the native entries
-and regenerates plugin entries from the current catalog selection. Caelis watches the trusted project directly and
-keeps Notebook MCP out of the explicit resident profile. Ordinary sessions
-opened in that project can discover it. Workers in their own workspaces retain
-their native defaults.
+and regenerates plugin entries from the current catalog selection. Caelis
+watches user-configured MCP from the trusted project directly. The built-in task
+service is selected on the resident profile. Workers in their own workspaces
+retain their native defaults.
 
 Each resident Session begins with the current `MEMORY.md`. Bot reads Notebook
 paths on demand. `chat.sqlite` owns the IM transcript and accepted user activity.

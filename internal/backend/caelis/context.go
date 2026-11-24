@@ -264,7 +264,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			return err
 		}
 		profile := *config.Profile
-		profile.McpServers = withoutPrivateMCP(profile.McpServers)
+		profile.McpServers = withResidentTaskMCP(profile.McpServers, s.profile.McpServers)
 		if profile.Version != s.profile.Version {
 			// New product assembly adopts current host environment defaults; CWD,
 			// selected model and the independent sandbox scope remain preserved.
@@ -320,14 +320,14 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if state.SessionId != sid || value(state.Run.Active) {
 		return errors.New("新上下文状态不匹配")
 	}
-	if s.tools != nil && s.tools.CallResidentMCP != nil {
+	if s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
 		config, err := s.configuration(ctx, sid)
 		if err != nil {
 			return err
 		}
-		servers := withoutPrivateMCP(config.Profile.McpServers)
 		profile := s.profile
-		if config.Profile.ToolsVersion != profile.ToolsVersion || len(servers) != len(config.Profile.McpServers) {
+		servers := withResidentTaskMCP(config.Profile.McpServers, profile.McpServers)
+		if config.Profile.ToolsVersion != profile.ToolsVersion || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
 			patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
 			intent, _ := json.Marshal(patch)
 			change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))

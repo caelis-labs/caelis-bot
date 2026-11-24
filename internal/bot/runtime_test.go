@@ -281,9 +281,13 @@ func TestPrivateBridgeAuthenticatesServiceAndVersion(t *testing.T) {
 	}
 }
 
-func TestResidentMCPRequiresCaelisInvocationAndToolScope(t *testing.T) {
+func TestCaelisTaskBridgeKeepsHostAccessControl(t *testing.T) {
 	r, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	r.engine = &legacyDreamEngine{state: api.ConversationState{Session: "resident"}}
+	if err := r.ConfigureTasks(&compactTasks{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	bridge, err := Serve(r)
@@ -291,23 +295,40 @@ func TestResidentMCPRequiresCaelisInvocationAndToolScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer bridge.Close()
-	connection := bridge.Config("fixture")
-	if connection.CallResidentMCP == nil {
-		t.Fatal("resident MCP is unavailable")
+	config := bridge.Config("fixture")
+	path, err := config.PublishCaelisTaskMCP(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	args := json.RawMessage(`{"request":{"type":"list"}}`)
-	if out := connection.CallResidentMCP(t.Context(), "bot_tasks", args); !out.IsError {
-		t.Fatal("private tool accepted an unbound invocation")
+	connection, err := readTaskMCPConnection(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "caelis", Session: "main", Turn: "turn", CallID: "claim"})
-	if out := connection.CallResidentMCP(ctx, "bot_gesture", json.RawMessage(`{"action":"nod"}`)); !out.IsError {
-		t.Fatal("resident task service exposed another service's tool")
+	call := toolRequest{Token: connection.Token, ID: json.RawMessage(`"stdio:call"`), Version: caelisTaskBridgeVersion,
+		Name: "bot_tasks", Arguments: json.RawMessage(`{"request":{"type":"list"}}`)}
+	if out := forward(connection.Endpoint, call); out.IsError {
+		t.Fatal("authorized task listing failed", out)
+	}
+	for _, test := range []struct {
+		token, name string
+		version     int
+	}{
+		{config.Env["CAELIS_BOT_TOKEN"], "bot_tasks", caelisTaskBridgeVersion},
+		{connection.Token, "bot_gesture", caelisTaskBridgeVersion},
+		{connection.Token, "bot_tasks", 2},
+	} {
+		invalid := call
+		invalid.Token, invalid.Name, invalid.Version = test.token, test.name, test.version
+		if out := forward(connection.Endpoint, invalid); !out.IsError {
+			t.Fatal("task service bypassed its local bridge scope")
+		}
 	}
 	bridge.Close()
-	if out := connection.CallResidentMCP(ctx, "bot_tasks", args); !out.IsError {
-		t.Fatal("closed resident connection still admitted a call")
+	if out := forward(connection.Endpoint, call); !out.IsError {
+		t.Fatal("closed task bridge accepted a call")
 	}
 }
+
 func TestGestureAllowlist(t *testing.T) {
 	r, _, _ := fixture(t)
 	seen := ""

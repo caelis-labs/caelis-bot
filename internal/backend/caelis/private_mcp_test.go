@@ -26,13 +26,13 @@ func TestResidentMCPRequiresOriginalNativeClaim(t *testing.T) {
 	s.state.Session.Profile.Permissions = &wire.SessionPermissions{ApprovalMode: pointer("auto-review")}
 	claim := fixtureResidentClaim(s)
 	count := 0
-	adapter := residentMCPTools{Session: s, callTool: func(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	adapter := legacyTaskCallbackTools{Session: s, host: &acceptanceTools{call: func(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 		count++
 		if name != "bot_delegate" || s.WorkAdmission(ctx) != nil {
 			t.Error("original claim did not reach the scoped Bot service")
 		}
 		return api.ToolResult{}
-	}}
+	}}}
 	withClaim := func(c callbackClaim) context.Context { return context.WithValue(t.Context(), callbackClaimKey{}, c) }
 	for _, tc := range []struct {
 		label string
@@ -60,7 +60,7 @@ func TestResidentMCPRequiresOriginalNativeClaim(t *testing.T) {
 		t.Fatal("valid native claim was not forwarded exactly once")
 	}
 	s.generation++
-	if s.WorkAdmission(context.WithValue(t.Context(), privateInvocationKey{}, claim)) == nil {
+	if s.WorkAdmission(context.WithValue(t.Context(), legacyTaskInvocationKey{}, claim)) == nil {
 		t.Fatal("revoked session claim still prepares work")
 	}
 }
@@ -121,7 +121,7 @@ func TestManualResidentMCPRequiresOriginalCommittedDecision(t *testing.T) {
 			err := s.Decide(t.Context(), d)
 			claim := fixtureResidentClaim(s)
 			if option != "allow" {
-				if err != nil || s.admitResidentMCP(t.Context(), claim) || reads.Load() != 0 {
+				if err != nil || s.admitLegacyTaskCallback(t.Context(), claim) || reads.Load() != 0 {
 					t.Fatal("negative decision authorized a call", err)
 				}
 				return
@@ -131,7 +131,7 @@ func TestManualResidentMCPRequiresOriginalCommittedDecision(t *testing.T) {
 			}
 			_ = s.Decide(t.Context(), d)
 			brief, cancel := context.WithTimeout(t.Context(), 180*time.Millisecond)
-			if s.admitResidentMCP(brief, claim) {
+			if s.admitLegacyTaskCallback(brief, claim) {
 				t.Fatal("accepted receipt authorized before commit")
 			}
 			cancel()
@@ -144,11 +144,11 @@ func TestManualResidentMCPRequiresOriginalCommittedDecision(t *testing.T) {
 			if err := s.recoverOperation(t.Context(), op); err != nil {
 				t.Fatal(err)
 			}
-			if posts.Load() != 1 || reads.Load() < 2 || !s.admitResidentMCP(t.Context(), claim) {
+			if posts.Load() != 1 || reads.Load() < 2 || !s.admitLegacyTaskCallback(t.Context(), claim) {
 				t.Fatal("original committed Allow did not resume its claim", posts.Load(), reads.Load())
 			}
 			claim.call.CallId = "different"
-			if s.admitResidentMCP(t.Context(), claim) {
+			if s.admitLegacyTaskCallback(t.Context(), claim) {
 				t.Fatal("original approval authorized another native call")
 			}
 		})

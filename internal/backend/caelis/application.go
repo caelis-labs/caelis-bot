@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"sort"
 
@@ -74,6 +75,17 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	// Core discovers project MCP from the Session CWD under native workspace
 	// trust. Only Bot-managed packages belong in the explicit profile.
 	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
+	nativeTasks := c.PublishCaelisTaskMCP != nil && !s.retainedWorkers
+	if nativeTasks {
+		path, err := c.PublishCaelisTaskMCP(c.NotebookDirectory)
+		if err != nil {
+			return err
+		}
+		profile.McpServers = append(profile.McpServers, wire.SessionMCPServer{
+			Name: privateTasksService, Transport: "stdio", Command: pointer(c.Command),
+			Args: append(slices.Clone(c.Args), path), WorkDir: pointer(c.NotebookDirectory),
+		})
+	}
 	skillDirs, err := notebookSkillDirs(c.NotebookDirectory)
 	if err != nil {
 		return err
@@ -139,26 +151,28 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		}
 	}
 	s.catalogs[profile.ToolsVersion] = catalog
-	if c.CallResidentMCP != nil && !s.retainedWorkers {
-		// Retain the previous MCP-era callback catalog for unaffected calls
-		// already leased against it. Only the next profile advertises aliases.
-		previous := privateApplicationCatalog(profile)
-		handlers := make(map[string]api.ApplicationTools, len(previous.Tools))
-		for _, tool := range previous.Tools {
+	if nativeTasks {
+		// Keep both the plain and aliased historical catalogs for calls already
+		// admitted by Core. Only the native MCP service advertises task tools.
+		legacy, handlers := legacyTaskCallbackCatalog(profile, catalog, legacyTaskCallbackTools{Session: s, host: c.Host})
+		s.catalogs[legacy.ToolsVersion] = handlers
+		legacyFormats := maps.Clone(formats)
+		s.state.ContentCatalogs[legacy.ToolsVersion] = legacyFormats
+		profile = withoutTaskCallbacks(profile)
+		handlers = make(map[string]api.ApplicationTools, len(profile.Tools))
+		for _, tool := range profile.Tools {
 			handlers[tool.Name] = catalog[tool.Name]
 		}
-		s.catalogs[previous.ToolsVersion] = handlers
-		s.state.ContentCatalogs[previous.ToolsVersion] = formats
-		profile, catalog = residentMCPCatalog(profile, catalog, residentMCPTools{Session: s, callTool: c.CallResidentMCP})
-		profile.McpServers = withoutPrivateMCP(profile.McpServers)
-		currentFormats := make(map[string]bool, len(profile.Tools))
-		for _, tool := range profile.Tools {
-			if value(tool.ResultFormat) == "content-v1" {
-				currentFormats[tool.Name] = true
-			}
-		}
+		catalog = handlers
 		s.catalogs[profile.ToolsVersion] = catalog
-		s.state.ContentCatalogs[profile.ToolsVersion] = currentFormats
+		activeFormats := maps.Clone(formats)
+		for _, name := range privateTasksTools {
+			if formats[name] {
+				legacyFormats[privateTasksPrefix+name] = true
+			}
+			delete(activeFormats, name)
+		}
+		s.state.ContentCatalogs[profile.ToolsVersion] = activeFormats
 		if err := s.saveLocked(); err != nil {
 			s.mu.Unlock()
 			return err
@@ -294,7 +308,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
 	pendingConfiguration := s.configurationRecoveryPendingLocked()
 	s.mu.Unlock()
-	if pendingConfiguration && s.tools != nil && s.tools.CallResidentMCP != nil {
+	if pendingConfiguration && s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
 		if err := s.recoverConfigurations(ctx); err != nil {
 			return err
 		}
@@ -306,11 +320,9 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	profile := s.profile
 	servers := profile.McpServers
-	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, servers, func(a, b wire.SessionMCPServer) bool {
-		left, _ := json.Marshal(a)
-		right, _ := json.Marshal(b)
-		return string(left) == string(right)
-	}) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
+	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions ||
+		!slices.EqualFunc(desired.Profile.McpServers, servers, sameMCPServer) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) ||
+		!slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
 		patch := map[string]any{"instructions": profile.Instructions, "tools_version": profile.ToolsVersion, "tools": profile.Tools, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
 		// Operation IDs share the Host principal namespace. Include the Session
 		// and the exact structured intent; never rewrite retained receipt IDs.

@@ -22,6 +22,17 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/workerfiles"
 )
 
+func TestCaelisTaskStdioHelper(t *testing.T) {
+	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "--" {
+		return
+	}
+	if err := bot.RunStdioArgs(os.Args[len(os.Args)-1:], os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mainModel, workerModel string, model *acceptanceModel, review func(string, <-chan struct{})) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 72*time.Second)
@@ -34,9 +45,14 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	executable := os.Getenv("CAELIS_BOT_TEST_APP_BINARY")
+	args := []string{"--bot-tools"}
+	if executable == "" {
+		executable, err = os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		args = []string{"-test.run=^TestCaelisTaskStdioHelper$", "--"}
 	}
 	opts := Options{Directory: filepath.Join(root, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainModel}, WorkExecution: api.WorkExecutionSettings{Model: workerModel}}
 	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
@@ -46,7 +62,11 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	defer resident.Close()
 	old := New(opts)
 	defer old.Close(context.Background())
-	legacy := &api.ToolConnection{Host: resident, Instructions: botskills.Bootstrap(), BuiltinSkillRoots: []string{filepath.Dir(skill)}}
+	legacy := &api.ToolConnection{Host: resident, Instructions: botskills.Bootstrap(), BuiltinSkillRoots: []string{filepath.Dir(skill)},
+		NotebookDirectory: filepath.Join(root, "Notebook")}
+	if err := os.Mkdir(legacy.NotebookDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := old.ConfigureBotTools(legacy); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +119,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	defer bridge.Close()
 	cfg := bridge.Config(executable)
+	cfg.Args, cfg.NotebookDirectory = args, legacy.NotebookDirectory
 	cfg.Instructions, cfg.BuiltinSkillRoots = botskills.Bootstrap(), []string{filepath.Dir(skill)}
 	if err := s.ConfigureBotTools(cfg); err != nil {
 		t.Fatal(err)
@@ -124,17 +145,50 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal("private migration replaced the retained resident Session")
 	}
 	current, err := s.Configuration(ctx)
-	if err != nil || !hasResidentMCPAliases(current.Profile) {
-		t.Fatal("resident did not migrate to the authenticated callback catalog", err)
+	if err != nil || !hasNativeTaskMCP(current.Profile) {
+		t.Fatal("resident did not migrate to the native task MCP profile", err)
 	}
-	readStatus := func(sid string) wire.SessionMCPStatus {
+	readStatus := func(session *Session, sid string) wire.SessionMCPStatus {
 		t.Helper()
 		var status wire.SessionMCPStatus
-		if err := s.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+		if err := session.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 			t.Fatal(err)
 		}
 		return status
 	}
+	taskMCPReady := func(status wire.SessionMCPStatus) bool {
+		t.Helper()
+		for _, server := range status.Servers {
+			if server.Name == privateTasksService {
+				if server.Status == "failed" || value(server.RefreshFailed) {
+					t.Fatal("Core failed to initialize resident stdio", value(server.Warning))
+				}
+				return value(server.Ready) && len(server.Tools) == 2 &&
+					slices.Contains(server.Tools, "bot_delegate") && slices.Contains(server.Tools, "bot_tasks")
+			}
+		}
+		return false
+	}
+	waitForTaskMCP := func(session *Session) {
+		t.Helper()
+		ready, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		waitAcceptance(t, ready, func() bool { return taskMCPReady(readStatus(session, session.ConversationState().Session)) })
+	}
+	const skillCase = "CASE_STDIO_NATIVE_SKILL"
+	model.set(skillCase, modelStep{Name: "Skill", Args: map[string]string{"name": "bot-core"}})
+	submitAcceptance(t, ctx, s, skillCase)
+	skillRequests := model.seen(skillCase)
+	if len(skillRequests) != 2 {
+		t.Fatal("native bot-core load did not complete", len(skillRequests))
+	}
+	firstSkill, _ := json.Marshal(skillRequests[0])
+	loadedSkill, _ := json.Marshal(skillRequests[1])
+	if strings.Contains(string(firstSkill), "# Act as a continuing personal assistant") ||
+		!strings.Contains(string(loadedSkill), "# Act as a continuing personal assistant") {
+		t.Fatal("bot-core body was not loaded progressively")
+	}
+	waitForTaskMCP(s)
 	step := func(tool string, args map[string]any) modelStep {
 		name, _ := json.Marshal(privateTasksService + "__" + tool)
 		raw, _ := json.Marshal(args)
@@ -143,11 +197,18 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	run := func(key, tool string, args map[string]any, files []api.InputFile) {
 		t.Helper()
 		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
-		model.set(key, step(tool, args))
+		// The provider fixture responds immediately. Wait for Core's native
+		// asynchronous directory when a replacement resident first activates.
+		release := make(chan struct{})
+		call := step(tool, args)
+		call.Block = release
+		model.set(key, call)
 		before := s.Snapshot().CurrentTurn
 		if receipt, err := s.Submit(ctx, api.Submission{ID: strings.ToLower(key), Text: key}, files); err != nil || receipt.Outcome != "accepted" {
 			t.Fatal(receipt, err)
 		}
+		waitForTaskMCP(s)
+		close(release)
 		waitTurn(t, ctx, s, before)
 		t.Logf("%s native result %s", key, dtwLastToolOutput(model.seen(key)))
 	}
@@ -160,7 +221,9 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 			return map[string]any{"code": "throw new Error('worker attachment absent');"}
 		}
 		arg, _ := json.Marshal(map[string]string{"path": paths[0]})
-		return map[string]any{"code": "await tools.search({name:'Read'}); return await tools.call('Read'," + string(arg) + ");"}
+		return map[string]any{"code": "const listing = await tools.search({names:['caelis_tasks__bot_delegate','caelis_tasks__bot_tasks','Read']}); " +
+			"if (listing.tools[0].error_code !== 'not_found' || listing.tools[1].error_code !== 'not_found' || !listing.tools[2].entry) throw new Error('unexpected Worker catalog'); " +
+			"const file = await tools.call('Read'," + string(arg) + "); return {taskEntries: listing.tools.slice(0,2), file: file.data ?? file.text};"}
 	}})
 	model.set(first, modelStep{Name: "js_exec", BuildArgs: func() any {
 		var attachments []map[string]any
@@ -177,7 +240,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	initialOutput := fmt.Sprint(dtwLastToolOutput(model.seen(first)))
 	t.Logf("native initial result %s", initialOutput)
 	if !strings.Contains(initialOutput, `"outcome":"accepted"`) {
-		t.Fatal("private MCP did not accept the original delegation")
+		t.Fatal("private MCP did not accept the original delegation", readStatus(s, sid))
 	}
 	list := manager.ListTasks()
 	if len(list) != 1 {
@@ -188,11 +251,12 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	original := s.state.Workers[task]
 	s.mu.Unlock()
 	var coreSkill bool
-	for _, skill := range readStatus(sid).Skills {
+	for _, skill := range readStatus(s, sid).Skills {
 		coreSkill = coreSkill || value(skill.Name) == "bot-core" && skill.Status == "ready"
 	}
-	if !coreSkill || original.Binding.SessionId == "" {
-		t.Fatal("resident Skill projection or Worker binding missing")
+	available := readStatus(s, sid)
+	if !coreSkill || original.Binding.SessionId == "" || !taskMCPReady(available) {
+		t.Fatal("resident native task MCP, Skill or Worker binding missing", available)
 	}
 	finish := func() {
 		t.Helper()
@@ -215,16 +279,16 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	finish()
 	workerOutput := fmt.Sprint(dtwLastToolOutput(model.seen(attachmentWorkerFixture)))
-	if !strings.Contains(workerOutput, strings.TrimSpace(payload)) {
-		t.Fatal("original Worker did not read the selected attachment through its native tool", workerOutput)
+	if !strings.Contains(workerOutput, strings.TrimSpace(payload)) || strings.Count(workerOutput, "not_found") != 2 {
+		t.Fatal("original Worker catalog or native attachment Read differs", workerOutput)
 	}
-	t.Log("native Worker Read returned the selected attachment bytes")
-	for _, server := range readStatus(original.Binding.SessionId).Servers {
+	t.Log("native Worker tool search returned not_found for both private tools and found Read; Read returned the selected attachment bytes")
+	for _, server := range readStatus(s, original.Binding.SessionId).Servers {
 		if server.Name == privateTasksService {
 			t.Fatal("Worker inherited private services")
 		}
 	}
-	for _, skill := range readStatus(original.Binding.SessionId).Skills {
+	for _, skill := range readStatus(s, original.Binding.SessionId).Skills {
 		if value(skill.Name) == "bot-core" {
 			t.Fatal("Worker inherited bot-core")
 		}
@@ -254,15 +318,14 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if next.Binding.SessionId != original.Binding.SessionId || next.PromptID == original.PromptID || len(manager.ListTasks()) != 1 {
 		t.Fatal("private follow-up changed Worker owner or lacked the native prompt")
 	}
-	var delegateCalls int
 	for _, saved := range state.Calls {
-		if saved.Call.Name == privateTasksPrefix+"bot_delegate" && saved.Call.SessionId == sid &&
-			saved.Call.PrincipalId == state.PrincipalID && saved.Receipt != nil && saved.Receipt.Outcome == "succeeded" {
-			delegateCalls++
+		if saved.Call.Name == "bot_delegate" || saved.Call.Name == privateTasksPrefix+"bot_delegate" {
+			t.Fatal("native MCP delegation used an Application callback", saved.Call.ToolsVersion)
 		}
 	}
-	if delegateCalls != 2 {
-		t.Fatal("Worker effects did not retain their two native resident callback receipts", delegateCalls)
+	followup := fmt.Sprint(dtwLastToolOutput(model.seen("CASE_STDIO_NATIVE_FOLLOWUP")))
+	if !strings.Contains(followup, `"outcome":"accepted"`) {
+		t.Fatal("original Worker continuation was not accepted by Core", followup)
 	}
 	createID := original.operationID("create", task)
 	create := state.Operations[createID]
@@ -299,6 +362,16 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	t.Logf("POST /api/control/v1%s with operation_id=%s session_id=%s name=selected.txt media_type=text/plain data=%s sha256=%s returned HTTP %d %s",
 		path, probe, workerSID, request.Data, request.Sha256, response.StatusCode, encoded)
 
+	bridge.Close()
+	restartedBridge, err := bot.Serve(resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartedBridge.Close()
+	cfg.PublishCaelisTaskMCP = restartedBridge.Config(executable).PublishCaelisTaskMCP
+	if err := s.ConfigureBotTools(cfg); err != nil {
+		t.Fatal("republish the Notebook bridge", err)
+	}
 	if err := s.Reconnect(ctx); err != nil {
 		t.Fatal("reconnect original resident", err)
 	}
@@ -323,8 +396,8 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	assertServers := func(in plugins.Selection) {
 		t.Helper()
 		current, err := s.Configuration(ctx)
-		if err != nil || !hasResidentMCPAliases(current.Profile) || len(current.Profile.McpServers) != len(in.Servers) {
-			t.Fatal("service refresh changed the authenticated resident catalog", err)
+		if err != nil || !hasNativeTaskMCP(current.Profile) || len(current.Profile.McpServers) != len(in.Servers)+1 {
+			t.Fatal("service refresh changed the native resident catalog", err)
 		}
 		for _, item := range in.Servers {
 			if !hasNativeMCPServer(current.Profile.McpServers, plugins.RuntimeName(item.PackageID, item.Name)) {
@@ -342,16 +415,17 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if !strings.Contains(fmt.Sprint(dtwLastToolOutput(model.seen("CASE_STDIO_NATIVE_AFTER_REFRESH"))), task) {
 		t.Fatal("refreshed resident lost the private task service")
 	}
-	t.Log("real Session added two managed MCP servers and removed one while retaining the authenticated task catalog")
+	t.Log("real Session added two managed MCP servers and removed one while retaining the native task service")
 
-	review(`{"option_id":"reject_once","rationale":"This synthetic assignment is not allowed."}`, nil)
+	review(`{"option_id":"cancel","rationale":"This synthetic assignment is not allowed."}`, nil)
 	run("CASE_STDIO_NATIVE_DENIED", "bot_delegate", map[string]any{"prompt": "A denied synthetic delegation."}, nil)
 	if len(manager.ListTasks()) != 1 {
 		t.Fatal("denied review created a Worker")
 	}
 	waitAcceptance(t, ctx, func() bool {
 		return slices.ContainsFunc(s.Snapshot().Reviews, func(review api.Review) bool {
-			return review.Status == "denied" && strings.Contains(review.Action, "A denied synthetic delegation")
+			return review.Status == "denied" && (strings.Contains(review.Action, "A denied synthetic delegation") ||
+				strings.Contains(review.Action, privateTasksPrefix+"bot_delegate"))
 		})
 	})
 	runNativeReminderAcceptance(t, ctx, s, resident, model, review)
@@ -361,9 +435,15 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	manualOpts := opts
 	manualOpts.Directory, manualOpts.RequireApproval = filepath.Join(root, "manual"), true
+	manualNotebook := filepath.Join(root, "ManualNotebook")
+	if err := os.Mkdir(manualNotebook, 0700); err != nil {
+		t.Fatal(err)
+	}
 	manual := New(manualOpts)
 	defer manual.Close(context.Background())
-	if err := manual.ConfigureBotTools(legacy); err != nil {
+	legacyManual := legacy.Clone()
+	legacyManual.NotebookDirectory = manualNotebook
+	if err := manual.ConfigureBotTools(legacyManual); err != nil {
 		t.Fatal(err)
 	}
 	if err := manual.Connect(ctx); err != nil {
@@ -393,6 +473,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	defer manualBridge.Close()
 	manualConnection := manualBridge.Config(executable)
 	manualConnection.Args = cfg.Args
+	manualConnection.NotebookDirectory = manualNotebook
 	manualConnection.Instructions, manualConnection.BuiltinSkillRoots = cfg.Instructions, cfg.BuiltinSkillRoots
 	if err := resumedManual.ConfigureBotTools(manualConnection); err != nil {
 		t.Fatal(err)
@@ -402,10 +483,12 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	manualResident.Start(resumedManual)
 	manualConfig, err := resumedManual.Configuration(ctx)
-	if err != nil || !hasResidentMCPAliases(manualConfig.Profile) {
-		t.Fatal("retained manual Session did not migrate to the authenticated callback catalog", err)
+	if err != nil || !hasNativeTaskMCP(manualConfig.Profile) {
+		t.Fatal("retained manual Session did not migrate to native MCP", err)
 	}
-	for _, test := range []struct{ key, decision string }{{"CASE_NATIVE_MANUAL_ALLOW", "allow_once"}, {"CASE_NATIVE_MANUAL_DENY", "reject_once"}} {
+	submitAcceptance(t, ctx, resumedManual, "CASE_STDIO_MANUAL_READY")
+	waitForTaskMCP(resumedManual)
+	for _, test := range []struct{ key, decision string }{{"CASE_NATIVE_MANUAL_ALLOW", "allow_once"}, {"CASE_NATIVE_MANUAL_DENY", "cancel"}} {
 		waitAcceptance(t, ctx, func() bool { return resumedManual.Snapshot().CanSend })
 		model.set(test.key, step("bot_delegate", map[string]any{"prompt": "Return a synthetic manual-decision Worker result."}))
 		before := resumedManual.Snapshot().CurrentTurn
@@ -432,7 +515,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		resumedManual.mu.Unlock()
 		allow := test.decision == "allow_once"
 		if strings.Contains(result, `"ok":true`) != allow || len(manualManager.ListTasks()) != 1 ||
-			(decision.ManualMCP != nil) != allow || decision.Outcome != "committed" {
+			decision.ManualMCP != nil || decision.Outcome != "committed" {
 			t.Fatal("manual native decision unexpectedly dispatched or refused the tool", test.decision, result)
 		}
 		t.Logf("retained manual Session used native approval %s", test.decision)
@@ -534,15 +617,9 @@ func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, 
 	t.Log("real Core registered from worker_result, dispatched one native external_material reminder and suppressed the revoked reminder after its due time")
 }
 
-func hasResidentMCPAliases(profile *wire.SessionProfile) bool {
-	if profile == nil || hasNativeMCPServer(profile.McpServers, privateTasksService) {
-		return false
-	}
-	for _, name := range privateTasksTools {
-		if slices.ContainsFunc(profile.Tools, func(tool wire.SessionToolDefinition) bool { return tool.Name == name }) ||
-			!slices.ContainsFunc(profile.Tools, func(tool wire.SessionToolDefinition) bool { return tool.Name == privateTasksPrefix+name }) {
-			return false
-		}
-	}
-	return true
+func hasNativeTaskMCP(profile *wire.SessionProfile) bool {
+	return profile != nil && hasNativeMCPServer(profile.McpServers, privateTasksService) &&
+		!slices.ContainsFunc(profile.Tools, func(tool wire.SessionToolDefinition) bool {
+			return slices.Contains(privateTasksTools, strings.TrimPrefix(tool.Name, privateTasksPrefix))
+		})
 }

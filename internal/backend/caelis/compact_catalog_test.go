@@ -249,13 +249,15 @@ func TestUpgradeRoutesPendingBaseCallbackWithoutAdvertisingOldTools(t *testing.T
 			http.NotFound(w, req)
 		}
 	})
-	if err := s.ConfigureBotTools(bridge.Config("fixture")); err != nil {
+	cfg := bridge.Config("fixture")
+	cfg.NotebookDirectory = t.TempDir()
+	if err := s.ConfigureBotTools(cfg); err != nil {
 		t.Fatal(err)
 	}
 	archived := s.catalogs[preIdleBaseToolsVersion]
 	if archived["bot_dream"] == nil || archived["bot_schedule"] == nil || archived["bot_delegate"] == nil ||
 		s.profile.ToolsVersion == preIdleBaseToolsVersion || s.catalog["bot_dream"] != nil ||
-		!hasResidentMCPAliases(&s.profile) {
+		!hasNativeTaskMCP(&s.profile) {
 		t.Fatal("base lookup or current discovery changed")
 	}
 	s.state.Operations["original-prompt"] = journal{Path: "/sessions/main/prompt", Outcome: "committed", Source: call.Source}

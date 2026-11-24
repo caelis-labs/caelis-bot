@@ -22,15 +22,16 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
-	life     context.Context
-	cancel   context.CancelFunc
-	runtime  *Runtime
-	listener *localipc.Listener
-	token    string
-	services []api.ToolService
-	once     sync.Once
-	done     chan struct{}
-	wg       sync.WaitGroup
+	life            context.Context
+	cancel          context.CancelFunc
+	runtime         *Runtime
+	listener        *localipc.Listener
+	token           string
+	caelisTaskToken string
+	services        []api.ToolService
+	once            sync.Once
+	done            chan struct{}
+	wg              sync.WaitGroup
 }
 type toolRequest struct {
 	Token     string          `json:"token"`
@@ -158,6 +159,9 @@ func Serve(r *Runtime) (*Bridge, error) {
 		return nil, e
 	}
 	b := &Bridge{runtime: r, listener: listener, token: rand.Text(), done: make(chan struct{})}
+	if r.provider == "caelis" {
+		b.caelisTaskToken = rand.Text()
+	}
 	b.services = []api.ToolService{
 		{Name: "caelis_context", Token: rand.Text(), Tools: []string{"bot_dream"}},
 		{Name: "caelis_tasks", Token: rand.Text(), Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
@@ -188,30 +192,33 @@ func Serve(r *Runtime) (*Bridge, error) {
 					_ = json.NewEncoder(conn).Encode(result(nil, errors.New("拒绝未授权调用")))
 					return
 				}
-				if req.Name == "bot_dream" {
-					_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
-				} else if req.Name == "bot_delegate" && req.Version == 2 {
-					_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
-				}
+				timeout := req.timeout()
+				_ = conn.SetDeadline(time.Now().Add(timeout))
 				var out api.ToolResult
 				var invocation api.ToolInvocation
-				if req.Version == 2 {
+				if req.compact() {
 					callCtx := context.Background()
-					if req.Name == "bot_delegate" {
-						ctx, cancel := context.WithTimeout(b.life, delegationBridgeTimeout(req.Arguments))
+					if req.Name == "bot_delegate" || req.Version == caelisTaskBridgeVersion {
+						ctx, cancel := context.WithTimeout(b.life, timeout)
 						defer cancel()
 						callCtx = ctx
 						// One request per connection. Caller loss cancels preparation
 						// and transport; it never settles an already dispatched effect.
 						go func() { _, _ = io.Copy(io.Discard, conn); cancel() }()
 					}
-					// Codex's existing resident bridge binds this stdio request to
-					// the active Codex turn. Caelis requires native call provenance.
-					if r.provider == "codex" {
-						if runtime, ok := r.engine.(api.ConversationRuntime); ok {
+					if r.provider == "codex" || req.Version == caelisTaskBridgeVersion {
+						r.mu.Lock()
+						runtime, ok := r.engine.(api.ConversationRuntime)
+						r.mu.Unlock()
+						if ok {
 							state := runtime.ConversationState()
-							invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn, TurnKey: state.TurnKey}
+							invocation = api.ToolInvocation{Provider: r.provider, CallID: string(req.ID), Session: state.Session,
+								Turn: state.Turn, TurnKey: state.TurnKey, CaelisTaskMCP: req.Version == caelisTaskBridgeVersion}
 							callCtx = api.WithToolInvocation(callCtx, invocation)
+						}
+						if req.Version == caelisTaskBridgeVersion && invocation.Session == "" {
+							_ = json.NewEncoder(conn).Encode(compactError("runtime_unavailable", errors.New("Bot task Runtime is unavailable.")))
+							return
 						}
 					}
 					out = r.CallTool(callCtx, req.Name, req.Arguments)
@@ -242,7 +249,11 @@ func Serve(r *Runtime) (*Bridge, error) {
 }
 
 func (b *Bridge) authorizes(req toolRequest) bool {
-	if b.runtime.provider == "caelis" && (req.Name == "bot_tasks" || req.Name == "bot_delegate") {
+	if req.Version == caelisTaskBridgeVersion {
+		return b.caelisTaskToken != "" && b.life.Err() == nil && len(req.ID) != 0 && caelisTaskTool(req.Name) &&
+			subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.caelisTaskToken)) == 1
+	}
+	if b.caelisTaskToken != "" && caelisTaskTool(req.Name) {
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.token)) == 1 {
@@ -266,7 +277,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
 	if b.runtime.provider == "caelis" {
-		config.CallResidentMCP = b.callResidentMCP
+		config.PublishCaelisTaskMCP = b.publishCaelisTaskMCP
 	}
 	return config.Clone()
 }
@@ -403,7 +414,7 @@ func serveStdio(in io.Reader, out io.Writer, env func(string) string, callTool f
 }
 func forward(endpoint string, req toolRequest) toolResult {
 	out, uncertain := forwardOnce(endpoint, req)
-	if uncertain && req.Version == 2 && req.Name == "bot_delegate" && len(req.ID) != 0 {
+	if uncertain && req.compact() && req.Name == "bot_delegate" && len(req.ID) != 0 {
 		// Reuse the original MCP call identity exactly once. The Host and native
 		// Worker journals own reconciliation; a different ID could repeat work.
 		if retry, retryUncertain := forwardOnce(endpoint, req); !retryUncertain && (!retry.IsError || len(retry.StructuredContent) != 0) {
@@ -422,12 +433,7 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 		return result(nil, errors.New("Bot 应用暂不可用")), false
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if req.Name == "bot_dream" {
-		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
-	} else if req.Name == "bot_delegate" && req.Version == 2 {
-		_ = conn.SetDeadline(time.Now().Add(delegationBridgeTimeout(req.Arguments)))
-	}
+	_ = conn.SetDeadline(time.Now().Add(req.timeout()))
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
 		return forwardFailure(req, "Bot request not confirmed; retain the original receipt"), true
 	}
@@ -438,18 +444,28 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 	return out, false
 }
 
-func delegationBridgeTimeout(raw json.RawMessage) time.Duration {
+func (req toolRequest) compact() bool {
+	return req.Version == 2 || req.Version == caelisTaskBridgeVersion
+}
+
+func (req toolRequest) timeout() time.Duration {
+	if req.Name == "bot_dream" {
+		return 45 * time.Second
+	}
+	if req.Name != "bot_delegate" || !req.compact() {
+		return 10 * time.Second
+	}
 	var input struct {
 		Attachments []json.RawMessage `json:"attachments"`
 	}
-	if json.Unmarshal(raw, &input) == nil && len(input.Attachments) > 0 {
+	if json.Unmarshal(req.Arguments, &input) == nil && len(input.Attachments) > 0 {
 		return api.WorkerBridgeTimeout
 	}
 	return api.WorkerAdmissionTimeout + 10*time.Second
 }
 
 func forwardFailure(req toolRequest, message string) toolResult {
-	if req.Version != 2 {
+	if !req.compact() {
 		return result(nil, errors.New(message))
 	}
 	out := compactError("unconfirmed", errors.New(message))

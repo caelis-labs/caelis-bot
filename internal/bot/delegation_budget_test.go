@@ -53,10 +53,12 @@ func fileBudgetRequest(b *Bridge) toolRequest {
 }
 func TestFileDelegationBudgetKeepsNestedLimitsConsistent(t *testing.T) {
 	file := json.RawMessage(`{"attachments":[{"id":"owned"}]}`)
-	if api.WorkerAttachmentTimeout <= 25*time.Second || delegationBridgeTimeout(file) <= api.WorkerAttachmentTimeout || api.WorkerMCPTimeout <= delegationBridgeTimeout(file) {
+	req := toolRequest{Version: 2, Name: "bot_delegate", Arguments: file}
+	if api.WorkerAttachmentTimeout <= 25*time.Second || req.timeout() <= api.WorkerAttachmentTimeout || api.WorkerMCPTimeout <= req.timeout() {
 		t.Fatal("a shorter wrapper still truncates file admission")
 	}
-	if delegationBridgeTimeout(json.RawMessage(`{}`)) != api.WorkerAdmissionTimeout+10*time.Second {
+	req.Arguments = json.RawMessage(`{}`)
+	if req.timeout() != api.WorkerAdmissionTimeout+10*time.Second {
 		t.Fatal("plain delegation budget changed")
 	}
 	// 160 MiB -> 214 MiB of JSON base64 allowance + the original 25s control path.

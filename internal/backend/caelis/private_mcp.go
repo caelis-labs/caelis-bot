@@ -19,7 +19,7 @@ const privateTasksPrefix = privateTasksService + "__"
 
 var privateTasksTools = []string{"bot_delegate", "bot_tasks"}
 
-type privateInvocationKey struct{}
+type legacyTaskInvocationKey struct{}
 
 type callbackClaim struct {
 	client     *client
@@ -29,13 +29,19 @@ type callbackClaim struct {
 
 type callbackClaimKey struct{}
 
-func withoutPrivateMCP(servers []wire.SessionMCPServer) []wire.SessionMCPServer {
-	return slices.DeleteFunc(slices.Clone(servers), func(server wire.SessionMCPServer) bool {
+func withResidentTaskMCP(servers, resident []wire.SessionMCPServer) []wire.SessionMCPServer {
+	servers = slices.DeleteFunc(slices.Clone(servers), func(server wire.SessionMCPServer) bool {
 		return server.Name == privateTasksService
 	})
+	for _, server := range resident {
+		if server.Name == privateTasksService {
+			return append(servers, server)
+		}
+	}
+	return servers
 }
 
-func privateApplicationCatalog(profile wire.SessionProfile) wire.SessionProfile {
+func withoutTaskCallbacks(profile wire.SessionProfile) wire.SessionProfile {
 	profile.Tools = slices.DeleteFunc(slices.Clone(profile.Tools), func(tool wire.SessionToolDefinition) bool {
 		return slices.Contains(privateTasksTools, tool.Name)
 	})
@@ -44,23 +50,23 @@ func privateApplicationCatalog(profile wire.SessionProfile) wire.SessionProfile 
 	return profile
 }
 
-// Core's public MCP request carries only name and arguments. Its authenticated
-// Application callback supplies the native Session, principal and opaque claim.
-type residentMCPTools struct {
+// The old catalog used MCP-shaped tool names on Application callbacks. Keep
+// those handlers available only to the original serialized catalog version.
+type legacyTaskCallbackTools struct {
 	*Session
-	callTool func(context.Context, string, json.RawMessage) api.ToolResult
+	host api.ApplicationTools
 }
 
-func (h residentMCPTools) Definitions() []api.ToolDefinition { return nil }
+func (h legacyTaskCallbackTools) Definitions() []api.ToolDefinition { return nil }
 
-func (h residentMCPTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+func (h legacyTaskCallbackTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
 	claim, ok := ctx.Value(callbackClaimKey{}).(callbackClaim)
 	tool, scoped := residentMCPName(name)
 	digest := argumentsDigest(args)
-	if !ok || !scoped || claim.call.Name != name || digest == "" || digest != nativeArgumentsDigest(claim.call.Arguments) || !h.admitResidentMCP(ctx, claim) {
+	if !ok || !scoped || claim.call.Name != name || digest == "" || digest != nativeArgumentsDigest(claim.call.Arguments) || !h.admitLegacyTaskCallback(ctx, claim) {
 		return api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "The original resident tool call could not be confirmed."}}}
 	}
-	return h.callTool(context.WithValue(ctx, privateInvocationKey{}, claim), tool, args)
+	return h.host.CallTool(context.WithValue(ctx, legacyTaskInvocationKey{}, claim), tool, args)
 }
 
 func residentMCPName(name string) (string, bool) {
@@ -68,8 +74,8 @@ func residentMCPName(name string) (string, bool) {
 	return tool, prefixed && slices.Contains(privateTasksTools, tool)
 }
 
-func residentMCPCatalog(profile wire.SessionProfile, catalog map[string]api.ApplicationTools, handler residentMCPTools) (wire.SessionProfile, map[string]api.ApplicationTools) {
-	result := privateApplicationCatalog(profile)
+func legacyTaskCallbackCatalog(profile wire.SessionProfile, catalog map[string]api.ApplicationTools, handler legacyTaskCallbackTools) (wire.SessionProfile, map[string]api.ApplicationTools) {
+	result := withoutTaskCallbacks(profile)
 	handlers := make(map[string]api.ApplicationTools, len(catalog))
 	for _, d := range result.Tools {
 		handlers[d.Name] = catalog[d.Name]
@@ -88,7 +94,7 @@ func residentMCPCatalog(profile wire.SessionProfile, catalog map[string]api.Appl
 	return result, handlers
 }
 
-func (s *Session) residentMCPClaimCurrentLocked(claim callbackClaim) bool {
+func (s *Session) currentLegacyTaskClaimLocked(claim callbackClaim) bool {
 	call := claim.call
 	return s.connected && !s.closed && !s.retainedWorkers && claim.client != nil && s.client == claim.client && s.generation == claim.generation &&
 		call.SessionId != "" && call.PrincipalId != "" &&
@@ -96,9 +102,9 @@ func (s *Session) residentMCPClaimCurrentLocked(claim callbackClaim) bool {
 		call.State == "claimed" && call.TurnId != "" && call.ItemId != "" && call.Id != "" && call.CallId != ""
 }
 
-func (s *Session) admitResidentMCP(ctx context.Context, claim callbackClaim) bool {
+func (s *Session) admitLegacyTaskCallback(ctx context.Context, claim callbackClaim) bool {
 	s.mu.Lock()
-	current := s.residentMCPClaimCurrentLocked(claim)
+	current := s.currentLegacyTaskClaimLocked(claim)
 	permissions := s.state.Session.Profile.Permissions
 	s.mu.Unlock()
 	if !current || ctx.Err() != nil {
@@ -118,7 +124,7 @@ func (s *Session) admitResidentMCP(ctx context.Context, claim callbackClaim) boo
 	}
 	for {
 		s.mu.Lock()
-		if !s.residentMCPClaimCurrentLocked(claim) || proof.Err() != nil {
+		if !s.currentLegacyTaskClaimLocked(claim) || proof.Err() != nil {
 			s.mu.Unlock()
 			return false
 		}
@@ -167,7 +173,7 @@ func (a manualMCPAction) matchesReceipt(receipt wire.CommandResult) bool {
 }
 
 func captureManualMCPAction(sid, principal string, a *wire.ActiveApproval, p nativePermission) (*manualMCPAction, error) {
-	if a.Subject == nil || a.Subject.Tool.State != wire.ApprovalFieldStateKnown {
+	if a.Subject == nil || a.Subject.Kind == "app_access" || a.Subject.Tool.State != wire.ApprovalFieldStateKnown {
 		return nil, nil
 	}
 	name := value(a.Subject.Tool.Text)

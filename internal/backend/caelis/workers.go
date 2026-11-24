@@ -77,10 +77,18 @@ func (s *Session) currentInvocation(ctx context.Context) (wire.SessionToolCall, 
 	return call, nil
 }
 func (s *Session) workerInvocation(ctx context.Context) (source string, private bool, err error) {
-	if scope, ok := ctx.Value(privateInvocationKey{}).(callbackClaim); ok {
+	if call, ok := api.ToolInvocationFromContext(ctx); ok && call.CaelisTaskMCP && call.Provider == "caelis" {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if ctx.Err() == nil && s.residentMCPClaimCurrentLocked(scope) {
+		if ctx.Err() == nil && s.connected && !s.closed && !s.retainedWorkers && call.Session == s.state.Session.SessionId {
+			return "", true, nil
+		}
+		return "", true, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("需要当前助手请求的明确授权来源")}
+	}
+	if scope, ok := ctx.Value(legacyTaskInvocationKey{}).(callbackClaim); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if ctx.Err() == nil && s.currentLegacyTaskClaimLocked(scope) {
 			return "", true, nil
 		}
 		return "", true, &api.WorkAdmissionError{Code: "source_not_authorized", Cause: errors.New("需要当前助手请求的明确授权来源")}
