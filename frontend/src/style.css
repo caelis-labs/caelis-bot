@@ -7,8 +7,8 @@ button,textarea,input,select { font:inherit; color:inherit; }
 button { cursor:pointer; }
 button:disabled { cursor:default; color:var(--caelis-text-disabled); background:var(--caelis-disabled); }
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible { outline:2px solid var(--caelis-focus); outline-offset:3px; }
-.pet-stage { position:relative; width:180px; height:240px; transform-origin:top left; user-select:none; }
-.pet-stage canvas { display:block; width:180px; height:240px; }
+.pet-stage { position:relative; width:100vw; height:100vh; user-select:none; }
+.pet-stage canvas { display:block; width:100%; height:100%; }
 .pet-open { position:absolute; inset:0; border:0; padding:0; background:transparent; }
 .capsule { min-height:62px; display:flex; align-items:flex-end; gap:12px; padding:14px 17px; }
 .icon-button { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--wash); }
@@ -525,7 +525,7 @@ summary { cursor:pointer; }
 .permission-more .permission-list { margin-top:8px; color:var(--ink); }
 
 /* Host-owned maintenance status; motion is decorative and never blocks input. */
-.pet-dream{position:absolute;top:25px;right:17px;color:#59677f;font-size:19px;font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #fff;pointer-events:none;animation:dream-breathe 3s ease-in-out infinite}
+.pet-dream{position:absolute;top:10.4167%;right:9.4444%;color:#59677f;font-size:calc(100vw * 19 / 180);font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #fff;pointer-events:none;animation:dream-breathe 3s ease-in-out infinite}
 .dream-indicator{color:var(--muted);font-style:normal}
 @keyframes dream-breathe{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.pet-dream{animation:quiet-progress 3.6s ease-in-out infinite}}

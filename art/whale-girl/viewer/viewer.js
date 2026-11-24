@@ -1,3 +1,4 @@
+import { observeCharacterCanvas } from '../../../frontend/src/character/canvas-resolution';
 import { AnimationMixer, Group, LoopOnce, LoopRepeat, MathUtils, OrthographicCamera, Scene, WebGLRenderer } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -21,7 +22,6 @@ async function modelBytes() {
 
 async function start() {
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   const gltf = await new GLTFLoader().parseAsync(await modelBytes(), '');
   const scene = new Scene();
   const root = new Group();
@@ -74,7 +74,6 @@ async function start() {
     camera.right = camera.top*aspect;
     camera.left = -camera.right;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height, false);
     needsPaint = true;
   }
 
@@ -188,7 +187,7 @@ async function start() {
   orbit.target.set(.08,.87,0);
   view(0);
   sizeCamera();
-  new ResizeObserver(sizeCamera).observe(canvas.parentElement);
+  observeCharacterCanvas(renderer, sizeCamera);
   action('idle');
   let lastFrame;
   function draw(now) {

@@ -1,3 +1,4 @@
+import { observeCharacterCanvas } from './canvas-resolution';
 import { characterAssets } from './assets';
 import { observeAppearance, builtinAppearance, type Appearance } from '../appearance';
 import { Mesh, MeshBasicMaterial, OrthographicCamera, Scene, Texture, WebGLRenderer, WebGLRenderTarget, Vector3, Box3, Group, type Material, type Object3D } from 'three';
@@ -125,11 +126,6 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
   attachPlane();
   draw(lastFrame,true);if(animate())schedule();
  }
- function resize() {
-  // Cap actual backing pixels per on-screen point, including saved pet scale.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5)*window.innerWidth/width);
-  renderer.setSize(width,height,false);resume();
- }
  const visibility=(e:Event)=>{visible=(e as CustomEvent<boolean>).detail;resume();};
  const activityChanged=(e:Event)=>{
   const value=(e as CustomEvent<string>).detail;if(!['idle','working','waiting','dreaming'].includes(value))return;
@@ -137,10 +133,10 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  };
  const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!expressive()||activity==='dreaming')return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
  const lost=(e:Event)=>{e.preventDefault();contextLost=true;stopFrames();cancelFlight();};
- const restored=()=>{contextLost=false;lastSent='';resize();};
+ const restored=()=>{contextLost=false;lastSent='';resume();};
  window.addEventListener('pet-near-preview',nearPreview);window.addEventListener('pet-face-preview',facePreview);window.addEventListener('pet-context',desktopChanged);window.addEventListener('pet-touch',touch);window.addEventListener('pet-preview',preview);window.addEventListener('pet-prop-result',propResult);window.addEventListener('pet-prop-flight',propFlight);
  window.addEventListener('pet-visibility',visibility);window.addEventListener('pet-activity',activityChanged);window.addEventListener('pet-gesture',gesture);
- window.addEventListener('resize',resize);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
+ const stopSizing=observeCharacterCanvas(renderer,resume);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
  canvas.addEventListener('webglcontextlost',lost);canvas.addEventListener('webglcontextrestored',restored);
  let generation=0,requested='',latestAppearance=builtinAppearance;
  const selected=(value:Appearance)=>{
@@ -190,7 +186,7 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
    if(plane){plane.visible=false;plane.scale.setScalar(.28);scene.add(plane);hand=root.getObjectByName('handR')??root.getObjectByName('hand.R');if(hand)planeAnchor=new HeldPlaneAnchor(root,hand);}
    performanceDirector.reset();director.reset();nearAction=false;lastSent='';
    visible=placement.visible;if(activityEvents===observed)activity=current;if(contextEvents===observedContext)context=initialContext;
-   loaded=true;pose?.restore();player.setActivity(activity,visible&&!reduced.matches);pose?.capture();resize();
+   loaded=true;pose?.restore();player.setActivity(activity,visible&&!reduced.matches);pose?.capture();resume();
   }catch{
    newPlayer?.dispose();if(incoming&&incoming!==root)releaseModel(incoming);if(incomingPlane&&incomingPlane!==plane)disposePlane(incomingPlane);
    if(stale())return;
@@ -205,7 +201,7 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
   disposed=true;generation++;stopAppearance();stopFrames();pendingMask=null;cancelFlight();
   window.removeEventListener('pet-near-preview',nearPreview);window.removeEventListener('pet-face-preview',facePreview);window.removeEventListener('pet-context',desktopChanged);window.removeEventListener('pet-touch',touch);window.removeEventListener('pet-preview',preview);window.removeEventListener('pet-prop-result',propResult);window.removeEventListener('pet-prop-flight',propFlight);
   window.removeEventListener('pet-visibility',visibility);window.removeEventListener('pet-activity',activityChanged);window.removeEventListener('pet-gesture',gesture);
-  window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',resume);reduced.removeEventListener('change',resume);
+  stopSizing();document.removeEventListener('visibilitychange',resume);reduced.removeEventListener('change',resume);
   canvas.removeEventListener('webglcontextlost',lost);canvas.removeEventListener('webglcontextrestored',restored);
   player?.dispose();profile?.dispose();if(plane)disposePlane(plane);if(root)releaseModel(root);target.dispose();maskMaterial.dispose();renderer.dispose();renderer.forceContextLoss();
  };
