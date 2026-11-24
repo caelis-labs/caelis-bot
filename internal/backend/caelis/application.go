@@ -33,6 +33,8 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 			Shell:       &wire.ShellConfig{Login: pointer(false)},
 		}
 	}
+	// Core v0.85.0 requires this field on explicit Session creation even
+	// with an empty application catalog. It does not enable callbacks.
 	profile.ToolsVersion = digest([]byte("[]"))
 	if c.NotebookDirectory != "" {
 		profile.Workspace = &wire.SessionWorkspace{Cwd: &c.NotebookDirectory}
@@ -203,10 +205,11 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	profile := s.profile
 	servers := profile.McpServers
-	if !pendingPlugin && (len(desired.Profile.Tools) != 0 || desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions ||
+	if !pendingPlugin && (len(desired.Profile.Tools) != 0 || desired.Profile.Instructions != profile.Instructions ||
 		!slices.EqualFunc(desired.Profile.McpServers, servers, sameMCPServer) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) ||
 		!slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
-		patch := map[string]any{"instructions": profile.Instructions, "tools_version": profile.ToolsVersion, "tools": profile.Tools, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
+		patch := map[string]any{"instructions": profile.Instructions, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
+		clearLegacyCatalog(patch, desired.Profile, profile.ToolsVersion)
 		// Operation IDs share the Host principal namespace. Include the Session
 		// and the exact structured intent; never rewrite retained receipt IDs.
 		intent, err := json.Marshal(struct {
@@ -223,6 +226,15 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		return e
 	}
 	return nil
+}
+
+// The released Host needs an explicit empty catalog and a distinct revision
+// token when replacing a pre-migration catalog. Ordinary MCP updates omit both.
+func clearLegacyCatalog(patch map[string]any, current *wire.SessionProfile, emptyVersion string) {
+	if len(current.Tools) != 0 {
+		patch["tools"] = []wire.SessionToolDefinition{}
+		patch["tools_version"] = emptyVersion
+	}
 }
 
 func (s *Session) retireCallbackTurn(ctx context.Context, sid string, c *client) error {

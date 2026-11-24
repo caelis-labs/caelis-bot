@@ -277,7 +277,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			profile.ExecutionConfig = clone(s.profile.ExecutionConfig)
 		}
 		s.configureApproval(&profile)
-		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
+		profile.Instructions = s.profile.Instructions
+		profile.Tools = nil
+		profile.ToolsVersion = s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile})
 	} else if pending.Outcome == "unknown" {
 		renewalErr = s.recoverOperation(ctx, op)
@@ -332,8 +334,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 		profile := s.profile
 		servers := withResidentMCP(config.Profile.McpServers, profile.McpServers)
-		if len(config.Profile.Tools) != 0 || config.Profile.ToolsVersion != profile.ToolsVersion || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
-			patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
+		if len(config.Profile.Tools) != 0 || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
+			patch := map[string]any{"mcp_servers": servers}
+			clearLegacyCatalog(patch, config.Profile, profile.ToolsVersion)
 			intent, _ := json.Marshal(patch)
 			change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))
 			if _, err := s.updateConfiguration(ctx, sid, change, string(config.Revision), patch); err != nil {

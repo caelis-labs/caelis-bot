@@ -38,6 +38,17 @@ func TestRebindOperationsAreScopedToSessionUnderSharedPrincipal(t *testing.T) {
 			writeFixture(w, wire.SessionReviewerState{SessionId: sid, ApprovalMode: "manual", Status: "manual"})
 		case "configuration":
 			if r.Method == "POST" {
+				var request struct {
+					Patch map[string]json.RawMessage `json:"patch"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				for _, field := range []string{"tools", "tools_version"} {
+					if _, present := request.Patch[field]; present {
+						t.Errorf("native rebind included retired catalog field %s", field)
+					}
+				}
 				op := r.Header.Get("Idempotency-Key")
 				if old, exists := receipts[op]; exists && old != sid {
 					w.WriteHeader(http.StatusConflict)
@@ -45,7 +56,9 @@ func TestRebindOperationsAreScopedToSessionUnderSharedPrincipal(t *testing.T) {
 					return
 				}
 				receipts[op] = sid
-				configs[sid] = wire.SessionConfiguration{SessionId: sid, Revision: "2", Profile: &profile}
+				current := profile
+				current.ToolsVersion = ""
+				configs[sid] = wire.SessionConfiguration{SessionId: sid, Revision: "2", Profile: &current}
 				v := configs[sid]
 				writeFixture(w, wire.CommandResult{OperationId: op, Outcome: "committed", Configuration: &v})
 				return

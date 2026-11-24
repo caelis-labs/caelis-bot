@@ -50,8 +50,8 @@ and unknown are distinct outcomes. Unknown effects reconcile their original rece
 they cannot be replayed with a new ID, moved to another Runtime or retried as new work.
 Late replies are fenced by connection/binding generation. Terminal native events outrank
 late responses; replayed/history items deduplicate facts without redispatching effects.
-Callback execution binds its original catalog, configuration, tools version and invocation;
-missing historical handlers fail closed rather than rerouting a same-name tool.
+Historical callback receipts retain their original catalog, configuration, tools version
+and invocation identity.
 
 Codex uses the user's installation and standard `initialize` → `initialized` handshake,
 then the consumed native methods and field semantics. CLI versions are not an allowlist;
@@ -94,12 +94,14 @@ and tool catalog. Delegation uses the original stdio request identity for
 submission recovery. Core owns discovery, manual approvals and Guardian
 auto-review. Worker Sessions keep their native configuration and tools.
 
-On upgrade, Bot clears the legacy application tool catalog on the same
-resident Session. Core cancels any original resident turn still running under
-that catalog. Bot preserves the journal and Worker bindings, and does not
-claim or replay callbacks. Existing background grants can still be revoked or
-used to complete their original schedules. New arrangements wake the resident
-as external material and any subsequent tool action follows native approval.
+On upgrade, Bot asks Core to cancel an active resident turn before clearing a
+non-empty legacy application tool catalog on the same Session. Bot preserves the
+journal and Worker bindings without claiming or replaying callbacks. Explicit
+Session creation includes the empty-catalog version token required by Core v0.85.0.
+Native MCP configuration updates omit the callback fields for an empty catalog.
+Existing background grants can still be revoked or used to complete their
+original schedules. New arrangements wake the resident as external material
+and any subsequent tool action follows native approval.
 Dream is no longer a resident tool. The next user message can rotate an idle
 Session while Bot retains its tasks and reminders.
 
