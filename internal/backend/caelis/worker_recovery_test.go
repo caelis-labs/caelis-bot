@@ -1,7 +1,6 @@
 package caelis
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,14 +112,8 @@ func TestExhaustedWorkerObservationStopsUntilExplicitRead(t *testing.T) {
 	for i := range 3 {
 		s.takeObservationsLocked(time.Now().Add(time.Duration(i) * time.Hour))
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	s.wg.Add(1)
-	go s.pollLoop(ctx)
-	time.Sleep(30 * time.Millisecond)
-	cancel()
-	s.wg.Wait()
-	if requests.Load() != 0 {
-		t.Fatal("exhausted background observation still polls", requests.Load())
+	if selected := s.takeObservationsLocked(time.Now().Add(24 * time.Hour)); len(selected) != 0 || requests.Load() != 0 {
+		t.Fatal("exhausted background observation still selects work", selected, requests.Load())
 	}
 	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "completed" || requests.Load() != 1 {
 		t.Fatal("explicit original retry blocked", got, err)

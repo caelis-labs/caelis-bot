@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
 )
 
 func TestWindowsRuntimeDoesNotInheritPackageDirectory(t *testing.T) {
@@ -16,7 +17,10 @@ func TestWindowsRuntimeDoesNotInheritPackageDirectory(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", home)
 	packageDir := t.TempDir()
 	t.Chdir(packageDir)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestWindowsRuntimeDirectoryChild$")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestWindowsRuntimeDirectoryChild$")
+	cmd.WaitDelay = time.Second
 	if err := prepareCommandDirectory(cmd); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +44,7 @@ func TestWindowsBackgroundRuntimeAllowsPackageDeletion(t *testing.T) {
 	home, packageDir := t.TempDir(), t.TempDir()
 	t.Setenv("LOCALAPPDATA", home)
 	t.Chdir(packageDir)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestWindowsRuntimeDirectoryChild$")
 	if err := prepareCommandDirectory(cmd); err != nil {
@@ -48,10 +52,22 @@ func TestWindowsBackgroundRuntimeAllowsPackageDeletion(t *testing.T) {
 	}
 	ready, finish := filepath.Join(home, "ready"), filepath.Join(home, "finish")
 	cmd.Env = append(os.Environ(), "CAELIS_DIRECTORY_CHILD="+cmd.Dir, "CAELIS_DIRECTORY_READY="+ready, "CAELIS_DIRECTORY_FINISH="+finish)
-	if err := cmd.Start(); err != nil {
+	var child *hostfixture.Process
+	t.Cleanup(func() {
+		if child == nil || child.Exited() {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := child.KillAndWait(cleanup); err != nil {
+			t.Error("background child cleanup", err)
+		}
+	})
+	var err error
+	child, err = hostfixture.Start(cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	for {
 		if _, err := os.Stat(ready); err == nil {
 			break
@@ -72,7 +88,7 @@ func TestWindowsBackgroundRuntimeAllowsPackageDeletion(t *testing.T) {
 	if err := os.WriteFile(finish, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Wait(); err != nil {
+	if err := child.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -90,11 +106,13 @@ func TestWindowsRuntimeDirectoryChild(t *testing.T) {
 		if err := os.WriteFile(ready, nil, 0600); err != nil {
 			t.Fatal(err)
 		}
-		for {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
 			if _, err := os.Stat(os.Getenv("CAELIS_DIRECTORY_FINISH")); err == nil {
-				break
+				return
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+		t.Fatal("parent did not release background child")
 	}
 }

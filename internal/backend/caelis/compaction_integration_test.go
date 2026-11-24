@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,7 +131,7 @@ type compactionProcess struct {
 	root     string
 	settings api.RuntimeSettings
 	host     *client
-	cmd      *exec.Cmd
+	fixture  *nativeHostFixture
 }
 
 func newCompactionProcess(t *testing.T, ctx context.Context) *compactionProcess {
@@ -144,11 +143,13 @@ func newConfiguredCompactionProcess(t *testing.T, ctx context.Context, config ma
 	if bin == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY for actual Core process acceptance")
 	}
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &compactionProcess{root: root, settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}}
+	fixture := newNativeHostFixture(t, bin)
+	h := &compactionProcess{root: fixture.Root, settings: fixture.settings, fixture: fixture}
+	t.Cleanup(func() {
+		if h.host != nil {
+			h.host.http.CloseIdleConnections()
+		}
+	})
 	if config != nil {
 		if err := os.MkdirAll(h.settings.CaelisStore, 0700); err != nil {
 			t.Fatal(err)
@@ -159,76 +160,25 @@ func newConfiguredCompactionProcess(t *testing.T, ctx context.Context, config ma
 		}
 	}
 	h.start(t, ctx)
-	t.Cleanup(func() { h.stop(); h.archive(t) })
 	return h
 }
-func (h *compactionProcess) archive(t *testing.T) {
-	out := os.Getenv("CAELIS_BOT_TEST_EVIDENCE_DIR")
-	if out == "" {
-		return
-	}
-	out = filepath.Join(out, strings.ReplaceAll(t.Name(), "/", "_"))
-	if err := os.MkdirAll(out, 0700); err != nil {
-		t.Error(err)
-		return
-	}
-	if b, e := os.ReadFile(filepath.Join(h.root, "host.log")); e == nil {
-		_ = os.WriteFile(filepath.Join(out, "host.log"), b, 0600)
-	}
-	_ = filepath.WalkDir(filepath.Join(h.settings.CaelisStore, "sessions"), func(path string, d os.DirEntry, e error) error {
-		if e == nil && !d.IsDir() && strings.HasSuffix(path, ".events.jsonl") {
-			b, e := os.ReadFile(path)
-			if e == nil {
-				_ = os.WriteFile(filepath.Join(out, filepath.Base(path)), b, 0600)
-			}
-		}
-		return nil
-	})
-}
+
 func (h *compactionProcess) start(t *testing.T, ctx context.Context) {
 	t.Helper()
-	home := filepath.Join(h.root, "home")
-	if err := os.MkdirAll(home, 0700); err != nil {
-		t.Fatal(err)
-	}
-	h.cmd = exec.CommandContext(ctx, h.settings.CLIPath, "serve", "--store-dir", h.settings.CaelisStore, "--listen", "127.0.0.1:0")
-	h.cmd.Dir = h.root
-	h.cmd.Env = []string{"HOME=" + home, "XDG_CONFIG_HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}
-	log, err := os.OpenFile(filepath.Join(h.root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	h.fixture.start(t, ctx)
+	d, token, err := Discover(h.settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.cmd.Stdout, h.cmd.Stderr = log, log
-	if err = h.cmd.Start(); err != nil {
-		log.Close()
+	h.host, err = newClient(d.Endpoint, token)
+	if err != nil {
 		t.Fatal(err)
 	}
-	log.Close()
-	ready, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	waitAcceptance(t, ready, func() bool {
-		d, token, err := Discover(h.settings)
-		if err != nil {
-			return false
-		}
-		c, err := newClient(d.Endpoint, token)
-		if err != nil {
-			return false
-		}
-		if _, err = initialize(ready, c); err != nil {
-			c.http.CloseIdleConnections()
-			return false
-		}
-		h.host = c
-		return true
-	})
 }
-func (h *compactionProcess) stop() {
-	if h.cmd != nil {
-		_ = h.cmd.Process.Signal(os.Interrupt)
-		_ = h.cmd.Wait()
-		h.cmd = nil
-	}
+
+func (h *compactionProcess) stop(t *testing.T) {
+	t.Helper()
+	h.fixture.stopForeground(t)
 	if h.host != nil {
 		h.host.http.CloseIdleConnections()
 	}
@@ -284,6 +234,7 @@ func (h *compactionProcess) session(t *testing.T, ctx context.Context, selector 
 func (h *compactionProcess) sessionWithTools(t *testing.T, ctx context.Context, selector string, host acceptanceToolHost) *Session {
 	t.Helper()
 	s := New(Options{Directory: filepath.Join(h.root, "bot"), Settings: h.settings, ToolsOnly: true, RequireApproval: true, Execution: api.ExecutionSettings{Model: selector, Effort: "none", ApprovalMode: "workspace-write"}})
+	registerNativeFixture(t, s)
 	config := &api.ToolConnection{Instructions: syntheticHandoff, NotebookDirectory: h.root}
 	if host != nil {
 		config = fixtureMCPConfig(t, config, host)
@@ -294,7 +245,7 @@ func (h *compactionProcess) sessionWithTools(t *testing.T, ctx context.Context, 
 	if err := s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close(context.Background()) })
+
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	return s
 }
@@ -333,7 +284,7 @@ func TestCoreCompactionSwitchMatrix(t *testing.T) {
 			defer cancel()
 			model := &compactionHTTPModel{summaryStarted: make(chan struct{}, 1), toolFirst: tc.media}
 			server := httptest.NewServer(http.HandlerFunc(model.serve))
-			defer server.Close()
+			defer closeNativeHTTP(server)
 			config := compactionFixtureConfig(server.URL, tc.codex)
 			h := newConfiguredCompactionProcess(t, ctx, config)
 			h.experiments(t, ctx, tc.async, tc.idle)

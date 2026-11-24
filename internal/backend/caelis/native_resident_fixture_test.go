@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,29 +25,12 @@ func nativeResidentFixture(t *testing.T, configureResident func(*bot.Runtime)) (
 	t.Cleanup(cancel)
 	model := newAcceptanceModel()
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
-	t.Cleanup(server.Close)
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
-	if err := os.Mkdir(filepath.Join(root, "home"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { closeNativeHTTP(server) })
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	environment := newExecutionFixture(t, root)
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	cmd.Dir, cmd.Env = root, environment.env
-	log, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Stdout, cmd.Stderr = log, log
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	_ = log.Close()
-	t.Cleanup(func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() })
-	waitAcceptance(t, ctx, func() bool { _, _, err := Discover(settings); return err == nil })
+	hostFixture.Env = environment.env
+	hostFixture.start(t, ctx)
 	d, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +75,7 @@ func nativeResidentFixture(t *testing.T, configureResident func(*bot.Runtime)) (
 	}
 	config.ConsumeContext = resident.ConsumeHandoffContext
 	s := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+	registerNativeFixture(t, s)
 	resident.Start(s)
 	t.Cleanup(resident.Stop)
 	if err := s.ConfigureBotTools(config); err != nil {
@@ -101,7 +84,7 @@ func nativeResidentFixture(t *testing.T, configureResident func(*bot.Runtime)) (
 	if err := s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close(context.Background()) })
+
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	return ctx, s, resident, model
 }

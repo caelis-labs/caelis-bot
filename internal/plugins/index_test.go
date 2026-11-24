@@ -25,16 +25,14 @@ func TestToolIndexConnectedDirectoryOnlyAndNoopWrite(t *testing.T) {
 	if !strings.Contains(string(first), `"name":"lookup"`) || !strings.Contains(string(first), `"description":"Find matching notes"`) || !strings.Contains(string(first), `"package":"other","service":"search","runtime":"p_other_search"`) || strings.Contains(string(first), "private value") || strings.Contains(string(first), "schema") {
 		t.Fatalf("index leaked or omitted directory metadata: %s", first)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
+	stamp := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
-	stamp := info.ModTime()
-	time.Sleep(10 * time.Millisecond)
 	if err := WriteIndex(path, servers); err != nil {
 		t.Fatal(err)
 	}
-	info, err = os.Stat(path)
+	info, err := os.Stat(path)
 	if err != nil || !info.ModTime().Equal(stamp) {
 		t.Fatal("unchanged index was rewritten", err)
 	}

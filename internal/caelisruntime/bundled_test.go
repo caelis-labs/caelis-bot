@@ -1,12 +1,16 @@
 package caelisruntime
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func TestBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
@@ -75,13 +79,12 @@ func TestBundledRuntimeDiscoveryAndUpdateBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	current, _ := os.Executable()
-	data, err := os.ReadFile(current)
+	current, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	child := filepath.Join(contents, binaryDirectory, "test")
-	if err = os.WriteFile(child, data, 0700); err != nil {
+	if err = testutil.LinkExecutable(current, child); err != nil {
 		t.Fatal(err)
 	}
 	fixture := []byte(`#!/bin/sh
@@ -101,7 +104,10 @@ esac
 	if err = os.Symlink(bundled, bundled+"-link"); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(t.Context(), child, "-test.run=^TestBundledRuntimeDiscoveryAndUpdateBoundary$")
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, child, "-test.run=^TestBundledRuntimeDiscoveryAndUpdateBoundary$")
+	cmd.WaitDelay = time.Second
 	cmd.Env = append(os.Environ(), "BOT_BUNDLE_TEST_CHILD=1", "BOT_BUNDLE_TEST_LOG="+filepath.Join(root, "calls"), "BOT_BUNDLE_TEST_CUSTOM="+custom, "PATH="+root+":/usr/bin:/bin", "HOME="+root)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("bundle subprocess: %v\n%s", err, output)

@@ -19,6 +19,8 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 // This opt-in test executes the Bot adapter from its own synthetic app bundle,
@@ -38,17 +40,8 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), budget)
 	defer cancel()
 	if os.Getenv("BOT_RUNTIME_MATRIX_CHILD") == "" {
-		root, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
-			defer stop()
-			command := exec.CommandContext(cleanup, current, "service", "stop", "--store-dir", filepath.Join(root, "store"), "--format", "json")
-			runtimeenv.BackgroundCommand(command)
-			_ = command.Run()
-		}()
+		fixture := newNativeHostFixture(t, current)
+		root := fixture.Root
 		contents := filepath.Join(root, "Matrix.app", "Contents")
 		child := filepath.Join(contents, "MacOS", "matrix-test")
 		helper := filepath.Join(contents, "Helpers", "caelis")
@@ -76,16 +69,13 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 			t.Fatal(err)
 		}
 		for dst, src := range map[string]string{child: executable, helper: current, global: old} {
-			data, err := os.ReadFile(src)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(dst, data, 0700); err != nil {
+			if err := testutil.LinkExecutable(src, dst); err != nil {
 				t.Fatal(err)
 			}
 		}
 		command := exec.CommandContext(ctx, child, "-test.run=^TestBundledRuntimeVersionInterop$", "-test.v")
 		command.Dir = root
+		command.WaitDelay = time.Second
 		command.Env = []string{"BOT_RUNTIME_MATRIX_CHILD=1", "CAELIS_BOT_TEST_PREVIOUS_BINARY=" + old, "CAELIS_BOT_TEST_BINARY=" + current, "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "home"), "PATH=" + filepath.Join(root, "global") + ":/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}
 		if runtime.GOOS == "windows" {
 			// Keep only OS execution dependencies; never inherit a user's Store or
@@ -97,6 +87,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 				"SystemRoot=" + os.Getenv("SystemRoot"), "TEMP=" + os.TempDir(), "TMP=" + os.TempDir()}
 		}
 		runtimeenv.BackgroundCommand(command)
+		command.WaitDelay = time.Second
 		output, err := command.CombinedOutput()
 		t.Log(string(output))
 		if err != nil {
@@ -114,6 +105,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		args = append(args, "--store-dir", settings.CaelisStore, "--format", "json")
 		command := exec.CommandContext(ctx, binary, args...)
 		runtimeenv.BackgroundCommand(command)
+		command.WaitDelay = time.Second
 		output, err := command.CombinedOutput()
 		if err != nil {
 			if data, readErr := os.ReadFile(filepath.Join(settings.CaelisStore, "logs", "service.log")); readErr == nil {
@@ -124,11 +116,6 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		return output
 	}
 	cli(old, "service", "start")
-	defer func() {
-		command := exec.Command(current, "service", "stop", "--store-dir", settings.CaelisStore, "--format", "json")
-		runtimeenv.BackgroundCommand(command)
-		_ = command.Run()
-	}()
 	discovery, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -175,18 +162,24 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	model.set("CASE_OLD_BLOCK", modelStep{Block: held, Entered: entered, Reply: "OLD_COMPLETED"})
 	oldTask := exec.CommandContext(ctx, old, "-p", "CASE_OLD_BLOCK", "--store-dir", settings.CaelisStore, "--format", "json")
 	runtimeenv.BackgroundCommand(oldTask)
-	if err := oldTask.Start(); err != nil {
-		t.Fatal(err)
-	}
+	var oldProcess *hostfixture.Process
 	released := false
 	defer func() {
 		if !released {
 			close(held)
 		}
-		if oldTask.ProcessState == nil {
-			_ = oldTask.Wait()
+		if oldProcess != nil && !oldProcess.Exited() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := oldProcess.KillAndWait(cleanup); err != nil {
+				t.Error("reap original CLI", err)
+			}
 		}
 	}()
+	oldProcess, err = hostfixture.Start(oldTask)
+	if err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-entered:
 	case <-ctx.Done():
@@ -201,7 +194,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		t.Fatalf("bundle selection: %s %v", found, err)
 	}
 	bot := New(opts)
-	defer bot.Close(context.Background())
+	defer closeNativeFixture(t, bot)
 	if err := bot.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +226,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	}
 	close(held)
 	released = true
-	if err := oldTask.Wait(); err != nil {
+	if err := oldProcess.Wait(ctx); err != nil {
 		t.Fatal("original Session failed", err)
 	}
 	waitAcceptance(t, ctx, func() bool { d, _, e := Discover(settings); return e == nil && d.InstanceID != discovery.InstanceID })

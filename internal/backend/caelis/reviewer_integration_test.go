@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -37,12 +36,9 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 230*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	env := newExecutionFixture(t, root)
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
 	main := newAcceptanceModel()
 	var mu sync.Mutex
 	decision := `{"option_id":"allow_once"}`
@@ -80,33 +76,10 @@ func TestGuardianHostIntegration(t *testing.T) {
 		b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": reply}, "finish_reason": "stop"}}})
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", b)
 	}))
-	defer server.Close()
+	defer closeNativeHTTP(server)
 	configureReview := func(reply string, gate <-chan struct{}) { mu.Lock(); decision, block = reply, gate; mu.Unlock() }
-	var cmd *exec.Cmd
-	start := func() {
-		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-		cmd.Dir = root
-		cmd.Env = env.env
-		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-		if e != nil {
-			t.Fatal(e)
-		}
-		cmd.Stdout, cmd.Stderr = log, log
-		if e = cmd.Start(); e != nil {
-			t.Fatal(e)
-		}
-		_ = log.Close()
-		waitAcceptance(t, ctx, func() bool { _, _, e := Discover(settings); return e == nil })
-	}
-	stop := func() {
-		if cmd != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
-			_ = cmd.Wait()
-			cmd = nil
-		}
-	}
-	start()
-	defer stop()
+	hostFixture.Env = env.env
+	hostFixture.start(t, ctx)
 	d, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +136,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	var s *Session
 	open := func() {
 		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}})
+		registerNativeFixture(t, s)
 		if err = s.ConfigureBotTools(fixtureConfig); err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +146,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	}
 	open()
-	defer func() { _ = s.Close(context.Background()) }()
+
 	original := s.state.Session.SessionId
 	if p := s.state.Session.Profile; p.Reviewer != nil || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
 		t.Fatal("Guardian/sandbox not assembled")
@@ -447,8 +421,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		stop()
-		start()
+		hostFixture.stopForeground(t)
+		hostFixture.start(t, ctx)
 		open()
 		if s.state.Session.SessionId != original {
 			t.Fatal("reconnect replaced conversation")
@@ -563,6 +537,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		config.NotebookDirectory, config.PrepareContext, config.ConsumeContext = vault.Path(), vault.PrepareContext, vault.ConsumeContext
 		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, RequireApproval: true}
 		legacy := New(opts)
+		defer closeNativeFixture(t, legacy)
 		if e = legacy.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -580,13 +555,14 @@ func TestGuardianHostIntegration(t *testing.T) {
 		config.RuntimeVersion = "fixture-next-version"
 		opts.RequireApproval = false
 		upgraded := New(opts)
+		defer closeNativeFixture(t, upgraded)
 		if e = upgraded.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
 		if e = upgraded.Connect(ctx); e != nil {
 			t.Fatal(e)
 		}
-		defer upgraded.Close(context.Background())
+
 		waitAcceptance(t, ctx, func() bool { return upgraded.ConversationState().Observed && upgraded.Snapshot().CanSend })
 		if upgraded.ConversationState().Session != old || value(upgraded.state.Session.Profile.Permissions.ApprovalMode) != "manual" {
 			t.Fatal("upgrade mutated existing runtime before handoff")

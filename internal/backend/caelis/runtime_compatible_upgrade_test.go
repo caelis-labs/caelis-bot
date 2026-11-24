@@ -29,34 +29,17 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 180*time.Second)
 	defer cancel()
-	root := t.TempDir()
-	if base := os.Getenv("CAELIS_BOT_TEST_EVIDENCE_DIR"); base != "" {
-		var err error
-		root, err = os.MkdirTemp(base, "runtime-upgrade-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	root, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: previous, CaelisStore: filepath.Join(root, "store")}
+	fixture := newNativeHostFixture(t, current)
+	root := fixture.Root
+	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: previous, CaelisStore: fixture.Path}
 	environment := newExecutionFixture(t, root)
 	start := exec.CommandContext(ctx, previous, "service", "start", "--store-dir", settings.CaelisStore, "--format", "json")
 	start.Dir, start.Env = root, environment.env
+	start.WaitDelay = time.Second
 	runtimeenv.BackgroundCommand(start)
 	if output, err := start.CombinedOutput(); err != nil {
 		t.Fatalf("private previous Host start: %v %s", err, output)
 	}
-	defer func() {
-		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
-		defer stop()
-		command := exec.CommandContext(cleanup, current, "service", "stop", "--store-dir", settings.CaelisStore, "--format", "json")
-		command.Env, command.Dir = environment.env, root
-		runtimeenv.BackgroundCommand(command)
-		_ = command.Run()
-	}()
 	d, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -70,13 +53,16 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	}
 	model := newAcceptanceModel()
 	defer func() {
+		if !t.Failed() || os.Getenv("CAELIS_BOT_TEST_EVIDENCE_DIR") == "" {
+			return
+		}
 		model.mu.Lock()
 		defer model.mu.Unlock()
 		data, _ := json.MarshalIndent(model.requests, "", "  ")
 		_ = os.WriteFile(filepath.Join(root, "model-requests.json"), data, 0600)
 	}()
 	provider := httptest.NewServer(nativeDTWModel(model))
-	defer provider.Close()
+	defer closeNativeHTTP(provider)
 	var status wire.StatusSnapshot
 	if err = host.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
 		t.Fatal(err)
@@ -95,6 +81,7 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	}}
 	connection := fixtureMCPConfig(t, &api.ToolConnection{}, tools)
 	resident := New(opts)
+	defer closeNativeFixture(t, resident)
 	defer resident.Close(context.Background())
 	if err = resident.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
@@ -118,7 +105,7 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close(context.Background())
+	defer closeNativeFixture(t, owner)
 	if err = owner.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +155,8 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	settings.CLIPath = current
 	opts.Settings = settings
 	upgraded := New(opts)
-	defer upgraded.Close(context.Background())
+	defer closeNativeFixture(t, upgraded)
+
 	if err = upgraded.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +185,7 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.Close(context.Background())
+	defer closeNativeFixture(t, restored)
 	if err = restored.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}

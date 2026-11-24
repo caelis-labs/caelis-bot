@@ -108,11 +108,24 @@ func TestFirstObserverCancellationKeepsSharedStartup(t *testing.T) {
 	if err := sharedCtx.Err(); err != nil {
 		t.Fatal("first observer canceled the shared startup", err)
 	}
+	waitCanceled, stopWait := context.WithCancel(t.Context())
+	stopWait()
+	if err := c.Wait(waitCanceled, "original"); !errors.Is(err, context.Canceled) {
+		t.Fatal("fixture cleanup could not bound a pending startup", err)
+	}
+	if err := c.Wait(t.Context(), "another-store"); err != nil {
+		t.Fatal(err)
+	}
 	secondDone := make(chan error, 1)
 	go func() { secondDone <- c.Recover(t.Context(), "original", start) }()
 	close(release)
 	if err := <-secondDone; err != nil {
 		t.Fatal("active observer lost the shared startup", err)
+	}
+	cleanup, stopCleanup := context.WithTimeout(context.Background(), time.Second)
+	defer stopCleanup()
+	if err := c.Wait(cleanup, "original"); err != nil {
+		t.Fatal("could not join startup after observer cancellation", err)
 	}
 	if err := c.Recover(t.Context(), "original", start); err != nil || starts.Load() != 1 {
 		t.Fatal("observer cancellation was cached or launched another startup", err, starts.Load())

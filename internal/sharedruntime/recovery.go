@@ -73,6 +73,23 @@ func (c *Coordinator) Recover(ctx context.Context, key string, start func(contex
 	}
 }
 
+// Wait joins a recovery already admitted for key. Callers must stop their
+// observers first. The result of starting the service belongs to Recover.
+func (c *Coordinator) Wait(ctx context.Context, key string) error {
+	c.mu.Lock()
+	a := c.attempts[key]
+	c.mu.Unlock()
+	if a == nil {
+		return nil
+	}
+	select {
+	case <-a.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ResetCooldown drops a completed attempt after a new readiness observation or
 // wake edge. An in-flight command still belongs to all concurrent observers.
 func (c *Coordinator) ResetCooldown(key string) {

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func TestWindowsExplicitExecutableDoesNotRequirePOSIXMode(t *testing.T) {
@@ -11,16 +13,15 @@ func TestWindowsExplicitExecutableDoesNotRequirePOSIXMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
 	path := filepath.Join(t.TempDir(), "运行 工具.EXE")
-	if err = os.WriteFile(path, body, 0600); err != nil {
+	if err = testutil.LinkExecutable(self, path); err != nil {
 		t.Fatal(err)
 	}
 	if found, err := Find(path); err != nil || found != path {
 		t.Fatal("native EXE rejected", err)
+	}
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
 	}
 	if err = os.WriteFile(path, []byte("not an executable"), 0600); err != nil {
 		t.Fatal(err)

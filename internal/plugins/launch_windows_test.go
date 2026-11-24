@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 
 	"golang.org/x/sys/windows"
 )
@@ -34,11 +38,7 @@ func TestWindowsStdioPluginHasNoConsole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(source, "bin", "probe.exe"), binary, 0600); err != nil {
+	if err = testutil.LinkExecutable(self, filepath.Join(source, "bin", "probe.exe")); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{"$schema":"` + mcpSchema + `","mcpServers":{"probe":{"type":"stdio","command":"./bin/probe.exe","args":["-test.run=^TestWindowsStdioPluginHasNoConsole$"],"env":{"BOT_TEST_STDIO_CONSOLE":"child"}}}}`
@@ -73,8 +73,10 @@ func TestWindowsStdioPluginHasNoConsole(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected := m.Selection().Servers[0]
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 	var out, diagnostics bytes.Buffer
-	if err = runStdio(t.Context(), m, "fixture", "probe", strings.NewReader("\"stdio-roundtrip\"\n"), &out, &diagnostics, filepath.Base(selected.Root)); err != nil {
+	if err = runStdio(ctx, m, "fixture", "probe", strings.NewReader("\"stdio-roundtrip\"\n"), &out, &diagnostics, filepath.Base(selected.Root)); err != nil {
 		t.Fatalf("stdio plugin: %v (%s)", err, diagnostics.String())
 	}
 	var reply struct {

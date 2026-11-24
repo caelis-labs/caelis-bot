@@ -1,18 +1,22 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing.T) {
@@ -21,33 +25,19 @@ func TestCaelisUpdateDelegatesReplacementAndRequiresLiveCompatibility(t *testing
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	source := filepath.Join(fixtureRoot, "main.go")
-	program := `package main
-import ("fmt"; "os")
-func main() {
- if len(os.Args)<2 { os.Exit(1) }
- f,e:=os.OpenFile(os.Getenv("BOT_UPGRADE_CALLS"),os.O_CREATE|os.O_WRONLY|os.O_APPEND,0600);if e!=nil {os.Exit(1)}
- second:="";if len(os.Args)>2 {second=os.Args[2]};fmt.Fprintln(f,os.Args[1],second);_ = f.Close()
- switch os.Args[1] {
- case "version":fmt.Println("{\"version\":\"v0.62.0\"}")
- case "update":fmt.Println("caelis is up to date (v0.62.0)")
- case "service":if os.Getenv("BOT_UPGRADE_MODE")=="start-failed" {os.Exit(1)};if os.WriteFile(os.Getenv("BOT_UPGRADE_MARKER"),[]byte("started"),0600)!=nil {os.Exit(1)};fmt.Println("{\"state\":\"running\"}")
- default:os.Exit(1)
- }
-}`
-	if err := os.WriteFile(source, []byte(program), 0600); err != nil {
+	self, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-trimpath", "-o", binary, source)
-	build.Env = append(os.Environ(), "GOWORK=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build portable runtime fixture: %v %s", err, output)
+	if err := testutil.LinkExecutable(self, binary); err != nil {
+		t.Fatal(err)
 	}
 	for _, mode := range []string{"ready", "incompatible", "start-failed"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			calls := filepath.Join(dir, "calls")
 			marker := filepath.Join(dir, "started")
+			t.Setenv("BOT_UPGRADE_CLI_FIXTURE", "1")
 			t.Setenv("BOT_UPGRADE_CALLS", calls)
 			t.Setenv("BOT_UPGRADE_MARKER", marker)
 			t.Setenv("BOT_UPGRADE_MODE", mode)
@@ -119,25 +109,21 @@ func TestCaelisServiceUpgrade(t *testing.T) {
 	if old == "" || newBinary == "" {
 		t.Skip("set two compatible binaries for isolated lifecycle acceptance")
 	}
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	store := filepath.Join(dir, "store")
-	if _, err := caelisruntime.Manage(t.Context(), "start", old, store); err != nil {
+	fixture := hostfixture.New(t, newBinary, "store")
+	fixture.IsolateRecoveryEnvironment(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	store := fixture.Path
+	if _, err := caelisruntime.Manage(ctx, "start", old, store); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		cmd := exec.Command(newBinary, "service", "stop", "--store-dir", store, "--format", "json")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("isolated service cleanup: %v %s", err, out)
-		}
-	}()
 	sentinel := filepath.Join(store, "upgrade-sentinel")
 	if err := os.WriteFile(sentinel, []byte("preserve"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := fixtureApp(t, newTestEngine(), Host{})
 	defer a.Close()
-	v, err := a.manageCaelis(t.Context(), "apply-update", api.RuntimeSettings{Runtime: "caelis", CLIPath: newBinary, CaelisStore: store})
+	v, err := a.manageCaelis(ctx, "apply-update", api.RuntimeSettings{Runtime: "caelis", CLIPath: newBinary, CaelisStore: store})
 	if err != nil || (!strings.Contains(v.Message, "验证通过") && !strings.Contains(v.Message, "verified")) {
 		t.Fatal(v, err)
 	}
@@ -155,4 +141,37 @@ func TestCaelisServiceUpgrade(t *testing.T) {
 		t.Fatal("Store replaced", err)
 	}
 	t.Log("older Host build replaced through native lifecycle; Store retained and Bot protocol verified")
+}
+
+// Run in the read-only alias of the already built app test executable.
+func runUpgradeCLIFixture() int {
+	if len(os.Args) < 2 {
+		return 1
+	}
+	f, err := os.OpenFile(os.Getenv("BOT_UPGRADE_CALLS"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return 1
+	}
+	second := ""
+	if len(os.Args) > 2 {
+		second = os.Args[2]
+	}
+	_, err = fmt.Fprintln(f, os.Args[1], second)
+	if closeErr := f.Close(); err != nil || closeErr != nil {
+		return 1
+	}
+	switch os.Args[1] {
+	case "version":
+		fmt.Println(`{"version":"v0.62.0"}`)
+	case "update":
+		fmt.Println("caelis is up to date (v0.62.0)")
+	case "service":
+		if os.Getenv("BOT_UPGRADE_MODE") == "start-failed" || os.WriteFile(os.Getenv("BOT_UPGRADE_MARKER"), []byte("started"), 0600) != nil {
+			return 1
+		}
+		fmt.Println(`{"state":"running"}`)
+	default:
+		return 1
+	}
+	return 0
 }

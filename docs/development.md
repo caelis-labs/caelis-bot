@@ -217,3 +217,24 @@ For every feature/behavior change, inspect `internal/botskills/skills/bot-core/`
 update English Bot-facing guidance if capabilities, tools or workflows changed;
 otherwise record why no skill update is needed. Keep documentation factual and
 current; source tests and contracts carry detailed regression cases.
+
+### Private Caelis Host fixtures
+
+Run the focused macOS lifecycle checks with a released CLI that includes Desktop World.
+
+```sh
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis GOWORK=off \
+  go test ./internal/backend/caelis -count=1 -v -timeout 90s \
+  -run '^(TestPrivateHostReadinessFailureCleanup|TestNativePrivateHostLifecycle)$'
+```
+
+The checks use an isolated Store, a synthetic local provider and native Host and
+DTW processes. They report scoped PIDs, cleanup elapsed time and the size of
+regular files sampled in the private fixture. The reconnect case verifies the
+original Session on a new managed Host. The readiness case uses a subprocess
+that stays alive without publishing discovery.
+
+Set `CAELIS_BOT_TEST_EVIDENCE_DIR` to a private directory on the same filesystem
+to retain a failed fixture after verified process exit. Default cleanup removes
+the fixture. If teardown cannot confirm exit, the test reports the cleanup
+error and leaves the original path available for diagnosis.

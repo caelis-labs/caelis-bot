@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func TestWindowsNPMLongTempNativeHandshake(t *testing.T) {
@@ -24,14 +26,10 @@ func TestWindowsNPMLongTempNativeHandshake(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(native), 0700); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(binary)
-	if err != nil {
+	if err := testutil.LinkExecutable(binary, native); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(native, b, 0700); err != nil {
-		t.Fatal(err)
-	}
-	native, err = filepath.EvalSymlinks(native)
+	native, err := filepath.EvalSymlinks(native)
 	if err != nil {
 		t.Fatal(err)
 	}
