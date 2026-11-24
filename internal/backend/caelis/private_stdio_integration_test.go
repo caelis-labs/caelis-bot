@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,7 +37,7 @@ func TestCaelisTaskStdioHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// Caelis v0.85.0 has no async question projection for a native model Worker.
+// The Caelis adapter has no async question projection for a native model Worker.
 // This fixture supplies only the question and binding. Its accepted reply
 // continues the real Worker through Manager and Core's original Session.
 type residentQuestionFixture struct {
@@ -60,40 +62,46 @@ func (f *residentQuestionFixture) AnswerWorkerQuestion(ctx context.Context, id, 
 	return api.Receipt{ID: request, Outcome: task.Outcome}, err
 }
 
-func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mainModel, workerModel string, model *acceptanceModel, review func(string, <-chan struct{})) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 105*time.Second)
+// The retired write API can only be exercised against the previous release.
+// Reopen the same Store with the new Host and reconcile through the Bot adapter.
+func TestLegacyCallbackUpgrade(t *testing.T) {
+	previous, current := os.Getenv("CAELIS_BOT_TEST_PREVIOUS_BINARY"), os.Getenv("CAELIS_BOT_TEST_BINARY")
+	if previous == "" || current == "" {
+		t.Skip("set the previous callback-capable and current released binaries")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	fixture := newNativeHostFixture(t, previous)
+	root := fixture.Root
+	model := newAcceptanceModel()
+	server := httptest.NewServer(http.HandlerFunc(model.serve))
+	defer closeNativeHTTP(server)
+	fixture.start(t, ctx)
+	d, token, err := Discover(fixture.settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	skill, err := botskills.Install(root)
+	host, err := newClient(d.Endpoint, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable := os.Getenv("CAELIS_BOT_TEST_APP_BINARY")
-	args := []string{"--bot-tools"}
-	if executable == "" {
-		executable, err = os.Executable()
-		if err != nil {
-			t.Fatal(err)
-		}
-		args = []string{"-test.run=^TestCaelisTaskStdioHelper$", "--"}
-	}
-	opts := Options{Directory: filepath.Join(root, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainModel}, WorkExecution: api.WorkExecutionSettings{Model: workerModel}}
-	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
-	if err != nil {
+	defer host.http.CloseIdleConnections()
+	var status wire.StatusSnapshot
+	if err := host.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	defer resident.Close()
+	op := "configure-legacy-upgrade"
+	var result wire.CommandResult
+	config := wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision,
+		Config: wire.ConnectConfig{Provider: "custom-responses", Model: "legacy-upgrade", BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}
+	if err := host.json(ctx, "POST", "/configuration/connect-model", config, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
+		t.Fatal("configure previous Host", result.Outcome, err)
+	}
+	opts := Options{Directory: filepath.Join(root, "binding"), Settings: fixture.settings,
+		RequireApproval: true, Execution: api.ExecutionSettings{Model: fixtureModelSelector(t, ctx, host, "legacy-upgrade"), ApprovalMode: "workspace-write"}}
 	old := New(opts)
 	defer closeNativeFixture(t, old)
-	legacy := &api.ToolConnection{Instructions: botskills.Bootstrap(), BuiltinSkillRoots: []string{filepath.Dir(skill)},
-		NotebookDirectory: filepath.Join(root, "Notebook")}
-	if err := os.Mkdir(legacy.NotebookDirectory, 0700); err != nil {
-		t.Fatal(err)
-	}
+	legacy := &api.ToolConnection{NotebookDirectory: root}
 	if err := old.ConfigureBotTools(legacy); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +113,8 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	// the Bot adapter's callback-free profile assembly.
 	legacyCatalog := []wire.SessionToolDefinition{{
 		Name: "bot_schedule", Description: "Legacy upgrade fixture", ApprovalPolicy: pointer("direct"),
-		InputSchema: wire.JSONObject{"type": "object", "properties": map[string]any{}},
+		ResultFormat: pointer("content-v1"),
+		InputSchema:  wire.JSONObject{"type": "object", "properties": map[string]any{}},
 	}}
 	originalConfig, err := old.Configuration(ctx)
 	if err != nil {
@@ -139,6 +148,96 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		return false
 	})
 	if err := old.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture.stopForeground(t)
+	fixture.Binary, fixture.settings.CLIPath = current, current
+	fixture.start(t, ctx)
+	opts.Settings = fixture.settings
+	s := New(opts)
+	defer closeNativeFixture(t, s)
+	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resident.Close()
+	bridge, err := bot.Serve(resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := bridge.Config(executable)
+	connection.Args = []string{"-test.run=^TestCaelisTaskStdioHelper$", "--"}
+	connection.NotebookDirectory = root
+	if err := s.ConfigureBotTools(connection); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sid := s.ConversationState().Session
+	if sid != oldID {
+		t.Fatal("private migration replaced the retained resident Session")
+	}
+	currentConfig, err := s.Configuration(ctx)
+	if err != nil || !hasNativeTaskMCP(currentConfig.Profile) {
+		t.Fatal("resident did not migrate to the native task MCP profile", err)
+	}
+	waitAcceptance(t, ctx, func() bool {
+		var retired wire.SessionToolCall
+		path := "/sessions/" + idPath(sid) + "/tool-calls/" + idPath(legacyCall.Id)
+		if err := s.client.json(ctx, "GET", path, nil, &retired, "", ""); err != nil {
+			t.Fatal("fixture could not inspect Core's original retired callback", err)
+		}
+		return retired.State == "cancelled" && sameArchivedInvocation(retired, legacyCall) && retired.Result == nil
+	})
+	// Verify that the original resident can accept new input after retirement.
+	legacyTerminal, stopLegacyWait := context.WithTimeout(ctx, 10*time.Second)
+	defer stopLegacyWait()
+	waitAcceptance(t, legacyTerminal, func() bool {
+		var state wire.SessionState
+		if err := s.client.json(legacyTerminal, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
+			return false
+		}
+		return state.SessionId == sid && !nativeRunActive(state) && s.Snapshot().CanSend
+	})
+	t.Log("same resident Session upgraded from an actual pending callback, which Core cancelled without a Bot claim or result")
+}
+
+func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mainModel, workerModel string, model *acceptanceModel, review func(string, <-chan struct{})) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 105*time.Second)
+	defer cancel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := botskills.Install(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := os.Getenv("CAELIS_BOT_TEST_APP_BINARY")
+	args := []string{"--bot-tools"}
+	if executable == "" {
+		executable, err = os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		args = []string{"-test.run=^TestCaelisTaskStdioHelper$", "--"}
+	}
+	opts := Options{Directory: filepath.Join(root, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainModel}, WorkExecution: api.WorkExecutionSettings{Model: workerModel}}
+	resident, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resident.Close()
+	notebook := filepath.Join(root, "Notebook")
+	if err := os.Mkdir(notebook, 0700); err != nil {
 		t.Fatal(err)
 	}
 	s := New(opts)
@@ -189,7 +288,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	defer bridge.Close()
 	cfg := bridge.Config(executable)
-	cfg.Args, cfg.NotebookDirectory = args, legacy.NotebookDirectory
+	cfg.Args, cfg.NotebookDirectory = args, notebook
 	cfg.Instructions, cfg.BuiltinSkillRoots = botskills.Bootstrap(), []string{filepath.Dir(skill)}
 	if err := s.ConfigureBotTools(cfg); err != nil {
 		t.Fatal(err)
@@ -211,33 +310,10 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	resident.Start(s)
 	sid := s.ConversationState().Session
-	if sid != oldID {
-		t.Fatal("private migration replaced the retained resident Session")
-	}
 	current, err := s.Configuration(ctx)
 	if err != nil || !hasNativeTaskMCP(current.Profile) {
-		t.Fatal("resident did not migrate to the native task MCP profile", err)
+		t.Fatal("resident did not activate the native task MCP profile", err)
 	}
-	waitAcceptance(t, ctx, func() bool {
-		var retired wire.SessionToolCall
-		path := "/sessions/" + idPath(sid) + "/tool-calls/" + idPath(legacyCall.Id)
-		if err := s.client.json(ctx, "GET", path, nil, &retired, "", ""); err != nil {
-			t.Fatal("fixture could not inspect Core's original retired callback", err)
-		}
-		return retired.State == "cancelled" && retired.Id == legacyCall.Id && retired.TurnId == legacyCall.TurnId && retired.Result == nil
-	})
-	// Cancellation first settles the callback. Wait for Core to finish its
-	// owning turn before submitting the first new request on the same Session.
-	legacyTerminal, stopLegacyWait := context.WithTimeout(ctx, 10*time.Second)
-	defer stopLegacyWait()
-	waitAcceptance(t, legacyTerminal, func() bool {
-		var state wire.SessionState
-		if err := s.client.json(legacyTerminal, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
-			return false
-		}
-		return state.SessionId == sid && !nativeRunActive(state) && s.Snapshot().CanSend
-	})
-	t.Log("same resident Session upgraded from an actual pending callback, which Core cancelled without a Bot claim or result")
 	readStatus := func(session *Session, sid string) wire.SessionMCPStatus {
 		t.Helper()
 		var status wire.SessionMCPStatus
@@ -600,9 +676,8 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	manual := New(manualOpts)
 	defer closeNativeFixture(t, manual)
-	legacyManual := legacy.Clone()
-	legacyManual.NotebookDirectory = manualNotebook
-	if err := manual.ConfigureBotTools(legacyManual); err != nil {
+	manualProfile := &api.ToolConnection{Instructions: cfg.Instructions, BuiltinSkillRoots: cfg.BuiltinSkillRoots, NotebookDirectory: manualNotebook}
+	if err := manual.ConfigureBotTools(manualProfile); err != nil {
 		t.Fatal(err)
 	}
 	if err := manual.Connect(ctx); err != nil {

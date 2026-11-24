@@ -99,9 +99,12 @@ keep their native configuration and tools.
 
 On upgrade, Bot asks Core to cancel an active resident turn before clearing a
 non-empty legacy application tool catalog on the same Session. Bot preserves the
-journal and Worker bindings without claiming or replaying callbacks. Explicit
-Session creation includes the empty-catalog version token required by Core v0.85.0.
-Native MCP configuration updates omit the callback fields for an empty catalog.
+journal and Worker bindings without claiming or replaying callbacks. Starting
+with Core v0.86, callback receipts remain readable by original ID. Core settles
+pending receipts as cancelled and claimed receipts as unknown at Host startup.
+Explicit Session creation still supplies the empty-catalog version token for
+compatibility with older Hosts. Native MCP configuration updates omit the
+callback fields for an empty catalog.
 Existing background grants can still be revoked or used to complete their
 original schedules. New arrangements wake the resident as external material
 and any subsequent tool action follows native approval.
