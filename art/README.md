@@ -1,6 +1,6 @@
 # Character studio
 
-Both shipped characters are available in **Settings → Appearance → Character and costume**.
+Both shipped characters are available in **Settings → Appearance → Character**.
 The [built-in manifest](../resources/character-pack.json) pins their finished assets.
 Application builds use these files directly. Blender 5.2.1 is used for authoring.
 
