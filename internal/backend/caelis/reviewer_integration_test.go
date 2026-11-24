@@ -146,7 +146,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 	var effects atomic.Int32
 	definitions := fixtureDefinitions("string")
-	for _, name := range []string{"FixtureAllowed", "FixtureDENY", "FixtureFAIL", "FixtureCancelled", "FixtureTimedOut", "FixtureFirstOfTwo", "FixtureSecondOfTwo"} {
+	for _, name := range []string{"FixtureAllowed", "FixtureDENY", "FixtureFAIL", "FixtureCancelled", "FixtureFirstOfTwo", "FixtureSecondOfTwo"} {
 		definition := definitions[0]
 		definition.Name = name
 		definitions = append(definitions, definition)
@@ -358,27 +358,70 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 	}
 	if !t.Run("G04_cancel_pending_review", func(t *testing.T) {
+		before := effects.Load()
 		gate := make(chan struct{})
 		var once sync.Once
 		release := func() { once.Do(func() { close(gate) }) }
 		defer release()
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		main.set("CASE_REVIEW_CANCEL", fixtureMCPStep("FixtureCancelled", map[string]any{"key": "cancelled"}))
-		if _, e := s.Submit(ctx, api.Submission{ID: "review-cancel", Text: "CASE_REVIEW_CANCEL"}, nil); e != nil {
-			t.Fatal(e)
+		ready := make(chan struct{})
+		call := fixtureMCPStep("FixtureCancelled", map[string]any{"key": "cancelled"})
+		call.Block = ready
+		main.set("CASE_REVIEW_CANCEL", call)
+		if receipt, err := s.Submit(ctx, api.Submission{ID: "review-cancel", Text: "CASE_REVIEW_CANCEL"}, nil); err != nil || receipt.Outcome != "accepted" {
+			t.Fatal("Core did not admit the cancellation fixture turn", receipt, err)
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "FixtureCancelled") })
-		assertIdentity(t, "inProgress", "FixtureCancelled")
-		if e := s.Interrupt(ctx); e != nil {
-			t.Fatal(e)
+		waitForFixtureMCP(t, ctx, s)
+		close(ready)
+		cancelCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
+		defer stopCancel()
+		waitAcceptance(t, cancelCtx, func() bool { return reviewFor("inProgress", "FixtureCancelled") })
+		pending := assertIdentity(t, "inProgress", "FixtureCancelled")
+		noManual()
+		s.mu.Lock()
+		run := s.state.Views[original].State.Run
+		s.mu.Unlock()
+		if value(run.TurnId) != pending.TurnID {
+			t.Fatal("interrupt target differs from the approval's original turn", run, pending.TurnID)
+		}
+		target := wire.TurnTarget{HandleId: value(run.HandleId), RunId: value(run.RunId), TurnId: pending.TurnID}
+		if err := s.Interrupt(cancelCtx); err != nil {
+			t.Fatal("interrupt the original reviewed turn", err)
+		}
+		waitAcceptance(t, cancelCtx, func() bool { return reviewFor("failed", "FixtureCancelled") })
+		settled := assertIdentity(t, "failed", "FixtureCancelled")
+		if settled.ID != pending.ID || !strings.Contains(settled.Rationale, "cancelled") {
+			t.Fatal("interrupt did not cancel the original native review", settled)
+		}
+		s.mu.Lock()
+		cancelOperation := ""
+		for id, operation := range s.state.Operations {
+			if operation.Path != "/sessions/"+idPath(original)+"/cancel" {
+				continue
+			}
+			body, err := json.Marshal(wire.CancelRequest{OperationId: &id, SessionId: &original, Target: target})
+			if err == nil && operation.Digest == digest(body) {
+				cancelOperation = id
+				break
+			}
+		}
+		s.mu.Unlock()
+		var receipt wire.CommandResult
+		if cancelOperation == "" {
+			t.Fatal("no journal receipt for cancellation of the original turn", pending.TurnID)
+		}
+		if err := s.client.json(cancelCtx, "GET", "/operations/"+idPath(cancelOperation), nil, &receipt, "", ""); err != nil ||
+			receipt.OperationId != cancelOperation || value(receipt.SessionId) != original || receipt.Outcome != "committed" {
+			t.Fatal("original turn cancellation receipt unavailable", cancelOperation, receipt.Outcome, err)
 		}
 		release()
-		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+		waitAcceptance(t, cancelCtx, func() bool { return s.Snapshot().CanSend })
 		noCalls()
 		noManual()
-		if effects.Load() != 1 {
+		if effects.Load() != before {
 			t.Fatal("late review resurrected cancelled effect")
 		}
+		t.Logf("native committed cancellation settled approval %s and produced zero MCP effects", pending.ApprovalID)
 	}) {
 		return
 	}
@@ -623,59 +666,71 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 
 	if !t.Run("G07_timeout_never_dispatches", func(t *testing.T) {
-		// Hold the actual reviewer request through Core's own deadline.
+		// Exercise the Guardian deadline on a native command. A Code Mode
+		// script has a separate CPU budget and can cancel its pending review
+		// before the 90-second Guardian timer expires. G04 covers MCP cancellation.
 		before := effects.Load()
 		gate := make(chan struct{})
-		defer close(gate)
+		var gateOnce sync.Once
+		releaseReview := func() { gateOnce.Do(func() { close(gate) }) }
+		defer releaseReview()
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		ready := make(chan struct{})
-		step := fixtureMCPStep("FixtureTimedOut", map[string]any{"key": "timed-out"})
-		step.Block = ready
-		step.Args.(map[string]any)["yield_time_ms"] = 60_000
-		// Code Mode yields a script handle before Guardian's 90-second
-		// deadline. A final model response here would cancel the review.
-		// Continue the same script with Core's native Task wait.
-		main.set("CASE_REVIEW_TIMEOUT", step, modelStep{Name: "Task", BuildArgs: func() any {
-			var result struct {
-				Handle string `json:"handle"`
-			}
-			_ = json.Unmarshal([]byte(fmt.Sprint(dtwLastToolOutput(main.seen("CASE_REVIEW_TIMEOUT")))), &result)
-			return map[string]any{"action": "wait", "handle": result.Handle, "yield_time_ms": 60_000}
-		}})
-		turn := s.Snapshot().CurrentTurn
+		finish := make(chan struct{})
+		var finishOnce sync.Once
+		releaseModel := func() { finishOnce.Do(func() { close(finish) }) }
+		defer releaseModel()
+		const effect = "guardian-timeout.txt"
+		target := filepath.Join(effectDir, effect)
+		main.set("CASE_REVIEW_TIMEOUT", modelStep{Name: "RunCommand", Args: map[string]any{
+			"command":             "printf 'unexpected\\n' > " + executionQuote(target),
+			"sandbox_permissions": "require_escalated",
+			"justification":       "Write the synthetic Guardian timeout fixture",
+		}}, modelStep{Block: finish})
+		started := time.Now()
 		if receipt, err := s.Submit(ctx, api.Submission{ID: "review-timeout", Text: "CASE_REVIEW_TIMEOUT"}, nil); err != nil || receipt.Outcome != "accepted" {
 			t.Fatal("Core did not admit the timeout fixture turn", receipt, err)
 		}
-		waitForFixtureMCP(t, ctx, s)
-		close(ready)
 		progress, stopProgress := context.WithTimeout(ctx, 12*time.Second)
 		defer stopProgress()
-		waitAcceptance(t, progress, func() bool { return reviewFor("inProgress", "FixtureTimedOut") })
-		pending := assertIdentity(t, "inProgress", "FixtureTimedOut")
+		waitAcceptance(t, progress, func() bool { return reviewFor("inProgress", effect) })
+		pending := assertIdentity(t, "inProgress", effect)
+		observed := time.Now()
 		timeout, stopTimeout := context.WithTimeout(ctx, 110*time.Second)
 		defer stopTimeout()
-		defer func() {
-			if t.Failed() {
-				view := s.Snapshot()
-				t.Logf("timeout diagnostics: canSend=%t status=%s reviews=%+v main output=%s",
-					view.CanSend, view.Connection, view.Reviews, dtwLastToolOutput(main.seen("CASE_REVIEW_TIMEOUT")))
-			}
-		}()
+		var verdict api.Review
 		waitAcceptance(t, timeout, func() bool {
-			return reviewFor("timedOut", "FixtureTimedOut") || reviewFor("failed", "FixtureTimedOut") ||
-				reviewFor("denied", "FixtureTimedOut") || reviewFor("approved", "FixtureTimedOut")
+			noManual()
+			for _, review := range s.Snapshot().Reviews {
+				if review.ID == pending.ID && review.Status != "inProgress" {
+					verdict = review
+					return true
+				}
+			}
+			return false
 		})
-		out := assertIdentity(t, "timedOut", "FixtureTimedOut")
-		if pending.ApprovalID != out.ApprovalID {
-			t.Fatal("timeout replaced the native approval")
+		elapsed, pendingElapsed := time.Since(started), time.Since(observed)
+		releaseReview()
+		releaseModel()
+		waitAcceptance(t, timeout, func() bool {
+			noManual()
+			return s.Snapshot().CanSend
+		})
+		if state := s.ConversationState(); state.Turn != pending.TurnID || state.Status != "completed" {
+			t.Errorf("native deadline did not settle the original turn: %#v", state)
 		}
-		waitTurn(t, timeout, s, turn)
 		noManual()
 		noCalls()
-		if effects.Load() != before {
-			t.Fatal("timed-out review dispatched MCP call")
+		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) || effects.Load() != before {
+			t.Errorf("Guardian deadline fixture produced a side effect: file stat=%v, MCP delta=%d", err, effects.Load()-before)
 		}
-		t.Log("original native Guardian review timed out and its turn returned with zero MCP effects")
+		if verdict.Status != "timedOut" || !strings.Contains(verdict.Rationale, "timed out") {
+			t.Fatalf("original approval %s ended after %s with %s: %s", pending.ApprovalID, elapsed, verdict.Status, verdict.Rationale)
+		}
+		out := assertIdentity(t, "timedOut", effect)
+		if pending.ID != out.ID || elapsed < 90*time.Second || pendingElapsed < 85*time.Second {
+			t.Fatal("Core did not spend its native deadline on the original approval", pending.ID, out.ID, elapsed)
+		}
+		t.Logf("native Guardian deadline settled approval %s after %.1fs with zero command or MCP effects", pending.ApprovalID, elapsed.Seconds())
 	}) {
 		return
 	}

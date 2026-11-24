@@ -1009,11 +1009,41 @@ Use this fixture only when asked about private Notebook skill discovery.
 			t.Fatal("stop crossed Worker boundary", other, err)
 		}
 		close(workerB)
-		waitAcceptance(t, ctx, func() bool {
-			a, _ := s.ReadWork(ctx, "task-a")
-			b, _ := s.ReadWork(ctx, "task-b")
-			return a.Status == "interrupted" && b.Status == "completed"
+		terminal, stopTerminal := context.WithTimeout(ctx, 25*time.Second)
+		defer stopTerminal()
+		// The normal observer needs the admission lock to attach its streams
+		// after reconnect. Polling ReadWork here can starve that observation.
+		waitAcceptance(t, terminal, func() bool {
+			workers := s.WorkStates()
+			return slices.ContainsFunc(workers, func(w api.WorkState) bool { return w.Task.ID == "task-a" && w.Task.Status == "interrupted" }) &&
+				slices.ContainsFunc(workers, func(w api.WorkState) bool { return w.Task.ID == "task-b" && w.Task.Status == "completed" })
 		})
+		for _, expected := range []struct{ id, status string }{{"task-a", "interrupted"}, {"task-b", "completed"}} {
+			s.mu.Lock()
+			w := s.state.Workers[expected.id]
+			prompt := s.state.Operations[w.PromptID]
+			stopID := w.operationID("stop", stop.RequestID)
+			cancel := s.state.Operations[stopID]
+			s.mu.Unlock()
+			sid := w.Binding.SessionId
+			var receipt wire.CommandResult
+			if err := host.json(ctx, "GET", "/operations/"+idPath(w.PromptID), nil, &receipt, "", ""); err != nil ||
+				receipt.OperationId != w.PromptID || value(receipt.SessionId) != sid || receipt.Outcome != "committed" ||
+				receipt.Target == nil || value(receipt.Target.TurnId) != prompt.TurnID || prompt.TurnID == "" {
+				t.Fatal("terminal projection lost the original Worker prompt receipt", expected.id, err)
+			}
+			if expected.id == stop.ID {
+				var receipt wire.CommandResult
+				if err := host.json(ctx, "GET", "/operations/"+idPath(stopID), nil, &receipt, "", ""); err != nil ||
+					receipt.OperationId != stopID || value(receipt.SessionId) != sid || receipt.Outcome != "committed" ||
+					cancel.StopTarget == nil || cancel.StopTarget.TurnId != prompt.TurnID {
+					t.Fatal("Worker stop lost its original native target", err)
+				}
+			}
+			if result, err := s.ReadWork(ctx, expected.id); err != nil || result.Status != expected.status {
+				t.Fatal("original Worker terminal could not be read after reconnect", expected.id, result.Status, err)
+			}
+		}
 		for _, key := range []string{"CASE_WORKER_A", "CASE_WORKER_B"} {
 			raw, _ := json.Marshal(model.seen(key))
 			if strings.Contains(string(raw), "APPLICATION_OLD_INSTRUCTIONS") || strings.Contains(string(raw), "MEMORY.md") {

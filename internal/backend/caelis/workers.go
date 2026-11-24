@@ -110,6 +110,13 @@ func nativeRunActive(state wire.SessionState) bool {
 	}
 	return false
 }
+
+func nativeWorkerInactive(ctx context.Context, c *client, sid string) bool {
+	var status wire.AgentStatusSnapshot
+	return c.json(ctx, "POST", "/sessions/"+idPath(sid)+"/agents/status", wire.AgentRequest{SessionId: &sid}, &status, "", "") == nil &&
+		ctx.Err() == nil && value(status.SessionId) == sid && value(status.ControllerKind) != "" && !value(status.HasActiveTurn)
+}
+
 func (s *Session) workerViewLocked(w worker) api.Task {
 	out := w.Task
 	out.Failure = nil
@@ -513,9 +520,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 				// An unloaded native Worker can have an empty run snapshot.
 				// The agent status endpoint samples the exact Session's live
 				// controller and active-turn registry independently of history.
-				var status wire.AgentStatusSnapshot
-				if !w.Native || c.json(ctx, "POST", "/sessions/"+idPath(sid)+"/agents/status", wire.AgentRequest{SessionId: &sid}, &status, "", "") != nil ||
-					value(status.SessionId) != sid || value(status.ControllerKind) == "" || value(status.HasActiveTurn) {
+				if !w.Native || !nativeWorkerInactive(ctx, c, sid) {
 					return projected, errors.New("original worker activity unconfirmed")
 				}
 			default:
@@ -840,6 +845,7 @@ func (s *Session) refreshSelectedWorkers(ctx context.Context, c *client, selecte
 		}
 		s.mu.Lock()
 		before := s.state.Views[sid]
+		hadIdleProof := s.state.Workers[id].Activity == "idle"
 		var observed, approvalVersion uint64
 		if before != nil {
 			observed = before.Observed
@@ -861,6 +867,10 @@ func (s *Session) refreshSelectedWorkers(ctx context.Context, c *client, selecte
 			failures = errors.Join(failures, errors.New("工作状态来源不匹配"))
 			continue
 		}
+		// An unloaded Worker can omit the entire run from /state. Recheck the
+		// controller before replacing an idle proof from a successful read.
+		idle := w.Native && hadIdleProof && v.Run.Active == nil &&
+			value(v.Run.Status) == "" && !nativeRunActive(v) && nativeWorkerInactive(ctx, c, sid)
 		s.mu.Lock()
 		if s.client != c || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, s.state.Workers[id]) || s.closed {
 			s.mu.Unlock()
@@ -881,6 +891,11 @@ func (s *Session) refreshSelectedWorkers(ctx context.Context, c *client, selecte
 			approval := p.State.Approval
 			p.State = v
 			s.observeWorkerActivityLocked(sid, v)
+			if idle && ctx.Err() == nil {
+				current := s.state.Workers[id]
+				current.Activity = "idle"
+				s.state.Workers[id] = current
+			}
 			p.State.Approval = approval
 		}
 		reconcileApproval(p, before, approvalVersion, v)

@@ -140,3 +140,54 @@ func TestCancelledSuccessfulWorkerReadCannotPublishFinishProof(t *testing.T) {
 		t.Fatal("cancelled successful read published idle/finish proof", got, err, gets.Load())
 	}
 }
+
+func TestEmptyWorkerRefreshRechecksOriginalIdleProof(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		session string
+		active  bool
+		idle    bool
+	}{
+		{name: "same idle owner", session: "work", idle: true},
+		{name: "active owner", session: "work", active: true},
+		{name: "different owner", session: "other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var checks atomic.Int32
+			const path = "/api/control/v1/sessions/work"
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == path+"/state":
+					writeFixture(w, wire.SessionState{SessionId: "work"})
+				case r.Method == http.MethodPost && r.URL.Path == path+"/agents/status":
+					checks.Add(1)
+					status := wire.AgentStatusSnapshot{SessionId: &tc.session, ControllerKind: pointer("native")}
+					if tc.active {
+						status.HasActiveTurn = pointer(true)
+					}
+					writeFixture(w, status)
+				default:
+					t.Errorf("unexpected owner or request: %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+				}
+			})
+			s.state.Workers["task"] = worker{
+				Binding: wire.SessionBinding{SessionId: "work"}, Native: true, Activity: "idle",
+				Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted"}, PromptID: "prompt",
+			}
+			s.state.Operations["prompt"] = journal{Outcome: "committed", TurnID: "turn"}
+			s.state.Views["work"] = &view{ApprovalDirty: true, Turns: map[string]string{"turn": "completed"},
+				State: wire.SessionState{Run: wire.RunState{TurnId: pointer("turn"), Status: pointer("completed"), Active: pointer(false)}},
+				Items: []api.Item{{Kind: "assistant", TurnKey: "turn", Text: "result", Status: "completed"}}}
+			original := api.TaskFinishToken(s.WorkStates()[0])
+			if err := s.refreshSelectedWorkers(t.Context(), s.client, observationPlan{"worker:task": true}); err != nil {
+				t.Fatal(err)
+			}
+			state := s.WorkStates()[0]
+			got := api.TaskFinishToken(state)
+			if original == "" || checks.Load() != 1 || tc.idle && got != original || !tc.idle && got != "" {
+				t.Fatalf("original controller checks=%d, activity=%q, same finish proof=%t", checks.Load(), state.Activity, got == original)
+			}
+		})
+	}
+}

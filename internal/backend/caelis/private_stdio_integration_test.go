@@ -226,6 +226,17 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		}
 		return retired.State == "cancelled" && retired.Id == legacyCall.Id && retired.TurnId == legacyCall.TurnId && retired.Result == nil
 	})
+	// Cancellation first settles the callback. Wait for Core to finish its
+	// owning turn before submitting the first new request on the same Session.
+	legacyTerminal, stopLegacyWait := context.WithTimeout(ctx, 10*time.Second)
+	defer stopLegacyWait()
+	waitAcceptance(t, legacyTerminal, func() bool {
+		var state wire.SessionState
+		if err := s.client.json(legacyTerminal, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
+			return false
+		}
+		return state.SessionId == sid && !nativeRunActive(state) && s.Snapshot().CanSend
+	})
 	t.Log("same resident Session upgraded from an actual pending callback, which Core cancelled without a Bot claim or result")
 	readStatus := func(session *Session, sid string) wire.SessionMCPStatus {
 		t.Helper()
