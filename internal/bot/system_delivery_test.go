@@ -12,6 +12,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
@@ -73,6 +74,60 @@ func TestUnavailableDeliveryLedgerHasPersistentStatusWithoutRepeatedWarnings(t *
 				t.Fatal("pending original ID did not resume after recovery", receipt, err)
 			}
 		})
+	}
+}
+
+func TestEventStorageFailureDoesNotBlockWorkerCompletionReport(t *testing.T) {
+	r, f := systemFixture(t)
+	root := filepath.Dir(r.path)
+	work := &delegateAdmissionRuntime{states: []api.WorkState{{
+		Runtime: "codex", ExecutionKey: "original-turn",
+		Task: api.Task{ID: "native-task", Status: "working", Outcome: "accepted"},
+	}}}
+	m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", work, r, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ConfigureTasks(m, m); err != nil {
+		t.Fatal(err)
+	}
+
+	ledger := filepath.Join(root, "events-codex.json")
+	if err := os.Rename(ledger, ledger+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(ledger, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.events.Register(eventplan.Event{
+		ID: "follow-up", Label: "Follow up", Context: "Check the assignment",
+		Kind: "wake", OutputSchema: json.RawMessage(`{"type":"object"}`),
+	}, r.now()); err == nil {
+		t.Fatal("fixture did not fail the event write")
+	}
+
+	work.states[0].Task.Status = "completed"
+	f.ready = false
+	if err := r.Tick(t.Context()); err == nil || !strings.Contains(err.Error(), "event storage unavailable") || len(f.inputs) != 0 {
+		t.Fatalf("busy resident received input or event failure disappeared: err=%v inputs=%v", err, f.inputs)
+	}
+	f.ready = true
+	if err := r.Tick(t.Context()); err == nil || !strings.Contains(err.Error(), "event storage unavailable") {
+		t.Fatalf("expected the event storage failure to remain visible to Tick, got %v", err)
+	}
+	if len(f.inputs) != 1 || !f.inputs[0].HostNotice || f.inputs[0].SystemSource != api.SystemWorkerResult ||
+		m.TaskForReportID(f.inputs[0].ID) != "native-task" {
+		t.Fatalf("event failure blocked the original completion report: %+v", f.inputs)
+	}
+	deliveries, err := openSystemDeliveries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record := deliveries.state.Records[f.inputs[0].ID]; record.Source != api.SystemWorkerResult || record.Outcome != "accepted" {
+		t.Fatalf("missing durable resident receipt: %+v", record)
+	}
+	if err := r.Tick(t.Context()); err == nil || len(f.inputs) != 1 {
+		t.Fatalf("event failure disappeared or completion replayed: err=%v inputs=%v", err, f.inputs)
 	}
 }
 

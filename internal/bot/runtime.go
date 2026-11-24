@@ -376,8 +376,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	r.mu.Unlock()
 	r.step.Unlock()
 	// Producers may do native reads; their delivery returns through SubmitSystem.
-	if err == nil && reports != nil {
-		err = reports.DeliverTaskReport(ctx)
+	// A scheduling failure must not starve independently persisted task reports.
+	if reports != nil && ctx.Err() == nil {
+		err = errors.Join(err, reports.DeliverTaskReport(ctx))
 	}
 	if err == nil {
 		err = r.ReviewContinuity(ctx)
