@@ -96,16 +96,25 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if err := old.ConfigureBotTools(legacy); err != nil {
 		t.Fatal(err)
 	}
-	// Seed the actual pre-migration Core profile without a callback consumer.
-	old.profile.Tools = []wire.SessionToolDefinition{{
-		Name: "bot_schedule", Description: "Legacy upgrade fixture", ApprovalPolicy: pointer("direct"),
-		InputSchema: wire.JSONObject{"type": "object", "properties": map[string]any{}},
-	}}
-	old.profile.ToolsVersion = "legacy-upgrade-fixture"
 	if err := old.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 	waitAcceptance(t, ctx, func() bool { return old.Snapshot().CanSend })
+	// Seed the original catalog through the released Host, independently of
+	// the Bot adapter's callback-free profile assembly.
+	legacyCatalog := []wire.SessionToolDefinition{{
+		Name: "bot_schedule", Description: "Legacy upgrade fixture", ApprovalPolicy: pointer("direct"),
+		InputSchema: wire.JSONObject{"type": "object", "properties": map[string]any{}},
+	}}
+	originalConfig, err := old.Configuration(ctx)
+	if err != nil {
+		t.Fatal("read configuration before seeding the legacy catalog", err)
+	}
+	if seeded, err := old.UpdateConfiguration(ctx, "seed-legacy-upgrade", string(originalConfig.Revision), map[string]any{
+		"tools": legacyCatalog, "tools_version": "legacy-upgrade-fixture",
+	}); err != nil || len(seeded.Profile.Tools) != len(legacyCatalog) {
+		t.Fatal("seed legacy catalog on the released Host", err)
+	}
 	const legacyCase = "CASE_STDIO_LEGACY_RESIDENT"
 	model.set(legacyCase, modelStep{Name: "bot_schedule", Args: map[string]any{}})
 	oldID := old.ConversationState().Session
