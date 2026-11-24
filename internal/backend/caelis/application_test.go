@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -98,26 +99,35 @@ func TestResourceDigestMismatchNeverReturnsBytes(t *testing.T) {
 }
 func TestNativeArtifactProjectionAcceptsToolContentUnion(t *testing.T) {
 	v := &view{State: wire.SessionState{SessionId: "main"}, Seen: map[string]bool{}}
-	result, _ := json.Marshal(map[string]any{"resource": wire.SessionResource{Id: "artifact", SessionId: "main", Name: "result.txt"}})
-	for _, name := range []string{"ReadResource", "PublishArtifact", "PublishArtifact"} {
-		raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": name, "toolCallId": "call", "status": "completed", "content": []any{map[string]any{"type": "content", "content": map[string]string{"type": "text", "text": string(result)}}}, "rawOutput": map[string]string{"result": string(result)}})
+	descriptor := map[string]any{"resource": wire.SessionResource{Id: "artifact", SessionId: "main", Name: "../private/result.txt"}}
+	project := func(name string, output any) {
+		raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": name,
+			"toolCallId": "call", "status": "completed", "rawOutput": output})
 		update := json.RawMessage(raw)
 		applyEnvelope(v, wire.Envelope{TurnId: pointer("turn"), Update: &update})
 	}
-	resources := []api.Artifact{}
+	project("ReadResource", descriptor)
+	project("PublishArtifact", map[string]any{"resource": wire.SessionResource{Id: "other-resource", SessionId: "other-session", Name: "private.txt"}})
+	project("PublishArtifact", map[string]string{"result": "malformed legacy text"})
 	for _, item := range v.Items {
-		resources = append(resources, item.Artifacts...)
+		if len(item.Artifacts) != 0 {
+			t.Fatal("non-publication or wrong-owner resource reached the transcript", item)
+		}
 	}
-	if len(resources) != 1 || resources[0].ID != "resource:main:artifact" {
-		t.Fatal("artifact missing or duplicated", v.Items)
+	project("PublishArtifact", descriptor)
+	project("PublishArtifact", descriptor)
+	result, _ := json.Marshal(map[string]any{"resource": wire.SessionResource{Id: "legacy", SessionId: "main", Name: "../private/legacy.sql"}})
+	project("PublishArtifact", map[string]string{"result": string(result)})
+	want := []api.Artifact{{ID: "resource:main:artifact", Name: "result.txt"}, {ID: "resource:main:legacy", Name: "legacy.sql"}}
+	var projected []api.Artifact
+	for _, item := range v.Items {
+		if len(item.Artifacts) > 0 && item.TurnKey != "turn" {
+			t.Fatalf("artifact lost its native turn: %+v", item)
+		}
+		projected = append(projected, item.Artifacts...)
 	}
-	v = &view{State: wire.SessionState{SessionId: "main"}, Seen: map[string]bool{}}
-	result, _ = json.Marshal(map[string]any{"resource": wire.SessionResource{Id: "private-name", SessionId: "main", Name: "../private/report.sql"}})
-	raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": "PublishArtifact", "status": "completed", "rawOutput": map[string]string{"result": string(result)}})
-	update := json.RawMessage(raw)
-	applyEnvelope(v, wire.Envelope{TurnId: pointer("turn"), Update: &update})
-	if len(v.Items) != 1 || len(v.Items[0].Artifacts) != 1 || v.Items[0].Artifacts[0].Name != "report.sql" {
-		t.Fatalf("resource path leaked into filename: %+v", v.Items)
+	if !slices.Equal(projected, want) {
+		t.Fatalf("invalid projected resources: %+v", projected)
 	}
 }
 

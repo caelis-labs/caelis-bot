@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -418,6 +417,7 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 	var update struct {
 		Kind       string          `json:"sessionUpdate"`
 		Content    json.RawMessage `json:"content"`
+		RawOutput  json.RawMessage `json:"rawOutput"`
 		MessageID  string          `json:"messageId"`
 		Name       string          `json:"name"`
 		ToolCallID string          `json:"toolCallId"`
@@ -427,37 +427,7 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 		return
 	}
 	if update.Kind == "tool_call_update" && update.Name == "PublishArtifact" && update.Status == "completed" {
-		var tool struct {
-			RawOutput json.RawMessage `json:"rawOutput"`
-		}
-		_ = json.Unmarshal(value(e.Update), &tool)
-		var output struct {
-			Resource wire.SessionResource `json:"resource"`
-		}
-		// Native resource tools return a text result. Control projects that
-		// JSON text under rawOutput.result; message content is a different
-		// union member from the tool's content array.
-		var raw struct {
-			Result string `json:"result"`
-		}
-		_ = json.Unmarshal(tool.RawOutput, &raw)
-		if json.Unmarshal([]byte(raw.Result), &output) == nil && output.Resource.Id != "" && output.Resource.SessionId == v.State.SessionId {
-			resource := output.Resource
-			id := "resource:" + v.State.SessionId + ":" + resource.Id
-			found := false
-			for _, item := range v.Items {
-				if item.ID == id {
-					found = true
-				}
-			}
-			if !found {
-				name := filepath.Base(strings.ReplaceAll(resource.Name, "\\", "/"))
-				if name == "." || name == ".." || name == "" || name == string(filepath.Separator) {
-					name = "artifact"
-				}
-				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: name}}})
-			}
-		}
+		projectPublishedArtifact(v, value(e.TurnId), update.RawOutput)
 	}
 	if update.Kind == "tool_call" || update.Kind == "tool_call_update" {
 		// A new foreground tool is a text-segment boundary. Sparse updates

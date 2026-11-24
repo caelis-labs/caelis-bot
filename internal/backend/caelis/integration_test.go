@@ -1066,6 +1066,10 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if link == "" {
 			t.Fatal("published artifact did not reach Bot snapshot")
 		}
+		original := s.ConversationState()
+		if link != "resource:"+original.Session+":"+artifact {
+			t.Fatal("published link does not identify the original native artifact")
+		}
 		local, e := s.Artifact(link)
 		if e != nil {
 			t.Fatal(e)
@@ -1078,6 +1082,17 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil || string(got) != string(data) || descriptor.Sha256 != digest(data) {
 			t.Fatal("artifact integrity", e)
 		}
+		if e = s.RenewIdleConversation(ctx, "artifact-history-rotation", original); e != nil || s.ConversationState().Session == original.Session {
+			t.Fatal("could not rotate the fixture resident after publication", e)
+		}
+		historical, e := s.Artifact(link)
+		if e != nil {
+			t.Fatal("previous resident's verified artifact link stopped working", e)
+		}
+		if content, e := os.ReadFile(historical); e != nil || !bytes.Equal(content, data) {
+			t.Fatal("previous resident's artifact bytes changed", e)
+		}
+		t.Log("native upload, PublishArtifact snapshot link, verified download and historical download matched the original bytes")
 	}) {
 		return
 	}
