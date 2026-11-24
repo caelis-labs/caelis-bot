@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.23.0](https://github.com/caelis-labs/caelis-bot/compare/v0.22.6...v0.23.0) (2026-11-24)
+
+
+### Features
+
+* **bot:** renew idle sessions and delegate workers through private MCP ([#298](https://github.com/caelis-labs/caelis-bot/issues/298)) ([c672545](https://github.com/caelis-labs/caelis-bot/commit/c6725453f3cf568c5d43ed61511bce5e435b63f3))
+* bundle switchable Caelis and Whale Girl appearances ([#304](https://github.com/caelis-labs/caelis-bot/issues/304)) ([d23a437](https://github.com/caelis-labs/caelis-bot/commit/d23a437ff20a4af4e203588af63b7cdb2edca95e))
+
+
+### Bug Fixes
+
+* **bot:** deliver worker reports when scheduling fails ([#302](https://github.com/caelis-labs/caelis-bot/issues/302)) ([b9c65a0](https://github.com/caelis-labs/caelis-bot/commit/b9c65a010f2bb4e5637b58b89cac10104173b989))
+* bundle Caelis v0.86.1 ([#307](https://github.com/caelis-labs/caelis-bot/issues/307)) ([3f8ed0e](https://github.com/caelis-labs/caelis-bot/commit/3f8ed0e58024e7e5842db156862eaed07f4548df))
+* reap test Hosts and reduce fixture disk writes ([#305](https://github.com/caelis-labs/caelis-bot/issues/305)) ([22eb54e](https://github.com/caelis-labs/caelis-bot/commit/22eb54e7396ee49661a232cfa5926117bc32c219)), closes [#303](https://github.com/caelis-labs/caelis-bot/issues/303)
+
 ## [0.22.6](https://github.com/caelis-labs/caelis-bot/compare/v0.22.5...v0.22.6) (2026-11-22)
 
 
