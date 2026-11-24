@@ -49,7 +49,7 @@ func (r *Runtime) checkDreamCompletion(invocation api.ToolInvocation) error {
 
 func (r *Runtime) handoffBlocksTool(ctx context.Context, name string) bool {
 	invocation, bound := api.ToolInvocationFromContext(ctx)
-	nativeCall := bound && invocation.Provider == "caelis"
+	nativeCall := bound && invocation.Provider == "caelis" && !invocation.CaelisMCP
 	if r.idle == nil && name != "bot_dream" && r.handoff != nil {
 		pending := r.handoff.pending()
 		if pending.CallID != "" && (!nativeCall || pending.Source == invocation.Session) {

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -178,7 +177,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if s.connected {
 		for sid, v := range s.state.Views {
 			a := v.State.Approval.Active
-			if a == nil || s.automaticApprovalLocked(sid, a) {
+			if a == nil || slices.Contains(s.state.PastSessions, sid) || s.automaticApprovalLocked(sid, a) {
 				continue
 			}
 			raw, _ := json.Marshal(a.Permission)
@@ -189,8 +188,6 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			item.NoticeKey = "chat.caelisApproval"
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
-			} else if slices.Contains(s.state.PastSessions, sid) {
-				item.Owner = "previousConversation"
 			} else if sid != "" {
 				item.NoticeKey = "chat.workerApproval"
 				for _, worker := range s.state.Workers {
@@ -326,7 +323,8 @@ func approvalID(instance, sid string, a *wire.ActiveApproval) string {
 }
 func (s *Session) approvalLocked(id string) (approvalRef, bool) {
 	for sid, v := range s.state.Views {
-		if a := v.State.Approval.Active; a != nil && !s.automaticApprovalLocked(sid, a) && approvalID(s.state.InstanceID, sid, a) == id {
+		if a := v.State.Approval.Active; a != nil && !slices.Contains(s.state.PastSessions, sid) &&
+			!s.automaticApprovalLocked(sid, a) && approvalID(s.state.InstanceID, sid, a) == id {
 			return approvalRef{sid, clone(a)}, true
 		}
 	}
@@ -419,6 +417,7 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 	var update struct {
 		Kind       string          `json:"sessionUpdate"`
 		Content    json.RawMessage `json:"content"`
+		RawOutput  json.RawMessage `json:"rawOutput"`
 		MessageID  string          `json:"messageId"`
 		Name       string          `json:"name"`
 		ToolCallID string          `json:"toolCallId"`
@@ -428,37 +427,7 @@ func applyScopedEnvelope(v *view, e wire.Envelope, scope inputScope, scheduled .
 		return
 	}
 	if update.Kind == "tool_call_update" && update.Name == "PublishArtifact" && update.Status == "completed" {
-		var tool struct {
-			RawOutput json.RawMessage `json:"rawOutput"`
-		}
-		_ = json.Unmarshal(value(e.Update), &tool)
-		var output struct {
-			Resource wire.SessionResource `json:"resource"`
-		}
-		// Native resource tools return a text result. Control projects that
-		// JSON text under rawOutput.result; message content is a different
-		// union member from the tool's content array.
-		var raw struct {
-			Result string `json:"result"`
-		}
-		_ = json.Unmarshal(tool.RawOutput, &raw)
-		if json.Unmarshal([]byte(raw.Result), &output) == nil && output.Resource.Id != "" && output.Resource.SessionId == v.State.SessionId {
-			resource := output.Resource
-			id := "resource:" + v.State.SessionId + ":" + resource.Id
-			found := false
-			for _, item := range v.Items {
-				if item.ID == id {
-					found = true
-				}
-			}
-			if !found {
-				name := filepath.Base(strings.ReplaceAll(resource.Name, "\\", "/"))
-				if name == "." || name == ".." || name == "" || name == string(filepath.Separator) {
-					name = "artifact"
-				}
-				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: name}}})
-			}
-		}
+		projectPublishedArtifact(v, value(e.TurnId), update.RawOutput)
 	}
 	if update.Kind == "tool_call" || update.Kind == "tool_call_update" {
 		// A new foreground tool is a text-segment boundary. Sparse updates
@@ -571,7 +540,6 @@ func (s *Session) ensureStreamLocked(sid string) {
 	if s.streamCtx == nil {
 		s.streamCtx, s.streamCancel = context.WithCancel(s.ctx)
 	}
-	s.ensureCallObserverLocked(sid)
 	ctx := s.streamCtx
 	generation := s.generation
 	instance := s.state.InstanceID

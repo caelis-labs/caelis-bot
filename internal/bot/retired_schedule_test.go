@@ -21,9 +21,6 @@ func TestRetiredCareToolsCannotRegisterOrExecute(t *testing.T) {
 			func() string {
 				return string(encoded(r.callLegacyTool(t.Context(), name, json.RawMessage(`{"operation":"configure","policy":{}}`))))
 			},
-			func() string {
-				return string(encoded((historicalLegacyTools{r}).CallTool(t.Context(), name, json.RawMessage(`{"operation":"remove","id":"existing"}`))))
-			},
 		} {
 			if out := call(); !strings.Contains(out, "retired") {
 				t.Fatal(out)
@@ -40,16 +37,12 @@ func TestRetiredCareToolsCannotRegisterOrExecute(t *testing.T) {
 		}
 	}
 }
-func TestUnifiedScheduleBudgetNeedsAuthorization(t *testing.T) {
+func TestUnifiedScheduleBudgetUpdatesWithoutCreatingLegacyGrant(t *testing.T) {
 	r, f, _ := fixture(t)
 	g := &scheduleGrantEngine{fakeEngine: f, deny: true}
 	r.engine = g
 	raw := json.RawMessage(`{"request":{"type":"configure","policy":{"maximumInterruptionsPer24Hours":12,"minimumGapSeconds":60}}}`)
-	if !r.CallTool(t.Context(), "bot_schedule_update", raw).IsError || r.events.Snapshot().Policy.MaximumInterruptionsPer24Hours != 8 {
-		t.Fatal("policy changed without authority")
-	}
-	g.deny = false
-	if r.CallTool(t.Context(), "bot_schedule_update", raw).IsError || g.authorized != "schedule-policy:limits" || r.events.Snapshot().Policy.MaximumInterruptionsPer24Hours != 12 {
-		t.Fatal("policy update did not use schedule grant")
+	if r.CallTool(t.Context(), "bot_schedule_update", raw).IsError || g.authorized != "" || r.events.Snapshot().Policy.MaximumInterruptionsPer24Hours != 12 {
+		t.Fatal("policy update did not use the resident tool's own admission")
 	}
 }

@@ -112,8 +112,10 @@ func (m *compactionHTTPModel) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	emit("message_start", map[string]any{"message": message})
 	if m.toolFirst && n == 0 {
-		emit("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "tool_use", "id": "synthetic-tool", "name": "FixtureLookup", "input": map[string]any{}}})
-		emit("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": `{"key":"synthetic"}`}})
+		step := fixtureMCPStep("FixtureLookup", map[string]string{"key": "synthetic"})
+		args, _ := json.Marshal(step.Args)
+		emit("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "tool_use", "id": "synthetic-tool", "name": step.Name, "input": map[string]any{}}})
+		emit("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": string(args)}})
 		emit("content_block_stop", map[string]any{"index": 0})
 		emit("message_delta", map[string]any{"delta": map[string]any{"stop_reason": "tool_use"}, "usage": map[string]any{"output_tokens": 50}})
 		emit("message_stop", map[string]any{})
@@ -277,12 +279,16 @@ func (h *compactionProcess) experiments(t *testing.T, ctx context.Context, async
 	}
 }
 func (h *compactionProcess) session(t *testing.T, ctx context.Context, selector string) *Session {
-	return h.sessionWithTools(t, ctx, selector, noTools{})
+	return h.sessionWithTools(t, ctx, selector, nil)
 }
-func (h *compactionProcess) sessionWithTools(t *testing.T, ctx context.Context, selector string, host api.ApplicationTools) *Session {
+func (h *compactionProcess) sessionWithTools(t *testing.T, ctx context.Context, selector string, host acceptanceToolHost) *Session {
 	t.Helper()
 	s := New(Options{Directory: filepath.Join(h.root, "bot"), Settings: h.settings, ToolsOnly: true, RequireApproval: true, Execution: api.ExecutionSettings{Model: selector, Effort: "none", ApprovalMode: "workspace-write"}})
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: host, ApprovedTools: []string{"FixtureLookup"}, Instructions: syntheticHandoff, NotebookDirectory: h.root}); err != nil {
+	config := &api.ToolConnection{Instructions: syntheticHandoff, NotebookDirectory: h.root}
+	if host != nil {
+		config = fixtureMCPConfig(t, config, host)
+	}
+	if err := s.ConfigureBotTools(config); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Connect(ctx); err != nil {

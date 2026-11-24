@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -44,71 +43,6 @@ func continuityResident(t *testing.T, engine api.Engine) (*bot.Runtime, *backend
 		return done
 	})
 	return r, service
-}
-
-func TestCallbackAfterAcceptedHumanSteeringIsNonterminalAndNotReplayed(t *testing.T) {
-	call := wire.SessionToolCall{Id: "dream-original", CallId: "provider-dream", SessionId: "main", PrincipalId: "owner", TurnId: "turn", ItemId: "item", Name: "bot_dream", ToolsVersion: "v1", ConfigurationRevision: "1", Source: wire.SessionSource{Kind: "user", OperationId: "prompt"}, State: "pending", Arguments: map[string]any{"handoff": "Original task; Notebook/review.md lines 30 onward remain unread. Wait for user review before acting."}}
-	var steers, effects, results atomic.Int32
-	var receipts []wire.SessionToolCallResult
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/claim"):
-			claimed := call
-			claimed.State = "claimed"
-			writeFixture(w, claimed)
-		case strings.HasSuffix(r.URL.Path, "/steer"):
-			steers.Add(1)
-			var in wire.SteerRequest
-			_ = json.NewDecoder(r.Body).Decode(&in)
-			if value(in.Input) != "Keep the original work; wait for my review." || in.Target.TurnId != "turn" {
-				t.Error("changed original correction or turn", in)
-			}
-			writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "accepted"})
-		case strings.HasSuffix(r.URL.Path, "/result"):
-			results.Add(1)
-			var out wire.SessionToolCallResult
-			_ = json.NewDecoder(r.Body).Decode(&out)
-			receipts = append(receipts, out)
-			writeFixture(w, struct{}{})
-		default:
-			t.Errorf("unexpected request %s", r.URL.Path)
-			http.NotFound(w, r)
-		}
-	})
-	v := s.state.Views["main"]
-	v.State.Run.Active = pointer(true)
-	v.State.Run.TurnId = pointer("turn")
-	v.State.Run.HandleId = pointer("handle")
-	v.State.Run.RunId = pointer("run")
-	s.state.Context.Injected = true
-	r, service := continuityResident(t, s)
-	host := &acceptanceTools{call: func(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
-		effects.Add(1)
-		out := r.CallTool(ctx, name, args)
-		if out.IsError || out.CheckTurnComplete == nil {
-			t.Error("initial Dream was not accepted", out)
-		}
-		receipt, err := service.Submit(ctx, api.Submission{ID: "correction", Text: "Keep the original work; wait for my review."})
-		if err != nil || receipt.Outcome != "accepted" {
-			t.Error(receipt, err)
-		}
-		return out
-	}}
-	s.catalogs = map[string]map[string]api.ApplicationTools{"v1": {"bot_dream": host}}
-	s.state.Operations["prompt"] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", Source: call.Source}
-	for range 2 {
-		if err := s.handleCall(t.Context(), s.client, s.state.Session, s.state.PrincipalID, call); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if effects.Load() != 1 || steers.Load() != 1 || results.Load() != 1 {
-		t.Fatal("replayed original effect or input", effects.Load(), steers.Load(), results.Load())
-	}
-	for _, receipt := range receipts {
-		if receipt.Outcome != "failed" {
-			t.Fatal("stale Dream terminated accepted steering", receipt)
-		}
-	}
 }
 
 type pausedContinuitySession struct {

@@ -74,11 +74,6 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		source = wire.SessionSource{Kind: value(prompt.SourceKind), OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0].Scheduled}
-	if approval, ok := ctx.Value(manualMCPActionKey{}).(*manualMCPAction); ok {
-		j := s.state.Operations[op]
-		j.ManualMCP = approval
-		s.state.Operations[op] = j
-	}
 	if intent, ok := ctx.Value(workIntentKey{}).(*workIntent); ok {
 		j := s.state.Operations[op]
 		copy := *intent
@@ -235,12 +230,9 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	return s.submit(ctx, in, files, "user")
 }
 func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, source string) (api.Receipt, error) {
-	return s.submitGrant(ctx, in, files, source, "")
-}
-func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	s.step.Lock()
 	defer s.step.Unlock()
-	return s.submitGrantLocked(ctx, in, files, source, grant)
+	return s.submitGrantLocked(ctx, in, files, source, "")
 }
 
 func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
@@ -437,8 +429,6 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op s
 		ok = ok && owned && ref.sid == worker.Binding.SessionId
 	}
 	c := s.client
-	principal := s.state.PrincipalID
-	resident := ref.sid == s.state.Session.SessionId
 	connected := s.connected
 	s.mu.Unlock()
 	if !ok {
@@ -490,17 +480,8 @@ func (s *Session) decideLocked(ctx context.Context, d api.Decision, taskID, op s
 	}
 	s.mu.Unlock()
 	approved := strings.HasPrefix(choice.Kind, "allow")
-	if approved && resident {
-		action, err := captureManualMCPAction(ref.sid, principal, a, permission)
-		if err != nil {
-			return err
-		}
-		if action != nil {
-			if head.SessionId != ref.sid {
-				return errors.New("original resident approval Session does not match")
-			}
-			ctx = context.WithValue(ctx, manualMCPActionKey{}, action)
-		}
+	if head.SessionId != ref.sid {
+		return &api.DecisionValidationError{Message: "审批会话已改变，请等待界面刷新"}
 	}
 	out, e := s.command(ctx, op, path, wire.ResolveApprovalRequest{OperationId: &op, SessionId: &ref.sid, ApprovalRequestId: a.RequestId, Target: *a.Target, OptionId: &choice.ID, Outcome: "selected", Approved: approved})
 	if e != nil {

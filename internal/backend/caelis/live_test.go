@@ -185,6 +185,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 	}
 	h := &acceptanceTools{defs: defs("string")}
 	h.call = func(callCtx context.Context, name string, args json.RawMessage) api.ToolResult {
+		callCtx = context.WithValue(callCtx, workOwnerKey{}, s)
 		switch name {
 		case "bot_schedule":
 			clockCalls.Add(1)
@@ -202,7 +203,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 				return textResult("", callCtx.Err())
 			}
 		case "LiveSchedule":
-			return textResult("REMINDER_AUTHORIZED", s.AuthorizeBackground(callCtx, "live-reminder", "explicit-user-live-reminder"))
+			return textResult("REMINDER_AUTHORIZED", nil)
 		case "LiveDelegate":
 			for _, id := range []string{"a", "b"} {
 				dir := filepath.Join(root, "worker-"+id)
@@ -217,7 +218,8 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		}
 		return textResult("unexpected tool", fmt.Errorf("unexpected tool %s", name))
 	}
-	config := &api.ToolConnection{ApprovedTools: []string{"LiveCheckpoint", "LiveVersion", "LiveDelegate", "LiveSchedule", "bot_schedule"}, Host: h, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tools, do not claim effects without successful tool results. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"LiveCheckpoint", "LiveVersion", "LiveDelegate", "LiveSchedule", "bot_schedule"}, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tool search for the synthetic MCP tools and verify their results before claiming an effect. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config = fixtureMCPConfig(t, config, h)
 	open := func() {
 		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: model, ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
@@ -475,7 +477,8 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		}
 		next := config.Clone()
 		next.Instructions = "The live checkpoint has completed. Call LiveVersion exactly once with numeric version 2. Then reply HOT_CONFIGURATION_COMPLETE. No other tools."
-		next.Host = &acceptanceTools{defs: defs("integer"), call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
+		next.Plugins.Servers = nil
+		next = fixtureMCPConfig(t, next, &acceptanceTools{defs: defs("integer"), call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
 			if name != "LiveVersion" {
 				return textResult("", fmt.Errorf("unexpected new tool"))
 			}
@@ -487,11 +490,11 @@ func TestConfiguredModelIntegration(t *testing.T) {
 			}
 			newCalls.Add(1)
 			return textResult("VERSION_2_CONFIRMED", nil)
-		}}
+		}})
 		if err = s.ConfigureBotTools(next); err != nil {
 			t.Fatal(err)
 		}
-		patch := map[string]any{"instructions": next.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}
+		patch := map[string]any{"instructions": next.Instructions, "mcp_servers": s.profile.McpServers}
 		alternate := os.Getenv("CAELIS_BOT_LIVE_ALTERNATE_MODEL")
 		if alternate != "" {
 			patch["model"] = alternate
@@ -520,7 +523,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		if err = s.ConfigureBotTools(config); err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.UpdateConfiguration(c, "live-restore", string(used.Revision), map[string]any{"model": model, "reasoning_effort": "", "instructions": config.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools})
+		_, err = s.UpdateConfiguration(c, "live-restore", string(used.Revision), map[string]any{"model": model, "reasoning_effort": "", "instructions": config.Instructions, "mcp_servers": s.profile.McpServers})
 		if err != nil {
 			t.Fatal(err)
 		}

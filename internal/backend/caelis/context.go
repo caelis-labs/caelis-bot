@@ -253,8 +253,13 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return errors.New("对话暂不能交接")
 	}
 	if toolTurn != "" {
-		if err := s.confirmHandoff(ctx, c, id, source, toolTurn); err != nil {
-			return err
+		// A pre-upgrade Dream can finish using an already acknowledged
+		// handoff. An unfinished callback is never claimed or replayed.
+		s.mu.Lock()
+		record := s.state.Calls[id]
+		s.mu.Unlock()
+		if record.Phase != "completed" || !record.handoffFrom(id, source, toolTurn) {
+			return api.ErrConversationRenewalRejected
 		}
 	}
 	var renewalErr error
@@ -264,7 +269,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			return err
 		}
 		profile := *config.Profile
-		profile.McpServers = withResidentTaskMCP(profile.McpServers, s.profile.McpServers)
+		profile.McpServers = withResidentMCP(profile.McpServers, s.profile.McpServers)
 		if profile.Version != s.profile.Version {
 			// New product assembly adopts current host environment defaults; CWD,
 			// selected model and the independent sandbox scope remain preserved.
@@ -272,7 +277,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			profile.ExecutionConfig = clone(s.profile.ExecutionConfig)
 		}
 		s.configureApproval(&profile)
-		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
+		profile.Instructions = s.profile.Instructions
+		profile.Tools = nil
+		profile.ToolsVersion = s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/sessions", wire.CreateSessionRequest{OperationId: &op, Profile: &profile})
 	} else if pending.Outcome == "unknown" {
 		renewalErr = s.recoverOperation(ctx, op)
@@ -320,15 +327,16 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if state.SessionId != sid || value(state.Run.Active) {
 		return errors.New("新上下文状态不匹配")
 	}
-	if s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
+	if s.tools != nil && s.tools.PublishCaelisMCP != nil {
 		config, err := s.configuration(ctx, sid)
 		if err != nil {
 			return err
 		}
 		profile := s.profile
-		servers := withResidentTaskMCP(config.Profile.McpServers, profile.McpServers)
-		if config.Profile.ToolsVersion != profile.ToolsVersion || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
-			patch := map[string]any{"mcp_servers": servers, "tools_version": profile.ToolsVersion, "tools": profile.Tools}
+		servers := withResidentMCP(config.Profile.McpServers, profile.McpServers)
+		if len(config.Profile.Tools) != 0 || !slices.EqualFunc(servers, config.Profile.McpServers, sameMCPServer) {
+			patch := map[string]any{"mcp_servers": servers}
+			clearLegacyCatalog(patch, config.Profile, profile.ToolsVersion)
 			intent, _ := json.Marshal(patch)
 			change := "renew-private-" + digest([]byte(sid+"\x00"+string(config.Revision)+"\x00"+string(intent)))
 			if _, err := s.updateConfiguration(ctx, sid, change, string(config.Revision), patch); err != nil {
@@ -352,6 +360,18 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	if err := s.checkRenewalGuard(ctx, op); err != nil {
 		return err
+	}
+	if idleTurn != nil {
+		// The stream may lag behind an accepted native turn or approval.
+		// Recheck the original head before publishing the replacement.
+		var original wire.SessionState
+		if err := c.json(ctx, "GET", "/sessions/"+idPath(source)+"/state", nil, &original, "", ""); err != nil {
+			return err
+		}
+		if turn := value(original.Run.TurnId); original.SessionId != source || nativeRunActive(original) ||
+			value(original.Run.Status) == "unknown" || turn != "" && turn != boundTurn {
+			return api.ErrConversationRenewalRejected
+		}
 	}
 	s.mu.Lock()
 	current = s.conversationLocked()
@@ -442,7 +462,7 @@ func (s *Session) deferRenewal(op string) error {
 // reports keep their owners; their activity is not a global-quiescence gate.
 func (s *Session) renewalReadyLocked(source, renewal string, toolHandoff bool) bool {
 	v := s.state.Views[source]
-	if v == nil || !toolHandoff && (value(v.State.Run.Active) || v.State.Approval.Active != nil) {
+	if v == nil || !toolHandoff && nativeRunActive(v.State) {
 		return false
 	}
 	for id, operation := range s.state.Operations {

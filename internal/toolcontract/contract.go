@@ -34,7 +34,7 @@ func Request(branches ...Schema) Schema {
 }
 func Definition(name, description string, schema Schema) api.ToolDefinition {
 	raw, _ := json.Marshal(schema)
-	return api.ToolDefinition{Name: name, Description: description, InputSchema: raw, ResultFormat: "content-v1"}
+	return api.ToolDefinition{Name: name, Description: description, InputSchema: raw}
 }
 func Decode(schema json.RawMessage, raw json.RawMessage) (Schema, error) {
 	if len(raw) > 128<<10 {

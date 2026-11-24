@@ -25,11 +25,6 @@ import (
 // Temporary combination acceptance: native protocols and file tools are real;
 // age/activity and model choices are scripted, not autonomous-model evidence.
 func TestNativeCombinedReview(t *testing.T) {
-	for _, decision := range []string{"defer", "dream"} {
-		t.Run(decision, func(t *testing.T) { nativeCombinedReview(t, decision == "dream") })
-	}
-}
-func nativeCombinedReview(t *testing.T, dream bool) {
 	bin := os.Getenv("CAELIS_BOT_TEST_BINARY")
 	if bin == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY to the Draft Core binary")
@@ -59,13 +54,10 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 		t.Fatal(err)
 	}
 
-	decision := modelStep{Reply: api.SilentReminder}
-	if dream {
-		decision = modelStep{Name: "bot_dream", Args: map[string]string{"handoff": "Identity: fixture Bot. Preference: short replies. Goal: original task; no deployment. Original task handle: task-123. Authorization: read only; deployment revoked. Unknown receipt: receipt-456; reconcile only. Review path: review-notes.md; reviewed src/a; unread src/b. Next: inspect original Worker question."}}
-	}
-	steps := []modelStep{{Reply: "Original task retained."}, {Name: "Read", Args: map[string]string{"path": memoryReference}}, decision}
-	if dream {
-		steps = append(steps, modelStep{Reply: api.SilentReminder})
+	steps := []modelStep{
+		{Reply: "Original task retained."},
+		{Name: "Read", Args: map[string]string{"path": memoryReference}},
+		{Reply: api.SilentReminder},
 	}
 	model.set("CASE_ORIGINAL", steps...)
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
@@ -119,7 +111,7 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 	if err := resident.ConfigureDream(vault, ""); err != nil {
 		t.Fatal(err)
 	}
-	config := &api.ToolConnection{Host: resident, ApprovedTools: []string{"bot_dream"}, NotebookDirectory: vault.Path(), Instructions: botskills.Bootstrap(), SkillInstructions: botskills.Instructions(skillPath), BuiltinSkillRoots: []string{filepath.Dir(skillPath)}}
+	config := &api.ToolConnection{NotebookDirectory: vault.Path(), Instructions: botskills.Bootstrap(), SkillInstructions: botskills.Instructions(skillPath), BuiltinSkillRoots: []string{filepath.Dir(skillPath)}}
 	config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
 		seed, err := vault.PrepareContext(ctx)
 		if err != nil {
@@ -150,7 +142,6 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 	defer func() { _ = s.Close(context.Background()) }()
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	old := s.ConversationState().Session
-	oldGeneration := s.BotPluginGeneration()
 	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_original", Text: "CASE_ORIGINAL continue within read-only authorization."}, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
@@ -165,94 +156,38 @@ func nativeCombinedReview(t *testing.T, dream bool) {
 			t.Fatal(err)
 		}
 	}
-	if !dream {
-		waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_ORIGINAL")) == 3 && s.Snapshot().CanSend })
-		if !s.Snapshot().Quiet || s.ConversationState().Session != old || resident.PrepareHandoffContext().HandoffDigest != "" {
-			t.Fatal("healthy deferral renewed or leaked quiet result")
-		}
-		requests := model.seen("CASE_ORIGINAL")
-		beforeRead, _ := json.Marshal(requests[1])
-		afterRead, _ := json.Marshal(requests[2])
-		if strings.Contains(string(beforeRead), guideMarker) || !strings.Contains(string(afterRead), guideMarker) || !strings.Contains(string(beforeRead), "Bot system event: continuity_review") {
-			t.Fatal("native reference read or invitation missing")
-		}
-		if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "healthy-next", Text: "CASE_HEALTHY keep working; no broader authorization."}, nil); err != nil || receipt.Outcome != "accepted" {
-			t.Fatal(receipt, err)
-		}
-		waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_HEALTHY")) == 1 && s.Snapshot().CanSend })
-		stamp, observed = time.Now(), s.ConversationState()
-		s.mu.Lock()
-		s.state.Continuity.Observation = continuity.Observation{Session: observed.Session, Turn: observed.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 128, Compactions: 6, Maintenance: [8]continuity.MaintenanceTurn{{Turn: 126, At: stamp}, {Turn: 127, At: stamp}, {Turn: 128, At: stamp}}}
-		s.mu.Unlock()
-		resident.Close()
-		reopened, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		reopened.Start(s)
-		defer reopened.Close()
-		for range 2 {
-			if err := reopened.ReviewContinuity(ctx); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if len(model.seen("CASE_HEALTHY")) != 1 {
-			t.Fatal("restart repeated invitation")
-		}
-		t.Log("native reference read -> quiet deferral -> ordinary work; restart cooldown preserved; no Dream")
-		return
+	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_ORIGINAL")) == 3 && s.Snapshot().CanSend })
+	if !s.Snapshot().Quiet || s.ConversationState().Session != old || resident.PrepareHandoffContext().HandoffDigest != "" {
+		t.Fatal("healthy deferral renewed or leaked quiet result")
 	}
-	waitAcceptance(t, ctx, func() bool {
-		state := s.ConversationState()
-		return state.Session != "" && state.Session != old && resident.PrepareHandoffContext().HandoffDigest != ""
-	})
-	if s.BotPluginGeneration() == oldGeneration {
-		t.Fatal("new Core Session retained old tool discovery generation")
-	}
-	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_ORIGINAL")) == 4 })
 	requests := model.seen("CASE_ORIGINAL")
 	beforeRead, _ := json.Marshal(requests[1])
 	afterRead, _ := json.Marshal(requests[2])
 	if strings.Contains(string(beforeRead), guideMarker) || !strings.Contains(string(afterRead), guideMarker) || !strings.Contains(string(beforeRead), "Bot system event: continuity_review") {
-		t.Fatal("Dream did not follow native reference read")
+		t.Fatal("native reference read or invitation missing")
 	}
-	var originalCall string
-	for id, record := range s.state.Calls {
-		if record.Call.Name == "bot_dream" {
-			originalCall = id
-			if record.Phase != "completed" || record.Receipt == nil || record.Receipt.Outcome != "succeeded" {
-				t.Fatal("original terminal callback receipt missing", record)
-			}
-		}
-	}
-	if originalCall == "" || s.state.RenewedBy != originalCall {
-		t.Fatal("new session not bound to original callback ID", originalCall, s.state.RenewedBy)
-	}
-	if receipt, err := resident.SubmitSystem(ctx, api.SystemMessage{ID: "case_next", Source: api.SystemWorkerQuestion, Text: "CASE_NEXT original Worker question awaits a response."}); err != nil || receipt.Outcome != "accepted" {
+	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "healthy-next", Text: "CASE_HEALTHY keep working; no broader authorization."}, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_NEXT")) != 0 })
-	first, _ := json.Marshal(model.seen("CASE_NEXT")[0])
-	if !strings.Contains(string(first), "receipt-456") || strings.Contains(string(first), originalCall) {
-		t.Fatal("new first prompt lost private handoff or inherited old call", string(first))
+	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_HEALTHY")) == 1 && s.Snapshot().CanSend })
+	stamp, observed = time.Now(), s.ConversationState()
+	s.mu.Lock()
+	s.state.Continuity.Observation = continuity.Observation{Session: observed.Session, Turn: observed.Turn, Since: stamp.Add(-14 * 24 * time.Hour), CompletedAt: stamp, Turns: 128, Compactions: 6, Maintenance: [8]continuity.MaintenanceTurn{{Turn: 126, At: stamp}, {Turn: 127, At: stamp}, {Turn: 128, At: stamp}}}
+	s.mu.Unlock()
+	resident.Close()
+	reopened, err := bot.NewForRuntime(filepath.Join(root, "bot.json"), "caelis", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, fact := range []string{"task-123", "read only", "deployment revoked", "receipt-456", "review-notes.md", "unread src/b"} {
-		if !strings.Contains(string(first), fact) {
-			t.Fatal("handoff lost supplied fact", fact)
+	reopened.Start(s)
+	defer reopened.Close()
+	for range 2 {
+		if err := reopened.ReviewContinuity(ctx); err != nil {
+			t.Fatal(err)
 		}
 	}
-	t.Log("native reminder -> reference read -> Dream -> Worker question first seed; supplied task/auth/review facts retained")
-	if len(s.state.PastSessions) == 0 || s.state.PastSessions[len(s.state.PastSessions)-1] != old {
-		t.Fatal("old Core Session identity not retained")
+	if len(model.seen("CASE_HEALTHY")) != 1 {
+		t.Fatal("restart repeated invitation")
 	}
-
-	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
-	if receipt, err := resident.SubmitUser(ctx, api.Submission{ID: "case_later", Text: "CASE_LATER keep the original limits."}, nil); err != nil || receipt.Outcome != "accepted" {
-		t.Fatal(receipt, err)
-	}
-	waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_LATER")) != 0 && s.Snapshot().CanSend })
-	later, _ := json.Marshal(model.seen("CASE_LATER")[0])
-	if strings.Count(string(later), "[Private Bot handoff:") != 1 || strings.Count(string(later), "[Bot context:") != 1 || resident.PrepareHandoffContext().HandoffDigest != "" {
-		t.Fatal("native Core reinjected or lost the accepted seed")
-	}
+	t.Log("native reference read -> quiet deferral -> ordinary work; restart cooldown preserved; no Dream")
 }

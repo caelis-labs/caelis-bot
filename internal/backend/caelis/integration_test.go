@@ -35,6 +35,7 @@ type modelStep struct {
 	BuildArgs func() any
 	Reply     string
 	Name      string
+	CallID    string
 	Args      any
 	Block     <-chan struct{}
 	Entered   chan<- struct{}
@@ -121,8 +122,8 @@ func (m *acceptanceModel) serveCase(w http.ResponseWriter, r *http.Request, key 
 		reply = "ACCEPTANCE_COMPLETE"
 	}
 	id := fmt.Sprintf("fixture-%d", seq)
-	if step.Name == "FixtureLookup" {
-		id = "provider-reused-id"
+	if step.CallID != "" {
+		id = step.CallID
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	emit := func(v any) { b, _ := json.Marshal(v); fmt.Fprintf(w, "data: %s\n\n", b) }
@@ -189,6 +190,7 @@ func waitTurn(t *testing.T, ctx context.Context, s *Session, previous string) {
 	t.Helper()
 	waitAcceptance(t, ctx, func() bool {
 		v := s.Snapshot()
+		allowFixtureMCP(t, ctx, s, v.Approvals)
 		if v.CurrentTurn == "" || v.CurrentTurn == previous || !v.CanSend {
 			return false
 		}
@@ -303,7 +305,6 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	defer vault.Close()
 	_ = os.WriteFile(filepath.Join(vault.Path(), "AGENTS.md"), []byte("UNINHERITED_CONTEXT_SENTINEL"), 0600)
-	var oldEffects, newEffects atomic.Int32
 	h := &acceptanceTools{defs: fixtureDefinitions("string")}
 	var s *Session
 	nativeEngine, nativeErr := eventplan.Open(filepath.Join(root, "events.json"), nil, time.Now())
@@ -314,10 +315,9 @@ func TestNativeHostIntegration(t *testing.T) {
 	workerA, workerB := make(chan struct{}), make(chan struct{})
 	enteredA, enteredB := make(chan struct{}, 1), make(chan struct{}, 1)
 	h.call = func(callCtx context.Context, name string, args json.RawMessage) api.ToolResult {
+		callCtx = context.WithValue(callCtx, workOwnerKey{}, s)
 		var err error
 		switch name {
-		case "FixtureLookup":
-			oldEffects.Add(1)
 		case "FixtureDelegate":
 			for _, id := range []string{"a", "b"} {
 				dir := filepath.Join(root, "worker-"+id)
@@ -330,12 +330,6 @@ func TestNativeHostIntegration(t *testing.T) {
 					break
 				}
 			}
-		case "FixtureNativeEvent":
-			_, err = nativeEngine.SaveNative(eventplan.NativeArrangement{ID: "native-event", Label: "Native event", Sources: []string{"clock.minute"}, When: "true", Prompt: "CASE_NATIVE_EVENT_FIRE", TimeZone: "UTC"}, time.Now(), func(p eventplan.Plan) error {
-				return s.AuthorizeBackground(callCtx, p.Authorization(), "original-native-arrangement")
-			})
-		case "FixtureSchedule":
-			err = s.AuthorizeBackground(callCtx, "fixture-reminder", "original-user-schedule")
 		}
 		text := "FIXTURE_CALLBACK_OK"
 		if err != nil {
@@ -369,7 +363,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			deliveryResident.Close()
 		}
 	}()
-	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureNativeEvent"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
 		if deliveryResident != nil {
@@ -683,15 +677,27 @@ Use this fixture only when asked about private Notebook skill discovery.
 	}) {
 		return
 	}
-	// The retired host Dream/Notebook flow is covered as legacy receipt
-	// migration; TestNativeHostBotDreamRenewal exercises the replacement tool.
+	// Keep the synthetic fixture separate from the plugin-scoping matrix above.
+	config = fixtureMCPConfig(t, config, h)
+	if err := s.ConfigureBotTools(config); err != nil {
+		t.Fatal(err)
+	}
+	fixtureHead, err := s.Configuration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateConfiguration(ctx, "attach-test-mcp", string(fixtureHead.Revision), map[string]any{"mcp_servers": s.profile.McpServers}); err != nil {
+		t.Fatal(err)
+	}
 	if !t.Run("B00_running_inputs", func(t *testing.T) {
 		release := make(chan struct{})
 		var once sync.Once
 		unblock := func() { once.Do(func() { close(release) }) }
 		defer unblock()
 		entered := make(chan struct{}, 1)
-		model.set("CASE_STEER", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "steer"}, Block: release, Entered: entered})
+		step := fixtureMCPStep("FixtureLookup", map[string]string{"key": "steer"})
+		step.Block, step.Entered = release, entered
+		model.set("CASE_STEER", step)
 		before := s.Snapshot().CurrentTurn
 		r, err := s.Submit(ctx, api.Submission{ID: "steer-prompt", Text: "CASE_STEER"}, nil)
 		if err != nil || r.Outcome != "accepted" {
@@ -711,6 +717,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 				t.Fatal(r, err)
 			}
 		}
+		waitForFixtureMCP(t, ctx, s)
 		unblock()
 		waitTurn(t, ctx, s, before)
 		counts := map[string]int{}
@@ -724,13 +731,16 @@ Use this fixture only when asked about private Notebook skill discovery.
 				t.Fatalf("input %s projected %d times", id, counts[id])
 			}
 		}
-		oldEffects.Store(0)
 	}) {
 		return
 	}
 	if !t.Run("B00_native_event_activation", func(t *testing.T) {
-		model.set("CASE_NATIVE_EVENT", modelStep{Name: "FixtureNativeEvent", Args: map[string]string{"key": "save"}})
-		submitAcceptance(t, ctx, s, "CASE_NATIVE_EVENT")
+		if _, err := nativeEngine.SaveNative(eventplan.NativeArrangement{
+			ID: "native-event", Label: "Native event", Sources: []string{"clock.minute"},
+			When: "true", Prompt: "CASE_NATIVE_EVENT_FIRE", TimeZone: "UTC",
+		}, time.Now(), nil); err != nil {
+			t.Fatal("seed scheduler fixture", err)
+		}
 		saved := nativeEngine.Snapshot()
 		if len(saved.Plans) != 1 || saved.Plans[0].Status != "active" {
 			t.Fatal("native event registration failed")
@@ -806,7 +816,9 @@ Use this fixture only when asked about private Notebook skill discovery.
 	if !t.Run("B03_B04_B05_B06_hot_configuration", func(t *testing.T) {
 		release := make(chan struct{})
 		entered := make(chan struct{}, 1)
-		model.set("CASE_HOT", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "old"}, Block: release, Entered: entered})
+		step := modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(vault.Path(), "AGENTS.md")}}
+		step.Block, step.Entered = release, entered
+		model.set("CASE_HOT", step)
 		before := s.Snapshot().CurrentTurn
 		receipt, e := s.Submit(ctx, api.Submission{ID: "hot-request", Text: "CASE_HOT"}, nil)
 		if e != nil || receipt.Outcome != "accepted" {
@@ -821,12 +833,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil {
 			t.Fatal(e)
 		}
-		h2 := &acceptanceTools{defs: fixtureDefinitions("integer"), call: func(context.Context, string, json.RawMessage) api.ToolResult {
-			newEffects.Add(1)
-			return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "NEW_CALLBACK_OK"}}}
-		}}
 		next := config.Clone()
-		next.Host = h2
 		next.Instructions = "APPLICATION_NEW_INSTRUCTIONS"
 		if e = s.ConfigureBotTools(next); e != nil {
 			t.Fatal(e)
@@ -859,9 +866,6 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil || used.LastRequest == nil || used.LastRequest.Revision != updated.Revision || used.LastRequest.TurnId != updated.LastRequest.TurnId {
 			t.Fatal("same-turn hot configuration not applied", e)
 		}
-		if oldEffects.Load() != 1 || newEffects.Load() != 0 {
-			t.Fatal("old call rerouted to new catalog")
-		}
 		requests := model.seen("CASE_HOT")
 		if len(requests) != 2 {
 			t.Fatalf("actual provider request count: %d, want 2", len(requests))
@@ -883,17 +887,8 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if reasoning["effort"] != "high" {
 			t.Fatal("actual provider effort differs")
 		}
-		var schemaChanged bool
-		if tools, ok := requests[1]["tools"].([]any); ok {
-			for _, tool := range tools {
-				b, _ := json.Marshal(tool)
-				if strings.Contains(string(b), `"name":"FixtureLookup"`) && (strings.Contains(string(b), `"type":"integer"`) || strings.Contains(string(b), `"type":["integer","null"]`)) {
-					schemaChanged = true
-				}
-			}
-		}
-		if !schemaChanged {
-			t.Fatal("actual provider tool schema was not updated")
+		if len(used.Profile.Tools) != 0 || !hasNativeMCPServer(used.Profile.McpServers, fixtureMCPName()) {
+			t.Fatal("hot configuration restored legacy application tools")
 		}
 		noop, e := s.UpdateConfiguration(ctx, "hot-noop", string(updated.Revision), map[string]any{"instructions": next.Instructions})
 		if e != nil || noop.Revision != updated.Revision {
@@ -910,10 +905,10 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil {
 			t.Fatal(e)
 		}
-		model.set("CASE_REUSED", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "next-turn"}})
+		model.set("CASE_REUSED", modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(vault.Path(), "AGENTS.md")}})
 		submitAcceptance(t, ctx, s, "CASE_REUSED")
-		if oldEffects.Load() != 2 {
-			t.Fatal("provider call ID collapsed distinct turns")
+		if out := fmt.Sprint(dtwLastToolOutput(model.seen("CASE_REUSED"))); !strings.Contains(out, "UNINHERITED_CONTEXT_SENTINEL") {
+			t.Fatal("native filesystem tool unavailable after restore")
 		}
 	}) {
 		return
@@ -938,7 +933,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 		}
 		model.set("CASE_WORKER_A", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, filepath.Join(root, "worker-a")) + " && printf ok > worker-env.txt"}}, modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
 		model.set("CASE_WORKER_B", modelStep{Block: workerB, Entered: enteredB})
-		model.set("CASE_DELEGATE", modelStep{Name: "FixtureDelegate", Args: map[string]string{}})
+		model.set("CASE_DELEGATE", fixtureMCPStep("FixtureDelegate", map[string]string{}))
 		submitAcceptance(t, ctx, s, "CASE_DELEGATE")
 		if err := taskError.Load(); err != nil {
 			t.Fatal(err)
@@ -1014,61 +1009,48 @@ Use this fixture only when asked about private Notebook skill discovery.
 			t.Fatal("stop crossed Worker boundary", other, err)
 		}
 		close(workerB)
-		waitAcceptance(t, ctx, func() bool {
-			a, _ := s.ReadWork(ctx, "task-a")
-			b, _ := s.ReadWork(ctx, "task-b")
-			return a.Status == "interrupted" && b.Status == "completed"
+		terminal, stopTerminal := context.WithTimeout(ctx, 25*time.Second)
+		defer stopTerminal()
+		// The normal observer needs the admission lock to attach its streams
+		// after reconnect. Polling ReadWork here can starve that observation.
+		waitAcceptance(t, terminal, func() bool {
+			workers := s.WorkStates()
+			return slices.ContainsFunc(workers, func(w api.WorkState) bool { return w.Task.ID == "task-a" && w.Task.Status == "interrupted" }) &&
+				slices.ContainsFunc(workers, func(w api.WorkState) bool { return w.Task.ID == "task-b" && w.Task.Status == "completed" })
 		})
+		for _, expected := range []struct{ id, status string }{{"task-a", "interrupted"}, {"task-b", "completed"}} {
+			s.mu.Lock()
+			w := s.state.Workers[expected.id]
+			prompt := s.state.Operations[w.PromptID]
+			stopID := w.operationID("stop", stop.RequestID)
+			cancel := s.state.Operations[stopID]
+			s.mu.Unlock()
+			sid := w.Binding.SessionId
+			var receipt wire.CommandResult
+			if err := host.json(ctx, "GET", "/operations/"+idPath(w.PromptID), nil, &receipt, "", ""); err != nil ||
+				receipt.OperationId != w.PromptID || value(receipt.SessionId) != sid || receipt.Outcome != "committed" ||
+				receipt.Target == nil || value(receipt.Target.TurnId) != prompt.TurnID || prompt.TurnID == "" {
+				t.Fatal("terminal projection lost the original Worker prompt receipt", expected.id, err)
+			}
+			if expected.id == stop.ID {
+				var receipt wire.CommandResult
+				if err := host.json(ctx, "GET", "/operations/"+idPath(stopID), nil, &receipt, "", ""); err != nil ||
+					receipt.OperationId != stopID || value(receipt.SessionId) != sid || receipt.Outcome != "committed" ||
+					cancel.StopTarget == nil || cancel.StopTarget.TurnId != prompt.TurnID {
+					t.Fatal("Worker stop lost its original native target", err)
+				}
+			}
+			if result, err := s.ReadWork(ctx, expected.id); err != nil || result.Status != expected.status {
+				t.Fatal("original Worker terminal could not be read after reconnect", expected.id, result.Status, err)
+			}
+		}
 		for _, key := range []string{"CASE_WORKER_A", "CASE_WORKER_B"} {
 			raw, _ := json.Marshal(model.seen(key))
 			if strings.Contains(string(raw), "APPLICATION_OLD_INSTRUCTIONS") || strings.Contains(string(raw), "MEMORY.md") {
 				t.Fatal("worker inherited resident context")
 			}
 		}
-		model.set("CASE_SCHEDULE", modelStep{Name: "FixtureSchedule", Args: map[string]string{}})
-		submitAcceptance(t, ctx, s, "CASE_SCHEDULE")
-		before := s.Snapshot().CurrentTurn
-		in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND", Scheduled: true}
-		r, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
-		if e != nil || r.Outcome != "accepted" {
-			t.Fatal(r, e)
-		}
-		waitTurn(t, ctx, s, before)
-		r, e = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
-		if e != nil || r.Outcome != "accepted" || len(model.seen("CASE_BACKGROUND")) != 1 {
-			t.Fatal("background duplicated", e)
-		}
-		for _, item := range s.Snapshot().Items {
-			if item.Kind == "user" && strings.Contains(item.Text, "CASE_BACKGROUND") {
-				t.Fatal("scheduled prompt exposed by canonical feed")
-			}
-		}
-		if !s.Snapshot().Scheduled {
-			t.Fatal("native feed lost scheduled origin")
-		}
-		model.set("CASE_BACKGROUND_SKIP", modelStep{Reply: api.SilentReminder})
-		before = s.Snapshot().CurrentTurn
-		skipped, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Grants: []string{"fixture-reminder"}})
-		if e != nil || skipped.Outcome != "accepted" {
-			t.Fatal(skipped, e)
-		}
-		waitTurn(t, ctx, s, before)
-		quiet := s.Snapshot()
-		if !quiet.Quiet {
-			t.Fatal("silent final was not quiet")
-		}
-		for _, item := range quiet.Items {
-			if item.TurnKey == quiet.CurrentTurn {
-				t.Fatal("silent final appeared in transcript")
-			}
-		}
-		if e = s.RevokeBackground(ctx, "fixture-reminder"); e != nil {
-			t.Fatal(e)
-		}
-		r, _ = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-revoked", Text: "CASE_REVOKED", Grants: []string{"fixture-reminder"}})
-		if r.Outcome != "rejected" || len(model.seen("CASE_REVOKED")) != 0 {
-			t.Fatal("revoked grant activated")
-		}
+		exerciseRetainedBackgroundGrant(t, ctx, s, model, "case_delegate")
 	}) {
 		return
 	}
@@ -1114,6 +1096,10 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if link == "" {
 			t.Fatal("published artifact did not reach Bot snapshot")
 		}
+		original := s.ConversationState()
+		if link != "resource:"+original.Session+":"+artifact {
+			t.Fatal("published link does not identify the original native artifact")
+		}
 		local, e := s.Artifact(link)
 		if e != nil {
 			t.Fatal(e)
@@ -1126,6 +1112,17 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil || string(got) != string(data) || descriptor.Sha256 != digest(data) {
 			t.Fatal("artifact integrity", e)
 		}
+		if e = s.RenewIdleConversation(ctx, "artifact-history-rotation", original); e != nil || s.ConversationState().Session == original.Session {
+			t.Fatal("could not rotate the fixture resident after publication", e)
+		}
+		historical, e := s.Artifact(link)
+		if e != nil {
+			t.Fatal("previous resident's verified artifact link stopped working", e)
+		}
+		if content, e := os.ReadFile(historical); e != nil || !bytes.Equal(content, data) {
+			t.Fatal("previous resident's artifact bytes changed", e)
+		}
+		t.Log("native upload, PublishArtifact snapshot link, verified download and historical download matched the original bytes")
 	}) {
 		return
 	}
@@ -1306,7 +1303,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if after.Profile.ExecutionConfig == nil {
 			t.Fatal("restart lost execution configuration")
 		}
-		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || len(after.Profile.McpServers) != 0 {
+		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || !hasNativeMCPServer(after.Profile.McpServers, fixtureMCPName()) {
 			t.Fatal("restart restored a disabled plugin selection or lost private Notebook Skills", after.Profile)
 		}
 		// An idle Host replacement succeeds with the Bot still subscribed. Only
@@ -1348,7 +1345,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
 			t.Fatal("reconnect replaced binding", e)
 		}
-		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || len(after.Profile.McpServers) != 0 {
+		if len(after.Profile.SkillRoots) != 0 || !slices.Equal(after.Profile.SkillDirs, []string{filepath.Join(vault.Path(), ".agents", "skills")}) || !hasNativeMCPServer(after.Profile.McpServers, fixtureMCPName()) {
 			t.Fatal("reconnect restored a disabled plugin selection or lost private Notebook Skills", after.Profile)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })

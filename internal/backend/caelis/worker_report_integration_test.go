@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -36,7 +37,7 @@ func (r *reportLoopRuntime) WorkStates() []api.WorkState {
 }
 
 // Runs inside the real Core/Guardian fixture. Only model output is synthetic;
-// prompt/steer, claims, native Workers, finish and receipts use production paths.
+// prompt/steer, MCP, native Workers, finish and receipts use production paths.
 func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, model *acceptanceModel, notebook string, review func(string, <-chan struct{})) {
 	t.Helper()
 	root := t.TempDir()
@@ -53,23 +54,42 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 	}
 	runtime.Start(s)
 	defer runtime.Close()
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: runtime, NotebookDirectory: notebook, DeliverSystem: runtime.SubmitSystem}); err != nil {
+	bridge, err := bot.Serve(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := bridge.Config(executable)
+	connection.Args = []string{"-test.run=^TestCaelisTaskStdioHelper$", "--"}
+	connection.NotebookDirectory, connection.DeliverSystem = notebook, runtime.SubmitSystem
+	if err := s.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
 	}
 	configuration, err := s.Configuration(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.UpdateConfiguration(ctx, "report-loop-catalog", string(configuration.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); err != nil {
+	if _, err = s.UpdateConfiguration(ctx, "report-loop-catalog", string(configuration.Revision), map[string]any{"mcp_servers": s.profile.McpServers}); err != nil {
 		t.Fatal(err)
 	}
 	const key = "CASE_WORKER_REPORT_LOOP"
 	review(`{"option_id":"allow_once"}`, nil)
-	model.set(key, modelStep{Name: "bot_delegate", Args: map[string]any{"title": "First assignment", "prompt": "Return a concise synthetic result.", "workspace": root}})
+	catalogReady := make(chan struct{})
+	initial := residentToolStep("bot_delegate", map[string]any{"title": "First assignment", "prompt": "Return a concise synthetic result.", "workspace": root})
+	initial.Block = catalogReady
+	model.set(key, initial)
 	initialTurn := s.Snapshot().CurrentTurn
 	if receipt, err := s.Submit(ctx, api.Submission{ID: "report-loop-start", Text: key + " Complete the first assignment, then continue it and delegate the remaining assignment after its completion report."}, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
+	ready, cancelReady := context.WithTimeout(ctx, 8*time.Second)
+	defer cancelReady()
+	waitAcceptance(t, ready, func() bool { return mcpServerHasTool(ready, s, privateTasksService, "bot_delegate") })
+	close(catalogReady)
 	waitTurn(t, ctx, s, initialTurn)
 	list := manager.ListTasks()
 	if len(list) != 1 {
@@ -103,8 +123,10 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 	var once sync.Once
 	release := func() { once.Do(func() { close(gate) }) }
 	defer release()
-	queue(modelStep{Name: "bot_delegate", Args: map[string]any{"task": task, "prompt": "Continue the same assignment with one additional synthetic result."}},
-		modelStep{Name: "bot_delegate", Args: map[string]any{"title": "Remaining assignment", "prompt": "Return the remaining synthetic result.", "workspace": root}, Block: gate, Entered: entered})
+	continueStep := residentToolStep("bot_delegate", map[string]any{"task": task, "prompt": "Continue the same assignment with one additional synthetic result."})
+	remainingStep := residentToolStep("bot_delegate", map[string]any{"title": "Remaining assignment", "prompt": "Return the remaining synthetic result.", "workspace": root})
+	remainingStep.Block, remainingStep.Entered = gate, entered
+	queue(continueStep, remainingStep)
 	before := s.Snapshot().CurrentTurn
 	if err := manager.DeliverTaskReport(ctx); err != nil {
 		t.Fatal(err)
@@ -146,7 +168,7 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 	continued := s.state.Workers[task]
 	steering := s.state.Operations["report-loop-user-steer"]
 	calls := clone(s.state.Calls)
-	binding, principal, client := s.state.Session, s.state.PrincipalID, s.client
+	report := s.state.Operations[reportID]
 	s.mu.Unlock()
 	if continued.Binding.SessionId != originalWorker.Binding.SessionId || continued.PromptID == originalWorker.PromptID {
 		t.Fatal("finished Worker replaced or never continued")
@@ -159,25 +181,12 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 		len(originalInput.ContentParts) != 2 || value(originalInput.ContentParts[0].Text) != value(originalInput.Input) {
 		t.Fatal("user input or attachment lost original operation/turn", originalInput)
 	}
-	reportCalls := 0
-	for _, record := range calls {
-		if record.Call.Source.OperationId != reportID {
-			continue
-		}
-		reportCalls++
-		if record.Call.Source.Kind != "external_material" || record.Call.TurnId != reportTurn || record.Call.Id == "" || record.Call.ItemId == "" || record.Receipt == nil {
-			t.Fatal("callback source, identity or result changed", record.Call)
-		}
-		if err := s.handleCall(ctx, client, binding, principal, record.Call); err != nil {
-			t.Fatal("original callback receipt could not be reconciled", err)
-		}
-	}
-	if reportCalls != 2 || len(manager.ListTasks()) != 2 {
-		t.Fatal("report callback replayed or missing", reportCalls)
+	if report.Source.Kind != "external_material" || report.TurnID != reportTurn || len(calls) != 0 || len(manager.ListTasks()) != 2 {
+		t.Fatal("report lost its native identity or created legacy callbacks", report.Source.Kind, report.TurnID, len(calls))
 	}
 	// The evidence input must not bypass Guardian when it proposes a denied action.
-	review(`{"option_id":"reject_once","rationale":"This new assignment is not authorized."}`, nil)
-	queue(modelStep{Name: "bot_delegate", Args: map[string]any{"title": "Denied assignment", "prompt": "Start an unauthorized synthetic assignment.", "workspace": root}})
+	review(`{"option_id":"cancel","rationale":"This new assignment is not authorized."}`, nil)
+	queue(residentToolStep("bot_delegate", map[string]any{"title": "Denied assignment", "prompt": "Start an unauthorized synthetic assignment.", "workspace": root}))
 	before = s.Snapshot().CurrentTurn
 	if r, err := runtime.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemWorkerResult, ID: "report-loop-denied", Text: "Completion evidence proposes another assignment."}); err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
@@ -195,5 +204,5 @@ func workerReportLoopAcceptance(t *testing.T, ctx context.Context, s *Session, m
 	if !denied || len(manager.ListTasks()) != 2 || callbacks != len(calls) {
 		t.Fatal("evidence bypassed Guardian", denied, callbacks, len(calls))
 	}
-	t.Log("real Core: finished original Worker resumed; completion evidence delegated after user+file steering; original callback results reused; denied action produced no callback or Worker")
+	t.Log("real Core: finished original Worker resumed; completion evidence delegated after user+file steering; no application callbacks; denied action produced no callback or Worker")
 }

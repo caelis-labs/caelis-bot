@@ -5,9 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"maps"
 	"slices"
-	"sort"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -19,11 +17,9 @@ func (*Session) ApplicationCapabilities() api.ApplicationCapabilities {
 func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	s.step.Lock()
 	defer s.step.Unlock()
-	if c == nil || c.Host == nil {
+	if c == nil {
 		return errors.New("应用工具绑定无效或已固定")
 	}
-	catalog := map[string]api.ApplicationTools{}
-	formats := map[string]bool{}
 	profile := wire.SessionProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.SessionToolDefinition{}}
 	if c.RuntimeVersion != "" {
 		profile.Version += "/" + c.RuntimeVersion
@@ -37,37 +33,9 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 			Shell:       &wire.ShellConfig{Login: pointer(false)},
 		}
 	}
-	for _, host := range []api.ApplicationTools{c.Host} {
-		if host == nil {
-			continue
-		}
-		for _, d := range host.Definitions() {
-			if _, exists := catalog[d.Name]; exists {
-				return errors.New("应用工具名称重复")
-			}
-			var schema wire.JSONObject
-			if d.Name == "" || json.Unmarshal(d.InputSchema, &schema) != nil || schema == nil {
-				return errors.New("应用工具 schema 无效")
-			}
-			catalog[d.Name] = host
-			policy := "required"
-			if slices.Contains(c.ApprovedTools, d.Name) {
-				policy = "direct"
-			}
-			definition := wire.SessionToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
-			if d.ResultFormat != "" {
-				if d.ResultFormat != "content-v1" {
-					return errors.New("unsupported application tool result format")
-				}
-				definition.ResultFormat = pointer(d.ResultFormat)
-				formats[d.Name] = true
-			}
-			profile.Tools = append(profile.Tools, definition)
-		}
-	}
-	sort.Slice(profile.Tools, func(i, j int) bool { return profile.Tools[i].Name < profile.Tools[j].Name })
-	b, _ := json.Marshal(profile.Tools)
-	profile.ToolsVersion = digest(b)
+	// Core v0.85.0 requires this field on explicit Session creation even
+	// with an empty application catalog. It does not enable callbacks.
+	profile.ToolsVersion = digest([]byte("[]"))
 	if c.NotebookDirectory != "" {
 		profile.Workspace = &wire.SessionWorkspace{Cwd: &c.NotebookDirectory}
 	}
@@ -75,9 +43,12 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	// Core discovers project MCP from the Session CWD under native workspace
 	// trust. Only Bot-managed packages belong in the explicit profile.
 	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
-	nativeTasks := c.PublishCaelisTaskMCP != nil && !s.retainedWorkers
-	if nativeTasks {
-		path, err := c.PublishCaelisTaskMCP(c.NotebookDirectory)
+	residentMCP := c.PublishCaelisMCP != nil && !s.retainedWorkers
+	if residentMCP {
+		if c.Command == "" {
+			return errors.New("Bot resident MCP executable is unavailable")
+		}
+		path, err := c.PublishCaelisMCP(c.NotebookDirectory)
 		if err != nil {
 			return err
 		}
@@ -92,110 +63,15 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	}
 	profile.SkillDirs = skillDirs
 	s.mu.Lock()
-	if s.catalogs == nil {
-		s.catalogs = map[string]map[string]api.ApplicationTools{}
-	}
-	if s.state.ContentCatalogs == nil {
-		s.state.ContentCatalogs = map[string]map[string]bool{}
-	}
-	if len(formats) > 0 {
-		s.state.ContentCatalogs[profile.ToolsVersion] = formats
-		if err := s.saveLocked(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-	}
-	older := []*api.ToolConnection{}
-	if provider, ok := c.Host.(api.LegacyToolProvider); ok {
-		older = append(older, provider.LegacyToolConnection())
-	}
-	if provider, ok := c.Host.(api.HistoricalToolProvider); ok {
-		older = append(older, provider.HistoricalToolConnections()...)
-	}
-	for _, legacy := range older {
-		if legacy != nil && legacy.Host != nil {
-			definitions := []wire.SessionToolDefinition{}
-			handlers := map[string]api.ApplicationTools{}
-			content := map[string]bool{}
-			for _, d := range legacy.Host.Definitions() {
-				var schema wire.JSONObject
-				if json.Unmarshal(d.InputSchema, &schema) != nil || schema == nil {
-					s.mu.Unlock()
-					return errors.New("invalid legacy tool schema")
-				}
-				policy := "required"
-				if slices.Contains(legacy.ApprovedTools, d.Name) {
-					policy = "direct"
-				}
-				item := wire.SessionToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
-				if d.ResultFormat != "" {
-					item.ResultFormat = pointer(d.ResultFormat)
-					content[d.Name] = true
-				}
-				definitions = append(definitions, item)
-				if d.Name != "bot_care" && d.Name != "bot_care_read" {
-					handlers[d.Name] = legacy.Host
-				}
-			}
-			sort.Slice(definitions, func(i, j int) bool { return definitions[i].Name < definitions[j].Name })
-			raw, _ := json.Marshal(definitions)
-			version := digest(raw)
-			s.catalogs[version] = handlers
-			if len(content) > 0 {
-				s.state.ContentCatalogs[version] = content
-				if err := s.saveLocked(); err != nil {
-					s.mu.Unlock()
-					return err
-				}
-			}
-		}
-	}
-	s.catalogs[profile.ToolsVersion] = catalog
-	if nativeTasks {
-		// Keep both the plain and aliased historical catalogs for calls already
-		// admitted by Core. Only the native MCP service advertises task tools.
-		legacy, handlers := legacyTaskCallbackCatalog(profile, catalog, legacyTaskCallbackTools{Session: s, host: c.Host})
-		s.catalogs[legacy.ToolsVersion] = handlers
-		legacyFormats := maps.Clone(formats)
-		s.state.ContentCatalogs[legacy.ToolsVersion] = legacyFormats
-		profile = withoutTaskCallbacks(profile)
-		handlers = make(map[string]api.ApplicationTools, len(profile.Tools))
-		for _, tool := range profile.Tools {
-			handlers[tool.Name] = catalog[tool.Name]
-		}
-		catalog = handlers
-		s.catalogs[profile.ToolsVersion] = catalog
-		activeFormats := maps.Clone(formats)
-		for _, name := range privateTasksTools {
-			if formats[name] {
-				legacyFormats[privateTasksPrefix+name] = true
-			}
-			delete(activeFormats, name)
-		}
-		s.state.ContentCatalogs[profile.ToolsVersion] = activeFormats
-		if err := s.saveLocked(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-	}
-	s.catalog = catalog
 	s.tools = c.Clone()
 	s.profile = profile
 	s.mu.Unlock()
 	return nil
 }
 
-// Optional content-v1 tools require a positive handshake before any Session
-// mutation. Ordinary text-only Bot sessions still work
-// with the existing required capability baseline.
-func (s *Session) checkContentCapability(info wire.ServerInfo) error {
+func (s *Session) checkCapabilityAssembly(info wire.ServerInfo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, tool := range s.profile.Tools {
-		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "session-tool-result-content-v1") {
-			return errors.New("Bot tools require Caelis session-tool-result-content-v1; update and restart the Host")
-		}
-	}
 	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0 || len(s.profile.SkillDirs) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
 		return errors.New("Bot plugins require Caelis session-atomic-capabilities-v1")
 	}
@@ -308,7 +184,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
 	pendingConfiguration := s.configurationRecoveryPendingLocked()
 	s.mu.Unlock()
-	if pendingConfiguration && s.tools != nil && s.tools.PublishCaelisTaskMCP != nil {
+	if pendingConfiguration && s.tools != nil && s.tools.PublishCaelisMCP != nil {
 		if err := s.recoverConfigurations(ctx); err != nil {
 			return err
 		}
@@ -318,12 +194,22 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		}
 		pendingPlugin = false
 	}
+	// An already running legacy Turn holds its original callback catalog.
+	// Core owns cancellation and the unknown outcome of any claimed effect.
+	// Retire that exact Turn before clearing the catalog; never claim or replay
+	// it, and never cancel a Worker or an ordinary native MCP Turn.
+	if len(desired.Profile.Tools) != 0 {
+		if e := s.retireCallbackTurn(ctx, b.SessionId, c); e != nil {
+			return e
+		}
+	}
 	profile := s.profile
 	servers := profile.McpServers
-	if !pendingPlugin && (desired.Profile.ToolsVersion != profile.ToolsVersion || desired.Profile.Instructions != profile.Instructions ||
+	if !pendingPlugin && (len(desired.Profile.Tools) != 0 || desired.Profile.Instructions != profile.Instructions ||
 		!slices.EqualFunc(desired.Profile.McpServers, servers, sameMCPServer) || !slices.Equal(desired.Profile.SkillRoots, profile.SkillRoots) ||
 		!slices.Equal(desired.Profile.SkillDirs, profile.SkillDirs)) {
-		patch := map[string]any{"instructions": profile.Instructions, "tools_version": profile.ToolsVersion, "tools": profile.Tools, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
+		patch := map[string]any{"instructions": profile.Instructions, "mcp_servers": servers, "skill_roots": profile.SkillRoots, "skill_dirs": profile.SkillDirs}
+		clearLegacyCatalog(patch, desired.Profile, profile.ToolsVersion)
 		// Operation IDs share the Host principal namespace. Include the Session
 		// and the exact structured intent; never rewrite retained receipt IDs.
 		intent, err := json.Marshal(struct {
@@ -338,6 +224,53 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	if e != nil {
 		return e
+	}
+	return nil
+}
+
+// The released Host needs an explicit empty catalog and a distinct revision
+// token when replacing a pre-migration catalog. Ordinary MCP updates omit both.
+func clearLegacyCatalog(patch map[string]any, current *wire.SessionProfile, emptyVersion string) {
+	if len(current.Tools) != 0 {
+		patch["tools"] = []wire.SessionToolDefinition{}
+		patch["tools_version"] = emptyVersion
+	}
+}
+
+func (s *Session) retireCallbackTurn(ctx context.Context, sid string, c *client) error {
+	path := "/sessions/" + idPath(sid)
+	var head wire.SessionState
+	if err := c.json(ctx, "GET", path+"/state", nil, &head, "", ""); err != nil {
+		return err
+	}
+	if head.SessionId != sid {
+		return errors.New("旧会话升级目标不匹配")
+	}
+	if !value(head.Run.Active) {
+		return nil
+	}
+	target := wire.TurnTarget{HandleId: value(head.Run.HandleId), RunId: value(head.Run.RunId), TurnId: value(head.Run.TurnId)}
+	if target.TurnId == "" {
+		return errors.New("旧会话尚未确认运行目标")
+	}
+	raw, err := json.Marshal(target)
+	if err != nil {
+		return err
+	}
+	op := "retire-callback-turn-" + digest([]byte(sid+"\x00"+string(raw)))
+	receipt, err := s.command(ctx, op, path+"/cancel", wire.CancelRequest{OperationId: &op, SessionId: &sid, Target: target})
+	if err != nil {
+		return err
+	}
+	if !succeeded(receipt.Outcome) {
+		// The original Turn may have finished between the read and cancel.
+		var latest wire.SessionState
+		if err := c.json(ctx, "GET", path+"/state", nil, &latest, "", ""); err != nil {
+			return err
+		}
+		if latest.SessionId != sid || value(latest.Run.Active) {
+			return errors.New("旧会话升级尚未确认")
+		}
 	}
 	return nil
 }

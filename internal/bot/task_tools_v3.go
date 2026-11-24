@@ -25,7 +25,7 @@ func (r *Runtime) taskPort() (api.TaskProvider, error) {
 
 func toolSubmissionID(invocation api.ToolInvocation) string {
 	key := invocation.Provider + "\x00" + invocation.Session + "\x00" + invocation.Turn + "\x00" + invocation.CallID
-	if invocation.CaelisTaskMCP {
+	if invocation.CaelisMCP {
 		// The stdio process namespaces its request ID, so a bridge retry
 		// also has the same identity if a turn update arrives meanwhile.
 		key = invocation.Provider + "\x00mcp\x00" + invocation.CallID

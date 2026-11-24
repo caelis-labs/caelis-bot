@@ -110,9 +110,8 @@ type ApprovalMode struct {
 // per-tool approval into its own policy; no global/server approval is implied.
 // It deliberately has no JSON/UI contract and must never enter diagnostics.
 type ToolConnection struct {
-	// Role instructions and callbacks are application-owned, never hardcoded by
-	// a protocol adapter. The native MCP transport uses Command/Args/Env; another
-	// adapter can bind Host to a session-scoped client-tool transport.
+	// Role instructions and lifecycle hooks are application-owned. Native
+	// MCP servers are launched through the adapter's standard mechanism.
 	Instructions, WorkerInstructions string
 	// SkillInstructions is the resident metadata guide for adapters that do not
 	// publish selected Skill metadata themselves. Skill bodies stay on disk.
@@ -130,7 +129,6 @@ type ToolConnection struct {
 	FinishTurn     func()
 	PrepareContext func(context.Context) (ContextSeed, error)
 	ConsumeContext func(ContextSeed) error
-	Host           ApplicationTools
 	Command        string
 	Args           []string
 	Env            map[string]string
@@ -138,10 +136,10 @@ type ToolConnection struct {
 	// Services partitions the compact built-in catalog for the resident only.
 	// Names are protocol identities, never user-facing plugin titles.
 	Services []ToolService
-	// PublishCaelisTaskMCP writes the local bridge connection in the resident Notebook.
-	PublishCaelisTaskMCP func(string) (string, error)
-	Plugins              plugins.Selection
-	BuiltinSkillRoots    []string
+	// PublishCaelisMCP writes the local bridge connection in the resident Notebook.
+	PublishCaelisMCP  func(string) (string, error)
+	Plugins           plugins.Selection
+	BuiltinSkillRoots []string
 }
 
 // PluginConfigurator applies Bot-owned package selection in the Runtime.

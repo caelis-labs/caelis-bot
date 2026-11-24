@@ -302,7 +302,7 @@ func TestWorkServiceInputsUseWorkerNativeEncoderAndBindBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.FileDigests = digests
-	ctx := (&WorkOwner{s}).source(t.Context(), in.RequestID)
+	ctx := (&WorkOwner{s}).ownedContext(t.Context())
 	if _, err = s.SendWork(ctx, in); err != nil || uploads.Load() != 1 || prompts.Load() != 1 {
 		t.Fatal("worker input failed", err, uploads.Load(), prompts.Load())
 	}
@@ -378,7 +378,7 @@ func TestWorkServicePreparedStartRetainsFilesAndUnknownReceipt(t *testing.T) {
 	_ = os.WriteFile(file, []byte("frozen bytes"), 0600)
 	in := api.WorkStart{TaskStart: api.TaskStart{RequestID: "create-original", Title: "work", Prompt: "read file", Files: []api.InputFile{{Name: "input.txt", Path: file}}}, ID: "task", Workspace: t.TempDir()}
 	in.FileDigests, _ = api.WorkInputDigests(in.Files)
-	ctx := (&WorkOwner{s}).source(t.Context(), in.RequestID)
+	ctx := (&WorkOwner{s}).ownedContext(t.Context())
 	if task, err := s.StartWork(ctx, in); err == nil || task.Outcome != "unknown" {
 		t.Fatal("unknown native start fabricated success", task, err)
 	}

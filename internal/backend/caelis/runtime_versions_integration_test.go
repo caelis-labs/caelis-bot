@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -138,6 +137,11 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, handshakeErr := initialize(ctx, host)
+	compatible := handshakeErr == nil
+	if handshakeErr != nil && !errors.Is(handshakeErr, errBotIncompatible) {
+		t.Fatal("could not classify the previous Host's Bot contract", handshakeErr)
+	}
 	model := newAcceptanceModel()
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
 	defer server.Close()
@@ -159,12 +163,12 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		err := os.WriteFile(filepath.Join(root, "effect.txt"), []byte("BUNDLED_CALLBACK_EFFECT"), 0600)
 		return api.ToolResult{IsError: err != nil, Content: []map[string]string{{"type": "text", "text": "CALLBACK_COMPLETE"}}}
 	}}
-	connection := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup"}, Host: tools, NotebookDirectory: root, Instructions: "Version interoperation acceptance"}
-	model.set("CASE_BUNDLE_BEFORE", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "before"}}, modelStep{Reply: "BOT_BEFORE_COMPLETE"})
+	connection := fixtureMCPConfig(t, &api.ToolConnection{NotebookDirectory: root, Instructions: "Version interoperation acceptance"}, tools)
+	model.set("CASE_BUNDLE_BEFORE", modelStep{Reply: "BOT_BEFORE_COMPLETE"})
 	legacy := seedLegacyMatrixSession(t, ctx, host, discovery, opts, connection)
 	sid, storeID, principal := legacy.Session.SessionId, legacy.StoreID, legacy.PrincipalID
-	if effects.Load() != 1 {
-		t.Fatal("legacy fixture did not execute exactly one callback")
+	if effects.Load() != 0 {
+		t.Fatal("legacy seed unexpectedly dispatched a fixture effect")
 	}
 
 	held, entered := make(chan struct{}), make(chan struct{}, 1)
@@ -201,11 +205,22 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	if err := bot.ConfigureBotTools(connection); err != nil {
 		t.Fatal(err)
 	}
-	if err := bot.Connect(ctx); !errors.Is(err, errBotIncompatible) {
-		t.Fatalf("new Bot must reject incompatible busy Host: %v", err)
+	if compatible {
+		// With a compatible Host the adapter can connect immediately. The
+		// app's public runtime-start path requests convergence independently.
+		if _, err := caelisruntime.Manage(ctx, "start", found, settings.CaelisStore); err != nil {
+			t.Fatal("request bundled Host convergence while the old Host is busy", err)
+		}
 	}
-	if bot.Snapshot().CanSend || effects.Load() != 1 {
-		t.Fatal("incompatible Host admitted Bot work or replayed a callback")
+	connectErr := bot.Connect(ctx)
+	if compatible && connectErr != nil {
+		t.Fatal("new Bot could not attach to the compatible busy Host", connectErr)
+	}
+	if !compatible && !errors.Is(connectErr, errBotIncompatible) {
+		t.Fatal("new Bot did not reject the incompatible busy Host", connectErr)
+	}
+	if (!compatible && bot.Snapshot().CanSend) || effects.Load() != 0 {
+		t.Fatal("busy Host admission or fixture effect differed from the negotiated contract")
 	}
 	assertMatrixOriginalReceipts(t, ctx, host, bot, legacy)
 	// Keep one released Client process observing the original Session through
@@ -222,7 +237,7 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 		t.Fatal("original Session failed", err)
 	}
 	waitAcceptance(t, ctx, func() bool { d, _, e := Discover(settings); return e == nil && d.InstanceID != discovery.InstanceID })
-	if err := bot.Connect(ctx); err != nil {
+	if err := bot.Reconnect(ctx); err != nil {
 		t.Fatal(err)
 	}
 	waitAcceptance(t, ctx, func() bool { return bot.Snapshot().CanSend })
@@ -233,23 +248,23 @@ func TestBundledRuntimeVersionInterop(t *testing.T) {
 	bot.mu.Lock()
 	same := sid == bot.state.Session.SessionId && storeID == bot.state.StoreID && principal == bot.state.PrincipalID
 	bot.mu.Unlock()
-	if !same || effects.Load() != 1 {
-		t.Fatal("reconnect changed identity or replayed callback")
+	if !same || effects.Load() != 0 {
+		t.Fatal("reconnect changed identity or dispatched the fixture")
 	}
-	model.set("CASE_BUNDLE_AFTER", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "after"}}, modelStep{Reply: "BOT_AFTER_COMPLETE"})
+	model.set("CASE_BUNDLE_AFTER", fixtureMCPStep("FixtureLookup", map[string]string{"key": "after"}), modelStep{Reply: "BOT_AFTER_COMPLETE"})
 	submitAcceptance(t, ctx, bot, "CASE_BUNDLE_AFTER")
 	observeOldClient("BOT_AFTER_COMPLETE")
-	if effects.Load() != 2 {
-		t.Fatal("callback count", effects.Load())
+	if effects.Load() != 1 {
+		t.Fatal("MCP effect count", effects.Load())
 	}
 	if b, err := os.ReadFile(filepath.Join(root, "effect.txt")); err != nil || string(b) != "BUNDLED_CALLBACK_EFFECT" {
-		t.Fatal("callback file effect missing", err)
+		t.Fatal("MCP file effect missing", err)
 	}
 	model.set("CASE_GLOBAL_AFTER", modelStep{Reply: "GLOBAL_AFTER_COMPLETE"})
 	if output := cli(old, "-p", "CASE_GLOBAL_AFTER"); !strings.Contains(string(output), "GLOBAL_AFTER_COMPLETE") {
 		t.Fatal("older CLI did not complete against new Host")
 	}
-	t.Log("PASS: bundled CLI selected over global; incompatible busy Host safely rejected; old active Session completed; automatic idle Host upgrade; original Bot identity and callback receipts preserved; old CLI completes against new Host")
+	t.Logf("bundled CLI preferred; previous Host %s contract compatible=%t; busy turn preserved, idle Host upgraded, Bot bindings and receipts retained, and old CLI completed against new Host", discovery.DistributionVersion, compatible)
 }
 
 // This old-protocol fixture establishes retained work without calling the new
@@ -259,9 +274,6 @@ func seedLegacyMatrixSession(t *testing.T, ctx context.Context, host *client, d 
 	var info wire.ServerInfo
 	if err := host.json(ctx, "GET", "/initialize", nil, &info, "", ""); err != nil {
 		t.Fatal(err)
-	}
-	if slices.Contains(info.Capabilities, "runtime-agent-team-v1") {
-		t.Fatal("previous Host already has Team capability; incompatible upgrade fixture is invalid")
 	}
 	legacy := New(opts)
 	if err := legacy.ConfigureBotTools(tools); err != nil {
@@ -280,17 +292,6 @@ func seedLegacyMatrixSession(t *testing.T, ctx context.Context, host *client, d 
 		t.Fatalf("legacy prompt: %v %v", result.Outcome, err)
 	}
 	waitAcceptance(t, ctx, func() bool {
-		if err := legacy.pollCalls(ctx, host, legacy.state.Session, d.PrincipalID); err != nil {
-			t.Fatal(err)
-		}
-		if len(legacy.state.Calls) != 1 {
-			return false
-		}
-		for _, call := range legacy.state.Calls {
-			if call.Phase != "completed" || call.Receipt == nil || call.Receipt.Outcome != "succeeded" {
-				return false
-			}
-		}
 		var state wire.SessionState
 		if err := host.json(ctx, "GET", "/sessions/"+idPath(legacy.state.Session.SessionId)+"/state", nil, &state, "", ""); err != nil {
 			t.Fatal(err)
@@ -314,7 +315,7 @@ func assertMatrixOriginalReceipts(t *testing.T, ctx context.Context, host *clien
 		current, ok := bot.state.Calls[id]
 		before, _ := json.Marshal(old.Receipt)
 		after, _ := json.Marshal(current.Receipt)
-		same = same && ok && sameInvocation(old.Call, current.Call) && string(before) == string(after) && current.Phase == "completed"
+		same = same && ok && sameArchivedInvocation(old.Call, current.Call) && string(before) == string(after) && current.Phase == "completed"
 	}
 	bot.mu.Unlock()
 	if !same {
@@ -327,8 +328,16 @@ func assertMatrixOriginalReceipts(t *testing.T, ctx context.Context, host *clien
 		}
 		before, _ := json.Marshal(old.Receipt)
 		after, _ := json.Marshal(call.Result)
-		if !sameInvocation(old.Call, call) || call.State != "completed" || string(before) != string(after) {
+		if !sameArchivedInvocation(old.Call, call) || call.State != "completed" || string(before) != string(after) {
 			t.Fatal("native original callback identity or receipt was not preserved")
 		}
 	}
+}
+
+func sameArchivedInvocation(a, b wire.SessionToolCall) bool {
+	a.State, b.State = "", ""
+	a.Result, b.Result = nil, nil
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
 }

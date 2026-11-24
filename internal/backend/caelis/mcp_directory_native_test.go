@@ -80,7 +80,7 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	modelSelector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	selection := plugins.Selection{Revision: 1, Servers: []plugins.SelectedServer{{PackageID: "fixture", Name: "catalog", Server: plugins.Server{Type: "streamable-http", URL: mcpURL}}}}
 	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
-	if err := session.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, Plugins: selection}); err != nil {
+	if err := session.ConfigureBotTools(&api.ToolConnection{Plugins: selection}); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.Connect(ctx); err != nil {
@@ -202,7 +202,7 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	}
 	oldGeneration := session.BotPluginGeneration()
 	fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-fresh"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
-	if err := fresh.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, Plugins: reconnected}); err != nil {
+	if err := fresh.ConfigureBotTools(&api.ToolConnection{Plugins: reconnected}); err != nil {
 		t.Fatal(err)
 	}
 	if err := fresh.Connect(ctx); err != nil {

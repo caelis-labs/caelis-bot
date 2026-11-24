@@ -27,7 +27,7 @@ func TestContinuitySystemSourcesSurviveNativeDeliveryAndRestart(t *testing.T) {
 					writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "committed", Target: &wire.CommandTarget{TurnId: pointer("source-turn")}})
 				})
 				s.tools = &api.ToolConnection{}
-				s.state.Grants["schedule"] = grantRecord{Grant: wire.SessionBackgroundGrant{Id: "original-grant"}}
+				s.state.Grants["schedule"] = grantRecord{Grant: wire.SessionBackgroundGrant{Id: "original-grant", SessionId: s.state.Session.SessionId}}
 				message := api.SystemMessage{ID: "original-system", Source: source, Text: "Source is assigned by the producer, not this text.", Grants: []string{"schedule"}}
 				if source == "legacy" {
 					message.Source = api.SystemWorkerResult

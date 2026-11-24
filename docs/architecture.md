@@ -50,8 +50,8 @@ and unknown are distinct outcomes. Unknown effects reconcile their original rece
 they cannot be replayed with a new ID, moved to another Runtime or retried as new work.
 Late replies are fenced by connection/binding generation. Terminal native events outrank
 late responses; replayed/history items deduplicate facts without redispatching effects.
-Callback execution binds its original catalog, configuration, tools version and invocation;
-missing historical handlers fail closed rather than rerouting a same-name tool.
+Historical callback receipts retain their original catalog, configuration, tools version
+and invocation identity.
 
 Codex uses the user's installation and standard `initialize` → `initialized` handshake,
 then the consumed native methods and field semantics. CLI versions are not an allowlist;
@@ -69,7 +69,9 @@ Native Team settings select reviewer models; existing work keeps its execution s
 
 When a real user message arrives after at least 48 hours of inactivity, Bot may
 create a fresh resident Session through the native runtime. It checks the observed
-resident head and defers while a foreground turn or manual decision is pending.
+resident head and rereads Core's state before switching. Foreground work and pending
+decisions defer rotation. Bot routes subsequent prompts and wakes to the new resident.
+Approvals for past residents stay with Core clients that explicitly reopen them.
 An unsuccessful create keeps the existing binding and submits the message there
 under ordinary admission. Timers, reminders, Worker notices and transport commands
 leave the last conversation time unchanged.
@@ -86,18 +88,26 @@ Codex's resident stdio services use distinct launch bearers. The Bot bridge
 checks each bearer against its tool catalog. Existing aggregate threads retain
 their original service identity.
 
-Caelis declares a standard stdio MCP server on the resident profile alongside
-its selected Skills. The declaration uses the Bot-owned Notebook as its
-working directory and passes the path to a restricted local bridge connection
-file. The bridge checks the service credential and its task-tool scope. The
-stdio server uses its transport request identity for original submission
-recovery. Core owns discovery, manual decisions and Guardian auto-review.
-Worker Sessions keep native configuration and load their own tools.
+Caelis declares a standard stdio MCP server for all enabled Bot tools on
+the resident profile alongside its selected Skills. The server keeps the
+existing `caelis_tasks` name and uses the Bot-owned Notebook as its working
+directory. A restricted connection file gives the process its local endpoint
+and tool catalog. Notebook MCP calls use their stdio request identity for
+submission recovery and carry no native Session, Turn, or input channel identity.
+Core owns discovery, manual approvals and Guardian auto-review. Worker Sessions
+keep their native configuration and tools.
 
-Historical task callback catalogs stay available under their original version
-for in-flight calls. Their original committed approval, claim and receipt
-rules still apply. Legacy background grants and the remaining resident tools
-use the callback contract.
+On upgrade, Bot asks Core to cancel an active resident turn before clearing a
+non-empty legacy application tool catalog on the same Session. Bot preserves the
+journal and Worker bindings without claiming or replaying callbacks. Explicit
+Session creation includes the empty-catalog version token required by Core v0.85.0.
+Native MCP configuration updates omit the callback fields for an empty catalog.
+Existing background grants can still be revoked or used to complete their
+original schedules. New arrangements wake the resident as external material
+and any subsequent tool action follows native approval.
+Dream is no longer a resident tool. The next user message can rotate an idle
+Session while Bot retains its tasks and reminders.
+
 Native Worker attachments use typed images or private Bot-owned file copies
 readable through the Worker's native file tool. Application Sessions continue
 to use Core resource uploads.

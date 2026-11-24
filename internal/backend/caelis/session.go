@@ -55,8 +55,6 @@ type Session struct {
 	executionMode         string
 	requireApproval       bool
 	tools                 *api.ToolConnection
-	catalog               map[string]api.ApplicationTools
-	catalogs              map[string]map[string]api.ApplicationTools
 	profile               wire.SessionProfile
 	state                 binding
 	loadErr               error
@@ -77,7 +75,6 @@ type Session struct {
 	observationBudgets    map[string]*sharedruntime.ObservationBudget
 	wake                  chan struct{}
 	streams               map[string]bool
-	callObservers         map[string]bool
 	projectionSavedAt     time.Time
 	projectionPublishedAt time.Time
 
@@ -296,7 +293,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	if err := s.checkContentCapability(info); err != nil {
+	if err := s.checkCapabilityAssembly(info); err != nil {
 		return err
 	}
 	if value(info.InstanceId) != d.InstanceID {
@@ -327,7 +324,6 @@ func (s *Session) connect(ctx context.Context) error {
 	s.streamCtx = nil
 	s.streamCancel = nil
 	s.streams = map[string]bool{}
-	s.callObservers = nil
 	s.state.InstanceID = value(info.InstanceId)
 	e = s.saveLocked()
 	s.mu.Unlock()

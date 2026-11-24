@@ -152,7 +152,7 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 	}
 	s.mu.Unlock()
 	servers, roots, _ := corePlugins(selection, binary, builtins)
-	servers = withResidentTaskMCP(servers, residentServers)
+	servers = withResidentMCP(servers, residentServers)
 	skillDirs, err := notebookSkillDirs(workspace)
 	if err != nil {
 		return err

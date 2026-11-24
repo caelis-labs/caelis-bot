@@ -68,9 +68,4 @@ func TestPresentOriginalWorkerQuestionDoesNotAnswerOrDecide(t *testing.T) {
 	if result.StructuredContent["outcome"] != "accepted" || f.answer != "" || f.decision.ID != "" {
 		t.Fatal(result, f)
 	}
-	prior := priorQuestionTools{runtime: r}
-	old := prior.CallTool(t.Context(), "bot_interactions", []byte(`{"request":{"type":"present","question":"Q7"}}`))
-	if !old.IsError {
-		t.Fatal("historical catalog broadened authority", old)
-	}
 }

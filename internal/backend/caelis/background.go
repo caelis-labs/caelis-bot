@@ -23,38 +23,6 @@ func (s *Session) createGrant(ctx context.Context, sid, source, authorization st
 	}
 	return g, e
 }
-func (s *Session) AuthorizeBackground(ctx context.Context, id, fingerprint string) error {
-	call, e := s.currentInvocation(ctx)
-	if e != nil {
-		return e
-	}
-	if call.Source.Kind != "user" {
-		return errors.New("新提醒需要用户请求")
-	}
-	s.step.Lock()
-	defer s.step.Unlock()
-	s.mu.Lock()
-	old, ok := s.state.Grants[id]
-	sid := s.state.Session.SessionId
-	s.mu.Unlock()
-	if ok && old.Fingerprint == fingerprint && !old.Grant.Revoked {
-		return nil
-	}
-	g, e := s.createGrant(ctx, sid, "schedule-"+digest([]byte(id+fingerprint)), call.Source.OperationId)
-	if e != nil {
-		return e
-	}
-	if ok && !old.Grant.Revoked {
-		if e = s.revokeGrant(ctx, old.Grant); e != nil {
-			return e
-		}
-	}
-	s.mu.Lock()
-	s.state.Grants[id] = grantRecord{g, fingerprint}
-	e = s.saveLocked()
-	s.mu.Unlock()
-	return e
-}
 func (s *Session) revokeGrant(ctx context.Context, g wire.SessionBackgroundGrant) error {
 	var out wire.SessionBackgroundGrant
 	op := "revoke-" + g.Id
@@ -87,19 +55,22 @@ func (s *Session) submitScheduledSystem(ctx context.Context, in api.Submission, 
 	if len(ids) != 1 {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("后台激活必须对应一个已授权提醒")
 	}
+	s.step.Lock()
+	defer s.step.Unlock()
 	s.mu.Lock()
 	g, ok := s.state.Grants[ids[0]]
+	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if !ok {
 		// New Bot arrangements are admitted by the Runtime's tool policy at
 		// registration. Their wake is ordinary external evidence and cannot
 		// inherit a user-source grant. Existing grants retain their lifecycle.
-		return s.submit(ctx, in, nil, "external_material")
+		return s.submitGrantLocked(ctx, in, nil, "external_material", "")
 	}
-	if g.Grant.Revoked {
+	if g.Grant.Revoked || g.Grant.SessionId != sid {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("提醒授权不可用")
 	}
-	return s.submitGrant(ctx, in, nil, "authorized_background", g.Grant.Id)
+	return s.submitGrantLocked(ctx, in, nil, "authorized_background", g.Grant.Id)
 }
 
 func (s *Session) SystemReceipt(id string) api.Receipt {

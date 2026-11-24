@@ -3,14 +3,53 @@ package caelis
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
+
+func projectPublishedArtifact(v *view, turn string, raw json.RawMessage) {
+	var output struct {
+		Resource *wire.SessionResource `json:"resource"`
+		Result   string                `json:"result"`
+	}
+	if json.Unmarshal(raw, &output) != nil {
+		return
+	}
+	if output.Resource == nil && output.Result != "" {
+		// Older retained events wrapped the descriptor in JSON text.
+		if err := json.Unmarshal([]byte(output.Result), &output); err != nil {
+			return
+		}
+	}
+	resource := output.Resource
+	if resource == nil || resource.Id == "" || resource.SessionId != v.State.SessionId {
+		return
+	}
+	id := "resource:" + v.State.SessionId + ":" + resource.Id
+	if slices.ContainsFunc(v.Items, func(item api.Item) bool { return item.ID == id }) {
+		return
+	}
+	v.Items = append(v.Items, api.Item{ID: id, TurnKey: turn, Kind: "tool", Text: "文件已生成", Status: "completed",
+		Artifacts: []api.Artifact{{ID: id, Name: artifactName(resource.Name)}}})
+}
+
+func artifactName(name string) string {
+	switch base := path.Base(strings.ReplaceAll(name, "\\", "/")); base {
+	case ".", "..", "/":
+		return "artifact"
+	default:
+		return base
+	}
+}
 
 func (s *Session) UploadResource(ctx context.Context, op, name, media string, data []byte) (wire.SessionResource, error) {
 	s.step.Lock()
@@ -39,7 +78,7 @@ func (s *Session) uploadResource(ctx context.Context, sid, op, name, media strin
 func (s *Session) ReadResource(ctx context.Context, sid, id string) ([]byte, wire.SessionResource, error) {
 	s.mu.Lock()
 	c := s.client
-	owned := sid == s.state.Session.SessionId
+	owned := sid == s.state.Session.SessionId || slices.Contains(s.state.PastSessions, sid)
 	for _, w := range s.state.Workers {
 		if sid == w.Binding.SessionId {
 			owned = true
@@ -92,11 +131,7 @@ func (s *Session) Artifact(id string) (string, error) {
 	if e = privateDir(dir); e != nil {
 		return "", e
 	}
-	name := filepath.Base(resource.Name)
-	if name == "." || name == string(filepath.Separator) {
-		name = "artifact"
-	}
-	target := filepath.Join(dir, digest([]byte(id))[:16]+"-"+name)
+	target := filepath.Join(dir, digest([]byte(id))[:16]+"-"+artifactName(resource.Name))
 	f, e := os.CreateTemp(dir, ".download-*")
 	if e != nil {
 		return "", e

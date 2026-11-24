@@ -126,13 +126,6 @@ func (r *Runtime) eventError() error {
 	}
 	return nil
 }
-func (r *Runtime) authorizeEvent(ctx context.Context, id string, v any) error {
-	if b, ok := r.engine.(api.BackgroundRuntime); ok {
-		raw, _ := json.Marshal(v)
-		return b.AuthorizeBackground(ctx, id, string(raw))
-	}
-	return nil
-}
 func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResult {
 	if err := r.eventError(); err != nil {
 		return compactError("events_unavailable", err)
@@ -149,7 +142,7 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 	if kind == "archive" {
 		err := r.events.ArchiveEvent(id, r.now())
 		if err == nil {
-			if b, ok := r.engine.(api.BackgroundRuntime); ok {
+			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				err = b.RevokeBackground(ctx, "event:"+id)
 			}
 		}
@@ -194,7 +187,7 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 		}
 		v.TaskExecution = generation
 	}
-	saved, err := r.events.Register(v, r.now(), func() error { return r.authorizeEvent(ctx, "event:"+v.ID, v) })
+	saved, err := r.events.Register(v, r.now())
 	if err != nil {
 		return compactError("event_registration", err)
 	}
@@ -334,7 +327,7 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 	ready := r.engine.Snapshot().CanSend
 	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: ready,
 		Revoke: func(id string) error {
-			if b, ok := r.engine.(api.BackgroundRuntime); ok {
+			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				return b.RevokeBackground(ctx, id)
 			}
 			return nil

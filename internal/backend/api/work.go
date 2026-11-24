@@ -189,10 +189,8 @@ type WorkerQuestion struct {
 	State       string   `json:"state,omitempty"`
 }
 
-// BackgroundRuntime keeps timer provenance separate from actual user messages.
-// Implementations attest authorization when the user creates/updates a schedule.
-type BackgroundRuntime interface {
-	AuthorizeBackground(context.Context, string, string) error
+// BackgroundGrantRevoker retires pinned native grants from older schedules.
+type BackgroundGrantRevoker interface {
 	RevokeBackground(context.Context, string) error
 }
 
