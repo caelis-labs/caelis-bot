@@ -71,7 +71,7 @@ func TestBotProfileLeavesProjectMCPToNativeDiscovery(t *testing.T) {
 		}
 	})
 	s.info.Capabilities = []string{atomicCapabilities}
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, NotebookDirectory: notebook, Plugins: selection}); err != nil {
+	if err := s.ConfigureBotTools(&api.ToolConnection{NotebookDirectory: notebook, Plugins: selection}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -90,7 +90,7 @@ func TestBotProfileLeavesProjectMCPToNativeDiscovery(t *testing.T) {
 	}
 	writeWorkspaceMCP(t, notebook, `{"mcpServers":`)
 	fresh := New(Options{Directory: t.TempDir()})
-	if err := fresh.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, NotebookDirectory: notebook, Plugins: selection}); err != nil {
+	if err := fresh.ConfigureBotTools(&api.ToolConnection{NotebookDirectory: notebook, Plugins: selection}); err != nil {
 		t.Fatal("malformed optional project file blocked fresh profile configuration", err)
 	}
 	if err := s.UpdateBotPlugins(t.Context(), selection); err != nil {
@@ -234,10 +234,7 @@ func verifyNativeProjectMCP(t *testing.T, ctx context.Context, bot *Session, hos
 		t.Fatal(err)
 	}
 	defer workerBot.Close(context.Background())
-	workerBot.mu.Lock()
-	call := wire.SessionToolCall{SessionId: workerBot.state.Session.SessionId, PrincipalId: workerBot.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: "fixture-worker-source"}}
-	workerBot.mu.Unlock()
-	workerCtx := context.WithValue(ctx, invocationKey{}, call)
+	workerCtx := context.WithValue(ctx, workOwnerKey{}, workerBot)
 	task, err := workerBot.StartWork(workerCtx, api.WorkStart{ID: "mcp-worker", Workspace: workerDir, TaskStart: api.TaskStart{RequestID: "fixture-mcp-worker", Title: "Native MCP scope fixture", Prompt: "CASE_PROJECT_MCP_WORKER"}})
 	if err != nil || task.Outcome != "accepted" {
 		t.Fatal("native Worker startup", task.Outcome, err)

@@ -571,7 +571,6 @@ func (s *Session) ensureStreamLocked(sid string) {
 	if s.streamCtx == nil {
 		s.streamCtx, s.streamCancel = context.WithCancel(s.ctx)
 	}
-	s.ensureCallObserverLocked(sid)
 	ctx := s.streamCtx
 	generation := s.generation
 	instance := s.state.InstanceID

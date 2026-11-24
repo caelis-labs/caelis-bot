@@ -18,7 +18,7 @@ func (f *eventFixtureTools) CollectEvent(context.Context, string, string, string
 	f.calls++
 	return json.RawMessage(`{"count":23}`), nil
 }
-func TestRegisteredCollectorRunsThroughAnArrangementWithoutAnotherGrant(t *testing.T) {
+func TestRegisteredCollectorRunsThroughAnArrangementWithoutLegacyGrant(t *testing.T) {
 	r, base, now := fixture(t)
 	configureNativeSources(t, r)
 	grant := &scheduleGrantEngine{fakeEngine: base}
@@ -26,16 +26,16 @@ func TestRegisteredCollectorRunsThroughAnArrangementWithoutAnotherGrant(t *testi
 	tools := &eventFixtureTools{}
 	r.ConfigureEvents(tools, t.TempDir())
 	invokeCompact(t, r, "bot_event", `{"request":{"type":"tool","id":"mail","label":"Unread mail","context":"Organize mail when there is enough to review","server":"fixture/mail","tool":"read","arguments":{},"outputSchema":{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}}}`)
-	if tools.calls != 0 || grant.authorized != "event:mail" {
-		t.Fatal("registration executed or ungranted")
+	if tools.calls != 0 || grant.authorized != "" {
+		t.Fatal("registration ran the collector or created a legacy grant")
 	}
 	out := invokeCompact(t, r, "bot_schedule", `{"request":{"type":"condition","event":"event:mail","when":"event.count >= 20","sample":{"count":23}}}`)
 	if out.StructuredContent["wouldWake"] != true || tools.calls != 0 {
 		t.Fatal(out)
 	}
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"mail-check","event":"event:mail","seconds":10,"when":"event.count >= 20"}}`)
-	if grant.authorized != "event:mail" {
-		t.Fatal("creating an arrangement changed the existing collector authorization", grant.authorized)
+	if grant.authorized != "" {
+		t.Fatal("creating an arrangement created a legacy grant", grant.authorized)
 	}
 	*now = now.Add(10 * time.Second)
 	if err := r.Tick(t.Context()); err != nil {
@@ -78,20 +78,19 @@ func TestSimpleWakeIsOneSmallCallAndCancelledArrangementLeavesActiveList(t *test
 		t.Fatal("cancelled wake fired")
 	}
 }
-func TestEventRegistrationDeniedDoesNotPersistAndReadCannotExecute(t *testing.T) {
-	r, base, _ := fixture(t)
-	r.engine = &scheduleGrantEngine{fakeEngine: base, deny: true}
+func TestUnboundEventDoesNotPersistAndReadCannotExecute(t *testing.T) {
+	r, _, _ := fixture(t)
 	r.ConfigureEvents(&eventFixtureTools{}, t.TempDir())
-	raw := `{"request":{"type":"tool","id":"denied","label":"Denied","server":"fixture/mail","tool":"read","arguments":{},"outputSchema":{"type":"object"}}}`
+	raw := `{"request":{"type":"tool","id":"denied","label":"Denied","server":"missing/mail","tool":"read","arguments":{},"outputSchema":{"type":"object"}}}`
 	if !r.CallTool(t.Context(), "bot_event", json.RawMessage(raw)).IsError || len(r.events.Snapshot().Events) != 0 {
-		t.Fatal("denied event registered")
+		t.Fatal("unpinned collector registered")
 	}
 	if !r.CallTool(t.Context(), "bot_schedule", json.RawMessage(raw)).IsError {
 		t.Fatal("read executed registration")
 	}
 }
 
-func TestEventCatalogIsReviewedAndOlderCatalogsStayStable(t *testing.T) {
+func TestEventRegistrationIsDiscoverable(t *testing.T) {
 	r, _, _ := fixture(t)
 	current := false
 	for _, d := range r.Definitions() {
@@ -99,16 +98,6 @@ func TestEventCatalogIsReviewedAndOlderCatalogsStayStable(t *testing.T) {
 	}
 	if !current {
 		t.Fatal("event registration undiscoverable")
-	}
-	for _, d := range (priorEventTools{r}).Definitions() {
-		if d.Name == "bot_event" || d.Name == "bot_schedule_update" && strings.Contains(string(d.InputSchema), `"after"`) {
-			t.Fatal("historical catalog gained event execution")
-		}
-	}
-	for _, d := range (priorQuestionTools{r}).Definitions() {
-		if d.Name == "bot_event" {
-			t.Fatal("older question catalog changed")
-		}
 	}
 }
 

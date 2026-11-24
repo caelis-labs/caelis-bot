@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
@@ -37,8 +36,7 @@ func TestDelegateContinuesAuthorizedWorkFromReportContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	invoke := func(kind, id string) api.ToolResult {
-		ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", TurnId: "turn-" + kind, Source: wire.SessionSource{Kind: kind, OperationId: "operation-" + kind}})
-		ctx = api.WithToolInvocation(ctx, api.ToolInvocation{Provider: "caelis", Session: "main", Turn: "turn-" + kind, CallID: id})
+		ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "caelis", Session: "main", Turn: "turn-" + kind, CallID: kind + ":" + id, CaelisMCP: true})
 		args, _ := json.Marshal(map[string]string{"prompt": "synthetic assignment", "workspace": root})
 		return r.CallTool(ctx, "bot_delegate", args)
 	}

@@ -22,16 +22,17 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
-	life            context.Context
-	cancel          context.CancelFunc
-	runtime         *Runtime
-	listener        *localipc.Listener
-	token           string
-	caelisTaskToken string
-	services        []api.ToolService
-	once            sync.Once
-	done            chan struct{}
-	wg              sync.WaitGroup
+	life           context.Context
+	cancel         context.CancelFunc
+	runtime        *Runtime
+	listener       *localipc.Listener
+	token          string
+	caelisMCPToken string
+	caelisCatalog  []api.ToolDefinition
+	services       []api.ToolService
+	once           sync.Once
+	done           chan struct{}
+	wg             sync.WaitGroup
 }
 type toolRequest struct {
 	Token     string          `json:"token"`
@@ -57,14 +58,7 @@ func (r *Runtime) call(name string, args json.RawMessage) toolResult {
 }
 
 func (r *Runtime) LegacyDefinitions() []api.ToolDefinition {
-	return r.legacyDefinitions(false)
-}
-
-func (r *Runtime) legacyDefinitions(retiredMemory bool) []api.ToolDefinition {
 	specs := toolSpecs()
-	if retiredMemory {
-		specs = append([]any{retiredMemorySpec()}, specs...)
-	}
 	b, _ := json.Marshal(specs)
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
@@ -135,7 +129,7 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 			s.OriginRequests = nil
 			return result(s, e)
 		case "remove":
-			if b, ok := r.engine.(api.BackgroundRuntime); ok {
+			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				if e := b.RevokeBackground(ctx, in.ID); e != nil {
 					return result(nil, e)
 				}
@@ -158,18 +152,21 @@ func Serve(r *Runtime) (*Bridge, error) {
 	if e != nil {
 		return nil, e
 	}
-	b := &Bridge{runtime: r, listener: listener, token: rand.Text(), done: make(chan struct{})}
+	b := &Bridge{runtime: r, listener: listener, done: make(chan struct{})}
 	if r.provider == "caelis" {
-		b.caelisTaskToken = rand.Text()
-	}
-	b.services = []api.ToolService{
-		{Name: "caelis_context", Token: rand.Text(), Tools: []string{"bot_dream"}},
-		{Name: "caelis_tasks", Token: rand.Text(), Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
-		{Name: "caelis_schedule", Token: rand.Text(), Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
-		{Name: "caelis_personal", Token: rand.Text(), Tools: []string{"bot_gesture"}},
-	}
-	if r.idle != nil {
-		b.services = b.services[1:]
+		b.caelisMCPToken = rand.Text()
+		b.caelisCatalog = slices.DeleteFunc(r.Definitions(), func(d api.ToolDefinition) bool { return d.Name == "bot_dream" })
+	} else {
+		b.token = rand.Text()
+		b.services = []api.ToolService{
+			{Name: "caelis_context", Token: rand.Text(), Tools: []string{"bot_dream"}},
+			{Name: "caelis_tasks", Token: rand.Text(), Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
+			{Name: "caelis_schedule", Token: rand.Text(), Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
+			{Name: "caelis_personal", Token: rand.Text(), Tools: []string{"bot_gesture"}},
+		}
+		if r.idle != nil {
+			b.services = b.services[1:]
+		}
 	}
 	b.life, b.cancel = context.WithCancel(context.Background())
 	go func() {
@@ -198,7 +195,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 				var invocation api.ToolInvocation
 				if req.compact() {
 					callCtx := context.Background()
-					if req.Name == "bot_delegate" || req.Version == caelisTaskBridgeVersion {
+					if req.Name == "bot_delegate" || req.Name == "bot_interactions" || req.Version == caelisMCPBridgeVersion {
 						ctx, cancel := context.WithTimeout(b.life, timeout)
 						defer cancel()
 						callCtx = ctx
@@ -206,18 +203,18 @@ func Serve(r *Runtime) (*Bridge, error) {
 						// and transport; it never settles an already dispatched effect.
 						go func() { _, _ = io.Copy(io.Discard, conn); cancel() }()
 					}
-					if r.provider == "codex" || req.Version == caelisTaskBridgeVersion {
+					if r.provider == "codex" || req.Version == caelisMCPBridgeVersion {
 						r.mu.Lock()
 						runtime, ok := r.engine.(api.ConversationRuntime)
 						r.mu.Unlock()
 						if ok {
 							state := runtime.ConversationState()
 							invocation = api.ToolInvocation{Provider: r.provider, CallID: string(req.ID), Session: state.Session,
-								Turn: state.Turn, TurnKey: state.TurnKey, CaelisTaskMCP: req.Version == caelisTaskBridgeVersion}
+								Turn: state.Turn, TurnKey: state.TurnKey, CaelisMCP: req.Version == caelisMCPBridgeVersion}
 							callCtx = api.WithToolInvocation(callCtx, invocation)
 						}
-						if req.Version == caelisTaskBridgeVersion && invocation.Session == "" {
-							_ = json.NewEncoder(conn).Encode(compactError("runtime_unavailable", errors.New("Bot task Runtime is unavailable.")))
+						if req.Version == caelisMCPBridgeVersion && invocation.Session == "" {
+							_ = json.NewEncoder(conn).Encode(compactError("runtime_unavailable", errors.New("Bot resident Runtime is unavailable.")))
 							return
 						}
 					}
@@ -249,11 +246,12 @@ func Serve(r *Runtime) (*Bridge, error) {
 }
 
 func (b *Bridge) authorizes(req toolRequest) bool {
-	if req.Version == caelisTaskBridgeVersion {
-		return b.caelisTaskToken != "" && b.life.Err() == nil && len(req.ID) != 0 && caelisTaskTool(req.Name) &&
-			subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.caelisTaskToken)) == 1
+	if req.Version == caelisMCPBridgeVersion {
+		return b.caelisMCPToken != "" && b.life.Err() == nil && len(req.ID) != 0 &&
+			slices.ContainsFunc(b.caelisCatalog, func(tool api.ToolDefinition) bool { return tool.Name == req.Name }) &&
+			subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.caelisMCPToken)) == 1
 	}
-	if b.caelisTaskToken != "" && caelisTaskTool(req.Name) {
+	if b.caelisMCPToken != "" {
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(b.token)) == 1 {
@@ -271,16 +269,20 @@ func (b *Bridge) authorizes(req toolRequest) bool {
 }
 
 func (b *Bridge) Config(executable string) *api.ToolConnection {
-	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
-		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token, "CAELIS_BOT_TOOLS_VERSION": "2"},
-		ApprovedTools: botpolicy.ApprovedTools(), Services: b.services}
-	raw, _ := json.Marshal(b.runtime.Definitions())
-	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
+	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Command: executable, Args: []string{"--bot-tools"}}
 	if b.runtime.provider == "caelis" {
-		config.PublishCaelisTaskMCP = b.publishCaelisTaskMCP
+		config.PublishCaelisMCP = b.publishCaelisMCP
+		return config
 	}
+	raw, _ := json.Marshal(b.runtime.Definitions())
+	config.Env = map[string]string{
+		"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token, "CAELIS_BOT_TOOLS_VERSION": "2",
+		"CAELIS_BOT_TOOL_CATALOG": string(raw),
+	}
+	config.ApprovedTools, config.Services = botpolicy.ApprovedTools(), b.services
 	return config.Clone()
 }
+
 func (b *Bridge) Close() {
 	b.once.Do(func() { b.cancel(); _ = b.listener.Close(); <-b.done; b.wg.Wait() })
 }
@@ -308,15 +310,6 @@ func toolSpecs() []any {
 		map[string]any{"name": "bot_reminders", "description": "Save or remove user-requested reminders. Use bot_reminders_list to read schedules. Save uses a stable id (letters, digits, hyphen, underscore), making identical retries idempotent. Choose one of at (RFC3339), everyMinutes, daily (HH:MM), or times (multiple HH:MM). Calendar rules require an IANA timeZone. Optional windowStart/windowEnd use an inclusive start and exclusive end, including overnight windows; everyMinutes anchors to windowStart (otherwise midnight) on each selected weekday. Weekdays are literal Monday=1 through Sunday=7, not legal workdays. Use native calendar fields for timing, leaving holiday or other semantic checks in prompt. App must remain running. Sleeping occurrences coalesce; quit pauses missed execution. Do not use shell sleep or external schedulers.", "inputSchema": schema(reminderFields(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"save", "remove"}}, "id": str("Stable reminder identifier"), "label": str("Short user-facing title"), "prompt": str("Self-contained instruction to execute on activation"), "at": str("One-off timestamp with UTC offset"), "everyMinutes": map[string]any{"type": "integer", "minimum": 1, "maximum": 10080}, "daily": str("Daily local HH:MM"), "timeZone": str("IANA time zone, such as Asia/Shanghai")}), "operation")},
 		map[string]any{"name": "bot_gesture", "description": "Briefly animate the desktop companion for feedback. Respects hidden state and reduced motion. Does not grant approval, move windows, steal focus, or execute other actions.", "inputSchema": schema(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"attention", "nod", "celebrate"}}}, "action")},
 	}
-}
-
-// Reconstructs the pre-retirement Caelis toolsVersion for original pending
-// callbacks. It is never listed by the active Codex or Caelis model catalog.
-func retiredMemorySpec() map[string]any {
-	str := func(description string) map[string]any {
-		return map[string]any{"type": "string", "description": description}
-	}
-	return map[string]any{"name": "bot_memory", "description": "Recall, remember, correct or forget Bot-private evidence shared across Runtime choices. Notebook Markdown is maintained directly with file tools; MEMORY.md is the sole core memory. Evidence is not permission or a confirmed profile. Stable requestId is required for mutations. Correct/forget target a receipt id returned by recall.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation"}, "properties": map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"recall", "remember", "correct", "forget"}}, "query": str("Optional keywords"), "requestId": str("Stable operation id"), "id": str("Evidence receipt id"), "text": str("Evidence text")}}}
 }
 
 // RunStdio implements the small MCP 2025-06-18 tools subset used by the pinned
@@ -445,12 +438,17 @@ func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 }
 
 func (req toolRequest) compact() bool {
-	return req.Version == 2 || req.Version == caelisTaskBridgeVersion
+	return req.Version == 2 || req.Version == caelisMCPBridgeVersion
 }
 
 func (req toolRequest) timeout() time.Duration {
 	if req.Name == "bot_dream" {
 		return 45 * time.Second
+	}
+	if req.compact() && req.Name == "bot_interactions" {
+		// An answer may need the original Worker owner to reconnect. Let it
+		// finish or retain its own uncertain receipt within its admission budget.
+		return api.WorkerAdmissionTimeout + 5*time.Second
 	}
 	if req.Name != "bot_delegate" || !req.compact() {
 		return 10 * time.Second

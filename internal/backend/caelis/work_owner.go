@@ -2,10 +2,8 @@ package caelis
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
 // WorkOwner exposes only shared native workers. Its empty management binding
@@ -13,12 +11,7 @@ import (
 // Mutations enter through a trusted host boundary (legacy private SSH helper or
 // authenticated peer factory), never a caller-supplied native source assertion.
 type WorkOwner struct{ engine *Session }
-type noTools struct{}
 
-func (noTools) Definitions() []api.ToolDefinition { return nil }
-func (noTools) CallTool(context.Context, string, json.RawMessage) api.ToolResult {
-	return api.ToolResult{IsError: true}
-}
 func NewWorkOwner(opts Options) (*WorkOwner, error) {
 	s := New(opts)
 	if s.loadErr != nil {
@@ -33,7 +26,7 @@ func NewWorkOwner(opts Options) (*WorkOwner, error) {
 			return nil, err
 		}
 	}
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: noTools{}}); err != nil {
+	if err := s.ConfigureBotTools(&api.ToolConnection{}); err != nil {
 		return nil, err
 	}
 	return &WorkOwner{s}, nil
@@ -57,15 +50,14 @@ func (w *WorkOwner) Snapshot() api.Snapshot {
 }
 func (w *WorkOwner) Decide(ctx context.Context, d api.Decision) error { return w.engine.Decide(ctx, d) }
 func (w *WorkOwner) DetachForUpdate(ctx context.Context) error        { return w.engine.DetachForUpdate(ctx) }
-func (w *WorkOwner) source(ctx context.Context, request string) context.Context {
-	s := w.engine
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	call := wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: request}}
-	return context.WithValue(ctx, invocationKey{}, call)
+
+type workOwnerKey struct{}
+
+func (w *WorkOwner) ownedContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workOwnerKey{}, w.engine)
 }
 func (w *WorkOwner) WorkAdmission(ctx context.Context) error {
-	if err := w.engine.WorkAdmission(w.source(ctx, "host-native-user-request")); err != nil {
+	if err := w.engine.WorkAdmission(w.ownedContext(ctx)); err != nil {
 		return err
 	}
 	w.engine.mu.Lock()
@@ -76,7 +68,7 @@ func (w *WorkOwner) WorkAdmission(ctx context.Context) error {
 }
 func (w *WorkOwner) WorkStates() []api.WorkState { return w.engine.WorkStates() }
 func (w *WorkOwner) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
-	return w.engine.StartWork(w.source(ctx, in.RequestID), in)
+	return w.engine.StartWork(w.ownedContext(ctx), in)
 }
 func (w *WorkOwner) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	return w.engine.ReadWork(ctx, id)
@@ -85,7 +77,7 @@ func (w *WorkOwner) ReadWorkConversation(ctx context.Context, id string) ([]api.
 	return w.engine.ReadWorkConversation(ctx, id)
 }
 func (w *WorkOwner) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
-	return w.engine.SendWork(w.source(ctx, in.RequestID), in)
+	return w.engine.SendWork(w.ownedContext(ctx), in)
 }
 func (w *WorkOwner) WorkMessageRecorded(in api.TaskMessage) bool {
 	return w.engine.WorkMessageRecorded(in)

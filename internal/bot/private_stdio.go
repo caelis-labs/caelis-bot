@@ -7,31 +7,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const caelisTaskBridgeVersion = 3
+const caelisMCPBridgeVersion = 3
 
-type taskMCPConnection struct {
-	Endpoint string `json:"endpoint"`
-	Token    string `json:"token"`
+type residentMCPConnection struct {
+	Endpoint string               `json:"endpoint"`
+	Token    string               `json:"token"`
+	Catalog  []api.ToolDefinition `json:"catalog"`
 }
 
-func caelisTaskTool(name string) bool { return name == "bot_delegate" || name == "bot_tasks" }
-
-func (b *Bridge) publishCaelisTaskMCP(notebook string) (string, error) {
+func (b *Bridge) publishCaelisMCP(notebook string) (string, error) {
 	if !filepath.IsAbs(notebook) {
-		return "", errors.New("Caelis task MCP requires the private Notebook directory")
+		return "", errors.New("Caelis resident MCP requires the private Notebook directory")
 	}
 	dir := filepath.Join(notebook, ".bot-runtime")
 	if err := localstate.EnsurePrivateDirectory(dir); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "tasks-mcp.json")
-	if err := localstate.Write(path, taskMCPConnection{Endpoint: b.listener.Endpoint(), Token: b.caelisTaskToken}); err != nil {
+	path := filepath.Join(dir, "resident-mcp.json")
+	if err := localstate.Write(path, residentMCPConnection{Endpoint: b.listener.Endpoint(), Token: b.caelisMCPToken, Catalog: b.caelisCatalog}); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -44,35 +42,35 @@ func RunStdioArgs(args []string, in io.Reader, out io.Writer) error {
 		return RunStdio(in, out)
 	}
 	if len(args) != 1 || !filepath.IsAbs(args[0]) {
-		return errors.New("invalid Bot task MCP launch")
+		return errors.New("invalid Bot resident MCP launch")
 	}
 	path := args[0]
-	if _, err := readTaskMCPConnection(path); err != nil {
+	connection, err := readResidentMCPConnection(path)
+	if err != nil {
 		return err
 	}
-	definitions := slices.DeleteFunc(toolDefinitions(), func(tool api.ToolDefinition) bool { return !caelisTaskTool(tool.Name) })
-	catalog, _ := json.Marshal(definitions)
+	catalog, err := json.Marshal(connection.Catalog)
+	if err != nil {
+		return err
+	}
 	env := map[string]string{"CAELIS_BOT_SERVICE_NAME": "caelis_tasks", "CAELIS_BOT_TOOL_CATALOG": string(catalog)}
 	instance := rand.Text()
 	return serveStdio(in, out, func(key string) string { return env[key] }, func(call toolRequest) toolResult {
-		if !caelisTaskTool(call.Name) {
-			return compactError("tool_unavailable", errors.New("This task service does not expose that tool."))
-		}
 		// Core may retain its stdio child while Bot restarts. Read the
 		// latest connection before calls and preserve one identity on retry.
-		connection, err := readTaskMCPConnection(path)
+		connection, err := readResidentMCPConnection(path)
 		if err != nil {
 			return compactError("runtime_unavailable", err)
 		}
 		call.ID, _ = json.Marshal(instance + ":" + string(call.ID))
-		call.Token, call.Version = connection.Token, caelisTaskBridgeVersion
+		call.Token, call.Version = connection.Token, caelisMCPBridgeVersion
 		return forward(connection.Endpoint, call)
 	})
 }
 
-func readTaskMCPConnection(path string) (taskMCPConnection, error) {
-	var connection taskMCPConnection
-	invalid := errors.New("Bot task MCP connection is unavailable")
+func readResidentMCPConnection(path string) (residentMCPConnection, error) {
+	var connection residentMCPConnection
+	invalid := errors.New("Bot resident MCP connection is unavailable")
 	prior, err := os.Lstat(path)
 	if err != nil || !prior.Mode().IsRegular() || !localstate.RestrictedAccess(path, prior) {
 		return connection, invalid
@@ -86,9 +84,9 @@ func readTaskMCPConnection(path string) (taskMCPConnection, error) {
 	if err != nil || !os.SameFile(prior, current) || !localstate.RestrictedAccess(path, current) {
 		return connection, invalid
 	}
-	err = json.NewDecoder(io.LimitReader(file, 16<<10)).Decode(&connection)
-	if err != nil || connection.Endpoint == "" || connection.Token == "" {
-		return taskMCPConnection{}, invalid
+	err = json.NewDecoder(io.LimitReader(file, 128<<10)).Decode(&connection)
+	if err != nil || connection.Endpoint == "" || connection.Token == "" || len(connection.Catalog) == 0 {
+		return residentMCPConnection{}, invalid
 	}
 	return connection, nil
 }

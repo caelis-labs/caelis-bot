@@ -28,10 +28,7 @@ func workerApprovalSnapshotAcceptance(t *testing.T, ctx context.Context, s *Sess
 	target := filepath.Join(effectDir, "native-snapshot-once.txt")
 	const key = "CASE_NATIVE_SNAPSHOT"
 	model.set(key, modelStep{Name: "RunCommand", Args: map[string]any{"command": "printf 'ONCE\\n' >> " + executionQuote(target), "sandbox_permissions": "require_escalated", "justification": "Write the synthetic snapshot acceptance fixture", "yield_time_ms": 1000}})
-	s.mu.Lock()
-	call := wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, TurnId: "synthetic-parent", Source: wire.SessionSource{Kind: "user", OperationId: "native-snapshot-source"}}
-	s.mu.Unlock()
-	workerCtx := context.WithValue(ctx, invocationKey{}, call)
+	workerCtx := context.WithValue(ctx, workOwnerKey{}, s)
 	// Native Host keys workspaces by basename; sibling tests already own "001".
 	workspace := filepath.Join(t.TempDir(), "native-approval-snapshot")
 	if err := os.Mkdir(workspace, 0700); err != nil {

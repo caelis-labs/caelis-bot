@@ -31,7 +31,7 @@ func TestGuardianCapabilityFailsBeforeMutation(t *testing.T) {
 
 func TestCallbackPolicyRequiresReviewUnlessExplicitlyDirect(t *testing.T) {
 	s := New(Options{Directory: t.TempDir()})
-	if err := s.ConfigureBotTools(&api.ToolConnection{Host: &acceptanceTools{defs: fixtureDefinitions("string")}, ApprovedTools: []string{"FixtureLookup"}}); err != nil {
+	if err := s.ConfigureBotTools(&api.ToolConnection{ApprovedTools: []string{"FixtureLookup"}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range s.profile.Tools {

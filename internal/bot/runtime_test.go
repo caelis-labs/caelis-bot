@@ -281,7 +281,7 @@ func TestPrivateBridgeAuthenticatesServiceAndVersion(t *testing.T) {
 	}
 }
 
-func TestCaelisTaskBridgeKeepsHostAccessControl(t *testing.T) {
+func TestCaelisResidentBridgeKeepsHostAccessControl(t *testing.T) {
 	r, err := NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "caelis", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -296,15 +296,15 @@ func TestCaelisTaskBridgeKeepsHostAccessControl(t *testing.T) {
 	}
 	defer bridge.Close()
 	config := bridge.Config("fixture")
-	path, err := config.PublishCaelisTaskMCP(t.TempDir())
+	path, err := config.PublishCaelisMCP(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	connection, err := readTaskMCPConnection(path)
+	connection, err := readResidentMCPConnection(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := toolRequest{Token: connection.Token, ID: json.RawMessage(`"stdio:call"`), Version: caelisTaskBridgeVersion,
+	call := toolRequest{Token: connection.Token, ID: json.RawMessage(`"stdio:call"`), Version: caelisMCPBridgeVersion,
 		Name: "bot_tasks", Arguments: json.RawMessage(`{"request":{"type":"list"}}`)}
 	if out := forward(connection.Endpoint, call); out.IsError {
 		t.Fatal("authorized task listing failed", out)
@@ -313,8 +313,8 @@ func TestCaelisTaskBridgeKeepsHostAccessControl(t *testing.T) {
 		token, name string
 		version     int
 	}{
-		{config.Env["CAELIS_BOT_TOKEN"], "bot_tasks", caelisTaskBridgeVersion},
-		{connection.Token, "bot_gesture", caelisTaskBridgeVersion},
+		{"unrelated-service-token", "bot_tasks", caelisMCPBridgeVersion},
+		{connection.Token, "bot_dream", caelisMCPBridgeVersion},
 		{connection.Token, "bot_tasks", 2},
 	} {
 		invalid := call

@@ -81,17 +81,4 @@ func TestExistingNativeHistoryPages(t *testing.T) {
 	}
 	t.Logf("recent recovery: %s, %d display items; earlier page: %s, %d added display items", elapsed.Round(time.Millisecond), len(items), time.Since(started).Round(time.Millisecond), len(v.Items)-len(items))
 
-	waitCtx, stopWait := context.WithTimeout(t.Context(), 2*time.Second)
-	defer stopWait()
-	started = time.Now()
-	calls, err := waitCalls(waitCtx, c, sid)
-	if err != nil {
-		t.Fatal("native callback wait failed", err)
-	}
-	for _, call := range calls {
-		if call.State != "pending" {
-			t.Fatal("native callback wait returned completed history")
-		}
-	}
-	t.Logf("native callback wait: %s, %d pending calls", time.Since(started).Round(time.Millisecond), len(calls))
 }

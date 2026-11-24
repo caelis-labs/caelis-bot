@@ -1,7 +1,6 @@
 package caelis
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,46 +182,6 @@ func (tr unavailableHandoffState) RoundTrip(req *http.Request) (*http.Response, 
 		return nil, errors.New("destination startup read unavailable")
 	}
 	return tr.RoundTripper.RoundTrip(req)
-}
-
-func TestLateCallbackFromRetiredConversationCannotStartBotWork(t *testing.T) {
-	late := wire.SessionToolCall{Id: "late", SessionId: "main", TurnId: "turn", ItemId: "item", PrincipalId: "owner", Name: "bot_delegate", State: "pending", ToolsVersion: "original", Source: wire.SessionSource{Kind: "user", OperationId: "original-prompt"}}
-	var results atomic.Int32
-	s, _, call := continuityFixture(t, nil, func(w http.ResponseWriter, req *http.Request) {
-		switch strings.TrimPrefix(req.URL.Path, "/api/control/v1") {
-		case "/sessions/main/tool-calls/late/claim":
-			claimed := late
-			claimed.State = "claimed"
-			writeFixture(w, claimed)
-		case "/sessions/main/tool-calls/late/result":
-			var result wire.SessionToolCallResult
-			if err := json.NewDecoder(req.Body).Decode(&result); err != nil || result.Outcome != "failed" {
-				t.Error("retired callback did not receive its own refusal", result, err)
-			}
-			results.Add(1)
-			writeFixture(w, struct{}{})
-		default:
-			t.Errorf("late callback changed target: %s", req.URL.Path)
-			http.NotFound(w, req)
-		}
-	})
-	s.state.Operations[late.Source.OperationId] = journal{Path: "/sessions/main/prompt", Source: late.Source, Outcome: "accepted"}
-	s.catalogs = map[string]map[string]api.ApplicationTools{"original": {"bot_delegate": &acceptanceTools{call: func(context.Context, string, json.RawMessage) api.ToolResult {
-		t.Error("retired callback executed a Bot effect")
-		return api.ToolResult{}
-	}}}}
-	original := s.state.Session
-	if _, err := s.RenewAfterTool(t.Context(), call); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if err := s.handleCall(t.Context(), s.client, original, original.PrincipalId, late); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if results.Load() != 1 || s.state.Calls[late.Id].Call.SessionId != original.SessionId || !s.Snapshot().CanSend {
-		t.Fatal("late callback changed resident admission or duplicated its receipt")
-	}
 }
 
 func TestRenewalStillBlocksUnresolvedResidentAndUnownedEffects(t *testing.T) {

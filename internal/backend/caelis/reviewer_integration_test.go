@@ -145,14 +145,21 @@ func TestGuardianHostIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var effects atomic.Int32
-	tools := &acceptanceTools{defs: fixtureDefinitions("string"), call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
+	definitions := fixtureDefinitions("string")
+	for _, name := range []string{"FixtureAllowed", "FixtureDENY", "FixtureFAIL", "FixtureCancelled", "FixtureTimedOut", "FixtureFirstOfTwo", "FixtureSecondOfTwo"} {
+		definition := definitions[0]
+		definition.Name = name
+		definitions = append(definitions, definition)
+	}
+	tools := &acceptanceTools{defs: definitions, call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
 		effects.Add(1)
 		return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "REVIEWED_CALLBACK_RESULT"}}}
 	}}
+	fixtureConfig := fixtureMCPConfig(t, &api.ToolConnection{NotebookDirectory: notebook}, tools)
 	var s *Session
 	open := func() {
 		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}})
-		if err = s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); err != nil {
+		if err = s.ConfigureBotTools(fixtureConfig); err != nil {
 			t.Fatal(err)
 		}
 		if err = s.Connect(ctx); err != nil {
@@ -168,7 +175,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 	reviewFor := func(status, action string) bool {
 		for _, r := range s.Snapshot().Reviews {
-			if r.Status == status && strings.Contains(r.Action, action) {
+			if r.Status == status && strings.Contains(strings.ToLower(r.Action), strings.ToLower(action)) {
 				return true
 			}
 		}
@@ -181,7 +188,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		defer s.mu.Unlock()
 		for _, facts := range []map[string]reviewFact{s.state.Views[original].Reviews, s.state.Views[original].LiveReviews} {
 			for id, fact := range facts {
-				if fact.Status != status || !strings.Contains(fact.Action, action) {
+				if fact.Status != status || !strings.Contains(strings.ToLower(fact.Action), strings.ToLower(action)) {
 					continue
 				}
 				if fact.ItemID == "" || fact.ToolCallID == "" || fact.TurnID == "" || fact.ApprovalID == "" {
@@ -224,19 +231,32 @@ func TestGuardianHostIntegration(t *testing.T) {
 			}
 		}
 	}
-	if !t.Run("G01_callback_gate_and_exact_once", func(t *testing.T) {
+	if !t.Run("G01_mcp_gate_and_exact_once", func(t *testing.T) {
 		gate := make(chan struct{})
 		var once sync.Once
 		release := func() { once.Do(func() { close(gate) }) }
 		defer release()
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		main.set("CASE_REVIEW_ALLOW", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "allowed"}})
+		catalogReady := make(chan struct{})
+		call := fixtureMCPStep("FixtureAllowed", map[string]any{"key": "allowed"})
+		call.Block = catalogReady
+		main.set("CASE_REVIEW_ALLOW", call)
 		before := s.Snapshot().CurrentTurn
 		if _, e := s.Submit(ctx, api.Submission{ID: "review-allow", Text: "CASE_REVIEW_ALLOW"}, nil); e != nil {
 			t.Fatal(e)
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "allowed") })
-		assertIdentity(t, "inProgress", "allowed")
+		waitForFixtureMCP(t, ctx, s)
+		close(catalogReady)
+		progress, stopProgress := context.WithTimeout(ctx, 10*time.Second)
+		defer stopProgress()
+		defer func() {
+			if t.Failed() {
+				t.Logf("fixture review progress: reviews=%+v provider requests=%d last tool result=%s",
+					s.Snapshot().Reviews, len(main.seen("CASE_REVIEW_ALLOW")), dtwLastToolOutput(main.seen("CASE_REVIEW_ALLOW")))
+			}
+		}()
+		waitAcceptance(t, progress, func() bool { return reviewFor("inProgress", "FixtureAllowed") })
+		assertIdentity(t, "inProgress", "FixtureAllowed")
 		noManual()
 		noCalls()
 		if effects.Load() != 0 {
@@ -253,31 +273,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 		release()
 		waitTurn(t, ctx, s, before)
-		waitAcceptance(t, ctx, func() bool { return reviewFor("approved", "allowed") })
-		review := assertIdentity(t, "approved", "allowed")
+		waitAcceptance(t, ctx, func() bool { return reviewFor("approved", "FixtureAllowed") })
+		assertIdentity(t, "approved", "FixtureAllowed")
 		if effects.Load() != 1 {
-			t.Fatal("approved effect count", effects.Load())
+			t.Fatal("approved MCP effect count", effects.Load())
 		}
 		noManual()
-		s.mu.Lock()
-		records := clone(s.state.Calls)
-		s.mu.Unlock()
-		for _, record := range records {
-			if record.Call.Arguments.(map[string]any)["key"] != "allowed" {
-				continue
-			}
-			if record.Call.ItemId != review.ItemID || record.Call.TurnId != review.TurnID || record.Call.CallId != review.ToolCallID || record.Receipt == nil {
-				t.Fatal("lost exact callback identity")
-			}
-			path := "/sessions/" + idPath(original) + "/tool-calls/" + idPath(record.Call.Id)
-			var claimed wire.SessionToolCall
-			if e := s.client.json(ctx, "POST", path+"/claim", struct{}{}, &claimed, "", ""); e == nil {
-				t.Fatal("duplicate claim accepted")
-			}
-			if e := s.client.json(ctx, "POST", path+"/result", record.Receipt, nil, "", ""); e != nil {
-				t.Fatal("identical receipt retry", e)
-			}
-		}
+		noCalls()
 	}) {
 		return
 	}
@@ -332,13 +334,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ key, reply, status string }{
-		{"DENY", `{"option_id":"reject_once","rationale":"Not authorized by the synthetic request."}`, "denied"},
+		{"DENY", `{"option_id":"cancel","rationale":"Not authorized by the synthetic request."}`, "denied"},
 		{"FAIL", `{"option_id":"permit_forever"}`, "failed"},
 	} {
-		if !t.Run("G03_callback_"+tc.key, func(t *testing.T) {
+		if !t.Run("G03_mcp_"+tc.key, func(t *testing.T) {
 			configureReview(tc.reply, nil)
 			key := "CASE_REVIEW_" + tc.key
-			main.set(key, modelStep{Name: "FixtureLookup", Args: map[string]any{"key": tc.key}})
+			main.set(key, fixtureMCPStep("Fixture"+tc.key, map[string]any{"key": tc.key}))
 			submitAcceptance(t, ctx, s, key)
 			waitAcceptance(t, ctx, func() bool { return reviewFor(tc.status, tc.key) })
 			assertIdentity(t, tc.status, tc.key)
@@ -357,12 +359,12 @@ func TestGuardianHostIntegration(t *testing.T) {
 		release := func() { once.Do(func() { close(gate) }) }
 		defer release()
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		main.set("CASE_REVIEW_CANCEL", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "cancelled"}})
+		main.set("CASE_REVIEW_CANCEL", fixtureMCPStep("FixtureCancelled", map[string]any{"key": "cancelled"}))
 		if _, e := s.Submit(ctx, api.Submission{ID: "review-cancel", Text: "CASE_REVIEW_CANCEL"}, nil); e != nil {
 			t.Fatal(e)
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "cancelled") })
-		assertIdentity(t, "inProgress", "cancelled")
+		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "FixtureCancelled") })
+		assertIdentity(t, "inProgress", "FixtureCancelled")
 		if e := s.Interrupt(ctx); e != nil {
 			t.Fatal(e)
 		}
@@ -414,13 +416,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if snapshot := s.Snapshot(); !snapshot.CanSend || !snapshot.HasEarlier {
 			t.Fatal("finite-window reconnect did not restore ready state and older-page boundary", snapshot.CanSend, snapshot.HasEarlier)
 		}
-		if reviewFor("approved", "allowed") || reviewFor("denied", "DENY") {
+		if reviewFor("approved", "FixtureAllowed") || reviewFor("denied", "FixtureDENY") {
 			t.Fatal("older review appeared before its history page was requested")
 		}
 		noCalls()
 		noManual()
 		if effects.Load() != 1 {
-			t.Fatal("restart repeated callback")
+			t.Fatal("restart repeated MCP call")
 		}
 		s.mu.Lock()
 		cursor, seen, receipt, boundary := s.state.Views[original].Cursor, clone(s.state.Views[original].Seen), s.state.LastReceipt, s.state.Views[original].HistoryBefore
@@ -467,7 +469,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if e = s.LoadEarlier(ctx); e != nil {
 			t.Fatal("explicit older history did not load", e)
 		}
-		if !reviewFor("approved", "allowed") || !reviewFor("denied", "DENY") {
+		if !reviewFor("approved", "FixtureAllowed") || !reviewFor("denied", "FixtureDENY") {
 			t.Fatal("loaded older page did not restore decided review facts")
 		}
 		s.mu.Lock()
@@ -481,13 +483,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 				assertIdentity(t, prior.Status, prior.Action)
 			}
 		}
-		if reviewFor("failed", "FAIL") || reviewFor("inProgress", "cancelled") {
+		if reviewFor("failed", "FixtureFAIL") || reviewFor("inProgress", "FixtureCancelled") {
 			t.Fatal("transient review persisted as decision")
 		}
 		noCalls()
 		noManual()
 		if effects.Load() != 1 {
-			t.Fatal("restart repeated callback")
+			t.Fatal("restart repeated MCP call")
 		}
 		for _, name := range []string{"Write", "RunCommand"} {
 			data, e := os.ReadFile(filepath.Join(effectDir, name+"-allow.txt"))
@@ -510,7 +512,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 			t.Fatal(e)
 		}
 		defer vault.Close()
-		config := &api.ToolConnection{Host: tools, NotebookDirectory: vault.Path(), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}
+		config := fixtureConfig.Clone()
+		config.NotebookDirectory, config.PrepareContext, config.ConsumeContext = vault.Path(), vault.PrepareContext, vault.ConsumeContext
 		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, RequireApproval: true}
 		legacy := New(opts)
 		if e = legacy.ConfigureBotTools(config); e != nil {
@@ -576,7 +579,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 
 	if !t.Run("G09_reused_provider_call_ids_within_one_turn", func(t *testing.T) {
-		if e := s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); e != nil {
+		if e := s.ConfigureBotTools(fixtureConfig); e != nil {
 			t.Fatal(e)
 		}
 		current, e := s.Configuration(ctx)
@@ -594,11 +597,6 @@ func TestGuardianHostIntegration(t *testing.T) {
 			}
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			for _, call := range s.state.Calls {
-				if call.Call.TurnId == value(s.state.Views[original].State.Run.TurnId) {
-					t.Logf("callback: item=%s state=%s", call.Call.ItemId, call.Call.State)
-				}
-			}
 			for _, fact := range s.state.Views[original].Reviews {
 				if fact.TurnID == value(s.state.Views[original].State.Run.TurnId) {
 					t.Logf("review: item=%s status=%s", fact.ItemID, fact.Status)
@@ -608,11 +606,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}()
 		configureReview(`{"option_id":"allow_once"}`, nil)
 		before := effects.Load()
-		main.set("CASE_REUSED_CALL", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "first-of-two"}}, modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "second-of-two"}})
+		main.set("CASE_REUSED_CALL", fixtureMCPStep("FixtureFirstOfTwo", map[string]any{"key": "first-of-two"}), fixtureMCPStep("FixtureSecondOfTwo", map[string]any{"key": "second-of-two"}))
 		submitAcceptance(t, caseCtx, s, "CASE_REUSED_CALL")
-		waitAcceptance(t, caseCtx, func() bool { return reviewFor("approved", "first-of-two") && reviewFor("approved", "second-of-two") })
-		first := assertIdentity(t, "approved", "first-of-two")
-		second := assertIdentity(t, "approved", "second-of-two")
+		waitAcceptance(t, caseCtx, func() bool {
+			return reviewFor("approved", "FixtureFirstOfTwo") && reviewFor("approved", "FixtureSecondOfTwo")
+		})
+		first := assertIdentity(t, "approved", "FixtureFirstOfTwo")
+		second := assertIdentity(t, "approved", "FixtureSecondOfTwo")
 		if first.TurnID != second.TurnID || first.ItemID == second.ItemID || first.ToolCallID != second.ToolCallID || first.ApprovalID == second.ApprovalID || effects.Load() != before+2 {
 			t.Fatal("provider call ID merged native invocations")
 		}
@@ -620,16 +620,10 @@ func TestGuardianHostIntegration(t *testing.T) {
 		return
 	}
 
-	if !t.Run("G10_worker_completion_continues_normal_loop", func(t *testing.T) {
-		workerReportLoopAcceptance(t, ctx, s, main, notebook, configureReview)
-	}) {
-		return
-	}
-
 	if !t.Run("G07_timeout_never_dispatches", func(t *testing.T) {
-		// Restore the simple reviewed callback and wait through the actual Core budget.
+		// Restore the simple reviewed MCP server and wait through the actual Core budget.
 		before := effects.Load()
-		if e := s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); e != nil {
+		if e := s.ConfigureBotTools(fixtureConfig); e != nil {
 			t.Fatal(e)
 		}
 		current, e := s.Configuration(ctx)
@@ -642,17 +636,23 @@ func TestGuardianHostIntegration(t *testing.T) {
 		gate := make(chan struct{})
 		defer close(gate)
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		main.set("CASE_REVIEW_TIMEOUT", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "timed-out"}})
+		main.set("CASE_REVIEW_TIMEOUT", fixtureMCPStep("FixtureTimedOut", map[string]any{"key": "timed-out"}))
 		if _, e = s.Submit(ctx, api.Submission{ID: "review-timeout", Text: "CASE_REVIEW_TIMEOUT"}, nil); e != nil {
 			t.Fatal(e)
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("timedOut", "timed-out") })
-		assertIdentity(t, "timedOut", "timed-out")
+		waitAcceptance(t, ctx, func() bool { return reviewFor("timedOut", "FixtureTimedOut") })
+		assertIdentity(t, "timedOut", "FixtureTimedOut")
 		noManual()
 		noCalls()
 		if effects.Load() != before {
-			t.Fatal("timed-out review dispatched callback")
+			t.Fatal("timed-out review dispatched MCP call")
 		}
+	}) {
+		return
+	}
+
+	if !t.Run("G10_worker_completion_continues_normal_loop", func(t *testing.T) {
+		workerReportLoopAcceptance(t, ctx, s, main, notebook, configureReview)
 	}) {
 		return
 	}

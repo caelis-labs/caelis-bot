@@ -35,9 +35,9 @@ func TestSharedNativeSteeringKeepsExpectedTurnOnDuplicate(t *testing.T) {
 			s.state.PrincipalID = "owner"
 			s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("handle"), RunId: pointer("run"), TurnId: pointer("turn-original")}
 			s.state.Workers["task"] = worker{Native: true, Binding: s.state.Session, Task: api.Task{ID: "task"}}
-			ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: "user", OperationId: "source"}})
 			send := func(s *Session, text string) {
 				t.Helper()
+				ctx := context.WithValue(t.Context(), workOwnerKey{}, s)
 				if workerMode {
 					v, e := s.SendWork(ctx, api.TaskMessage{ID: "task", RequestID: "same-id", Prompt: text})
 					if e != nil || v.Outcome != "accepted" {
@@ -61,10 +61,10 @@ func TestSharedNativeSteeringKeepsExpectedTurnOnDuplicate(t *testing.T) {
 			restored.state.Views["main"].State.Run.Active = pointer(false)
 			send(restored, "guide")
 			if workerMode {
-				if _, err := restored.SendWork(ctx, api.TaskMessage{ID: "task", RequestID: "same-id", Prompt: "changed payload"}); err == nil {
+				if _, err := restored.SendWork(context.WithValue(t.Context(), workOwnerKey{}, restored), api.TaskMessage{ID: "task", RequestID: "same-id", Prompt: "changed payload"}); err == nil {
 					t.Fatal("changed steering accepted")
 				}
-			} else if receipt, err := restored.Submit(ctx, api.Submission{ID: "same-id", Text: "changed payload"}, nil); err != nil || receipt.Outcome != "rejected" || !strings.Contains(receipt.Message, "不同消息") {
+			} else if receipt, err := restored.Submit(t.Context(), api.Submission{ID: "same-id", Text: "changed payload"}, nil); err != nil || receipt.Outcome != "rejected" || !strings.Contains(receipt.Message, "不同消息") {
 				t.Fatal("changed steering accepted")
 			}
 			if posts.Load() != 1 {

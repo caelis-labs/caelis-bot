@@ -21,7 +21,7 @@ import (
 )
 
 // Opt-in consumer upgrade: real compatible releases/private Store, synthetic
-// provider, one counted private callback, retained Worker and fresh MCP discovery.
+// provider, one counted private MCP effect, retained Worker and fresh MCP discovery.
 func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	previous, current := os.Getenv("CAELIS_BOT_TEST_PREVIOUS_BINARY"), os.Getenv("CAELIS_BOT_TEST_BINARY")
 	if previous == "" || current == "" {
@@ -93,7 +93,7 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 		effects.Add(1)
 		return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "PRIVATE_CALLBACK_COMPLETE"}}}
 	}}
-	connection := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup"}, Host: tools}
+	connection := fixtureMCPConfig(t, &api.ToolConnection{}, tools)
 	resident := New(opts)
 	defer resident.Close(context.Background())
 	if err = resident.ConfigureBotTools(connection); err != nil {
@@ -103,12 +103,12 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitAcceptance(t, ctx, func() bool { return resident.Snapshot().CanSend })
-	model.set("CASE_COMPATIBLE_BEFORE", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "before"}})
+	model.set("CASE_COMPATIBLE_BEFORE", fixtureMCPStep("FixtureLookup", map[string]string{"key": "before"}))
 	submitAcceptance(t, ctx, resident, "CASE_COMPATIBLE_BEFORE")
 	originalID := "case_compatible_before"
 	var original wire.CommandResult
 	if err = host.json(ctx, "GET", "/operations/"+originalID, nil, &original, "", ""); err != nil || !succeeded(original.Outcome) || effects.Load() != 1 {
-		t.Fatal("original counted callback/receipt", err)
+		t.Fatal("original counted MCP effect/receipt", err)
 	}
 	resident.mu.Lock()
 	before := clone(resident.state)
@@ -186,7 +186,7 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	after, currentClient := clone(upgraded.state), upgraded.client
 	upgraded.mu.Unlock()
 	if before.Session.SessionId != after.Session.SessionId || before.StoreID != after.StoreID || before.PrincipalID != after.PrincipalID || effects.Load() != 1 || !reflect.DeepEqual(before.Operations[originalID], after.Operations[originalID]) {
-		t.Fatal("upgrade changed the original binding/receipt or replayed its callback")
+		t.Fatal("upgrade changed the original binding/receipt or replayed its MCP effect")
 	}
 	var retained wire.CommandResult
 	if err = currentClient.json(ctx, "GET", "/operations/"+originalID, nil, &retained, "", ""); err != nil || !reflect.DeepEqual(original, retained) {
@@ -249,10 +249,10 @@ return {probe: "UPGRADE_DTW_APPS", tool: apps[0].name, result: tools.unpack(repl
 	if !appsReturned {
 		t.Fatal("fresh Code Mode discovery did not return a native apps result")
 	}
-	evidence := map[string]any{"resident_session": after.Session.SessionId, "worker_session": retainedWorker, "original_callback_count": effects.Load(), "original_receipt": retained, "worker_requests_before": workerRequests, "worker_requests_after": len(model.seen("CASE_COMPATIBLE_WORKER")), "upgraded_mcp_status": directory, "model_decisions": "synthetic", "mcp_discovery_and_apps": "real"}
+	evidence := map[string]any{"resident_session": after.Session.SessionId, "worker_session": retainedWorker, "original_mcp_effect_count": effects.Load(), "original_receipt": retained, "worker_requests_before": workerRequests, "worker_requests_after": len(model.seen("CASE_COMPATIBLE_WORKER")), "upgraded_mcp_status": directory, "model_decisions": "synthetic", "mcp_discovery_and_apps": "real"}
 	data, _ := json.MarshalIndent(evidence, "", "  ")
 	if err = os.WriteFile(filepath.Join(root, "upgrade-summary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Log("compatible busy Host deferred to idle; same resident/Worker/receipt, one callback; fresh DTW discovery; evidence", root)
+	t.Log("compatible busy Host deferred to idle; same resident/Worker/receipt, one MCP effect; fresh DTW discovery; evidence", root)
 }

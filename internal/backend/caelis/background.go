@@ -23,38 +23,6 @@ func (s *Session) createGrant(ctx context.Context, sid, source, authorization st
 	}
 	return g, e
 }
-func (s *Session) AuthorizeBackground(ctx context.Context, id, fingerprint string) error {
-	call, e := s.currentInvocation(ctx)
-	if e != nil {
-		return e
-	}
-	if call.Source.Kind != "user" {
-		return errors.New("新提醒需要用户请求")
-	}
-	s.step.Lock()
-	defer s.step.Unlock()
-	s.mu.Lock()
-	old, ok := s.state.Grants[id]
-	sid := s.state.Session.SessionId
-	s.mu.Unlock()
-	if ok && old.Fingerprint == fingerprint && !old.Grant.Revoked {
-		return nil
-	}
-	g, e := s.createGrant(ctx, sid, "schedule-"+digest([]byte(id+fingerprint)), call.Source.OperationId)
-	if e != nil {
-		return e
-	}
-	if ok && !old.Grant.Revoked {
-		if e = s.revokeGrant(ctx, old.Grant); e != nil {
-			return e
-		}
-	}
-	s.mu.Lock()
-	s.state.Grants[id] = grantRecord{g, fingerprint}
-	e = s.saveLocked()
-	s.mu.Unlock()
-	return e
-}
 func (s *Session) revokeGrant(ctx context.Context, g wire.SessionBackgroundGrant) error {
 	var out wire.SessionBackgroundGrant
 	op := "revoke-" + g.Id

@@ -116,7 +116,6 @@ func TestPluginServerWithoutCoreSessionIsNotConnectingForever(t *testing.T) {
 func TestCoreProfileUsesNativeSkillMetadataWithoutDuplicateGuide(t *testing.T) {
 	s := New(Options{Directory: t.TempDir()})
 	c := &api.ToolConnection{
-		Host:              &acceptanceTools{defs: fixtureDefinitions("string")},
 		Instructions:      "Resident role instructions",
 		SkillInstructions: "Resident Skill guide",
 		BuiltinSkillRoots: []string{"/fixture/app-skills/bot-core"},

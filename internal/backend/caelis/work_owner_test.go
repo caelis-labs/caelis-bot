@@ -30,7 +30,7 @@ func TestRetainedOwnerPreservesResidentConfigurationWithoutRebinding(t *testing.
 	if err = w.engine.ensureSession(t.Context(), s.client); err != nil {
 		t.Fatal(err)
 	}
-	if reads != 1 || w.engine.state.Session.Profile.ToolsVersion != "original-bot-tools" || w.engine.state.Session.Profile.Instructions != "original-bot-instructions" || len(w.engine.catalog) != 0 {
+	if reads != 1 || w.engine.state.Session.Profile.ToolsVersion != "original-bot-tools" || w.engine.state.Session.Profile.Instructions != "original-bot-instructions" || len(w.engine.profile.Tools) != 0 {
 		t.Fatal("inactive Bot configuration or catalog changed")
 	}
 }

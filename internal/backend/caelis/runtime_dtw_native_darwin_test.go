@@ -87,7 +87,7 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	}
 	selector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	s := New(Options{RequireApproval: true, Directory: filepath.Join(root, "resident"), Settings: settings, Execution: api.ExecutionSettings{Model: selector, ApprovalMode: "workspace-write"}})
-	if err = s.ConfigureBotTools(&api.ToolConnection{Host: noTools{}}); err != nil {
+	if err = s.ConfigureBotTools(&api.ToolConnection{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Connect(ctx); err != nil {

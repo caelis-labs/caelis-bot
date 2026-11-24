@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
@@ -196,7 +195,7 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 	var out api.ToolResult
 	switch kind {
 	case "configure":
-		return r.configureSchedulePolicy(ctx, q)
+		return r.configureSchedulePolicy(q)
 	case "remove":
 		domain, id, ok := strings.Cut(str(q, "automation"), ":")
 		if !ok || id == "" {
@@ -318,37 +317,3 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 }
 
 // Keep the legacy view private to the original versioned invocation binding.
-type legacyTools struct{ runtime *Runtime }
-
-func (v legacyTools) Definitions() []api.ToolDefinition { return archivedCatalog("legacy") }
-func (v legacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
-	return v.runtime.callLegacyTool(ctx, name, args)
-}
-func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
-	approved := botpolicy.RetiredCatalogApprovedTools()
-	return &api.ToolConnection{Host: legacyTools{r}, ApprovedTools: approved}
-}
-
-// The pre-retirement schema and approval policy are retained only to match
-// pending Caelis callback versions. Dispatch still uses the current allowlist:
-// bot_memory cannot execute through this historical binding.
-type historicalLegacyTools struct{ runtime *Runtime }
-
-func (v historicalLegacyTools) Definitions() []api.ToolDefinition {
-	return archivedCatalog("legacy-memory")
-}
-func (v historicalLegacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
-	return v.runtime.callLegacyTool(ctx, name, args)
-}
-func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
-	return []*api.ToolConnection{
-		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
-		r.previousCompactToolConnection(),
-		{Host: priorLifecycleTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
-		{Host: priorFollowupTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
-		{Host: priorEventTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
-		{Host: priorPresenceTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
-		{Host: priorQuestionTools{r}, ApprovedTools: botpolicy.ApprovedTools()},
-		{Host: priorIdleTools{r}, ApprovedTools: []string{"bot_tasks", "bot_interactions", "bot_schedule", "bot_gesture", "bot_dream"}},
-	}
-}

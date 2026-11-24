@@ -63,7 +63,6 @@ func toolDefinitions() []api.ToolDefinition {
 	out := []api.ToolDefinition{}
 	for _, d := range old {
 		if d.Name == "bot_gesture" {
-			d.ResultFormat = "content-v1"
 			out = append(out, d)
 		}
 	}

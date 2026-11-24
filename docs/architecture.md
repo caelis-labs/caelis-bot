@@ -86,18 +86,23 @@ Codex's resident stdio services use distinct launch bearers. The Bot bridge
 checks each bearer against its tool catalog. Existing aggregate threads retain
 their original service identity.
 
-Caelis declares a standard stdio MCP server on the resident profile alongside
-its selected Skills. The declaration uses the Bot-owned Notebook as its
-working directory and passes the path to a restricted local bridge connection
-file. The bridge checks the service credential and its task-tool scope. The
-stdio server uses its transport request identity for original submission
-recovery. Core owns discovery, manual decisions and Guardian auto-review.
-Worker Sessions keep native configuration and load their own tools.
+Caelis declares a standard stdio MCP server for all enabled Bot tools on
+the resident profile alongside its selected Skills. The server keeps the
+existing `caelis_tasks` name and uses the Bot-owned Notebook as its working
+directory. A restricted connection file gives the process its local endpoint
+and tool catalog. Delegation uses the original stdio request identity for
+submission recovery. Core owns discovery, manual approvals and Guardian
+auto-review. Worker Sessions keep their native configuration and tools.
 
-Historical task callback catalogs stay available under their original version
-for in-flight calls. Their original committed approval, claim and receipt
-rules still apply. Legacy background grants and the remaining resident tools
-use the callback contract.
+On upgrade, Bot clears the legacy application tool catalog on the same
+resident Session. Core cancels any original resident turn still running under
+that catalog. Bot preserves the journal and Worker bindings, and does not
+claim or replay callbacks. Existing background grants can still be revoked or
+used to complete their original schedules. New arrangements wake the resident
+as external material and any subsequent tool action follows native approval.
+Dream is no longer a resident tool. The next user message can rotate an idle
+Session while Bot retains its tasks and reminders.
+
 Native Worker attachments use typed images or private Bot-owned file copies
 readable through the Worker's native file tool. Application Sessions continue
 to use Core resource uploads.

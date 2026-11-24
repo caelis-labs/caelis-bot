@@ -493,7 +493,7 @@ func (r *Runtime) tickLocked(ctx context.Context) (err error) {
 			r.state.Schedules[i] = s
 			// Caelis grants authorize one schedule per native activation. Leave
 			// other due schedules untouched for the next idle tick.
-			if _, ok := r.engine.(api.BackgroundRuntime); ok {
+			if _, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				break
 			}
 		}

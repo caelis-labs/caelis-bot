@@ -130,7 +130,7 @@ func TestExternalHostMagpieProviderSelection(t *testing.T) {
 	// The UI's Bot conversation setting patches its application session only;
 	// provider routing resolves from that exact Host-advertised model selector.
 	session := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: previous, ApprovalMode: "workspace-write"}})
-	if err = session.ConfigureBotTools(&api.ToolConnection{Host: &acceptanceTools{}, NotebookDirectory: root}); err != nil {
+	if err = session.ConfigureBotTools(&api.ToolConnection{NotebookDirectory: root}); err != nil {
 		t.Fatal(err)
 	}
 	if err = session.Connect(ctx); err != nil {

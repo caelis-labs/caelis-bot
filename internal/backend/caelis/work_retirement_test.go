@@ -155,7 +155,7 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 }
 
 func authorizedWorkerCall(ctx context.Context, s *Session) context.Context {
-	return context.WithValue(ctx, invocationKey{}, wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: "fixture-user"}})
+	return context.WithValue(ctx, workOwnerKey{}, s)
 }
 
 func TestUnknownWorkerInputStillRequiresReceipt(t *testing.T) {

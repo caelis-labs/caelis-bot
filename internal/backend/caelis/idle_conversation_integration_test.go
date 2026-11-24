@@ -29,7 +29,7 @@ func testNativeIdleResidentRenewal(t *testing.T, channel string) {
 	root := t.TempDir()
 	history := filepath.Join(root, "ChatHistory", "conversation.jsonl")
 	var service *backend.Service
-	ctx, s, resident, model := nativeDreamFixture(t, nil, func(r *bot.Runtime) {
+	ctx, s, resident, model := nativeResidentFixture(t, func(r *bot.Runtime) {
 		r.ConfigureIdleConversation(func(ctx context.Context, id string) (time.Time, bool, error) {
 			return service.BotConversationActivity(ctx, id, nil)
 		})

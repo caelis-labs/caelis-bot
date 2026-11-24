@@ -17,7 +17,7 @@ func TestExecutionEnvironmentIsExplicitWithoutCopyingHostValues(t *testing.T) {
 	notebook := t.TempDir()
 	for _, toolsOnly := range []bool{false, true} {
 		s := New(Options{Directory: t.TempDir(), ToolsOnly: toolsOnly})
-		if err := s.ConfigureBotTools(&api.ToolConnection{Host: &acceptanceTools{defs: fixtureDefinitions("string")}, NotebookDirectory: notebook}); err != nil {
+		if err := s.ConfigureBotTools(&api.ToolConnection{NotebookDirectory: notebook}); err != nil {
 			t.Fatal(err)
 		}
 		c := s.profile.ExecutionConfig

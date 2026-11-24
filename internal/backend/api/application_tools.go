@@ -5,19 +5,10 @@ import (
 	"encoding/json"
 )
 
-// ApplicationTools is a native-only, per-session binding. Implementations own
-// business behavior; adapters own authenticated invocation provenance/transport.
-// Never expose this capability through the renderer or a global tool registry.
-type ApplicationTools interface {
-	Definitions() []ToolDefinition
-	CallTool(context.Context, string, json.RawMessage) ToolResult
-}
 type ToolDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
-	// ResultFormat is an adapter contract, not an MCP tool schema keyword.
-	ResultFormat string `json:"-"`
 }
 type ToolResult struct {
 	Content           []map[string]string `json:"content"`
@@ -31,11 +22,11 @@ type ToolResult struct {
 }
 
 // ToolInvocation preserves a Bot tool's original delivery identity. MCP
-// uses a transport request ID; a callback uses its opaque Control receipt ID.
+// uses the original transport request identity within a stdio process.
 type ToolInvocation struct {
 	Provider, CallID, Session, Turn string
 	TurnKey                         string // presentation identity of the original resident Turn
-	CaelisTaskMCP                   bool   // authenticated local task bridge; Turn is presentation only
+	CaelisMCP                       bool   // authenticated resident stdio bridge; Turn is presentation only
 }
 
 type toolInvocationKey struct{}
@@ -45,7 +36,7 @@ func WithToolInvocation(ctx context.Context, invocation ToolInvocation) context.
 }
 func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 	invocation, ok := ctx.Value(toolInvocationKey{}).(ToolInvocation)
-	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && (invocation.Turn != "" || invocation.CaelisTaskMCP)
+	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && (invocation.Turn != "" || invocation.CaelisMCP)
 }
 
 // ToolTurnTerminator stops the exact Codex Turn after a terminal Bot MCP tool.
@@ -69,11 +60,3 @@ type ApplicationCapabilities struct {
 type ApplicationCapabilityProvider interface {
 	ApplicationCapabilities() ApplicationCapabilities
 }
-
-// LegacyToolProvider restores exact historical invocation bindings without
-// advertising their tools to new model turns.
-type LegacyToolProvider interface{ LegacyToolConnection() *ToolConnection }
-
-// HistoricalToolProvider restores older callback versions after a catalog
-// retirement. These bindings are never published to new model turns.
-type HistoricalToolProvider interface{ HistoricalToolConnections() []*ToolConnection }
