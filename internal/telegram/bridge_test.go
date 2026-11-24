@@ -834,7 +834,7 @@ func TestStickerInputUsesImageBytesAndOriginalReceipt(t *testing.T) {
 				visual = sample.Bytes()
 			} else if format == "static" || format == "video" {
 				var err error
-				visual, err = os.ReadFile("../../frontend/public/portraits/caelis-sage-v1/focus.webp")
+				visual, err = os.ReadFile("../../frontend/public/portraits/caelis-sage-v2/focus.webp")
 				if err != nil {
 					t.Fatal(err)
 				}

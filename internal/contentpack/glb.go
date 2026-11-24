@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"sort"
 )
 
 func validateImage(b []byte, format string) error {
@@ -169,7 +170,7 @@ func validateGLB(b []byte) error {
 	if e := json.Unmarshal(b[20:20+n], &d); e != nil {
 		return e
 	}
-	if d.Asset.Version != "2.0" || len(d.Buffers) != 1 || d.Buffers[0].ByteLength < 1 || d.Buffers[0].ByteLength > len(data) || len(d.Nodes) > 512 || len(d.Meshes) == 0 || len(d.Meshes) > 128 || len(d.Accessors) > 2048 || len(d.Materials) > 64 || len(d.Textures) > 32 || len(d.Images) > 16 || len(d.Animations) > 32 || len(d.BufferViews) > 2048 || len(d.Skins) > 16 {
+	if d.Asset.Version != "2.0" || len(d.Buffers) != 1 || d.Buffers[0].ByteLength < 1 || d.Buffers[0].ByteLength > len(data) || len(d.Nodes) > 512 || len(d.Meshes) == 0 || len(d.Materials) > 64 || len(d.Textures) > 32 || len(d.Images) > 16 || len(d.Animations) > 32 || len(d.Skins) > 16 {
 		return fail()
 	}
 	valid := func(i, n int) bool { return i >= 0 && i < n }
@@ -180,14 +181,10 @@ func validateGLB(b []byte) error {
 	}
 	sizes := map[int]int{5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 	widths := map[string]int{"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
-	components := int64(0)
+	floats := make(floatSpans)
 	for _, a := range d.Accessors {
-		if a.BufferView == nil || !valid(*a.BufferView, len(d.BufferViews)) || a.ByteOffset < 0 || a.Count < 1 || a.Count > 250000 || sizes[a.ComponentType] == 0 || widths[a.Type] == 0 || len(a.Sparse) > 0 {
+		if a.BufferView == nil || !valid(*a.BufferView, len(d.BufferViews)) || a.ByteOffset < 0 || a.Count < 1 || sizes[a.ComponentType] == 0 || widths[a.Type] == 0 || len(a.Sparse) > 0 {
 			return errors.New("invalid accessor; sparse accessors are not supported")
-		}
-		components += int64(a.Count) * int64(widths[a.Type])
-		if components > 4_000_000 {
-			return errors.New("accessor budget exceeded")
 		}
 		v := d.BufferViews[*a.BufferView]
 		element := sizes[a.ComponentType] * widths[a.Type]
@@ -195,24 +192,25 @@ func validateGLB(b []byte) error {
 		if stride == 0 {
 			stride = element
 		}
-		if stride < element || a.ByteOffset > v.ByteLength || int64(a.ByteOffset)+int64(a.Count-1)*int64(stride)+int64(element) > int64(v.ByteLength) {
+		if stride < element || a.ByteOffset > v.ByteLength-element || a.Count-1 > (v.ByteLength-element-a.ByteOffset)/stride {
 			return fail()
 		}
 		if a.ComponentType == 5126 {
-			for i := 0; i < a.Count; i++ {
-				for c := 0; c < widths[a.Type]; c++ {
-					offset := v.ByteOffset + a.ByteOffset + i*stride + c*4
-					f := math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
-					if math.IsNaN(float64(f)) || math.IsInf(float64(f), 0) || math.Abs(float64(f)) > 1e6 {
-						return errors.New("non-finite or excessive model coordinates")
-					}
+			start := v.ByteOffset + a.ByteOffset
+			if stride == element {
+				floats.add(start, start+(a.Count-1)*stride+element-4, 4)
+			} else {
+				for offset := 0; offset < element; offset += 4 {
+					floats.add(start+offset, start+offset+(a.Count-1)*stride, stride)
 				}
 			}
 		}
 	}
-	count := 0
+	if err := floats.validate(data); err != nil {
+		return err
+	}
 	for _, mesh := range d.Meshes {
-		if len(mesh.Primitives) == 0 || len(mesh.Primitives) > 32 {
+		if len(mesh.Primitives) == 0 {
 			return fail()
 		}
 		for _, p := range mesh.Primitives {
@@ -220,7 +218,7 @@ func validateGLB(b []byte) error {
 				return errors.New("only triangle primitives are supported")
 			}
 			position, ok := p.Attributes["POSITION"]
-			if !ok || !valid(position, len(d.Accessors)) || d.Accessors[position].Type != "VEC3" || d.Accessors[position].ComponentType != 5126 || len(p.Targets) > 8 {
+			if !ok || !valid(position, len(d.Accessors)) || d.Accessors[position].Type != "VEC3" || d.Accessors[position].ComponentType != 5126 {
 				return fail()
 			}
 			for _, a := range p.Attributes {
@@ -235,21 +233,16 @@ func validateGLB(b []byte) error {
 					}
 				}
 			}
-			vertices := d.Accessors[position].Count
-			count += vertices
 			if p.Indices != nil {
 				if !valid(*p.Indices, len(d.Accessors)) {
 					return fail()
 				}
 				a := d.Accessors[*p.Indices]
-				if a.Type != "SCALAR" || (a.ComponentType != 5121 && a.ComponentType != 5123 && a.ComponentType != 5125) || a.Count > 750000 {
+				if a.Type != "SCALAR" || (a.ComponentType != 5121 && a.ComponentType != 5123 && a.ComponentType != 5125) {
 					return fail()
 				}
 			}
 		}
-	}
-	if count > 250000 {
-		return errors.New("model vertex budget exceeded")
 	}
 	parents := make([]bool, len(d.Nodes))
 	colors := make([]int, len(d.Nodes))
@@ -303,17 +296,6 @@ func validateGLB(b []byte) error {
 		if s.InverseBindMatrices != nil && !valid(*s.InverseBindMatrices, len(d.Accessors)) {
 			return fail()
 		}
-	}
-	instances := 0
-	for _, node := range d.Nodes {
-		if node.Mesh != nil {
-			for _, primitive := range d.Meshes[*node.Mesh].Primitives {
-				instances += d.Accessors[primitive.Attributes["POSITION"]].Count
-			}
-		}
-	}
-	if instances > 250000 {
-		return errors.New("instanced vertex budget exceeded")
 	}
 	pixels := 0
 	for _, im := range d.Images {
@@ -382,6 +364,35 @@ func validateGLB(b []byte) error {
 			default:
 				return fail()
 			}
+		}
+	}
+	return nil
+}
+
+// Accessors can share bytes, including lanes of an interleaved vertex buffer.
+// Visit overlapping runs once per stride and lane without charging the model
+// for every reference to the same data.
+type floatLane struct{ stride, offset int }
+type floatSpan struct{ first, last int }
+type floatSpans map[floatLane][]floatSpan
+
+func (spans floatSpans) add(first, last, stride int) {
+	lane := floatLane{stride: stride, offset: first % stride}
+	spans[lane] = append(spans[lane], floatSpan{first, last})
+}
+
+func (spans floatSpans) validate(data []byte) error {
+	for lane, runs := range spans {
+		sort.Slice(runs, func(i, j int) bool { return runs[i].first < runs[j].first })
+		next := 0
+		for _, run := range runs {
+			for offset := max(run.first, next); offset <= run.last; offset += lane.stride {
+				value := float64(math.Float32frombits(binary.LittleEndian.Uint32(data[offset:])))
+				if math.IsNaN(value) || math.IsInf(value, 0) || math.Abs(value) > 1e6 {
+					return errors.New("non-finite or excessive model coordinates")
+				}
+			}
+			next = max(next, run.last+lane.stride)
 		}
 	}
 	return nil

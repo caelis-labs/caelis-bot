@@ -8,6 +8,11 @@ python3 internal/botskills/test_extensions.py
 python3 script/test_linux_installer.py
 node script/check-caelis-protocol.mjs
 node script/asset-pack.mjs verify
+whale=frontend/public/models/whale-girl-maid-v1.glb
+node art/whale-girl/check-acting.mjs "$whale" --jaw
+node art/whale-girl/check-outfit.mjs "$whale" --continuous
+node art/whale-girl/check-hands.mjs "$whale" --continuous --compact
+node art/whale-girl/check-portrait.mjs "$whale"
 npm run check:i18n
 npm run build
 node --test \

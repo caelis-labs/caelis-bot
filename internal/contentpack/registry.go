@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -132,8 +133,11 @@ func packageKey(m Manifest) string          { return m.ID + "@" + m.Version }
 func characterKey(pack, c, v string) string { return pack + "/character/" + c + "/" + v }
 func avatarKey(pack, a string) string       { return pack + "/avatar/" + a }
 func assetURL(e entry, p string) string     { return "/content/" + e.Digest + "/" + p }
-func (r *Registry) choices() (map[string]struct{ model, avatar string }, map[string]string) {
-	chars := map[string]struct{ model, avatar string }{"builtin:caelis": {}, "builtin:stick": {model: "/models/stick.glb"}}
+func (r *Registry) choices() (map[string]figure, map[string]string) {
+	chars := make(map[string]figure, len(builtinFigures)+len(r.entries))
+	for _, builtin := range builtinFigures {
+		chars[builtin.choice.ID] = builtin.figure
+	}
 	avatars := map[string]string{"follow": "", "builtin:avatar": ""}
 	for key, e := range r.entries {
 		local := map[string]string{}
@@ -144,7 +148,7 @@ func (r *Registry) choices() (map[string]struct{ model, avatar string }, map[str
 		}
 		for _, c := range e.Manifest.Characters {
 			for _, v := range c.Variants {
-				chars[characterKey(key, c.ID, v.ID)] = struct{ model, avatar string }{assetURL(e, v.Model), local[v.Avatar]}
+				chars[characterKey(key, c.ID, v.ID)] = figure{assetURL(e, v.Model), local[v.Avatar], true}
 			}
 		}
 	}
@@ -164,7 +168,10 @@ func (r *Registry) snapshot() State {
 		avatar = avatars[r.selection.Avatar]
 	}
 
-	s := State{Appearance: Appearance{r.revision, r.selection, selected.model, avatar, r.selection.Character != "builtin:caelis", r.selection.Character}, Characters: []Choice{{"builtin:caelis", "Caelis", "", "内置"}, {"builtin:stick", "Stick", "", "内置"}}, Avatars: []Choice{{"follow", "跟随角色", "", ""}, {"builtin:avatar", "Caelis Bot", "", "内置"}}, Packs: []Installed{}, Notice: r.notice}
+	s := State{Appearance: Appearance{r.revision, r.selection, selected.model, avatar, selected.basic, r.selection.Character}, Avatars: []Choice{{"follow", "跟随角色", "", ""}, {"builtin:avatar", "Caelis Bot", "", "内置"}}, Packs: []Installed{}, Notice: r.notice}
+	for _, builtin := range builtinFigures {
+		s.Characters = append(s.Characters, builtin.choice)
+	}
 	keys := make([]string, 0, len(r.entries))
 	for key := range r.entries {
 		keys = append(keys, key)
@@ -446,7 +453,8 @@ func (r *Registry) BotState() State {
 	state.Appearance.Selection = Selection{Character: character, Avatar: "follow"}
 	state.Appearance.Model = chosen.model
 	state.Appearance.Avatar = chosen.avatar
-	state.Appearance.Basic = character != "builtin:caelis"
+	state.Appearance.Basic = chosen.basic
 	state.Appearance.Key = character
+	state.Characters = slices.DeleteFunc(state.Characters, func(c Choice) bool { return c.ID == "builtin:stick" })
 	return state
 }

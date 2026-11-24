@@ -10,7 +10,7 @@ import (
 )
 
 func TestRetainedWebPUsesOpaqueReadAfterSourceRemoval(t *testing.T) {
-	original, err := os.ReadFile("../../frontend/public/portraits/caelis-sage-v1/focus.webp")
+	original, err := os.ReadFile("../../frontend/public/portraits/caelis-sage-v2/focus.webp")
 	if err != nil {
 		t.Fatal(err)
 	}
