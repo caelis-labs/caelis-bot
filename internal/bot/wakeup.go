@@ -21,10 +21,15 @@ func (r *Runtime) run(ctx context.Context) {
 	if r.events != nil {
 		events = r.events.Changes()
 	}
-	timer := time.NewTimer(0)
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
 	defer timer.Stop()
-	alarm := timer.C
+	var alarm <-chan time.Time
 	for {
+		if next := r.nextTick(r.now()); !next.IsZero() {
+			timer.Reset(next.Sub(r.now()))
+			alarm = timer.C
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -33,15 +38,11 @@ func (r *Runtime) run(ctx context.Context) {
 		case <-events:
 		}
 		timer.Stop()
+		alarm = nil
 		if ctx.Err() != nil {
 			return
 		}
 		_ = r.Tick(ctx)
-		alarm = nil
-		if next := r.nextTick(r.now()); !next.IsZero() {
-			timer.Reset(next.Sub(r.now()))
-			alarm = timer.C
-		}
 	}
 }
 

@@ -15,7 +15,7 @@ func TestResidentIdleWaitsForMutationAndTimedWake(t *testing.T) {
 	native.beforeReturn = func() { sent <- struct{}{} }
 	var checks atomic.Int32
 	r.now = func() time.Time {
-		if checks.Add(1) == 3 {
+		if checks.Add(1) == 1 {
 			close(initial)
 		}
 		return time.Now()
@@ -29,7 +29,7 @@ func TestResidentIdleWaitsForMutationAndTimedWake(t *testing.T) {
 	}
 	// Long enough for the former unconditional one-second tick to run.
 	<-time.After(1100 * time.Millisecond)
-	if n := checks.Load(); n != 3 {
+	if n := checks.Load(); n != 1 {
 		t.Fatalf("idle resident kept checking the clock: %d calls", n)
 	}
 	at := time.Now().Add(200 * time.Millisecond)
