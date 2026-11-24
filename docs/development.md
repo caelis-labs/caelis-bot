@@ -15,7 +15,7 @@ publication; [content packs](content-packs.md) covers finished asset delivery.
 - Use `GOWORK=off`. Never import private sibling Caelis source. Runtime integration
   uses public contracts and explicitly pinned released binaries and hashes.
 - Public builds consume finished character resources. Modeling sources and
-  authoring tools belong in the private asset repository and are not build inputs.
+  authoring tools live under `art/` in this checkout. Blender is optional for app builds.
 - `script/env.sh` selects the pinned Node major, local caches, `GOWORK=off` and the
   macOS deployment target from `resources/macos/Info.plist` without modifying the
   user's shell. Ordinary builds do not regenerate protocol schemas.

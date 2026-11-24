@@ -44,4 +44,4 @@ make run
 
 ## 许可
 
-代码：[Apache-2.0](LICENSE)。内置角色和品牌资产：[Caelis Character Asset License](ASSET-LICENSE.md)。Desktop World 及其他依赖保留各自许可和随包声明。
+代码：[Apache-2.0](LICENSE)。可在 **设置 → 外观** 中切换 Caelis 和鲸鱼娘。[Caelis 角色与品牌授权](ASSET-LICENSE.md) · [鲸鱼娘署名与 CC BY-NC-SA 4.0 授权](art/whale-girl/LICENSE.md) · [角色制作工程](art/README.md)。Desktop World 及其他依赖保留各自许可和随包声明。

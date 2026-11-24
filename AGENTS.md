@@ -81,12 +81,12 @@
 - Use `docs/development.md` for current commands and verification limits; do not restart
   historical P1/P2 plans or append duplicate handoff diaries. Keep implementation,
   fixture coverage, live evidence and published artifact acceptance distinct.
-- Character authoring belongs in the private `caelis-labs/caelis-bot-assets` repository.
-  This public repository contains only finished resources, the renderer and public contracts.
-  Read `docs/content-packs.md` before changing asset delivery. Never introduce Blender,
-  authoring sources, private credentials or archived models as public build dependencies.
-  Preserve code/character license boundaries and provenance. New costumes and characters
-  use versioned finished variants; they do not change the Bot's conversation identity.
+- Maintain character authoring sources, reusable rigs, props and per-character
+  attribution under `art/` in this repository. Read `docs/content-packs.md`
+  before changing delivery. Product builds consume finished assets and must
+  work without Blender, private credentials or sibling repositories.
+  Preserve source provenance and per-asset licenses. New costumes and characters
+  use versioned finished variants and retain the Bot conversation identity.
 - Public DMG releases require Developer ID signing, hardened runtime, secure
   timestamps, Apple notarization, stapled tickets and Gatekeeper acceptance.
   Local/PR builds default to ad-hoc signing; a user-selected local Apple Development

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packId": "caelis-default",
-  "contractVersion": 3,
+  "contractVersion": 4,
   "defaultCharacter": "caelis",
   "defaultVariant": "sage-dress",
   "characters": [
@@ -10,7 +10,7 @@
       "variants": [
         {
           "id": "sage-dress",
-          "model": "frontend/public/models/caelis-garden-outfit-v1.glb",
+          "model": "frontend/public/models/caelis-garden-outfit-v2.glb",
           "capabilities": [
             "body-v1",
             "face-v1",
@@ -20,23 +20,40 @@
           ],
           "portrait": {
             "version": 1,
-            "sourceSHA256": "4c5224d7a6487aff8e0f7bfc686cce99f9fd93f6ca60796802089182369b4e4e",
+            "sourceSHA256": "0d74394730acc54653e9868adc03e2c9970e95cf6607eaaf2097612f770a773d",
             "frameSize": 128,
             "columns": 12,
             "frameCount": 120,
             "fps": 20,
-            "poster": "frontend/public/portraits/caelis-sage-v1/poster.png",
+            "poster": "frontend/public/portraits/caelis-sage-v2/poster.png",
             "clips": {
-              "companion": "frontend/public/portraits/caelis-sage-v1/companion.webp",
-              "think": "frontend/public/portraits/caelis-sage-v1/think.webp",
-              "scan": "frontend/public/portraits/caelis-sage-v1/scan.webp",
-              "focus": "frontend/public/portraits/caelis-sage-v1/focus.webp",
-              "waiting": "frontend/public/portraits/caelis-sage-v1/waiting.webp",
-              "listen": "frontend/public/portraits/caelis-sage-v1/listen.webp",
-              "delight": "frontend/public/portraits/caelis-sage-v1/delight.webp",
-              "dreaming": "frontend/public/portraits/caelis-sage-v1/dreaming.webp"
+              "companion": "frontend/public/portraits/caelis-sage-v2/companion.webp",
+              "think": "frontend/public/portraits/caelis-sage-v2/think.webp",
+              "scan": "frontend/public/portraits/caelis-sage-v2/scan.webp",
+              "focus": "frontend/public/portraits/caelis-sage-v2/focus.webp",
+              "waiting": "frontend/public/portraits/caelis-sage-v2/waiting.webp",
+              "listen": "frontend/public/portraits/caelis-sage-v2/listen.webp",
+              "delight": "frontend/public/portraits/caelis-sage-v2/delight.webp",
+              "dreaming": "frontend/public/portraits/caelis-sage-v2/dreaming.webp"
             }
           }
+        }
+      ],
+      "name": "Caelis"
+    },
+    {
+      "id": "whale-girl",
+      "name": "鲸鱼娘",
+      "variants": [
+        {
+          "id": "maid",
+          "model": "frontend/public/models/whale-girl-maid-v1.glb",
+          "capabilities": [
+            "basic-3d-v1"
+          ],
+          "avatar": "frontend/public/portraits/whale-girl-maid-v1/poster.png",
+          "version": "1.26.0",
+          "notice": "frontend/public/models/whale-girl-SOURCES.md"
         }
       ]
     }
@@ -54,9 +71,9 @@
   },
   "files": [
     {
-      "path": "frontend/public/models/caelis-garden-outfit-v1.glb",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "4c5224d7a6487aff8e0f7bfc686cce99f9fd93f6ca60796802089182369b4e4e"
+      "path": "frontend/public/models/caelis-garden-outfit-v2.glb",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "0d74394730acc54653e9868adc03e2c9970e95cf6607eaaf2097612f770a773d"
     },
     {
       "path": "frontend/public/models/stick.glb",
@@ -70,79 +87,94 @@
     },
     {
       "path": "frontend/public/models/caelis-SOURCES.md",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "fff0c0f1e11ebceb1a83c9a002172765dc9b866842999872c6ea04244ea9ae77"
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "27a427a3c5d4368728eb9e4b1597ab0c2f6d141a354e6fa4f9fc5d14d9aca5bd"
     },
     {
       "path": "frontend/public/icons/caelis-avatar.png",
-      "license": "LicenseRef-Caelis-Character-1.0",
+      "license": "LicenseRef-Caelis-Character-2.0",
       "sha256": "fb58aa27dc9e9483d95ceb9b5b782feaa792142a016a3e2ea159de5fd4fcbca8"
     },
     {
       "path": "internal/desktop/assets/app-icon.png",
-      "license": "LicenseRef-Caelis-Character-1.0",
+      "license": "LicenseRef-Caelis-Character-2.0",
       "sha256": "cf3f94de346939273850dd6b6da7950fb6451a65b3b0bd7d25aed39a068b90df"
     },
     {
       "path": "internal/desktop/assets/status-icon.png",
-      "license": "LicenseRef-Caelis-Character-1.0",
+      "license": "LicenseRef-Caelis-Character-2.0",
       "sha256": "2000c3fdb0dda5948f2e7fb16f39a64f15b93f3b226855ff0693ea581d719be9"
     },
     {
       "path": "resources/macos/CaelisBot.icns",
-      "license": "LicenseRef-Caelis-Character-1.0",
+      "license": "LicenseRef-Caelis-Character-2.0",
       "sha256": "8d9400e39cd4a2cee647e53e5f8cf3afa3c4676a0fce5fa82978ce2555ac138c"
     },
     {
       "path": "frontend/assets/caelis-avatar-v1.svg",
-      "license": "LicenseRef-Caelis-Character-1.0",
+      "license": "LicenseRef-Caelis-Character-2.0",
       "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/companion.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "aa66dc83da9e569e97512e07f70418dd1949e4133e984d1ea868fd2789e30f55"
+      "path": "frontend/public/portraits/caelis-sage-v2/companion.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "f691e8de0a5d8536afbf01cd990d67bca3ac0dd96cdec774a026d6be24f3cd2d"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/delight.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "d8ea42154a74a1bfec2616ce511bb0e547af8f98f17fc14876fa97fc9a24d296"
+      "path": "frontend/public/portraits/caelis-sage-v2/delight.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "50a21d90e7b2e51bcea7125adad7449d3af00e3659b85d548b6ea1acca236e98"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/dreaming.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "85a461be01a145c5df35b64b08c901cd2baa420afaaa38c3865b785c95ce4698"
+      "path": "frontend/public/portraits/caelis-sage-v2/dreaming.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "98242e183fc512156c1fba0801c1e34eb71b20d94620cdb15c0f9eac97be9b52"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/focus.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "bb8e8c1cf209e5b639b0501b978c45b2445af98ead0a0733ee049c2c02283406"
+      "path": "frontend/public/portraits/caelis-sage-v2/focus.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "3ca87f3cea34003b48928d6a7276bf33c670d4035e1a487193fc08440ef50361"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/listen.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "d1ce9e4157a699fad524e1ef98e4d370bf9ff624cfc52d8e91fff28021dd8037"
+      "path": "frontend/public/portraits/caelis-sage-v2/listen.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "50dff7e7cd12b66caeedf1f1c9bedabed301148cb211e52113a93f9c69f9b399"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/poster.png",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "d29fd04be96ac635efe6d1ad828489c41f4f646282b2c6c1dbf23695e19187f9"
+      "path": "frontend/public/portraits/caelis-sage-v2/poster.png",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "e156867a519b9bd3cb8eb446efcc1555a5c9899d7c337ae47b7b101a84e0784a"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/scan.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "57a768a5354105d0880a214791973ef7b7685a17484f9ef4563775093ee1e960"
+      "path": "frontend/public/portraits/caelis-sage-v2/scan.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "9ebf73278b5b9bfe5be77e6c323ba61cc68fed2b148deba416730685583e71e8"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/think.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "e1938838b628378c545d794e738e09b17c6b4a889cea6e5af12830dee0dba71d"
+      "path": "frontend/public/portraits/caelis-sage-v2/think.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "3371bbc7bee0449173867e20d5eac7cb9dd03628d576c008cc75d694aa0553a2"
     },
     {
-      "path": "frontend/public/portraits/caelis-sage-v1/waiting.webp",
-      "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "32acbf8755f913fd2f7a3caa02418682d83a64148b940ba3f53d6b9499a0d5e2"
+      "path": "frontend/public/portraits/caelis-sage-v2/waiting.webp",
+      "license": "LicenseRef-Caelis-Character-2.0",
+      "sha256": "2c0ea9830c1ace56f131c92859570b78fbe222b493cd776c8dbed50550bcf5dc"
+    },
+    {
+      "path": "frontend/public/models/whale-girl-maid-v1.glb",
+      "license": "CC-BY-NC-SA-4.0",
+      "sha256": "7f624fde12abf76565e63bcd21aa240503ae691f7a5a5952af6e544415b30a5b"
+    },
+    {
+      "path": "frontend/public/portraits/whale-girl-maid-v1/poster.png",
+      "license": "CC-BY-NC-SA-4.0",
+      "sha256": "d28e1d8fc25a42496bb92a4d1a9bfd85ceddff2669d7b3642a7aafe17c64eb45"
+    },
+    {
+      "path": "frontend/public/models/whale-girl-SOURCES.md",
+      "license": "CC-BY-NC-SA-4.0",
+      "sha256": "96b0c467bdd4a7f65bb54b8b51e5ed7280d8f1d2172d8971138818811c6e81e6"
     }
   ],
-  "version": "0.1.6"
+  "version": "0.2.0"
 }

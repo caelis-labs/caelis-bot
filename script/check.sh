@@ -8,6 +8,11 @@ python3 internal/botskills/test_extensions.py
 python3 script/test_linux_installer.py
 node script/check-caelis-protocol.mjs
 node script/asset-pack.mjs verify
+whale=frontend/public/models/whale-girl-maid-v1.glb
+node art/whale-girl/check-acting.mjs "$whale" --jaw
+node art/whale-girl/check-outfit.mjs "$whale" --continuous
+node art/whale-girl/check-hands.mjs "$whale" --continuous --compact
+node art/whale-girl/check-portrait.mjs "$whale"
 npm run check:i18n
 npm run build
 node --test \
@@ -19,7 +24,7 @@ node --test \
   script/runtime-settings.test.mjs script/remote-machines.test.mjs script/connections-loader.test.mjs script/context-navigation.test.mjs script/composer-document.test.mjs script/codex-runtime-panel.test.mjs \
   script/content-pack.test.mjs script/asset-pack.test.mjs \
   script/question-presentation.test.mjs script/chat-presentation.test.mjs script/chat-observation.test.mjs script/chat-time.test.mjs script/connection-notice.test.mjs script/capture-editor.test.mjs script/capture-recovery.test.mjs script/worker-output.test.mjs script/web-approval-url.test.mjs \
-  script/pet-hit-mask.test.mjs script/reduced-motion.test.mjs script/streaming-text.test.mjs script/markdown-chunks.test.mjs
+  script/pet-hit-mask.test.mjs script/pet-resolution.test.mjs script/reduced-motion.test.mjs script/streaming-text.test.mjs script/markdown-chunks.test.mjs
 bash script/hotkey-native-test.sh
 go test -tags private_mac_apis ./...
 go test -tags webfixture ./cmd/web-fixture

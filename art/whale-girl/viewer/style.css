@@ -1,0 +1,69 @@
+:root{font-family:"Inter","PingFang SC","Microsoft YaHei",sans-serif;color:#253550;background:#fafaf7;font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0}
+button,select,summary{font:inherit;color:inherit}
+button,select{cursor:pointer}
+button{border:0;background:none}
+button:focus-visible,summary:focus-visible,select:focus-visible,canvas:focus-visible{outline:3px solid #4c82af;outline-offset:3px}
+header{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(22px,4vw,68px);border-bottom:1px solid #d9dfe3;background:#fbfbf8}
+.brand{display:flex;align-items:center;gap:19px}
+.brand b{font-family:"Baskervville",Georgia,serif;font-weight:normal;font-size:31px;letter-spacing:-1.5px}
+.brand span,.credit{font-size:13px;color:#556276}
+.brand span{border-left:1px solid #b8c2cb;padding-left:18px;letter-spacing:.12em}
+.credit{padding:10px 0}
+.credit:hover{text-decoration:underline}
+main{display:grid;grid-template-columns:minmax(0,1fr) clamp(300px,28vw,400px);height:calc(100svh - 66px);min-height:560px}
+.stage{isolation:isolate;position:relative;min-width:0;overflow:hidden;background:radial-gradient(ellipse at 49% 36%,#fdfdfb 8%,#eef2f7 59%,#dce5ef 115%)}
+.stage::before{content:"";position:absolute;left:32%;right:32%;bottom:11%;height:4%;z-index:-1;border-radius:50%;background:radial-gradient(ellipse,#7f95b83a,transparent 69%);filter:blur(5px)}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+.view-tag,.stage-foot{position:absolute;z-index:1;pointer-events:none}
+.view-tag{top:26px;left:clamp(18px,3vw,46px);display:flex;gap:9px;align-items:center;font-size:12px;letter-spacing:.1em;color:#4d617a}
+.view-tag i{width:7px;height:7px;border-radius:50%;background:#637f9d}
+.stage-foot{bottom:20px;left:clamp(18px,3vw,46px);right:clamp(18px,3vw,46px);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hint{font-size:12px;color:#59677a}
+.zoom{pointer-events:auto;display:flex;align-items:center;background:#fbfcfde8;border:1px solid #c7d1db;border-radius:7px;box-shadow:0 2px 8px #2443610b}
+.zoom button{min-width:36px;height:36px;font-size:18px}
+.zoom #reset{border-left:1px solid #d6dce1;font-size:12px;padding-inline:12px}
+#scale{font:12px ui-monospace,monospace;min-width:39px;text-align:center}
+#status{position:absolute;inset:50% 6% auto;text-align:center;color:#2c405c}
+#status[hidden]{display:none}
+aside{overflow:auto;background:#fbfbf8;border-left:1px solid #d6dde2;padding:clamp(24px,3.4vw,56px) clamp(22px,2.7vw,44px)}
+.identity{border-bottom:1px solid #d7dde0;padding-bottom:22px;margin-bottom:25px}
+.name-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{margin:0;font:600 clamp(32px,3.2vw,50px)/1.2 "Songti SC","STSong",serif;letter-spacing:-.04em}
+.version{font:12px ui-monospace,monospace;color:#60718a;align-self:flex-end;margin-bottom:5px}
+.identity p{margin:6px 0 0;font:italic 22px Georgia,serif;color:#687795}
+fieldset{border:none;padding:0;margin:0 0 20px;min-width:0}
+legend,.ref summary,.spin-line label{font-size:13px;font-weight:600}
+legend{padding:0;margin-bottom:9px}
+.seg,.angles,.actions{display:flex;gap:5px}
+.seg{gap:0;background:#e9edf0;border-radius:6px;padding:3px}
+.seg button,.angles button,#play,select{min-height:38px;border-radius:4px;font-size:14px}
+.seg button,.angles button{flex:1}
+.seg button[aria-pressed=true]{background:#293d5a;color:white}
+.angles button,#play,select{border:1px solid #cbd3d9;background:#fff}
+.angles button[aria-pressed=true]{background:#e5edf4;color:#243953;border-color:#869cb2}
+button:hover:not(:disabled){filter:brightness(.94)}
+button:disabled,select:disabled{cursor:default;opacity:.5}
+.spin-line{display:flex;align-items:center;justify-content:space-between;margin:-1px 0 21px}
+#spin{width:37px;height:22px;padding:3px;background:#c5cfd7;border-radius:15px;text-align:left}
+#spin i{display:block;width:16px;height:16px;background:white;border-radius:50%;box-shadow:0 1px 3px #0002}
+#spin[aria-checked=true]{background:#304b70}
+#spin[aria-checked=true] i{margin-left:auto}
+.actions{gap:8px}
+select{flex:1;padding:0 10px;min-width:0}
+#play{padding:0 12px}
+.ref{border-top:1px solid #d7dde0;padding-top:16px}
+summary{cursor:pointer}
+.ref img{width:100%;display:block;margin-top:12px;border-radius:4px}
+dialog{border:1px solid #c1cbd5;border-radius:12px;padding:28px;max-width:min(450px,92vw);max-height:86svh;color:inherit;background:#fbfbf8}
+dialog::backdrop{background:#29394c6b}
+dialog h2{margin-top:0}
+dialog p,dialog summary{font-size:14px;line-height:1.8}
+dialog a{color:#285484}
+dialog pre{white-space:pre-wrap;max-height:23vh;overflow:auto;font-size:11px}
+dialog form{text-align:right;margin-top:18px}
+dialog button{padding:8px 16px;border-radius:4px;background:#293d5a;color:white}
+@media(max-width:720px){header{height:46px;padding-inline:18px}.brand b{font-size:24px}.brand span,.credit{font-size:12px}main{height:auto;min-height:0;display:flex;flex-direction:column}.stage{height:57svh;min-height:320px;max-height:640px}.view-tag{top:14px;left:16px}.stage-foot{bottom:9px;left:12px;right:12px}.hint{font-size:10px}aside{overflow:visible;border:0;border-top:1px solid #d6dde2;padding:19px 18px;display:grid;grid-template-columns:1fr 1fr;gap:16px}.identity{grid-column:1/-1;display:flex;align-items:baseline;gap:15px;padding:0 0 13px;margin:0}.identity p{font-size:17px}.version{font-size:10px}h1{font-size:30px}fieldset,.spin-line{margin:0}.spin-line{align-self:end;min-height:38px}.ref{grid-column:1/-1}.ref img{max-width:380px}.seg button,.angles button,#play,select{font-size:12px}.angles{gap:3px}}
+@media(max-height:580px) and (min-width:721px){main{min-height:400px}}

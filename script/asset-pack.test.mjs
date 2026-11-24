@@ -38,3 +38,16 @@ test('verified import is exact, rejects extra source files, symlinks and corrupt
   assert.deepEqual(readFileSync(join(dest,m.files[0].path)),original);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('basic built-in variants require a licensed local avatar and distribution notice',()=>{
+ const invalid=edit=>{
+  const pack=readManifest();
+  const variant=pack.characters.find(c=>c.id==='whale-girl').variants[0];
+  edit(pack,variant);
+  return ()=>validateManifest(pack);
+ };
+ assert.throws(invalid((_,v)=>{delete v.notice;}));
+ assert.throws(invalid((_,v)=>{v.avatar='https://example.invalid/avatar.png';}));
+ assert.throws(invalid((m,v)=>{m.files.find(f=>f.path===v.avatar).license='Apache-2.0';}));
+ assert.throws(invalid((_,v)=>{v.capabilities.push('hands-v1');}));
+});

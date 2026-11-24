@@ -22,6 +22,12 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 	if l == nil {
 		return out, nil
 	}
+	// Take flush's locks in the same order. Its SQLite commit can exclude
+	// this separate read-only connection even while mu is available.
+	if err := lockwait.Lock(ctx, &l.flushMu); err != nil {
+		return out, err
+	}
+	defer l.flushMu.Unlock()
 	if err := lockwait.Lock(ctx, &l.mu); err != nil {
 		return out, err
 	}

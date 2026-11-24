@@ -226,7 +226,7 @@ func TestResourceHandlerIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, e = r.Select(Selection{s.Characters[2].ID, "follow"})
+	s, e = r.Select(Selection{characterKey(packageKey(p.Manifest), p.Manifest.Characters[0].ID, p.Manifest.Characters[0].Variants[0].ID), "follow"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -356,5 +356,57 @@ func TestBotPresentationFollowsCharacterWithoutRewritingLegacySelection(t *testi
 	restored, err := NewRegistry(root)
 	if err != nil || restored.State().Appearance.Selection != legacy {
 		t.Fatalf("legacy selection was rewritten: %v", err)
+	}
+}
+
+func TestBundledFiguresSwitchWithoutInstallation(t *testing.T) {
+	root := t.TempDir()
+	r, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := r.BotState()
+	if len(initial.Packs) != 0 || len(initial.Characters) != 2 || initial.Appearance.Selection != defaultSelection() {
+		t.Fatalf("unexpected fresh catalog: %+v", initial)
+	}
+	whale := Selection{"builtin:whale-girl/maid", "follow"}
+	if initial.Characters[0].ID != defaultSelection().Character || initial.Characters[1].ID != whale.Character {
+		t.Fatal(initial.Characters)
+	}
+	if _, err = r.Select(whale); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := reopened.BotState()
+	if shown.Appearance.Selection != whale || !shown.Appearance.Basic || shown.Appearance.Avatar == "" || shown.Appearance.Model == "" || len(shown.Packs) != 0 {
+		t.Fatal(shown)
+	}
+	for _, url := range []string{shown.Appearance.Model, shown.Appearance.Avatar} {
+		if !strings.HasPrefix(url, "/models/") && !strings.HasPrefix(url, "/portraits/") {
+			t.Fatal(url)
+		}
+		data, err := os.ReadFile(filepath.Join("../../frontend/public", url))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if url == shown.Appearance.Model {
+			if err := validateGLB(data); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := validateImage(data, "png"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = reopened.Remove(whale.Character); err == nil {
+		t.Fatal("bundled appearance must not be removable")
+	}
+	if _, err = reopened.Select(defaultSelection()); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.BotState().Appearance; got.Selection != defaultSelection() || got.Basic || got.Avatar != "" {
+		t.Fatal(got)
 	}
 }

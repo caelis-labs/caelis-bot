@@ -25,7 +25,7 @@ export function AppearanceSettings(){
  return <section className="appearance-settings"><h1>{t('settings.appearance')}</h1>
   {state&&<CharacterPreview appearance={state.appearance}/>}
   <SettingGroup title={t('settings.appearanceFigure')}>
-   <SettingRow label={t('settings.characterAndCostume')} htmlFor="appearance-character"><SettingsSelect id="appearance-character" disabled={!state||busy} value={state?.appearance.selection.character??'builtin:caelis'} onChange={e=>select({character:e.target.value})}>{state?.characters.filter(c=>c.id!=='builtin:stick').map(c=><option key={c.id} value={c.id}>{c.id==='builtin:caelis'?t('settings.defaultTheme'):c.name}{c.pack?` — ${c.group}`:''}</option>)}</SettingsSelect></SettingRow>
+   <SettingRow label={t('settings.characterAndCostume')} htmlFor="appearance-character"><SettingsSelect id="appearance-character" disabled={!state||busy} value={state?.appearance.selection.character??'builtin:caelis'} onChange={e=>select({character:e.target.value})}>{state?.characters.map(c=><option key={c.id} value={c.id}>{c.name}{c.pack?` — ${c.group}`:''}</option>)}</SettingsSelect></SettingRow>
   {!isWebSurface()&&<PetSizeSettings/>}</SettingGroup>
   <SettingGroup title={t('settings.interfaceAppearance')}>
    <SettingRow label={t('settings.colorMode')}><div className="runtime-segments" role="group" aria-label={t('settings.colorMode')}>{(['system','light','dark'] as const).map(mode=><button key={mode} disabled={busy||!display.revision} aria-pressed={display.mode===mode} onClick={()=>void setMode(mode)}>{t(mode==='system'?'settings.system':mode==='light'?'settings.lightMode':'settings.darkMode')}</button>)}</div></SettingRow>

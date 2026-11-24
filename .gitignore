@@ -19,13 +19,18 @@ frontend/dist/
 *.blend2
 __pycache__/
 
-# Authoring sources belong in the private assets repository.
+# Keep retired study trees out of product builds. Active sources live under art/.
 characters/
 resources/brand/
 *.blend
+!art/**/*.blend
 *.bundle
 
 # Local browser/native acceptance artifacts may contain session state.
 .playwright-cli/
 output/playwright/
 output/native/
+
+# Offline character previews and creator exports are generated from the shipped models.
+/art/whale-girl/whale-girl-*.html
+/art/whale-girl/*.caelispack
