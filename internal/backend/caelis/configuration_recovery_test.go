@@ -183,6 +183,9 @@ func TestIdleMaintenanceRecoversLostModelConfigurationAndReadback(t *testing.T) 
 		t.Fatal("idle maintenance never queried the original receipt")
 	}
 	committed.Store(true)
+	s.mu.Lock()
+	s.requestRefreshLocked()
+	s.mu.Unlock()
 	deadline := time.Now().Add(12 * time.Second)
 	for time.Now().Before(deadline) {
 		s.mu.Lock()

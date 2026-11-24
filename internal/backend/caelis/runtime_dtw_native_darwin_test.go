@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -29,42 +28,23 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
 	defer cancel()
-	root := t.TempDir()
-	if base := os.Getenv("CAELIS_BOT_TEST_EVIDENCE_DIR"); base != "" {
-		var err error
-		root, err = os.MkdirTemp(base, "runtime-dtw-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	root, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	model := newAcceptanceModel()
 	defer func() {
+		if !t.Failed() || os.Getenv("CAELIS_BOT_TEST_EVIDENCE_DIR") == "" {
+			return
+		}
 		model.mu.Lock()
 		b, _ := json.MarshalIndent(model.requests, "", "  ")
 		model.mu.Unlock()
 		_ = os.WriteFile(filepath.Join(root, "model-requests.json"), b, 0600)
 	}()
 	provider := httptest.NewServer(nativeDTWModel(model))
-	defer provider.Close()
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
+	defer closeNativeHTTP(provider)
 	env := newExecutionFixture(t, root)
-	cmd := exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-	cmd.Dir, cmd.Env = root, env.env
-	log, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Close()
-	cmd.Stdout, cmd.Stderr = log, log
-	if err = cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cmd.Process.Signal(os.Interrupt); _ = cmd.Wait() }()
-	waitAcceptance(t, ctx, func() bool { _, _, e := Discover(settings); return e == nil })
+	hostFixture.Env = env.env
+	hostFixture.start(t, ctx)
 	d, token, err := Discover(settings)
 	if err != nil {
 		t.Fatal(err)
@@ -87,13 +67,14 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	}
 	selector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	s := New(Options{RequireApproval: true, Directory: filepath.Join(root, "resident"), Settings: settings, Execution: api.ExecutionSettings{Model: selector, ApprovalMode: "workspace-write"}})
+	defer closeNativeFixture(t, s)
 	if err = s.ConfigureBotTools(&api.ToolConnection{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close(context.Background())
+
 	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	entered, release := make(chan struct{}, 1), make(chan struct{})
 	released := false
@@ -173,10 +154,10 @@ func TestNativeRuntimeDesktopWorld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeNativeFixture(t, owner)
 	if err = owner.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close(context.Background())
 	workspace := filepath.Join(root, "workspace")
 	if err = os.Mkdir(workspace, 0700); err != nil {
 		t.Fatal(err)

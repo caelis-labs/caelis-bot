@@ -200,6 +200,12 @@ Image updates belong to the operator, not the managed Linux updater.
 model/tool calls. Inspect each smoke's requirements before running it.
 `CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis` runs an
 external Caelis Host with temporary stores and a synthetic provider.
+Set `CAELIS_BOT_TEST_PREVIOUS_BINARY` to the callback-capable v0.85.0 release
+to also verify that upgrading the same Store preserves the resident Session and
+settles the original pending callback receipt.
+For a worktree under the platform temporary directory, set
+`CAELIS_BOT_TEST_EFFECT_DIRECTORY` to a disposable writable directory outside
+that boundary so the Guardian file-write cases exercise native approval.
 `make smoke-caelis-live` is separately opt-in and billable; it requires an
 isolated configured `CAELIS_BOT_LIVE_STORE` and `CAELIS_BOT_LIVE_MODEL`.
 A skipped external-binary test is not evidence of native integration.
@@ -217,3 +223,24 @@ For every feature/behavior change, inspect `internal/botskills/skills/bot-core/`
 update English Bot-facing guidance if capabilities, tools or workflows changed;
 otherwise record why no skill update is needed. Keep documentation factual and
 current; source tests and contracts carry detailed regression cases.
+
+### Private Caelis Host fixtures
+
+Run the focused macOS lifecycle checks with a released CLI that includes Desktop World.
+
+```sh
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis GOWORK=off \
+  go test ./internal/backend/caelis -count=1 -v -timeout 90s \
+  -run '^(TestPrivateHostReadinessFailureCleanup|TestNativePrivateHostLifecycle)$'
+```
+
+The checks use an isolated Store, a synthetic local provider and native Host and
+DTW processes. They report scoped PIDs, cleanup elapsed time and the size of
+regular files sampled in the private fixture. The reconnect case verifies the
+original Session on a new managed Host. The readiness case uses a subprocess
+that stays alive without publishing discovery.
+
+Set `CAELIS_BOT_TEST_EVIDENCE_DIR` to a private directory on the same filesystem
+to retain a failed fixture after verified process exit. Default cleanup removes
+the fixture. If teardown cannot confirm exit, the test reports the cleanup
+error and leaves the original path available for diagnosis.
