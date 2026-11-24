@@ -178,7 +178,7 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 		case "list":
 			return r.schedulePage(q)
 		case "sources":
-			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "nativeAvailable": r.nativeErr == nil, "desktopObservationsAvailable": r.nativeSample != nil}
+			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "nativeAvailable": r.nativeMigrationError() == nil, "desktopObservationsAvailable": r.nativeSample != nil}
 			if r.events != nil {
 				data["policy"] = r.events.Snapshot().Policy
 			}
@@ -307,7 +307,7 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		}{fingerprint, end}))
 	}
 	if kind != "calendar" {
-		data["nativeAvailable"] = r.nativeErr == nil
+		data["nativeAvailable"] = r.nativeMigrationError() == nil
 		if r.events != nil {
 			data["policy"] = r.events.Snapshot().Policy
 		}

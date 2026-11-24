@@ -18,10 +18,11 @@ import (
 func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
+	if err := e.prepareWrite(); err != nil {
 		return err
 	}
 	changed := false
+	collected := false
 	select {
 	case done := <-e.results:
 		e.running = ""
@@ -31,6 +32,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		}
 		e.finishCollection(done, now)
 		changed = true
+		collected = true
 	default:
 	}
 	for i := range e.state.Occurrences {
@@ -53,10 +55,19 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			changed = true
 		}
 	}
-	cleaned := e.cleanup(now)
-	retired := e.retire(now, d.Revoke)
-	if changed || cleaned || retired {
-		if err := e.persist(); err != nil {
+	if e.cleanup(now) || changed {
+		kind := writeChange
+		if collected {
+			kind = writeObservation
+		}
+		if err := e.persistAs(kind); err != nil {
+			return err
+		}
+	}
+	// Retirement acts on committed definitions. Only the result of a revoke
+	// that already ran may need a follow-up checkpoint.
+	if e.retire(now, d.Revoke) {
+		if err := e.persistAs(writeObservation); err != nil {
 			return err
 		}
 	}
@@ -91,7 +102,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		p.LastWake = now
 		o.Status = "dispatching"
 		e.state.WakeAttempts = append(e.state.WakeAttempts, now)
-		if err := e.persist(); err != nil {
+		if err := e.persistAs(writeIntent); err != nil {
 			return err
 		}
 		origins := o.OriginRequests
@@ -119,7 +130,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 			o.Issue = "wake_rejected"
 			o.Finished = now
 		}
-		saveErr := e.persist()
+		saveErr := e.persistAs(writeObservation)
 		if outcome == "deferred" {
 			return errors.Join(err, saveErr)
 		}
@@ -156,7 +167,7 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if p.Kind == "interval" || p.Kind == "completion" {
 			p.Next = now.Add(time.Duration(p.Seconds) * time.Second)
 		}
-		if err := e.persist(); err != nil {
+		if err := e.persistAs(writeIntent); err != nil {
 			return err
 		}
 		runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)

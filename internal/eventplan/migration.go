@@ -46,8 +46,8 @@ type legacyState struct {
 func (e *Engine) MigrateLegacy(path string, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.usable(); err != nil {
-		return err
+	if err := e.prepareWrite(); err != nil {
+		return errors.Join(ErrWritePending, err)
 	}
 	if e.state.Migration != nil {
 		return nil
@@ -70,7 +70,7 @@ func (e *Engine) MigrateLegacy(path string, now time.Time) error {
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		e.state.Migration = &Migration{Version: 1, Digest: "absent", Completed: now}
-		return e.persist()
+		return e.saveMigration()
 	}
 	if err != nil {
 		return errors.New("saved native arrangements unavailable; original data preserved")
@@ -210,5 +210,12 @@ func (e *Engine) MigrateLegacy(path string, now time.Time) error {
 	h := sha256.Sum256(raw)
 	next.Migration = &Migration{Version: 1, Digest: fmt.Sprintf("%x", h), Completed: now}
 	e.state = next
-	return e.persist()
+	return e.saveMigration()
+}
+
+func (e *Engine) saveMigration() error {
+	if err := e.persistAs(writeObservation); err != nil {
+		return errors.Join(ErrWritePending, err)
+	}
+	return nil
 }

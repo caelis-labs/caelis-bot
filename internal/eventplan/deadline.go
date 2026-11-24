@@ -10,10 +10,10 @@ import (
 func (e *Engine) NextCheck(now time.Time) time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.stopped || e.fault != nil {
+	if e.stopped || e.writing {
 		return time.Time{}
 	}
-	if len(e.results) > 0 {
+	if e.retry != nil || len(e.results) > 0 {
 		return now
 	}
 	var next time.Time

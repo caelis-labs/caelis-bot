@@ -99,21 +99,25 @@ func TestEventStorageFailureDoesNotBlockWorkerCompletionReport(t *testing.T) {
 	if err := os.Mkdir(ledger, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.events.Register(eventplan.Event{
+	event := eventplan.Event{
 		ID: "follow-up", Label: "Follow up", Context: "Check the assignment",
 		Kind: "wake", OutputSchema: json.RawMessage(`{"type":"object"}`),
-	}, r.now()); err == nil {
+	}
+	if _, err := r.events.Register(event, r.now()); err == nil {
 		t.Fatal("fixture did not fail the event write")
+	}
+	if r.events.FirstStorageFailure() == nil {
+		t.Fatal("initial failure was lost")
 	}
 
 	work.states[0].Task.Status = "completed"
 	f.ready = false
-	if err := r.Tick(t.Context()); err == nil || !strings.Contains(err.Error(), "event storage unavailable") || len(f.inputs) != 0 {
-		t.Fatalf("busy resident received input or event failure disappeared: err=%v inputs=%v", err, f.inputs)
+	if err := r.Tick(t.Context()); err != nil || len(f.inputs) != 0 {
+		t.Fatalf("busy resident received input: err=%v inputs=%v", err, f.inputs)
 	}
 	f.ready = true
-	if err := r.Tick(t.Context()); err == nil || !strings.Contains(err.Error(), "event storage unavailable") {
-		t.Fatalf("expected the event storage failure to remain visible to Tick, got %v", err)
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 	if len(f.inputs) != 1 || !f.inputs[0].HostNotice || f.inputs[0].SystemSource != api.SystemWorkerResult ||
 		m.TaskForReportID(f.inputs[0].ID) != "native-task" {
@@ -126,8 +130,17 @@ func TestEventStorageFailureDoesNotBlockWorkerCompletionReport(t *testing.T) {
 	if record := deliveries.state.Records[f.inputs[0].ID]; record.Source != api.SystemWorkerResult || record.Outcome != "accepted" {
 		t.Fatalf("missing durable resident receipt: %+v", record)
 	}
-	if err := r.Tick(t.Context()); err == nil || len(f.inputs) != 1 {
-		t.Fatalf("event failure disappeared or completion replayed: err=%v inputs=%v", err, f.inputs)
+	if err := os.Remove(ledger); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(ledger+".saved", ledger); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.events.Register(event, r.now()); err != nil {
+		t.Fatal("replacement write could not proceed after recovery", err)
+	}
+	if err := r.Tick(t.Context()); err != nil || len(f.inputs) != 1 {
+		t.Fatalf("completion replayed after event recovery: err=%v inputs=%v", err, f.inputs)
 	}
 }
 

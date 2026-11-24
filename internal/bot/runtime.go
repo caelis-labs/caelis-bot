@@ -597,7 +597,7 @@ func (r *Runtime) Status() string {
 	if r.deliveryErr != nil {
 		return "System notices need recovery; chat remains available. Preserve local data and use the diagnostic report."
 	}
-	if r.nativeErr != nil {
+	if r.nativeErr != nil && !errors.Is(r.nativeErr, eventplan.ErrWritePending) {
 		return "Saved native arrangements need recovery; original data is preserved."
 	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {

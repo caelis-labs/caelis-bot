@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rmdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -23,6 +23,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const key = (...parts) => sha(parts.join('\0')).slice(0, 32);
 const readJSON = async path => JSON.parse(await readFile(path, 'utf8'));
 const writeJSON = (path, data) => writeFile(path, JSON.stringify(data), { mode: 0o600 });
+const recoveryPlan = 'event-store-recovery';
 const evidence = {
   source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   sourceTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
@@ -70,17 +71,20 @@ function responses(mode) {
     const input = JSON.parse(raw).input;
     const latest = JSON.stringify(input.filter(item => item.role === 'user').at(-1) ?? {});
     const report = latest.match(/Bot system event: worker_result.*?Task (task-[a-f0-9]+) is completed\./);
+    const recovery = latest.match(/Bot system event: callback.*?Occurrence: (occurrence:[A-Z0-9]+)\./);
     const role = raw.includes('risk_level') && raw.includes('user_authorization') ? 'guardian'
       : report ? 'report'
+      : recovery ? 'recovery'
       : latest.includes('WORKER_REPORT_ASSIGNMENT') ? 'worker'
       : latest.includes('WORKER_REPORT_REQUEST') ? 'delegate'
       : 'unexpected';
-    calls.push({ role, task: report?.[1] });
+    calls.push({ role, ...(report && { task: report[1] }), ...(recovery && { occurrence: recovery[1] }) });
     const id = `${mode}-${role}-${calls.length}`;
     const text = {
       guardian: JSON.stringify({ risk_level: 'low', user_authorization: 'high', outcome: 'allow', rationale: 'Synthetic local acceptance' }),
       worker: 'WORKER_REPORT_NATIVE_RESULT',
       report: 'WORKER_REPORT_RECEIVED_BY_RESIDENT',
+      recovery: 'EVENT_STORE_RECOVERY_RECEIVED_BY_RESIDENT',
       delegate: 'WORKER_REPORT_REQUEST_ACCEPTED',
       unexpected: 'UNEXPECTED_FIXTURE_REQUEST',
     }[role];
@@ -133,10 +137,21 @@ async function scenario(mode) {
   const ledger = join(directory, 'events-codex.json');
   const expires = Date.now() + 15000;
   const attempt = new Date(expires - 86400000).toISOString();
+  const created = new Date().toISOString();
+  const due = expires + 8000;
   await writeJSON(ledger, {
     version: 1, policy: { maximumInterruptionsPer24Hours: 8, minimumGapSeconds: 300 },
     migration: { version: 1, digest: 'absent', completed: new Date().toISOString() },
-    wakeAttempts: [attempt], events: [], plans: [], occurrences: [],
+    wakeAttempts: [attempt], occurrences: [],
+    events: mode !== 'fault' ? [] : [{
+      id: recoveryPlan, label: 'Isolated recovery wake', context: recoveryPlan, kind: 'wake',
+      outputSchema: { type: 'object' }, created, lastUsed: created,
+    }],
+    plans: mode !== 'fault' ? [] : [{
+      id: recoveryPlan, event: recoveryPlan, kind: 'after', seconds: 1, when: 'true', timeZone: 'UTC',
+      cooldownSeconds: 60, created, next: new Date(due).toISOString(), expires: new Date(due + 3600000).toISOString(),
+      status: 'active',
+    }],
   });
   const original = await stat(ledger);
   const child = spawn(bot, ['serve', '--data-dir', directory, '--listen', '127.0.0.1:0'], {
@@ -223,9 +238,22 @@ async function scenario(mode) {
     const histories = join(profile, 'sessions');
     const workerHistory = await nativeHistory(histories, binding.worker.thread);
     assert.ok(workerHistory.some(row => row.payload.type === 'task_complete' && row.payload.turn_id === binding.worker.run));
+    let recovered;
+    if (fault) {
+      assert.ok((await stat(ledger)).isDirectory(), 'Worker report arrived while Event writes were obstructed');
+      assert.equal(calls.filter(call => call.role === 'recovery').length, 0);
+      await rmdir(ledger);
+      await rename(ledger + '.saved', ledger);
+      recovered = await until('existing Event plan settled after storage recovered', async () =>
+        (await readJSON(ledger)).occurrences.find(o => o.plan === recoveryPlan && o.status === 'completed'));
+      assert.equal((await readJSON(ledger)).wakeAttempts.length, 1, 'only the recovered wake uses budget');
+      const record = (await readJSON(join(directory, 'system-deliveries.json'))).records[recovered.id];
+      assert.equal(record?.source, 'callback');
+      assert.equal(record?.outcome, 'accepted');
+    }
     await delay(2100);
     const residentHistory = await nativeHistory(histories, binding.resident);
-    let turn, nativeReceives = 0;
+    let turn, nativeReceives = 0, recoveryReceives = 0;
     for (const row of residentHistory) {
       const p = row.payload;
       if (p.type === 'task_started') turn = p.turn_id;
@@ -234,15 +262,24 @@ async function scenario(mode) {
         assert.equal(turn, binding.notice.turn);
         nativeReceives++;
       }
+      if (recovered && row.type === 'response_item' && p.type === 'message' && p.role === 'user' &&
+          JSON.stringify(p.content).includes('Bot system event: callback') && JSON.stringify(p.content).includes(recovered.id)) {
+        recoveryReceives++;
+      }
     }
     assert.equal(nativeReceives, 1);
     assert.deepEqual(calls.filter(call => call.role === 'report'), [{ role: 'report', task: id }]);
     assert.equal(calls.filter(call => call.role === 'worker').length, 1);
     assert.equal(calls.filter(call => call.role === 'unexpected').length, 0);
+    if (recovered) {
+      assert.equal(recoveryReceives, 1);
+      assert.deepEqual(calls.filter(call => call.role === 'recovery'), [{ role: 'recovery', occurrence: recovered.id }]);
+    }
     if (fault) assert.equal((await logs()).filter(record => record.code === fault.code && record.component === fault.component).length, 1);
     return { task: id, execution: task.execution, workerThread: binding.worker.thread, workerTurn: binding.worker.run,
       report: task.reportId, residentThread: binding.resident, residentTurn: binding.notice.turn, nativeReceives, modelReceives: 1,
-      receipt: durable.outcome, ...(fault && { fault: { phase: fault.phase, reason: fault.reason } }) };
+      receipt: durable.outcome, ...(fault && { fault: { phase: fault.phase, reason: fault.reason } }),
+      ...(recovered && { recovered: { occurrence: recovered.id, nativeReceives: recoveryReceives, status: recovered.status } }) };
   } catch (error) {
     evidence.failure = { mode, cause: error.message, detail: error.cause?.message, calls, stderr };
     await writeJSON(evidencePath, evidence);

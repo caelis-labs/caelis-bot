@@ -158,11 +158,8 @@ func TestNativeSaveFailurePreservesPersistedLedger(t *testing.T) {
 			if err != nil || !bytes.Equal(raw, after) {
 				t.Fatal("failed registration changed disk", err)
 			}
-			if failure == "authorization" && !reflect.DeepEqual(before, e.Snapshot()) {
-				t.Fatal("denied registration changed memory")
-			}
-			if failure == "commit" && e.usable() == nil {
-				t.Fatal("failed commit did not stop execution")
+			if !reflect.DeepEqual(before, e.Snapshot()) {
+				t.Fatal("failed registration changed memory")
 			}
 			restored, err := Open(e.path, nil, *now)
 			if err != nil {

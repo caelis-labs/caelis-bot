@@ -55,7 +55,9 @@ The opt-in product acceptance uses the actual Bot `serve` entry and an installed
 Codex App Server with disposable stores and local synthetic model responses.
 It observes the original Worker terminal turn, task execution key, report ID,
 resident input and durable delivery receipt in both healthy and faulted event
-storage. It checks the real event write on expiry and verifies no duplicate input.
+storage. It checks the real event write on expiry, restores the obstructed
+document, and verifies that the original resident receives both the Worker
+report and the recovered scheduled wake exactly once.
 
 ```sh
 source script/env.sh

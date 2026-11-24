@@ -8,8 +8,8 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-// reportEventFault is called under step. The store stays faulted after an
-// ambiguous write, even if the writer eventually confirms its own disk result.
+// reportEventFault is called under step. Log the first failure and the writer's
+// final disk result independently of the original request or delivery receipt.
 func (r *Runtime) reportEventFault() {
 	log := r.diagnostics
 	if log == nil {
@@ -17,7 +17,7 @@ func (r *Runtime) reportEventFault() {
 	}
 	err := r.eventsErr
 	if r.events != nil {
-		err = r.events.StorageFault()
+		err = r.events.FirstStorageFailure()
 	}
 	if err == nil {
 		return

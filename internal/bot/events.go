@@ -30,8 +30,16 @@ func (r *Runtime) ConfigureEvents(tools EventTools, directory string) {
 func (r *Runtime) initEvents() {
 	r.events, r.eventsErr = eventplan.Open(filepath.Join(filepath.Dir(r.path), "events-"+r.provider+".json"), r.runEvent, r.now())
 	if r.eventsErr == nil {
-		r.nativeErr = r.events.MigrateLegacy(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), r.now())
+		r.migrateNativeEvents()
 	}
+}
+
+func (r *Runtime) migrateNativeEvents() error {
+	err := r.events.MigrateLegacy(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), r.now())
+	r.mu.Lock()
+	r.nativeErr = err
+	r.mu.Unlock()
+	return err
 }
 func (r *Runtime) runEvent(ctx context.Context, v eventplan.Event) (json.RawMessage, error) {
 	r.mu.Lock()
@@ -141,11 +149,6 @@ func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResul
 	}
 	if kind == "archive" {
 		err := r.events.ArchiveEvent(id, r.now())
-		if err == nil {
-			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
-				err = b.RevokeBackground(ctx, "event:"+id)
-			}
-		}
 		if err != nil {
 			return compactError("archive_unconfirmed", err)
 		}
@@ -302,7 +305,14 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 	// Explicit arrangements can run while the desktop is locked or presence is
 	// unknown. A collector may observe presence and its CEL may require it; that
 	// is task data, not a global admission policy. The adapter rechecks busy state.
-	if r.nativeErr == nil && r.events.HasNativePlans() {
+	nativeErr := r.nativeMigrationError()
+	if errors.Is(nativeErr, eventplan.ErrWritePending) {
+		nativeErr = r.migrateNativeEvents()
+		if errors.Is(nativeErr, eventplan.ErrWritePending) {
+			return nativeErr
+		}
+	}
+	if nativeErr == nil && r.events.HasNativePlans() {
 		sample := scheduledata.Sample{}
 		if r.nativeSample != nil {
 			sample = r.nativeSample()

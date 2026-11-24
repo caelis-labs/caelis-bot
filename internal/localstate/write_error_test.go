@@ -88,3 +88,40 @@ func TestWriteTimeoutRetainsActualCommitResult(t *testing.T) {
 		})
 	}
 }
+
+func TestReadAfterWritesSeesLateAtomicReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := Write(path, 1); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	err := write(path, 2, 100*time.Millisecond, func(path string, body []byte, a *writeAttempt) error {
+		<-release
+		return writeBytes(path, body, a)
+	})
+	var timeout *WriteError
+	if !errors.As(err, &timeout) || timeout.Completion == nil {
+		close(release)
+		t.Fatalf("expected a writer that survived the deadline: %v", err)
+	}
+	type readResult struct {
+		body []byte
+		err  error
+	}
+	reader := make(chan readResult, 1)
+	go func() {
+		body, err := ReadAfterWrites(path)
+		reader <- readResult{body, err}
+	}()
+	select {
+	case result := <-reader:
+		close(release)
+		t.Fatalf("read overtook the original writer: %+v", result)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	result := <-reader
+	if result.err != nil || string(result.body) != "2\n" {
+		t.Fatalf("did not read original writer's replacement: %+v", result)
+	}
+}

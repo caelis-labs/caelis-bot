@@ -204,8 +204,8 @@ func TestExpirySchemaMismatchAndStorageFailure(t *testing.T) {
 	if _, err := e.Save(Plan{ID: "no-write", Event: "mail", Kind: "after", Seconds: 1}, *now); err == nil {
 		t.Fatal("write claimed")
 	}
-	if err := e.Tick(t.Context(), now.Add(time.Hour), noDelivery()); err == nil {
-		t.Fatal("failed store executed")
+	if e.plan("no-write") != nil {
+		t.Fatal("failed save changed the active ledger")
 	}
 }
 func TestSchemaSubsetRejectsAmbiguityAndRuntimeDrift(t *testing.T) {

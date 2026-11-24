@@ -111,7 +111,7 @@ func (r *Runtime) nextTick(now time.Time) time.Time {
 	}
 	if scheduled && r.events != nil && !(legacyBlocked && wake.Runtime == r.provider && (wake.Status == "unknown" || wake.Status == "dispatching")) {
 		offer(r.events.NextCheck(now))
-		if r.nativeErr == nil && r.events.HasNativePlans() {
+		if r.nativeMigrationError() == nil && r.events.HasNativePlans() {
 			offer(retry)
 		}
 	}
