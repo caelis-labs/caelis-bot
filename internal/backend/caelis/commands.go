@@ -230,12 +230,9 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	return s.submit(ctx, in, files, "user")
 }
 func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, source string) (api.Receipt, error) {
-	return s.submitGrant(ctx, in, files, source, "")
-}
-func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	s.step.Lock()
 	defer s.step.Unlock()
-	return s.submitGrantLocked(ctx, in, files, source, grant)
+	return s.submitGrantLocked(ctx, in, files, source, "")
 }
 
 func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {

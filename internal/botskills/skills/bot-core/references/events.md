@@ -107,9 +107,10 @@ Computer sleep pauses execution; app exit stops it. Busy work and wake budgets
 can delay dispatch. If a task depends on lock state, explicitly collect and test
 it; unknown is not unlocked. Desktop input retains its own permission boundaries.
 
-Channel delivery follows that channel's pairing, window and receipt rules.
-Registration or completed work does not prove phone delivery. Do not replay work
-or change its source to repair delivery; consult the relevant channel guide.
+Channel delivery follows that channel's pairing, window and receipt rules. A
+reminder without a recorded channel route appears in the Bot conversation. Use
+the relevant channel guide to verify phone delivery before reporting it. Preserve
+the original arrangement and occurrence when diagnosing delivery.
 
 List pages use top-level `nextCursor` with unchanged filters. Calendar summaries
 omit prompts; read the exact `calendar:<id>` when needed. Large `read`/`sources`

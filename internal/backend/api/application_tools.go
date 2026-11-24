@@ -26,7 +26,7 @@ type ToolResult struct {
 type ToolInvocation struct {
 	Provider, CallID, Session, Turn string
 	TurnKey                         string // presentation identity of the original resident Turn
-	CaelisMCP                       bool   // authenticated resident stdio bridge; Turn is presentation only
+	CaelisMCP                       bool   // private Notebook MCP delivery without a native Session or Turn identity
 }
 
 type toolInvocationKey struct{}
@@ -36,7 +36,10 @@ func WithToolInvocation(ctx context.Context, invocation ToolInvocation) context.
 }
 func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 	invocation, ok := ctx.Value(toolInvocationKey{}).(ToolInvocation)
-	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && (invocation.Turn != "" || invocation.CaelisMCP)
+	if invocation.CaelisMCP {
+		return invocation, ok && invocation.Provider == "caelis" && invocation.CallID != "" && invocation.Session == "" && invocation.Turn == "" && invocation.TurnKey == ""
+	}
+	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && invocation.Turn != ""
 }
 
 // ToolTurnTerminator stops the exact Codex Turn after a terminal Bot MCP tool.

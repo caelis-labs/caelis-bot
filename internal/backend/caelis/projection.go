@@ -178,7 +178,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if s.connected {
 		for sid, v := range s.state.Views {
 			a := v.State.Approval.Active
-			if a == nil || s.automaticApprovalLocked(sid, a) {
+			if a == nil || slices.Contains(s.state.PastSessions, sid) || s.automaticApprovalLocked(sid, a) {
 				continue
 			}
 			raw, _ := json.Marshal(a.Permission)
@@ -189,8 +189,6 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			item.NoticeKey = "chat.caelisApproval"
 			if sid != "" && sid == s.state.Session.SessionId {
 				item.Owner = "conversation"
-			} else if slices.Contains(s.state.PastSessions, sid) {
-				item.Owner = "previousConversation"
 			} else if sid != "" {
 				item.NoticeKey = "chat.workerApproval"
 				for _, worker := range s.state.Workers {
@@ -326,7 +324,8 @@ func approvalID(instance, sid string, a *wire.ActiveApproval) string {
 }
 func (s *Session) approvalLocked(id string) (approvalRef, bool) {
 	for sid, v := range s.state.Views {
-		if a := v.State.Approval.Active; a != nil && !s.automaticApprovalLocked(sid, a) && approvalID(s.state.InstanceID, sid, a) == id {
+		if a := v.State.Approval.Active; a != nil && !slices.Contains(s.state.PastSessions, sid) &&
+			!s.automaticApprovalLocked(sid, a) && approvalID(s.state.InstanceID, sid, a) == id {
 			return approvalRef{sid, clone(a)}, true
 		}
 	}

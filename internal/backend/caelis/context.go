@@ -361,6 +361,18 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if err := s.checkRenewalGuard(ctx, op); err != nil {
 		return err
 	}
+	if idleTurn != nil {
+		// The stream may lag behind an accepted native turn or approval.
+		// Recheck the original head before publishing the replacement.
+		var original wire.SessionState
+		if err := c.json(ctx, "GET", "/sessions/"+idPath(source)+"/state", nil, &original, "", ""); err != nil {
+			return err
+		}
+		if turn := value(original.Run.TurnId); original.SessionId != source || nativeRunActive(original) ||
+			value(original.Run.Status) == "unknown" || turn != "" && turn != boundTurn {
+			return api.ErrConversationRenewalRejected
+		}
+	}
 	s.mu.Lock()
 	current = s.conversationLocked()
 	if toolTurn != "" && current.Turn != "" && current.Turn != toolTurn {
@@ -450,7 +462,7 @@ func (s *Session) deferRenewal(op string) error {
 // reports keep their owners; their activity is not a global-quiescence gate.
 func (s *Session) renewalReadyLocked(source, renewal string, toolHandoff bool) bool {
 	v := s.state.Views[source]
-	if v == nil || !toolHandoff && (value(v.State.Run.Active) || v.State.Approval.Active != nil) {
+	if v == nil || !toolHandoff && nativeRunActive(v.State) {
 		return false
 	}
 	for id, operation := range s.state.Operations {

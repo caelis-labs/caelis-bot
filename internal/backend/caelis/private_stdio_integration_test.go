@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -146,6 +147,14 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpInvocation := make(chan api.ToolInvocation, 1)
+	manager.ObserveStartsWithContext(func(ctx context.Context, _ api.Task) {
+		call, _ := api.ToolInvocationFromContext(ctx)
+		select {
+		case mcpInvocation <- call:
+		default:
+		}
+	})
 	if err := resident.ConfigureTasks(manager, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +330,14 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	available := readStatus(s, sid)
 	if !coreSkill || original.Binding.SessionId == "" || !taskMCPReady(available) {
 		t.Fatal("resident native task MCP, Skill or Worker binding missing", available)
+	}
+	select {
+	case call := <-mcpInvocation:
+		if !call.CaelisMCP || call.CallID == "" || call.Session != "" || call.Turn != "" || call.TurnKey != "" {
+			t.Fatal("stdio delegation attached unproven native provenance", call)
+		}
+	case <-ctx.Done():
+		t.Fatal("native Worker start did not report its original MCP invocation")
 	}
 	finish := func() {
 		t.Helper()
@@ -663,6 +680,11 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal(out, err)
 	}
 	waitAcceptance(t, ctx, func() bool { return len(resumedManual.Snapshot().Approvals) > 0 })
+	pendingHead := resumedManual.ConversationState()
+	if err := resumedManual.RenewIdleConversation(ctx, "pending-approval-renewal", pendingHead); err == nil ||
+		resumedManual.ConversationState().Session != pendingHead.Session || len(resumedManual.Snapshot().Approvals) != 1 {
+		t.Fatal("idle rotation displaced a live native approval", err)
+	}
 	if err := resumedManual.Interrupt(ctx); err != nil {
 		t.Fatal("cancel the turn while its native approval is pending", err)
 	}
@@ -674,6 +696,49 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 		t.Fatal("cancelling a pending approval created a Worker")
 	}
 	t.Log("native turn cancellation closed the pending approval without creating a Worker")
+	retired := resumedManual.ConversationState()
+	if err := resumedManual.RenewIdleConversation(ctx, "retire-manual-resident", retired); err != nil {
+		t.Fatal("rotate settled manual resident", err)
+	}
+	// An explicit Core client can still prompt its own historical Session.
+	// That decision belongs to the original Core client, outside Bot routing.
+	const restored = "CASE_NATIVE_MANUAL_RESTORED"
+	ready := make(chan struct{})
+	step := residentToolStep("bot_delegate", map[string]any{"prompt": "Synthetic historical approval."})
+	step.Block = ready
+	model.set(restored, step)
+	retiredID, op := retired.Session, "explicit-core-history-prompt"
+	retiredPath := "/sessions/" + idPath(retiredID)
+	var outcome wire.CommandResult
+	if err := resumedManual.client.json(ctx, "POST", retiredPath+"/prompt", wire.PromptRequest{OperationId: &op, SessionId: &retiredID, Input: pointer(restored)}, &outcome, op, ""); err != nil ||
+		!succeeded(outcome.Outcome) {
+		close(ready)
+		t.Fatal("explicit Core history fixture was not admitted", err)
+	}
+	waitAcceptance(t, ctx, func() bool { return taskMCPReady(readStatus(resumedManual, retiredID)) })
+	close(ready)
+	var head wire.SessionState
+	waitAcceptance(t, ctx, func() bool {
+		return resumedManual.client.json(ctx, "GET", retiredPath+"/state", nil, &head, "", "") == nil && head.Approval.Active != nil
+	})
+	if err := resumedManual.refreshMain(ctx, resumedManual.client, retiredID); err != nil {
+		t.Fatal(err)
+	}
+	resumedManual.mu.Lock()
+	oldApproval := approvalID(resumedManual.state.InstanceID, retiredID, head.Approval.Active)
+	resumedManual.mu.Unlock()
+	var invalidDecision *api.DecisionValidationError
+	if err := resumedManual.Decide(ctx, api.Decision{ID: oldApproval, Choice: "allow_once"}); len(resumedManual.Snapshot().Approvals) != 0 ||
+		!errors.As(err, &invalidDecision) {
+		t.Fatal("Bot offered or resolved a previous Session's approval", err)
+	}
+	var originalApproval wire.SessionState
+	if err := resumedManual.client.json(ctx, "GET", retiredPath+"/state", nil, &originalApproval, "", ""); err != nil ||
+		originalApproval.Approval.Active == nil || originalApproval.Approval.Active.RequestId != head.Approval.Active.RequestId ||
+		len(manualManager.ListTasks()) != 1 {
+		t.Fatal("Bot changed the old Core approval or created a Worker", err)
+	}
+	t.Log("current approval deferred rotation; an explicitly restored previous Session remained visible to Core with its own pending approval and no Bot action")
 }
 
 func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, resident *bot.Runtime, model *acceptanceModel, review func(string, <-chan struct{})) {
@@ -712,7 +777,8 @@ func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, 
 	if err := s.RenewIdleConversation(ctx, "reminder-boundary-idle", head); err != nil {
 		t.Fatal("renew resident with registered reminders", err)
 	}
-	if s.ConversationState().Session == head.Session {
+	replacement := s.ConversationState()
+	if replacement.Session == head.Session {
 		t.Fatal("idle resident retained its original session")
 	}
 	observedWakes := func() int {
@@ -721,6 +787,9 @@ func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, 
 		count := 0
 		for id, operation := range s.state.Operations {
 			if strings.HasPrefix(id, "wake-") && operation.Outcome == "committed" && operation.Source.Kind == "external_material" {
+				if operation.Path != "/sessions/"+idPath(replacement.Session)+"/prompt" || len(operation.OriginRequests) != 0 {
+					t.Errorf("post-rotation reminder acquired an old Session or an unproven input route: %s", operation.Path)
+				}
 				count++
 			}
 		}
@@ -750,6 +819,11 @@ func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, 
 	waitAcceptance(t, ctx, func() bool { return time.Now().After(revokeAt.Add(1200 * time.Millisecond)) })
 	if count := observedWakes(); count != 1 {
 		t.Fatal("unexpected native scheduler execution", count)
+	}
+	var old wire.SessionState
+	if err := s.client.json(ctx, "GET", "/sessions/"+idPath(head.Session)+"/state", nil, &old, "", ""); err != nil ||
+		nativeRunActive(old) || value(old.Run.TurnId) != "" && value(old.Run.TurnId) != head.Turn {
+		t.Fatal("scheduled activity changed the original resident", err)
 	}
 	t.Log("real Core registered from worker_result, dispatched one native external_material reminder and suppressed the revoked reminder after its due time")
 }

@@ -55,19 +55,22 @@ func (s *Session) submitScheduledSystem(ctx context.Context, in api.Submission, 
 	if len(ids) != 1 {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("后台激活必须对应一个已授权提醒")
 	}
+	s.step.Lock()
+	defer s.step.Unlock()
 	s.mu.Lock()
 	g, ok := s.state.Grants[ids[0]]
+	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if !ok {
 		// New Bot arrangements are admitted by the Runtime's tool policy at
 		// registration. Their wake is ordinary external evidence and cannot
 		// inherit a user-source grant. Existing grants retain their lifecycle.
-		return s.submit(ctx, in, nil, "external_material")
+		return s.submitGrantLocked(ctx, in, nil, "external_material", "")
 	}
-	if g.Grant.Revoked {
+	if g.Grant.Revoked || g.Grant.SessionId != sid {
 		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("提醒授权不可用")
 	}
-	return s.submitGrant(ctx, in, nil, "authorized_background", g.Grant.Id)
+	return s.submitGrantLocked(ctx, in, nil, "authorized_background", g.Grant.Id)
 }
 
 func (s *Session) SystemReceipt(id string) api.Receipt {

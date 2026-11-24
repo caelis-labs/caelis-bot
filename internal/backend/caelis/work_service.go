@@ -376,7 +376,7 @@ func (s *Session) workerStopAcknowledged(w worker, execution string) bool {
 		// Idle /state omits the Gateway target and exposes a different SDK RunID.
 		// Only canonical terminal evidence can match the saved original cancel.
 		p := s.state.Views[w.Binding.SessionId]
-		if p == nil || receipt.StopTarget == nil || workerNativeActive(p.State) ||
+		if p == nil || receipt.StopTarget == nil || nativeRunActive(p.State) ||
 			p.HeadTarget != *receipt.StopTarget || observedTurn(p) != receipt.StopTarget.TurnId {
 			continue
 		}

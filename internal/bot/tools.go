@@ -203,19 +203,27 @@ func Serve(r *Runtime) (*Bridge, error) {
 						// and transport; it never settles an already dispatched effect.
 						go func() { _, _ = io.Copy(io.Discard, conn); cancel() }()
 					}
-					if r.provider == "codex" || req.Version == caelisMCPBridgeVersion {
+					if req.Version == caelisMCPBridgeVersion {
+						r.mu.Lock()
+						started := r.engine != nil
+						r.mu.Unlock()
+						if !started {
+							_ = json.NewEncoder(conn).Encode(compactError("runtime_unavailable", errors.New("Bot resident Runtime is unavailable.")))
+							return
+						}
+						// Standard MCP supplies a transport call ID, with no
+						// native Session, Turn or user channel attribution.
+						invocation = api.ToolInvocation{Provider: r.provider, CallID: string(req.ID), CaelisMCP: true}
+						callCtx = api.WithToolInvocation(callCtx, invocation)
+					} else if r.provider == "codex" {
 						r.mu.Lock()
 						runtime, ok := r.engine.(api.ConversationRuntime)
 						r.mu.Unlock()
 						if ok {
 							state := runtime.ConversationState()
 							invocation = api.ToolInvocation{Provider: r.provider, CallID: string(req.ID), Session: state.Session,
-								Turn: state.Turn, TurnKey: state.TurnKey, CaelisMCP: req.Version == caelisMCPBridgeVersion}
+								Turn: state.Turn, TurnKey: state.TurnKey}
 							callCtx = api.WithToolInvocation(callCtx, invocation)
-						}
-						if req.Version == caelisMCPBridgeVersion && invocation.Session == "" {
-							_ = json.NewEncoder(conn).Encode(compactError("runtime_unavailable", errors.New("Bot resident Runtime is unavailable.")))
-							return
 						}
 					}
 					out = r.CallTool(callCtx, req.Name, req.Arguments)

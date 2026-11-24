@@ -69,7 +69,9 @@ Native Team settings select reviewer models; existing work keeps its execution s
 
 When a real user message arrives after at least 48 hours of inactivity, Bot may
 create a fresh resident Session through the native runtime. It checks the observed
-resident head and defers while a foreground turn or manual decision is pending.
+resident head and rereads Core's state before switching. Foreground work and pending
+decisions defer rotation. Bot routes subsequent prompts and wakes to the new resident.
+Approvals for past residents stay with Core clients that explicitly reopen them.
 An unsuccessful create keeps the existing binding and submits the message there
 under ordinary admission. Timers, reminders, Worker notices and transport commands
 leave the last conversation time unchanged.
@@ -90,9 +92,10 @@ Caelis declares a standard stdio MCP server for all enabled Bot tools on
 the resident profile alongside its selected Skills. The server keeps the
 existing `caelis_tasks` name and uses the Bot-owned Notebook as its working
 directory. A restricted connection file gives the process its local endpoint
-and tool catalog. Delegation uses the original stdio request identity for
-submission recovery. Core owns discovery, manual approvals and Guardian
-auto-review. Worker Sessions keep their native configuration and tools.
+and tool catalog. Notebook MCP calls use their stdio request identity for
+submission recovery and carry no native Session, Turn, or input channel identity.
+Core owns discovery, manual approvals and Guardian auto-review. Worker Sessions
+keep their native configuration and tools.
 
 On upgrade, Bot asks Core to cancel an active resident turn before clearing a
 non-empty legacy application tool catalog on the same Session. Bot preserves the

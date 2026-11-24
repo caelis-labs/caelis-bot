@@ -70,8 +70,7 @@ func (s *Session) workerInvocation(ctx context.Context) (private bool, err error
 		if owner, _ := ctx.Value(workOwnerKey{}).(*Session); owner == s {
 			return false, nil
 		}
-		if call, ok := api.ToolInvocationFromContext(ctx); ok && call.CaelisMCP &&
-			call.Provider == "caelis" && !s.retainedWorkers && call.Session == s.state.Session.SessionId {
+		if call, ok := api.ToolInvocationFromContext(ctx); ok && call.CaelisMCP && !s.retainedWorkers && s.state.Session.SessionId != "" {
 			return true, nil
 		}
 	}
@@ -101,7 +100,7 @@ func (s *Session) WorkStates() []api.WorkState {
 	}
 	return out
 }
-func workerNativeActive(state wire.SessionState) bool {
+func nativeRunActive(state wire.SessionState) bool {
 	if value(state.Run.Active) || value(state.Run.WaitingApproval) || state.Approval.Active != nil {
 		return true
 	}
@@ -176,7 +175,7 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		status := value(p.State.Run.Status)
 		// An idle v0.83.1 snapshot can omit the finished run. Its exact
 		// lifecycle remains in the canonical feed after reconnect.
-		if status == "" && !workerNativeActive(p.State) && currentTurn != "" && currentTurn == operationTurn {
+		if status == "" && !nativeRunActive(p.State) && currentTurn != "" && currentTurn == operationTurn {
 			if lifecycle := p.Turns[currentTurn]; terminalDream(lifecycle) {
 				status = lifecycle
 			}
@@ -504,7 +503,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		if state.SessionId != sid {
 			return projected, errors.New("original worker state mismatch")
 		}
-		if state.Run.Active == nil && !workerNativeActive(state) {
+		if state.Run.Active == nil && !nativeRunActive(state) {
 			// active is optional in the native contract. A fresh terminal state
 			// from this exact owner also confirms inactivity, but says nothing
 			// about whether its transcript can be read successfully.
@@ -567,7 +566,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		p.State = state
 		p.Observed++
 		current.Activity = "idle"
-		if workerNativeActive(state) {
+		if nativeRunActive(state) {
 			current.Activity = "active"
 		}
 		s.state.Workers[id] = current
@@ -707,7 +706,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
 	// Workspace admission uses the full native activity projection. Keep busy
 	// separate: it also selects the existing prompt/steer and grant paths.
-	active := v != nil && workerNativeActive(v.State)
+	active := v != nil && nativeRunActive(v.State)
 	projected := s.workerViewLocked(w)
 	unresolved := projected.Status == "unknown" || projected.Status == "pending" || w.Start != nil
 	s.mu.Unlock()
@@ -921,7 +920,7 @@ func (s *Session) observeWorkerActivityLocked(sid string, state wire.SessionStat
 			continue
 		}
 		w.Activity = ""
-		if workerNativeActive(state) {
+		if nativeRunActive(state) {
 			w.Activity = "active"
 		} else if state.Run.Active != nil {
 			w.Activity = "idle"

@@ -35,7 +35,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	if bin == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY for external Guardian acceptance")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 230*time.Second)
 	defer cancel()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -151,8 +151,12 @@ func TestGuardianHostIntegration(t *testing.T) {
 		definition.Name = name
 		definitions = append(definitions, definition)
 	}
+	effectsByTool := map[string]int{}
 	tools := &acceptanceTools{defs: definitions, call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
 		effects.Add(1)
+		mu.Lock()
+		effectsByTool[name]++
+		mu.Unlock()
 		return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "REVIEWED_CALLBACK_RESULT"}}}
 	}}
 	fixtureConfig := fixtureMCPConfig(t, &api.ToolConnection{NotebookDirectory: notebook}, tools)
@@ -579,16 +583,6 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}
 
 	if !t.Run("G09_reused_provider_call_ids_within_one_turn", func(t *testing.T) {
-		if e := s.ConfigureBotTools(fixtureConfig); e != nil {
-			t.Fatal(e)
-		}
-		current, e := s.Configuration(ctx)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if _, e = s.UpdateConfiguration(ctx, "reused-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
-			t.Fatal(e)
-		}
 		caseCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		defer func() {
@@ -606,47 +600,82 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}()
 		configureReview(`{"option_id":"allow_once"}`, nil)
 		before := effects.Load()
-		main.set("CASE_REUSED_CALL", fixtureMCPStep("FixtureFirstOfTwo", map[string]any{"key": "first-of-two"}), fixtureMCPStep("FixtureSecondOfTwo", map[string]any{"key": "second-of-two"}))
+		firstStep := fixtureMCPStep("FixtureFirstOfTwo", map[string]any{"key": "first-of-two"})
+		secondStep := fixtureMCPStep("FixtureSecondOfTwo", map[string]any{"key": "second-of-two"})
+		firstStep.CallID, secondStep.CallID = "provider-reused-id", "provider-reused-id"
+		main.set("CASE_REUSED_CALL", firstStep, secondStep)
 		submitAcceptance(t, caseCtx, s, "CASE_REUSED_CALL")
 		waitAcceptance(t, caseCtx, func() bool {
 			return reviewFor("approved", "FixtureFirstOfTwo") && reviewFor("approved", "FixtureSecondOfTwo")
 		})
 		first := assertIdentity(t, "approved", "FixtureFirstOfTwo")
 		second := assertIdentity(t, "approved", "FixtureSecondOfTwo")
-		if first.TurnID != second.TurnID || first.ItemID == second.ItemID || first.ToolCallID != second.ToolCallID || first.ApprovalID == second.ApprovalID || effects.Load() != before+2 {
-			t.Fatal("provider call ID merged native invocations")
+		mu.Lock()
+		firstCount, secondCount := effectsByTool["FixtureFirstOfTwo"], effectsByTool["FixtureSecondOfTwo"]
+		mu.Unlock()
+		if first.TurnID != second.TurnID || first.ItemID == second.ItemID || first.ToolCallID == second.ToolCallID ||
+			first.ApprovalID == second.ApprovalID || effects.Load() != before+2 || firstCount != 1 || secondCount != 1 {
+			t.Fatal("provider call ID merged native invocations or changed dispatch count", firstCount, secondCount)
 		}
+		t.Log("one native turn used distinct item, tool call and approval IDs; each MCP tool executed once")
 	}) {
 		return
 	}
 
 	if !t.Run("G07_timeout_never_dispatches", func(t *testing.T) {
-		// Restore the simple reviewed MCP server and wait through the actual Core budget.
+		// Hold the actual reviewer request through Core's own deadline.
 		before := effects.Load()
-		if e := s.ConfigureBotTools(fixtureConfig); e != nil {
-			t.Fatal(e)
-		}
-		current, e := s.Configuration(ctx)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if _, e = s.UpdateConfiguration(ctx, "timeout-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
-			t.Fatal(e)
-		}
 		gate := make(chan struct{})
 		defer close(gate)
 		configureReview(`{"option_id":"allow_once"}`, gate)
-		main.set("CASE_REVIEW_TIMEOUT", fixtureMCPStep("FixtureTimedOut", map[string]any{"key": "timed-out"}))
-		if _, e = s.Submit(ctx, api.Submission{ID: "review-timeout", Text: "CASE_REVIEW_TIMEOUT"}, nil); e != nil {
-			t.Fatal(e)
+		ready := make(chan struct{})
+		step := fixtureMCPStep("FixtureTimedOut", map[string]any{"key": "timed-out"})
+		step.Block = ready
+		step.Args.(map[string]any)["yield_time_ms"] = 60_000
+		// Code Mode yields a script handle before Guardian's 90-second
+		// deadline. A final model response here would cancel the review.
+		// Continue the same script with Core's native Task wait.
+		main.set("CASE_REVIEW_TIMEOUT", step, modelStep{Name: "Task", BuildArgs: func() any {
+			var result struct {
+				Handle string `json:"handle"`
+			}
+			_ = json.Unmarshal([]byte(fmt.Sprint(dtwLastToolOutput(main.seen("CASE_REVIEW_TIMEOUT")))), &result)
+			return map[string]any{"action": "wait", "handle": result.Handle, "yield_time_ms": 60_000}
+		}})
+		turn := s.Snapshot().CurrentTurn
+		if receipt, err := s.Submit(ctx, api.Submission{ID: "review-timeout", Text: "CASE_REVIEW_TIMEOUT"}, nil); err != nil || receipt.Outcome != "accepted" {
+			t.Fatal("Core did not admit the timeout fixture turn", receipt, err)
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("timedOut", "FixtureTimedOut") })
-		assertIdentity(t, "timedOut", "FixtureTimedOut")
+		waitForFixtureMCP(t, ctx, s)
+		close(ready)
+		progress, stopProgress := context.WithTimeout(ctx, 12*time.Second)
+		defer stopProgress()
+		waitAcceptance(t, progress, func() bool { return reviewFor("inProgress", "FixtureTimedOut") })
+		pending := assertIdentity(t, "inProgress", "FixtureTimedOut")
+		timeout, stopTimeout := context.WithTimeout(ctx, 110*time.Second)
+		defer stopTimeout()
+		defer func() {
+			if t.Failed() {
+				view := s.Snapshot()
+				t.Logf("timeout diagnostics: canSend=%t status=%s reviews=%+v main output=%s",
+					view.CanSend, view.Connection, view.Reviews, dtwLastToolOutput(main.seen("CASE_REVIEW_TIMEOUT")))
+			}
+		}()
+		waitAcceptance(t, timeout, func() bool {
+			return reviewFor("timedOut", "FixtureTimedOut") || reviewFor("failed", "FixtureTimedOut") ||
+				reviewFor("denied", "FixtureTimedOut") || reviewFor("approved", "FixtureTimedOut")
+		})
+		out := assertIdentity(t, "timedOut", "FixtureTimedOut")
+		if pending.ApprovalID != out.ApprovalID {
+			t.Fatal("timeout replaced the native approval")
+		}
+		waitTurn(t, timeout, s, turn)
 		noManual()
 		noCalls()
 		if effects.Load() != before {
 			t.Fatal("timed-out review dispatched MCP call")
 		}
+		t.Log("original native Guardian review timed out and its turn returned with zero MCP effects")
 	}) {
 		return
 	}

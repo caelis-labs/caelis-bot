@@ -12,6 +12,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 )
 
@@ -109,5 +110,101 @@ func testNativeIdleResidentRenewal(t *testing.T, channel string) {
 		s.ConversationState().Session != next.Session || len(model.seen("CASE_IDLE_NEW")) != len(calls) {
 		t.Fatal("retry did not retain the original native result", receipt, err)
 	}
-	t.Logf("%s ingress after 49 idle hours and a desktop control receipt used the next native Session once; the Worker notice stayed with the old Session, and the new Session retrieved projected history through Read", channel)
+	fresh := api.SystemMessage{ID: "idle-history-after-rotation", Source: api.SystemWorkerResult, Text: "CASE_IDLE_FRESH_BACKGROUND"}
+	if receipt, err := resident.SubmitSystem(ctx, fresh); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal("post-rotation Worker result did not reach the resident", receipt, err)
+	}
+	waitTurn(t, ctx, s, next.Turn)
+	if receipt, err := resident.SubmitSystem(ctx, wake); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal("pre-rotation Worker notice lost its receipt", receipt, err)
+	}
+	s.mu.Lock()
+	retainedPath := s.state.Operations[wake.ID].Path
+	freshPath := s.state.Operations[fresh.ID].Path
+	s.mu.Unlock()
+	if retainedPath != oldPath || freshPath != newPath || len(model.seen(wake.Text)) != 1 || len(model.seen(fresh.Text)) != 1 {
+		t.Fatal("Worker notices replayed or crossed resident ownership", retainedPath, freshPath)
+	}
+	t.Logf("%s ingress after 49 idle hours and a desktop control receipt used the next native Session once; original and later Worker notices retained distinct Session receipts; native Read retrieved projected history", channel)
+}
+
+func TestNativeRetainedBackgroundGrant(t *testing.T) {
+	ctx, s, _, model := nativeResidentFixture(t, func(*bot.Runtime) {})
+	const authorization = "CASE_GRANT_AUTHORIZATION"
+	model.set(authorization, modelStep{Reply: "Synthetic original authorization"})
+	submitAcceptance(t, ctx, s, authorization)
+	exerciseRetainedBackgroundGrant(t, ctx, s, model, strings.ToLower(authorization))
+}
+
+func exerciseRetainedBackgroundGrant(t *testing.T, ctx context.Context, s *Session, model *acceptanceModel, authorization string) {
+	t.Helper()
+	sid := s.ConversationState().Session
+	// Pre-MCP schedules retain the authorization of their original user
+	// operation. Seed the real Core grant before exercising that old path.
+	grant, err := s.createGrant(ctx, sid, "fixture-reminder", authorization)
+	if err != nil {
+		t.Fatal("seed legacy Core grant", err)
+	}
+	s.mu.Lock()
+	s.state.Grants["fixture-reminder"] = grantRecord{Grant: grant, Fingerprint: "original-user-schedule"}
+	err = s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := s.Snapshot().CurrentTurn
+	in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND", Scheduled: true}
+	r, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
+	if e != nil || r.Outcome != "accepted" {
+		t.Fatal(r, e)
+	}
+	waitTurn(t, ctx, s, before)
+	s.mu.Lock()
+	wake := s.state.Operations[in.ID]
+	s.mu.Unlock()
+	if wake.Path != "/sessions/"+idPath(sid)+"/prompt" || wake.Source.Kind != "authorized_background" || value(wake.Source.GrantId) != grant.Id {
+		t.Fatal("wake did not exercise its original Core grant", wake.Path, wake.Source.Kind)
+	}
+	r, e = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
+	if e != nil || r.Outcome != "accepted" || len(model.seen("CASE_BACKGROUND")) != 1 {
+		t.Fatal("background duplicated", e)
+	}
+	for _, item := range s.Snapshot().Items {
+		if item.Kind == "user" && strings.Contains(item.Text, "CASE_BACKGROUND") {
+			t.Fatal("scheduled prompt exposed by canonical feed")
+		}
+	}
+	if !s.Snapshot().Scheduled {
+		t.Fatal("native feed lost scheduled origin")
+	}
+	model.set("CASE_BACKGROUND_SKIP", modelStep{Reply: api.SilentReminder})
+	before = s.Snapshot().CurrentTurn
+	skipped, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Grants: []string{"fixture-reminder"}})
+	if e != nil || skipped.Outcome != "accepted" {
+		t.Fatal(skipped, e)
+	}
+	waitTurn(t, ctx, s, before)
+	quiet := s.Snapshot()
+	if !quiet.Quiet {
+		t.Fatal("silent final was not quiet")
+	}
+	for _, item := range quiet.Items {
+		if item.TurnKey == quiet.CurrentTurn {
+			t.Fatal("silent final appeared in transcript")
+		}
+	}
+	if e = s.RevokeBackground(ctx, "fixture-reminder"); e != nil {
+		t.Fatal(e)
+	}
+	var revoked wire.SessionBackgroundGrant
+	path := "/sessions/" + idPath(sid) + "/background-grants/" + idPath(grant.Id)
+	if e = s.client.json(ctx, "GET", path, nil, &revoked, "", ""); e != nil || !revoked.Revoked || revoked.Id != grant.Id ||
+		revoked.SessionId != sid || revoked.AuthorizationOperationId != authorization {
+		t.Fatal("original native grant was not revoked", e)
+	}
+	r, _ = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-revoked", Text: "CASE_REVOKED", Grants: []string{"fixture-reminder"}})
+	if r.Outcome != "rejected" || len(model.seen("CASE_REVOKED")) != 0 {
+		t.Fatal("revoked grant activated")
+	}
+	t.Log("real legacy grant accepted its original wake once; native revocation read back and further wake rejected")
 }

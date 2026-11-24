@@ -35,6 +35,7 @@ type modelStep struct {
 	BuildArgs func() any
 	Reply     string
 	Name      string
+	CallID    string
 	Args      any
 	Block     <-chan struct{}
 	Entered   chan<- struct{}
@@ -121,8 +122,8 @@ func (m *acceptanceModel) serveCase(w http.ResponseWriter, r *http.Request, key 
 		reply = "ACCEPTANCE_COMPLETE"
 	}
 	id := fmt.Sprintf("fixture-%d", seq)
-	if strings.Contains(string(args), fixtureMCPName()+"__fixture") {
-		id = "provider-reused-id"
+	if step.CallID != "" {
+		id = step.CallID
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	emit := func(v any) { b, _ := json.Marshal(v); fmt.Fprintf(w, "data: %s\n\n", b) }
@@ -1019,48 +1020,7 @@ Use this fixture only when asked about private Notebook skill discovery.
 				t.Fatal("worker inherited resident context")
 			}
 		}
-		before := s.Snapshot().CurrentTurn
-		in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND", Scheduled: true}
-		r, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
-		if e != nil || r.Outcome != "accepted" {
-			t.Fatal(r, e)
-		}
-		waitTurn(t, ctx, s, before)
-		r, e = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: in.ID, Text: in.Text, OriginRequests: in.OriginRequests, Grants: []string{"fixture-reminder"}})
-		if e != nil || r.Outcome != "accepted" || len(model.seen("CASE_BACKGROUND")) != 1 {
-			t.Fatal("background duplicated", e)
-		}
-		for _, item := range s.Snapshot().Items {
-			if item.Kind == "user" && strings.Contains(item.Text, "CASE_BACKGROUND") {
-				t.Fatal("scheduled prompt exposed by canonical feed")
-			}
-		}
-		if !s.Snapshot().Scheduled {
-			t.Fatal("native feed lost scheduled origin")
-		}
-		model.set("CASE_BACKGROUND_SKIP", modelStep{Reply: api.SilentReminder})
-		before = s.Snapshot().CurrentTurn
-		skipped, e := s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Grants: []string{"fixture-reminder"}})
-		if e != nil || skipped.Outcome != "accepted" {
-			t.Fatal(skipped, e)
-		}
-		waitTurn(t, ctx, s, before)
-		quiet := s.Snapshot()
-		if !quiet.Quiet {
-			t.Fatal("silent final was not quiet")
-		}
-		for _, item := range quiet.Items {
-			if item.TurnKey == quiet.CurrentTurn {
-				t.Fatal("silent final appeared in transcript")
-			}
-		}
-		if e = s.RevokeBackground(ctx, "fixture-reminder"); e != nil {
-			t.Fatal(e)
-		}
-		r, _ = s.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemReminder, ID: "wake-revoked", Text: "CASE_REVOKED", Grants: []string{"fixture-reminder"}})
-		if r.Outcome != "rejected" || len(model.seen("CASE_REVOKED")) != 0 {
-			t.Fatal("revoked grant activated")
-		}
+		exerciseRetainedBackgroundGrant(t, ctx, s, model, "case_delegate")
 	}) {
 		return
 	}

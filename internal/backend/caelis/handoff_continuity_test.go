@@ -157,6 +157,29 @@ func TestRenewalKeepsPendingWorkerInteractionsAndOperations(t *testing.T) {
 	}
 }
 
+func TestIdleRenewalRechecksOriginalNativeHeadBeforePublishing(t *testing.T) {
+	var reads atomic.Int32
+	s, creates, call := continuityFixture(t, nil, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/main/state" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		reads.Add(1)
+		writeFixture(w, wire.SessionState{SessionId: "main", Approval: wire.ApprovalState{
+			Active: &wire.ActiveApproval{RequestId: "received-after-cached-idle"},
+		}})
+	})
+	head := s.ConversationState()
+	if !head.Observed || head.Session != call.Session {
+		t.Fatal("fixture has no observed idle resident", head)
+	}
+	if err := s.RenewIdleConversation(t.Context(), "idle-with-late-native-approval", head); !errors.Is(err, api.ErrConversationRenewalRejected) ||
+		creates.Load() != 1 || reads.Load() != 1 || s.ConversationState().Session != call.Session {
+		t.Fatal("late native approval did not retain the original resident", err)
+	}
+}
+
 func TestHandoffResumesOriginalPreparedBindingAfterStartupReadFails(t *testing.T) {
 	s, creates, call := continuityFixture(t, nil)
 	transport := s.client.http.Transport

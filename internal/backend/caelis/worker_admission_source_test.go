@@ -36,7 +36,7 @@ func TestDelegateContinuesAuthorizedWorkFromReportContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	invoke := func(kind, id string) api.ToolResult {
-		ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "caelis", Session: "main", Turn: "turn-" + kind, CallID: kind + ":" + id, CaelisMCP: true})
+		ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "caelis", CallID: kind + ":" + id, CaelisMCP: true})
 		args, _ := json.Marshal(map[string]string{"prompt": "synthetic assignment", "workspace": root})
 		return r.CallTool(ctx, "bot_delegate", args)
 	}
