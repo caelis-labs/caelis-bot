@@ -92,6 +92,12 @@ func (a *Application) repairFeaturesLocked() error {
 
 // RequestReconnectProbe delivers a wake edge only to the current Runtime.
 func (a *Application) RequestReconnectProbe() {
+	a.mu.Lock()
+	resident := a.companion
+	a.mu.Unlock()
+	if resident != nil {
+		resident.RequestTick()
+	}
 	if probe, ok := a.currentEngine().(api.ReconnectProbe); ok {
 		probe.RequestReconnectProbe()
 	}

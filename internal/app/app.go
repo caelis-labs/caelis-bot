@@ -782,6 +782,11 @@ func (a *Application) startRuntime() error {
 		var revision uint64
 		var priorConnection string
 		var priorPluginRecoveryPending bool
+		type admissionState struct {
+			owner, turn, connection, phase, receipt, outcome string
+			canSend                                          bool
+		}
+		var priorAdmission admissionState
 		for {
 			snapshot, err := a.currentEngine().(api.SnapshotObserver).WaitSnapshot(ctx, revision)
 			if ctx.Err() != nil {
@@ -799,6 +804,12 @@ func (a *Application) startRuntime() error {
 				continue
 			}
 			revision = snapshot.Revision
+			admission := admissionState{snapshot.RuntimeOwner, snapshot.CurrentTurn, snapshot.Connection, snapshot.Phase,
+				snapshot.LastReceipt.ID, snapshot.LastReceipt.Outcome, snapshot.CanSend}
+			if admission != priorAdmission {
+				priorAdmission = admission
+				resident.RequestTick()
+			}
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
 			snapshot.Approvals = append(snapshot.Approvals, a.retainedWorkerApprovals()...)
 			a.observeWorkerApprovalNotice(ctx, snapshot)

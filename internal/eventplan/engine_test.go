@@ -80,8 +80,11 @@ func TestCollectFilterWakeArchiveAndOriginalReceipt(t *testing.T) {
 	}
 	wakeID := ""
 	d := noDelivery()
-	d.Ready = true
-	d.Submit = func(_ context.Context, id, text, plan string) (string, error) {
+	d.Ready = func() bool { return true }
+	d.Submit = func(_ context.Context, wake Wake) (string, error) {
+		id := wake.ID
+		text := wake.Text
+		plan := wake.Plan
 		wakeID = id
 		if plan != "watch" || !strings.Contains(text, "23") || !strings.Contains(text, "untrusted data") || !strings.Contains(text, "Organize important mail") {
 			t.Fatal(text)
@@ -95,7 +98,7 @@ func TestCollectFilterWakeArchiveAndOriginalReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(restarted.Close)
-	d.Submit = func(context.Context, string, string, string) (string, error) {
+	d.Submit = func(context.Context, Wake) (string, error) {
 		t.Fatal("replayed wake")
 		return "", nil
 	}
@@ -293,8 +296,8 @@ func TestWakeLimitsDoNotPreventCollectionAndRetirementWaitsForReceipts(t *testin
 	collect(t, e, *now, noDelivery())
 	submitted := 0
 	d := noDelivery()
-	d.Ready = true
-	d.Submit = func(context.Context, string, string, string) (string, error) { submitted++; return "accepted", nil }
+	d.Ready = func() bool { return true }
+	d.Submit = func(context.Context, Wake) (string, error) { submitted++; return "accepted", nil }
 	d.Revoke = func(string) error { t.Fatal("revoked unresolved receipt"); return nil }
 	tick(t, e, *now, d)
 	if submitted != 1 {
@@ -376,9 +379,10 @@ func TestUnknownCollectorGetsOneMaintenanceWakeWithoutReplay(t *testing.T) {
 		t.Fatal(s)
 	}
 	d := noDelivery()
-	d.Ready = true
+	d.Ready = func() bool { return true }
 	wakes := 0
-	d.Submit = func(_ context.Context, _ string, text, _ string) (string, error) {
+	d.Submit = func(_ context.Context, wake Wake) (string, error) {
+		text := wake.Text
 		wakes++
 		if !strings.Contains(text, "maintenance wakeup") || !strings.Contains(text, s.Occurrences[0].ID) {
 			t.Fatal(text)
@@ -431,21 +435,22 @@ func TestDeferredWakeKeepsOriginalOccurrence(t *testing.T) {
 	collect(t, e, p.Next, noDelivery())
 	id := e.Snapshot().Occurrences[0].ID
 	d := noDelivery()
-	d.Ready = true
-	d.Submit = func(context.Context, string, string, string) (string, error) { return "deferred", nil }
+	d.Ready = func() bool { return true }
+	d.Submit = func(context.Context, Wake) (string, error) { return "deferred", nil }
 	tick(t, e, p.Next, d)
 	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || !s.Plans[0].Finished.IsZero() || !s.Plans[0].LastWake.IsZero() || len(s.WakeAttempts) != 0 {
 		t.Fatal(s)
 	}
 	failedPrepare := errors.New("delivery intent could not be saved")
-	d.Submit = func(context.Context, string, string, string) (string, error) { return "deferred", failedPrepare }
+	d.Submit = func(context.Context, Wake) (string, error) { return "deferred", failedPrepare }
 	if err := e.Tick(t.Context(), p.Next, d); !errors.Is(err, failedPrepare) {
 		t.Fatal("lost preparation error", err)
 	}
 	if s := e.Snapshot(); s.Occurrences[0].Status != "pending" || len(s.WakeAttempts) != 0 {
 		t.Fatal("unattempted delivery became uncertain", s)
 	}
-	d.Submit = func(_ context.Context, got, _, _ string) (string, error) {
+	d.Submit = func(_ context.Context, wake Wake) (string, error) {
+		got := wake.ID
 		if got != id {
 			t.Fatal("identity changed")
 		}
@@ -490,8 +495,8 @@ func TestExplicitRejectionWithErrorIsNotUnknown(t *testing.T) {
 	p, _ := e.Save(Plan{ID: "once", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	collect(t, e, p.Next, noDelivery())
 	d := noDelivery()
-	d.Ready = true
-	d.Submit = func(context.Context, string, string, string) (string, error) {
+	d.Ready = func() bool { return true }
+	d.Submit = func(context.Context, Wake) (string, error) {
 		return "rejected", errors.New("revoked")
 	}
 	tick(t, e, p.Next, d)

@@ -93,8 +93,8 @@ func TestNativeCapacityIncludesSharedEventPlansAndUnresolvedCancellation(t *test
 					t.Fatal(err)
 				}
 				d := noDelivery()
-				d.Ready = true
-				d.Submit = func(context.Context, string, string, string) (string, error) { return receipt, nil }
+				d.Ready = func() bool { return true }
+				d.Submit = func(context.Context, Wake) (string, error) { return receipt, nil }
 				tick(t, e, *now, d)
 				if err = e.Remove(p.ID, *now); err != nil {
 					t.Fatal(err)

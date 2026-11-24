@@ -18,6 +18,7 @@ import (
 func (r *Runtime) ConfigureDiagnostics(log *diagnosticlog.Logger) {
 	r.step.Lock()
 	r.diagnostics = log
+	r.reportEventFault()
 	r.step.Unlock()
 	if log != nil && r.deliveryErr != nil {
 		r.deliveryWarning.Do(func() {

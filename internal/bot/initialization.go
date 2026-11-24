@@ -33,6 +33,7 @@ type Initializer struct {
 	step    sync.Mutex
 	path    string
 	state   introductionState
+	wake    func()
 }
 
 func OpenInitializer(path string) (*Initializer, error) {
@@ -125,6 +126,7 @@ func (i *Initializer) Initialize(ctx context.Context, in api.BotIntroduction) (a
 		return i.view(), err
 	}
 	i.state = next
+	i.signal()
 	return i.view(), nil
 }
 func (i *Initializer) GuardRuntimeChange() error {
@@ -196,7 +198,20 @@ func (i *Initializer) Deliver(ctx context.Context, engine Engine, provider strin
 }
 
 // ConfigureInitialization is called by the product host before Start.
-func (r *Runtime) ConfigureInitialization(i *Initializer) { r.initialization = i }
+func (r *Runtime) ConfigureInitialization(i *Initializer) {
+	r.initialization = i
+	if i != nil {
+		i.mu.Lock()
+		i.wake = r.RequestTick
+		i.mu.Unlock()
+	}
+}
+
+func (i *Initializer) signal() {
+	if i.wake != nil {
+		i.wake()
+	}
+}
 
 // Retry only a definite rejection, with a fresh transport id. An unknown result
 // is never retried through this API and retains its original reconciliation id.
@@ -217,5 +232,6 @@ func (i *Initializer) RetryInitialization(ctx context.Context) (api.BotInitializ
 		return i.view(), err
 	}
 	i.state = next
+	i.signal()
 	return i.view(), nil
 }

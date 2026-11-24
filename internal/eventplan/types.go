@@ -87,10 +87,14 @@ type State struct {
 // Runner executes the exact reviewed, pinned collector. It must be cancellable,
 // bounded, and must not silently retry a call with uncertain effects.
 type Runner func(context.Context, Event) (json.RawMessage, error)
+type Wake struct {
+	ID, Text, Plan, Grant string
+	OriginRequests        []string
+}
 type Delivery struct {
 	Revoke   func(string) error
-	Ready    bool
-	Submit   func(context.Context, string, string, string) (string, error)
+	Ready    func() bool
+	Submit   func(context.Context, Wake) (string, error)
 	Receipt  func(string) string
 	Complete func(string) bool
 }

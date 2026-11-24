@@ -31,6 +31,7 @@ type Engine struct {
 	write      func(string, any) error
 	runner     Runner
 	results    chan completion
+	changes    chan struct{}
 	running    string
 	cancel     context.CancelFunc
 	stopped    bool
@@ -40,9 +41,10 @@ type Engine struct {
 }
 
 func Open(path string, run Runner, now time.Time) (*Engine, error) {
-	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
+	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), changes: make(chan struct{}, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
 	var interrupted []Occurrence
 	raw, err := os.ReadFile(path)
+	changed := errors.Is(err, os.ErrNotExist)
 	if err == nil {
 		if len(raw) > 16<<20 || json.Unmarshal(raw, &e.state) != nil || e.state.Version != 1 {
 			return nil, errors.New("event arrangements unavailable; preserve saved state")
@@ -53,9 +55,11 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 				o.Status = "unknown"
 				o.Issue = "collection_unconfirmed"
 				interrupted = append(interrupted, *o)
+				changed = true
 			}
 			if o.Status == "dispatching" {
 				o.Status = "unknown_wake"
+				changed = true
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -120,18 +124,40 @@ func Open(path string, run Runner, now time.Time) (*Engine, error) {
 			e.attention(o, now)
 		}
 	}
-	e.cleanup(now)
-	if err = e.persist(); err != nil {
-		return nil, err
+	if e.cleanup(now) || changed {
+		if err = e.persist(); err != nil {
+			return nil, err
+		}
 	}
 	return e, nil
 }
 func (e *Engine) persist() error {
 	if err := e.write(e.path, e.state); err != nil {
-		e.fault = err
+		if e.fault == nil {
+			e.fault = err
+			e.signal()
+		}
 		return err
 	}
 	return nil
+}
+func (e *Engine) saveChanges() error {
+	defer e.signal()
+	return e.persist()
+}
+func (e *Engine) signal() {
+	select {
+	case e.changes <- struct{}{}:
+	default:
+	}
+}
+
+func (e *Engine) Changes() <-chan struct{} { return e.changes }
+
+func (e *Engine) StorageFault() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.fault
 }
 func (e *Engine) usable() error {
 	if e.stopped {
@@ -183,9 +209,13 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 	if err := e.usable(); err != nil {
 		return Event{}, err
 	}
-	e.cleanup(now)
 	if err := validateEvent(v); err != nil {
 		return Event{}, err
+	}
+	if e.cleanup(now) {
+		if err := e.saveChanges(); err != nil {
+			return Event{}, err
+		}
 	}
 	for _, old := range e.state.Events {
 		if old.ID == v.ID {
@@ -211,7 +241,7 @@ func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Ev
 	v.Created = now
 	v.LastUsed = now
 	e.state.Events = append(e.state.Events, clone(v))
-	return v, e.persist()
+	return v, e.saveChanges()
 }
 func activeEvents(s State) int {
 	n := 0
@@ -348,7 +378,11 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 	if err := e.usable(); err != nil {
 		return p, err
 	}
-	e.cleanup(now)
+	if e.cleanup(now) {
+		if err := e.saveChanges(); err != nil {
+			return p, err
+		}
+	}
 	// Identical retries preserve relative deadlines, even after one-shot completion.
 	for _, old := range e.state.Plans {
 		if old.ID == p.ID {
@@ -400,7 +434,7 @@ func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, e
 			e.state.Events[i].LastUsed = now
 		}
 	}
-	return p, e.persist()
+	return p, e.saveChanges()
 }
 
 // Count arrangements, not their reusable definitions. Cancellation does not
@@ -446,7 +480,7 @@ func (e *Engine) Remove(id string, now time.Time) error {
 			o.Finished = now
 		}
 	}
-	return e.persist()
+	return e.saveChanges()
 }
 func (e *Engine) ArchiveEvent(id string, now time.Time) error {
 	e.mu.Lock()
@@ -463,7 +497,7 @@ func (e *Engine) ArchiveEvent(id string, now time.Time) error {
 		v := &e.state.Events[i]
 		if v.ID == id {
 			v.Archived = now
-			return e.persist()
+			return e.saveChanges()
 		}
 	}
 	return errors.New("event not found")

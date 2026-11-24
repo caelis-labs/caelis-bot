@@ -57,8 +57,9 @@ func TestLegacyMigrationAtomicIdempotentAndReadOnly(t *testing.T) {
 	}
 	count := 0
 	d := noDelivery()
-	d.Ready = true
-	d.Submit = func(_ context.Context, id, text, plan string) (string, error) {
+	d.Ready = func() bool { return true }
+	d.Submit = func(_ context.Context, wake Wake) (string, error) {
+		id := wake.ID
 		count++
 		if id != "original-activation" {
 			t.Fatal("new identity", id)
@@ -85,8 +86,8 @@ func TestLegacyUnknownAndInterruptedNeverReplay(t *testing.T) {
 			}
 			defer restored.Close()
 			d := noDelivery()
-			d.Ready = true
-			d.Submit = func(context.Context, string, string, string) (string, error) {
+			d.Ready = func() bool { return true }
+			d.Submit = func(context.Context, Wake) (string, error) {
 				t.Fatal("uncertain operation replayed")
 				return "", nil
 			}
@@ -191,18 +192,20 @@ func TestNativeUsesUnifiedBusyBudgetAndConditions(t *testing.T) {
 	at := now.Add(2 * time.Minute)
 	d := noDelivery()
 	count := 0
-	d.Submit = func(context.Context, string, string, string) (string, error) { count++; return "deferred", nil }
+	d.Submit = func(context.Context, Wake) (string, error) { count++; return "deferred", nil }
 	tick(t, e, at, d)
 	if count != 0 {
 		t.Fatal("busy dispatched")
 	}
-	d.Ready = true
+	d.Ready = func() bool { return true }
 	tick(t, e, at, d)
 	if len(e.Snapshot().WakeAttempts) != 0 || !e.Snapshot().Plans[0].LastWake.IsZero() {
 		t.Fatal("deferred consumed quota")
 	}
 	id := s.Occurrences[2].ID
-	d.Submit = func(_ context.Context, got, _, plan string) (string, error) {
+	d.Submit = func(_ context.Context, wake Wake) (string, error) {
+		got := wake.ID
+		plan := wake.Plan
 		count++
 		if got != id || plan != p.ID {
 			t.Fatal("identity changed")

@@ -311,34 +311,16 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return err
 		}
 	}
-	origins := map[string][]string{}
-	grants := map[string]string{}
-	occOrigins := map[string][]string{}
-	state := r.events.Snapshot()
-	for _, p := range state.Plans {
-		origins[p.ID] = p.OriginRequests
-		grants[p.ID] = p.Authorization()
-	}
-	for _, o := range state.Occurrences {
-		if o.OriginRequests != nil {
-			occOrigins[o.ID] = o.OriginRequests
-		}
-	}
-	ready := r.engine.Snapshot().CanSend
-	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: ready,
+	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: func() bool { return r.engine.Snapshot().CanSend },
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				return b.RevokeBackground(ctx, id)
 			}
 			return nil
 		},
-		Submit: func(ctx context.Context, id, text, plan string) (string, error) {
-			source := origins[plan]
-			if original, ok := occOrigins[id]; ok {
-				source = original
-			}
-			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: id, Text: text, Source: api.SystemCallback, OriginRequests: source, Grants: []string{grants[plan]}})
-			if receipt.ID != id {
+		Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}})
+			if receipt.ID != wake.ID {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
 			if receipt.Outcome == "rejected" && receipt.Deferred {
