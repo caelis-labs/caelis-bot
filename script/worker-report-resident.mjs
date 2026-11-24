@@ -14,6 +14,11 @@ const out = resolve('.cache/worker-report-resident');
 await mkdir(out, { recursive: true, mode: 0o700 });
 const root = await realpath(await mkdtemp('/tmp/bot-report-'));
 const evidencePath = join(out, basename(root) + '.json');
+const probe = join(root, 'version-probe');
+await mkdir(probe, { mode: 0o700 });
+const isolatedEnv = (home, profile) => ({
+  PATH: process.env.PATH, HOME: home, CODEX_HOME: profile, CODEX_BIN: codex, TMPDIR: root, LANG: 'en_US.UTF-8',
+});
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const key = (...parts) => sha(parts.join('\0')).slice(0, 32);
 const readJSON = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -25,7 +30,7 @@ const evidence = {
   platform: process.platform,
   arch: process.arch,
   botSHA256: sha(await readFile(bot)),
-  codex: execFileSync(codex, ['--version'], { encoding: 'utf8' }).trim(),
+  codex: execFileSync(codex, ['--version'], { cwd: probe, env: isolatedEnv(probe, probe), encoding: 'utf8' }).trim(),
   cases: {},
 };
 
@@ -135,7 +140,7 @@ async function scenario(mode) {
   });
   const original = await stat(ledger);
   const child = spawn(bot, ['serve', '--data-dir', directory, '--listen', '127.0.0.1:0'], {
-    cwd: directory, env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: profile, CODEX_BIN: codex, TMPDIR: root, LANG: 'en_US.UTF-8' },
+    cwd: directory, env: isolatedEnv(home, profile),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
