@@ -1,10 +1,9 @@
 import { ColorManagement, DirectionalLight, Group, HemisphereLight, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, NeutralToneMapping, NoToneMapping, PCFShadowMap, SRGBColorSpace, type Material, type Object3D, type Scene, type WebGLRenderer } from 'three';
 
 /** Asset-scoped profiles keep the original handoff and reviewed Blender source distinct. */
-export function characterProfile(renderer:WebGLRenderer,scene:Scene,root:Object3D) {
+export function characterProfile(renderer:WebGLRenderer,scene:Scene,root:Object3D,reference:boolean) {
  // Blender Standard / exposure 0 → linear lighting followed by sRGB output.
  // Broad area lights are approximated with a neutral fill and three bounded lights.
- const reference=root.userData.desktopPetProfile==='reference-v1';
  ColorManagement.enabled=true;
  renderer.outputColorSpace=SRGBColorSpace;renderer.toneMapping=reference?NoToneMapping:NeutralToneMapping;renderer.toneMappingExposure=reference?1:1.15;
  renderer.shadowMap.enabled=true;renderer.shadowMap.type=PCFShadowMap;renderer.shadowMap.autoUpdate=false;

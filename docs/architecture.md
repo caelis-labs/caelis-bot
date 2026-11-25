@@ -377,7 +377,9 @@ geometry, capture and permissions. Native coordinates use primary-display bottom
 Y up; saved scale is independent of pixels/DPI. Three.js owns model/mixer/local poses
 and GPU disposal; chat portraits use finished sprite atlases. Character contracts and
 provenance live in [content packs](content-packs.md), independently of conversation/task
-identity. Context records source/freshness/unknown fields; foreground is not task binding.
+identity. The shared pet passes activity, touch, gestures and pointer context to the
+selected presentation. Each model owns its mixer and pose layers. On replacement,
+the old layers release props and animation state. Context records source/freshness/unknown fields; foreground is not task binding.
 Local idle/attention and independent bounded pass-through props use no idle model.
 User input and pending decisions preempt decoration; hide/Space/disposal reclaims props.
 

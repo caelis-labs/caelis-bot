@@ -3,7 +3,7 @@
 角色、完整服装变体和头像是独立的数据内容，不携带执行代码，不改变 Bot 的长期身份、
 对话、任务、Runtime 或权限。默认角色身份与对话身份分离；切换角色或服装不创建新助手。
 
-当前有两份独立合同：用户导入的 `.caelispack` v1，以及随应用交付的内置成品合同 v1/v2/v3/v4。
+当前有两份独立合同：用户导入的 `.caelispack` v1，以及随应用交付的内置成品合同 v1/v2/v3/v4/v5。
 内置增强表现不等于社区能力；不能把内置 metadata、SVG 或头像图集直接加入社区包。
 
 ## 仓库、授权与成品边界
@@ -119,7 +119,7 @@ GOWORK=off go build -o .cache/content-pack ./cmd/content-pack
 二创须保留原授权与署名、说明修改并使用自己的包 ID；不要冒充原作者更新。
 发行时附版本、作者、许可证和预览；创作者 CI 应锁定已验收的应用提交来构建验证工具。
 
-## 内置成品合同 v1 / v2 / v3 / v4
+## 内置成品合同 v1 / v2 / v3 / v4 / v5
 
 [resources/character-pack.json](../resources/character-pack.json) 记录成品版本、默认角色/变体、
 逐文件 SHA-256 和许可证。`character.id` 与 `variant.id` 分离，每个变体交付完整 GLB。
@@ -133,14 +133,19 @@ GOWORK=off go build -o .cache/content-pack ./cmd/content-pack
 | v3 | 在相同基础上为变体增加可选 `portrait`（`version: 1`），交付 PNG 中性头像及静态 WebP 帧图集 |
 | v4 | 从同一清单列出内置角色与服装，支持带版本、静态 PNG 头像和署名文件的 `basic-3d-v1` 变体 |
 
-首次启动默认使用 Caelis。在 **设置 → 外观 → 角色选择** 中可以直接切换鲸鱼娘 1.26，
-聊天头像随角色切换，重启保留选择。Caelis 使用增强骨骼表现和动态头像，鲸鱼娘播放
-五组作者动画并使用自己的 PNG 头像。内置资源随应用升级；用户安装的外部版本仍可独立选择与移除。
+| v5 | 变体声明 `presentation` 动作映射，角色可用 `hidden: true` 暂停生产选择 |
 
-内置 GLB 使用 Y 向上、正面 +Z、脚底原点和五个原地 clips：
-`idle / working / attention / nod / celebrate`。脸部形变、手指、近身手势、视角修正和拖动跑步
-依赖 [角色渲染器](../frontend/src/character/pet.ts) 消费的骨骼和 metadata，不是通用 GLB 自动能力。
-修改这些语义需同时审查公开运行时和资产合同。纸飞机是独立可选道具，不是所有角色的共同能力。
+首次启动默认使用 Caelis。鲸鱼娘 1.26 的模型、头像、署名和动作随包保留，当前在生产目录隐藏。
+请求隐藏角色或读取包含该角色的旧选择时，桌宠和头像一起回退默认形象。旧选择文件在启动时
+保留原样。恢复生产选择只需移除清单对应角色的 `hidden`。开发时可运行 `make dev`，
+打开 `/character-preview-test.html` 检查内置角色和静态回退模型的实际 WebGL 预览与释放。
+
+`presentation.idle` 由一个或多个待机片段组成，首个片段提供静态预览的起始帧。多个候选在
+循环边界随机切换，并排除当前片段。`activities` 可配置工作、等待和休眠循环。
+`feedback` 可配置触碰、进入等待、注视、点头和庆祝的单次反馈，结束后恢复最新活动。
+鲸鱼娘用现有片段表达工作、等待和触碰，可用 `turn` 配置指针和拖动转向的上限（弧度）。
+Caelis 通过 `desktop-pet-v1` 保留现有的手脸、近身动作、视角修正和拖动跑步；纸飞机仍为
+该表现层的独立可选道具。社区包继续使用 v1 片段约定及静态回退。
 
 v2 SVG 使用 `layered-2d-v1` 的 128×128 画布：`head` 绕 (64,90) 转动，
 `eye-left` / `eye-right` 绕 (43,83) / (86,83) 闭眼，`look-left` / `look-right` 接收局部视线偏移。

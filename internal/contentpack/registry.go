@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,7 +26,6 @@ type Appearance struct {
 	Selection Selection `json:"selection"`
 	Model     string    `json:"model"`
 	Avatar    string    `json:"avatar"`
-	Basic     bool      `json:"basic"`
 	Key       string    `json:"key"`
 }
 type Choice struct {
@@ -120,7 +118,7 @@ func NewRegistry(root string) (*Registry, error) {
 	if b, e := readRegular(filepath.Join(root, "selection.json"), 4096); e == nil {
 		var s Selection
 		if StrictJSON(b, &s) == nil {
-			r.selection = s
+			r.selection = resolveBuiltinSelection(s)
 		}
 	}
 	if !r.validSelection(r.selection) {
@@ -136,7 +134,9 @@ func assetURL(e entry, p string) string     { return "/content/" + e.Digest + "/
 func (r *Registry) choices() (map[string]figure, map[string]string) {
 	chars := make(map[string]figure, len(builtinFigures)+len(r.entries))
 	for _, builtin := range builtinFigures {
-		chars[builtin.choice.ID] = builtin.figure
+		if !builtin.hidden {
+			chars[builtin.choice.ID] = builtin.figure
+		}
 	}
 	avatars := map[string]string{"follow": "", "builtin:avatar": ""}
 	for key, e := range r.entries {
@@ -148,7 +148,7 @@ func (r *Registry) choices() (map[string]figure, map[string]string) {
 		}
 		for _, c := range e.Manifest.Characters {
 			for _, v := range c.Variants {
-				chars[characterKey(key, c.ID, v.ID)] = figure{assetURL(e, v.Model), local[v.Avatar], true}
+				chars[characterKey(key, c.ID, v.ID)] = figure{assetURL(e, v.Model), local[v.Avatar]}
 			}
 		}
 	}
@@ -160,17 +160,21 @@ func (r *Registry) validSelection(s Selection) bool {
 	_, a := avatars[s.Avatar]
 	return c && a
 }
-func (r *Registry) snapshot() State {
+func (r *Registry) snapshot() State { return r.snapshotWithSelection(r.selection) }
+
+func (r *Registry) snapshotWithSelection(selection Selection) State {
 	chars, avatars := r.choices()
-	selected := chars[r.selection.Character]
+	selected := chars[selection.Character]
 	avatar := selected.avatar
-	if r.selection.Avatar != "follow" {
-		avatar = avatars[r.selection.Avatar]
+	if selection.Avatar != "follow" {
+		avatar = avatars[selection.Avatar]
 	}
 
-	s := State{Appearance: Appearance{r.revision, r.selection, selected.model, avatar, selected.basic, r.selection.Character}, Avatars: []Choice{{"follow", "跟随角色", "", ""}, {"builtin:avatar", "Caelis Bot", "", "内置"}}, Packs: []Installed{}, Notice: r.notice}
+	s := State{Appearance: Appearance{r.revision, selection, selected.model, avatar, selection.Character}, Avatars: []Choice{{"follow", "跟随角色", "", ""}, {"builtin:avatar", "Caelis Bot", "", "内置"}}, Packs: []Installed{}, Notice: r.notice}
 	for _, builtin := range builtinFigures {
-		s.Characters = append(s.Characters, builtin.choice)
+		if !builtin.hidden {
+			s.Characters = append(s.Characters, builtin.choice)
+		}
 	}
 	keys := make([]string, 0, len(r.entries))
 	for key := range r.entries {
@@ -193,9 +197,7 @@ func (r *Registry) snapshot() State {
 	}
 	return s
 }
-func (r *Registry) State() State {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *Registry) retryStorage() {
 	if r.loadErr != nil && time.Now().After(r.retryAt) {
 		r.retryAt = time.Now().Add(5 * time.Second)
 		if restored, err := NewRegistry(r.root); err == nil {
@@ -204,6 +206,11 @@ func (r *Registry) State() State {
 			r.revision++
 		}
 	}
+}
+func (r *Registry) State() State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.retryStorage()
 	return r.snapshot()
 }
 func (r *Registry) read(e entry) (*Pack, error) {
@@ -230,6 +237,7 @@ func (r *Registry) read(e entry) (*Pack, error) {
 	return p, err
 }
 func (r *Registry) Select(s Selection) (State, error) {
+	s = resolveBuiltinSelection(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.validSelection(s) {
@@ -440,21 +448,10 @@ func WriteArchive(name string, b []byte) error {
 // BotState projects the current product choices without rewriting legacy stored
 // selections. The registry still supports all content-pack capabilities.
 func (r *Registry) BotState() State {
-	r.State() // Retry unavailable storage through the normal read path.
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	state := r.snapshot()
-	character := r.selection.Character
-	if character == "builtin:stick" {
-		character = "builtin:caelis"
-	}
-	chars, _ := r.choices()
-	chosen := chars[character]
-	state.Appearance.Selection = Selection{Character: character, Avatar: "follow"}
-	state.Appearance.Model = chosen.model
-	state.Appearance.Avatar = chosen.avatar
-	state.Appearance.Basic = chosen.basic
-	state.Appearance.Key = character
-	state.Characters = slices.DeleteFunc(state.Characters, func(c Choice) bool { return c.ID == "builtin:stick" })
-	return state
+	r.retryStorage()
+	selection := r.selection
+	selection.Avatar = "follow"
+	return r.snapshotWithSelection(selection)
 }

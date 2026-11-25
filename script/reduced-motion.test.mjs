@@ -8,19 +8,20 @@ import {observeStatusMotion} from '../frontend/src/status-motion.ts';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {CharacterAnimation}=await server.ssrLoadModule('/src/character/animation.ts');
+const {legacyClips}=await server.ssrLoadModule('/src/character/assets.ts');
 
 test('reduced pet keeps bounded slow idle and rejects full gestures, then restores activity live',()=>{
  const root=new Object3D();
  const clips=['idle','working','attention','nod','celebrate'].map(name=>new AnimationClip(name,2,[new NumberKeyframeTrack('.position[x]',[0,1,2],[2,3,2])]));
- const player=new CharacterAnimation(root,clips);
+ const player=new CharacterAnimation(root,clips,legacyClips,{quietIdle:true});
  player.setActivity('working');player.setReducedMotion(true);
- player.gesture('celebrate');assert.equal(player.clip,'idle');
+ player.react('celebrate');assert.equal(player.clip,'idle');
  assert.equal(root.position.x,2,'reduced idle must preserve the authored neutral pose, not the bind pose');
  player.update(1);assert.ok(root.position.x>2&&root.position.x<=2.18,'idle must move with reduced amplitude');
  const first=root.position.x;player.update(.5);assert.notEqual(root.position.x,first);
  player.setActivity('waiting');assert.equal(player.clip,'idle');
  player.setActivity('working');player.setReducedMotion(false);assert.equal(player.clip,'working');
- player.gesture('celebrate');assert.equal(player.clip,'celebrate');player.dispose();
+ player.react('celebrate');assert.equal(player.clip,'celebrate');player.dispose();
 });
 
 function clock(){

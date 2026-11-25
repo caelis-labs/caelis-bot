@@ -44,4 +44,4 @@ make run
 
 ## License
 
-Code: [Apache-2.0](LICENSE). Switch between Caelis and Whale Girl in **Settings → Appearance**. [Caelis character and branding license](ASSET-LICENSE.md) · [Whale Girl attribution and CC BY-NC-SA 4.0](art/whale-girl/LICENSE.md) · [Character studio](art/README.md). Desktop World and other dependencies retain their own licenses and bundled notices.
+Code: [Apache-2.0](LICENSE). [Caelis character and branding license](ASSET-LICENSE.md) · [Whale Girl attribution and CC BY-NC-SA 4.0](art/whale-girl/LICENSE.md) · [Character studio](art/README.md). Desktop World and other dependencies retain their own licenses and bundled notices.

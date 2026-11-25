@@ -6,6 +6,7 @@ import {createRoot} from 'react-dom/client';
 import {flushSync} from 'react-dom';
 import {CharacterPreview} from '../CharacterPreview';
 import type {Appearance} from '../appearance';
+import {defaultCharacterKey,fallbackCharacter} from './assets';
 import '../style.css';
 
 const contexts=new Map<HTMLCanvasElement,WebGLRenderingContext|WebGL2RenderingContext>();
@@ -15,7 +16,12 @@ HTMLCanvasElement.prototype.getContext=function(this:HTMLCanvasElement,id:string
  if(/^webgl2?$/.test(id)&&gl&&'readPixels' in gl)contexts.set(this,gl);
  return gl;
 } as typeof getContext;
-const appearance=(basic:boolean):Appearance=>({revision:0,selection:{character:basic?'builtin:stick':'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic,key:basic?'builtin:stick':'builtin:caelis'});
+const previews=[
+ {name:'Caelis',key:defaultCharacterKey,model:''},
+ {name:'Stick',key:'fixture:stick',model:fallbackCharacter.url},
+ {name:'Whale Girl',key:'builtin:whale-girl/maid',model:''},
+];
+const appearance=({key,model}:typeof previews[number]):Appearance=>({revision:0,selection:{character:key,avatar:'follow'},model,avatar:'',key});
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 const assert=(value:unknown,message:string)=>{if(!value)throw new Error(message);};
 async function pixels() {
@@ -39,7 +45,7 @@ async function pixels() {
  throw new Error('Timed out waiting for a rendered preview');
 }
 function Regression(){
- const [model,setModel]=useState(false),[mounted,setMounted]=useState(false),[strict,setStrict]=useState(false),[busy,setBusy]=useState(false),[result,setResult]=useState('Not run');
+ const [model,setModel]=useState(previews[0]),[mounted,setMounted]=useState(false),[strict,setStrict]=useState(false),[busy,setBusy]=useState(false),[result,setResult]=useState('Not run');
  const [steps,setSteps]=useState<string[]>([]);
  const run=async()=>{
   setBusy(true);setResult('Running');setSteps([]);
@@ -47,15 +53,16 @@ function Regression(){
    for(const strictMode of [false,true]){
     flushSync(()=>{setMounted(false);setStrict(strictMode);});
     const frames:{canvas:HTMLCanvasElement;visible:number;hash:number}[]=[];
-    for(const basic of [false,true,false]){
-     flushSync(()=>{setModel(basic);setMounted(true);});
+    for(const model of [...previews,previews[0]]){
+     flushSync(()=>{setModel(model);setMounted(true);});
      const rendered=await pixels();frames.push(rendered);
      assert([...contexts].filter(([node])=>node.isConnected).length===1,'Multiple active preview canvases');
      if(frames.length>1){const previous=frames.at(-2)!;assert(contexts.get(previous.canvas)!.isContextLost(),'Previous preview context was not released');}
-     setSteps(old=>[...old,`${strictMode?'StrictMode':'Normal'} / ${basic?'Stick':'Caelis'}: ${rendered.visible} visible pixels, hash ${rendered.hash}`]);
+     setSteps(old=>[...old,`${strictMode?'StrictMode':'Normal'} / ${model.name}: ${rendered.visible} visible pixels, hash ${rendered.hash}`]);
     }
     assert(frames[0].hash!==frames[1].hash,'Changing the model did not change the rendered pixels');
-    assert(frames[0].hash===frames[2].hash,'Returning to Caelis did not restore the rendered frame');
+    assert(frames[0].hash!==frames[2].hash,'Whale Girl should render its own model');
+    assert(frames[0].hash===frames[3].hash,'Returning to Caelis did not restore the rendered frame');
     flushSync(()=>setMounted(false));await frame();
     assert([...contexts.values()].every(gl=>gl.isContextLost()),'Unmount left a live preview context');
     setSteps(old=>[...old,`${strictMode?'StrictMode':'Normal'} / unmount: all contexts released`]);
@@ -64,6 +71,6 @@ function Regression(){
   }catch(error){setResult(`FAIL: ${String(error)}`);}finally{setBusy(false);}
  };
  const preview=mounted?<CharacterPreview appearance={appearance(model)}/>:null;
- return <main style={{maxWidth:760,margin:'30px auto',padding:24}}><h1>Character preview lifecycle regression</h1><p>Real WebGL: Caelis → Stick → Caelis, then unmount; repeated in StrictMode.</p><button disabled={busy} onClick={()=>void run()}>Run regression</button><h2 role="status">{result}</h2><ol>{steps.map((step,i)=><li key={i}>{step}</li>)}</ol>{strict?<StrictMode>{preview}</StrictMode>:preview}</main>;
+ return <main style={{maxWidth:760,margin:'30px auto',padding:24}}><h1>Character preview lifecycle regression</h1><p>Real WebGL: Caelis → Stick → Whale Girl → Caelis, then unmount; repeated in StrictMode.</p><button disabled={busy} onClick={()=>void run()}>Run regression</button><h2 role="status">{result}</h2><ol>{steps.map((step,i)=><li key={i}>{step}</li>)}</ol>{strict?<StrictMode>{preview}</StrictMode>:preview}</main>;
 }
 createRoot(document.getElementById('root')!).render(<Regression/>);
