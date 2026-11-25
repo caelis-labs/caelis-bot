@@ -1,7 +1,7 @@
 // Actual production History/Markdown in a native WKWebView, synthetic data only.
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
-@interface ChatPreview:NSObject<NSApplicationDelegate,NSWindowDelegate>
+@interface ChatPreview:NSObject<NSApplicationDelegate,NSWindowDelegate,WKScriptMessageHandler>
 @property NSWindow *window;
 @property WKWebView *web;
 @property NSString *url;
@@ -12,16 +12,19 @@
 @implementation ChatPreview
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
  BOOL question=[[NSURL URLWithString:self.url].query containsString:@"fixture=question-lifecycle"];
+ BOOL a2ui=[[NSURL URLWithString:self.url].query containsString:@"fixture=a2ui"];
  CGFloat width=760,height=672;
  for(NSURLQueryItem *item in [NSURLComponents componentsWithString:self.url].queryItems){if([item.name isEqual:@"width"])width=MAX(300,item.value.doubleValue);if([item.name isEqual:@"height"])height=MAX(400,item.value.doubleValue);}
- self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(240,100,width,height+(question?0:152)) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
+ self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(240,100,width,height+(question||a2ui?0:152)) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
  self.window.title=question?@"Caelis Bot Dev — 问题验收":@"Caelis Chat Preview — 聊天流式验收";self.window.delegate=self;self.window.releasedWhenClosed=NO;
  self.window.appearance=[NSAppearance appearanceNamed:self.dark?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];
- self.web=[[WKWebView alloc] initWithFrame:NSMakeRect(0,0,width,height)];self.web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
+ WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];
+ if(a2ui)[configuration.userContentController addScriptMessageHandler:self name:@"historyLifecycle"];
+ self.web=[[WKWebView alloc] initWithFrame:NSMakeRect(0,0,width,height) configuration:configuration];self.web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
  self.web.appearance=self.window.appearance;
  [self.window.contentView addSubview:self.web];
   NSArray *names=@[@"短段流式",@"大块流式",@"一次完成",@"完成前大块",@"重开聊天",@"保存截图",@"打瞌睡",@"醒来",@"打盹审批",@"桌宠打盹",@"返回聊天",@"气泡打盹",@"思考动作",@"查找动作",@"读取动作",@"流式与工具",@"完成动作",@"头像回归",@"发送回归",@"图片预览"];
-  for(NSUInteger i=0;!question&&i<names.count;i++){
+  for(NSUInteger i=0;!question&&!a2ui&&i<names.count;i++){
    NSButton *button=[NSButton buttonWithTitle:names[i] target:self action:@selector(select:)];button.tag=i;
    button.frame=NSMakeRect(12+(i%6)*122,682+(i/6)*34,116,28);button.autoresizingMask=NSViewMinYMargin;[self.window.contentView addSubview:button];
   }
@@ -36,7 +39,21 @@
  }
  [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.url]]];
  [self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
- if(self.autoCapture)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(3.0*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self capture];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.7*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[NSApp terminate:nil];});});
+ if(self.autoCapture)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((a2ui?10.0:3.0)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self capture];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.7*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[NSApp terminate:nil];});});
+}
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+ if(![message.name isEqual:@"historyLifecycle"]||![message.body isEqual:@"hide-and-reopen"])return;
+ [self.web evaluateJavaScript:@"window.dispatchEvent(new Event('history-close'))" completionHandler:nil];
+ [self.window orderOut:nil];
+ BOOL hidden=!self.window.isVisible;
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+  [self.web evaluateJavaScript:@"!!document.querySelector('[data-message-id=chat-a2ui-fixture]') && !document.querySelector('.chat-a2ui-surface')" completionHandler:^(id released,NSError *error){
+   [self.window makeKeyAndOrderFront:nil];
+   NSString *script=[NSString stringWithFormat:@"window.fixtureVisibility={hidden:%@,visible:%@,released:%@};window.dispatchEvent(new Event('history-open'))",
+    hidden?@"true":@"false",self.window.isVisible?@"true":@"false",!error&&[released boolValue]?@"true":@"false"];
+   [self.web evaluateJavaScript:script completionHandler:nil];
+  }];
+ });
 }
 - (void)reviewCase:(NSMenuItem*)item { NSString *key=item.keyEquivalent;
  if([key isEqual:@"n"]||[key isEqual:@"w"]){[self.window setContentSize:NSMakeSize([key isEqual:@"n"]?390:760,680)];return;}

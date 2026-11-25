@@ -776,3 +776,29 @@ func TestDeliveryLegacyPendingFinalWaitsForSharedIMBeforeRecovery(t *testing.T) 
 		t.Fatal("recovered final repeated")
 	}
 }
+
+func TestAssistantDesktopBlocksNeverReachWeixinSend(t *testing.T) {
+	f := newDeliveryFixture(t)
+	const block = "<a2ui>\nroot = Text(\"desktop only\")\n</a2ui>"
+	const example = "```text\n<a2ui>\nroot = Text(\"literal example\")\n</a2ui>\n```"
+	f.add("stream", "Readable\n\n<a2ui>\nroot = Text(", resultPriority)
+	f.snapshot.Items[0].Status = "inProgress"
+	f.poll()
+	if got := f.sent(); len(got) != 0 {
+		t.Fatalf("unfinished reply was sent: %q", got)
+	}
+
+	final := "Readable\n\n" + block + "\n\n" + example
+	f.snapshot.Items[0].Text, f.snapshot.Items[0].Status = final, "completed"
+	f.add("history", block, resultPriority)
+	f.poll()
+	f.poll()
+	got := strings.Join(f.sent(), "\n")
+	if !strings.Contains(got, "Readable") || strings.Contains(got, "desktop only") ||
+		!strings.Contains(got, "literal example") || strings.Count(got, desktopReplyHint) != 1 {
+		t.Fatalf("unexpected HTTP send bodies: %q", got)
+	}
+	if f.snapshot.Items[0].Text != final || f.snapshot.Items[1].Text != block {
+		t.Fatal("send changed stored source")
+	}
+}

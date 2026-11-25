@@ -78,7 +78,7 @@ func TestInstallProjectsReviewedPluginCatalog(t *testing.T) {
 
 func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	root := t.TempDir()
-	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "custom-guide"} {
+	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "chat-a2ui", "custom-guide"} {
 		legacy := filepath.Join(root, "app-skills", name)
 		if err := os.MkdirAll(legacy, 0700); err != nil {
 			t.Fatal(err)
@@ -96,8 +96,11 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 			t.Fatalf("old system skill retained: %s: %v", old, err)
 		}
 	}
-	if _, err := os.ReadFile(filepath.Join(root, "app-skills", "custom-guide", "SKILL.md")); err != nil {
-		t.Fatal("custom skill changed", err)
+	for _, name := range []string{"custom-guide", "chat-a2ui"} {
+		body, err := os.ReadFile(filepath.Join(root, "app-skills", name, "SKILL.md"))
+		if err != nil || string(body) != "old or user content" {
+			t.Fatalf("custom skill %s changed: %v", name, err)
+		}
 	}
 	body, err := os.ReadFile(p)
 	if err != nil {
@@ -108,6 +111,9 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		t.Fatal("invalid bundled metadata")
 	}
 	catalog := Instructions(p)
+	if !strings.Contains(string(body), "(references/a2ui-chat.md)") || strings.Contains(catalog, "Desktop chat presentation") {
+		t.Fatal("desktop presentation must be available through on-demand bot-core routing")
+	}
 	_, skillBody, hasBody := strings.Cut(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n---\n")
 	if strings.Contains(catalog, "bot-dream") {
 		t.Fatal("retired maintenance skill remained in catalog")

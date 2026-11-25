@@ -24,6 +24,9 @@ func (b *Bridge) observeDelivery(s api.Snapshot) {
 	}
 	b.rotateDeliveriesLocked()
 	for _, item := range s.Items {
+		if item.Kind == "assistant" {
+			item.Text = readableReply(item)
+		}
 		if item.ID == "" || item.Kind != "assistant" && item.Kind != "tool" {
 			continue
 		}

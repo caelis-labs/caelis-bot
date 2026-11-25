@@ -9,6 +9,7 @@ try {
   Invoke-BotCommand node script/check-caelis-protocol.mjs
   Invoke-BotCommand node script/asset-pack.mjs verify
   Invoke-BotCommand npm.cmd run check:i18n
+  Invoke-BotCommand npm.cmd run check:a2ui-reference
   Invoke-BotCommand npm.cmd run build
   # macOS signing/notarization and AppKit tests remain in check.sh on macOS.
   # This list covers portable product contracts plus native Windows adapters.
@@ -18,7 +19,7 @@ try {
     'script/task-preferences.test.mjs','script/runtime-settings.test.mjs','script/connections-loader.test.mjs','script/codex-runtime-panel.test.mjs',
     'script/content-pack.test.mjs','script/asset-pack.test.mjs',
     'script/chat-presentation.test.mjs','script/chat-observation.test.mjs','script/chat-time.test.mjs','script/connection-notice.test.mjs',
-    'script/reduced-motion.test.mjs','script/streaming-text.test.mjs','script/markdown-chunks.test.mjs','script/capture-editor.test.mjs','script/capture-recovery.test.mjs','script/pet-interaction.test.mjs'
+    'script/reduced-motion.test.mjs','script/streaming-text.test.mjs','script/markdown-chunks.test.mjs','script/chat-a2ui.test.mjs','script/capture-editor.test.mjs','script/capture-recovery.test.mjs','script/pet-interaction.test.mjs'
   )
   Invoke-BotCommand node --test @taskNodeTests
   # Bound package concurrency on hosted Windows runners. The timeout applies to

@@ -1,11 +1,13 @@
 import { Children, isValidElement, memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, {type ExtraProps, type Options} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { backend, desktop } from './desktop';
 import { messageURL } from './message-url';
 import { useI18n } from './i18n';
 import { useStreamingText } from './use-streaming-text';
 import { markdownChunks } from './markdown-chunks';
+import { remarkChatA2ui } from './chat-a2ui-markdown';
+import { ChatA2uiBlock } from './ChatA2uiBlock';
 
 export function CopyText({text,label,report}:{text:string;label?:string;report:(error:string)=>void}) {
  const {t} = useI18n();
@@ -31,18 +33,35 @@ function ExternalLink({url,children,report}:{url?:string;children:ReactNode;repo
  if(!safe)return <span>{children}</span>;
  return <button type="button" role="link" className="message-link" title={safe} onClick={()=>void backend('OpenMessageLink',safe).catch(()=>report(t('chat.openLinkFailed')))}>{children}</button>;
 }
-const MarkdownChunk=memo(function MarkdownChunk({source,report}:{source:string;report:(error:string)=>void}) {
+type A2uiState = 'receiving' | 'final';
+
+function A2uiSlot({node}: ExtraProps) {
+ const {source, body, closed, receiving, permitted} = node?.properties ?? {};
+ if (typeof source !== 'string' || typeof body !== 'string') return null;
+ return <ChatA2uiBlock source={source} body={body} closed={closed === true} receiving={receiving === true} permitted={permitted === true}/>;
+}
+
+const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui,blockOffset}:{source:string;report:(error:string)=>void;a2ui?:A2uiState;blockOffset:number}) {
  const {t} = useI18n();
- return <Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={messageURL} components={{
-  a:({href,children})=><ExternalLink url={href} report={report}>{children}</ExternalLink>,
+ const plugins: Options['remarkPlugins'] = a2ui ? [remarkGfm, [remarkChatA2ui, {source, receiving: a2ui === 'receiving', blockOffset}]] : [remarkGfm];
+ const components = {
+  'chat-a2ui-block': A2uiSlot,
+  a:({href,children}:React.ComponentProps<'a'>)=><ExternalLink url={href} report={report}>{children}</ExternalLink>,
   // Generated image URLs must not fetch anything merely because a reply arrives.
-  img:({src,alt})=><ExternalLink url={typeof src==='string'?src:''} report={report}>{t('chat.imagePrefix')}{alt||t('chat.imageOpen')} ↗</ExternalLink>,
-  pre:({children})=><div className="code-block"><CopyText text={plain(children)} label={t('chat.copyCode')} report={report}/><pre>{children}</pre></div>,
-  table:({children})=><div className="message-table"><table>{children}</table></div>,
- }}>{source}</Markdown>;
+  img:({src,alt}:React.ComponentProps<'img'>)=><ExternalLink url={typeof src==='string'?src:''} report={report}>{t('chat.imagePrefix')}{alt||t('chat.imageOpen')} ↗</ExternalLink>,
+  pre:({children}:React.ComponentProps<'pre'>)=><div className="code-block"><CopyText text={plain(children)} label={t('chat.copyCode')} report={report}/><pre>{children}</pre></div>,
+  table:({children}:React.ComponentProps<'table'>)=><div className="message-table"><table>{children}</table></div>,
+ };
+ return <Markdown skipHtml remarkPlugins={plugins} urlTransform={messageURL} components={components}>{source}</Markdown>;
 });
-export const MessageContent=memo(function MessageContent({text,report,animate=false}:{text:string;report:(error:string)=>void;animate?:boolean}) {
+export const MessageContent=memo(function MessageContent({text,report,animate=false,a2ui}:{text:string;report:(error:string)=>void;animate?:boolean;a2ui?:A2uiState}) {
  const shown=useStreamingText(text,animate);
- const chunks=useMemo(()=>markdownChunks(shown),[shown]);
- return <div className="markdown-body">{chunks.map((source,index)=><MarkdownChunk key={index} source={source} report={report}/>)}</div>;
+ const chunks=useMemo(()=>markdownChunks(shown, !!a2ui),[shown,a2ui]);
+ let blockOffset=0;
+ return <div className="markdown-body">{chunks.map((source,index)=>{
+  const chunk=<MarkdownChunk key={index} source={source} report={report} a2ui={a2ui} blockOffset={blockOffset}/>;
+  // Count preceding candidate lines conservatively across independent chunks.
+  if(a2ui)blockOffset+=(source.match(/^<a2ui>[ \t]*\r?$/gm)??[]).length;
+  return chunk;
+ })}</div>;
 });

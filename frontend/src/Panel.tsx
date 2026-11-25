@@ -15,6 +15,7 @@ import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receip
 import { readComposer, writeComposer, composerSelection, insertComposerReference, insertComposerText, copyComposer, pasteComposer, deleteComposerReference, type ReferencePosition } from './composer-document';
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
+import { ChatA2uiMount } from './ChatA2uiBlock';
 import { ArtifactLink } from './ArtifactLink';
 import { chatTimeline, chatTimeLabel, type ChatTimeAnchor } from './chat-time';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
@@ -158,12 +159,13 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   const delivery=!item.questionReply&&item.kind==='user'&&['unknown','rejected'].includes(item.status)?statusLabel:'';
+  const receiving=item.status==='inProgress'&&!incomplete;
   const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}${item.questionCards?.length?' question-message':''}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message${item.task?.id?' task-message':''} ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <TaskMessageAction task={item.task} text={item.text} report={report}/> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&item.status==='inProgress'&&!incomplete}/> : item.text && <p>{item.text}</p>}
+    {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <TaskMessageAction task={item.task} text={item.text} report={report}/> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&receiving} a2ui={!isWebSurface()?(receiving?'receiving':'final'):undefined}/> : item.text && <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className={item.kind==='user'?'sent-files':'artifacts'}>{item.artifacts.map((file,index)=><ArtifactLink file={file} report={report} attachment={item.kind==='user'} key={file.id||index}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
@@ -603,11 +605,12 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    const el=scroll.current!,question=el.querySelector<HTMLElement>('[data-question-pending]');
    return question?Math.max(0,el.scrollTop+question.getBoundingClientRect().top-el.getBoundingClientRect().top-12):undefined;
   });return()=>{position.current=null;};},[]);
+ const [a2uiEpoch, resetA2ui] = useState(0);
  useEffect(()=>{
   let activeNow=false;
   // Every explicit open must acknowledge its native presentation token, even
   // when the conversation and active state are unchanged behind another app.
-  const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
+  const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);resetA2ui(epoch=>epoch+1);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!isWebSurface()&&activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
@@ -673,11 +676,11 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!awaitingRecovery&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
+   <ChatA2uiMount.Provider value={active ? a2uiEpoch : null}><div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
     {dividerAt!==undefined&&<div className="history-time-divider"><time dateTime={new Date(dividerAt/1000).toISOString()}>{chatTimeLabel(dividerAt,locale)}</time></div>}
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} refresh={refreshQuestions} onQuestionAnswered={questionAnswered} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>,...(snapshot?.approvals??[]).filter(p=>p.turnKey&&p.turnKey===i.turnKey&&!timeline.rows.slice(index+1).some(row=>row.item.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)])}
-   {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div>
+   {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div></ChatA2uiMount.Provider>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
    {awaitingRecovery&&!connection&&<p className="quiet" role="status">{t('chat.reconnectingUnconfirmed')}</p>}
    {connection&&<article className="message-row assistant state-message">
