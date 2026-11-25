@@ -10,12 +10,16 @@ const sum = values => values.reduce((total, value) => total + value, 0);
 
 function contents(root) {
  const entries = {};
- for (const entry of readdirSync(root, {recursive: true, withFileTypes: true})) {
-  const path = join(entry.parentPath, entry.name);
-  const key = relative(root, path);
-  if (entry.isSymbolicLink()) entries[key] = {target: readlinkSync(path)};
-  if (entry.isFile()) entries[key] = {size: statSync(path).size, sha256: digest(path)};
- }
+ const visit = directory => {
+  for (const entry of readdirSync(directory, {withFileTypes: true})) {
+   const path = join(directory, entry.name);
+   const key = relative(root, path);
+   if (entry.isDirectory()) visit(path);
+   if (entry.isSymbolicLink()) entries[key] = {target: readlinkSync(path)};
+   if (entry.isFile()) entries[key] = {size: statSync(path).size, sha256: digest(path)};
+  }
+ };
+ visit(root);
  return entries;
 }
 

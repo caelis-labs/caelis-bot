@@ -7,7 +7,7 @@ window.fixtureA2ui = async () => {
  const id = 'chat-a2ui-fixture';
  const first = '<a2ui>\nroot = Card(summary)\nsummary = Column([Text("Review summary", "title"), Divider(), results])\nresults = Row([Text("2 ready"), Text("1 waiting", "caption")])\n</a2ui>';
  const second = '<a2ui>\nroot = Card(Text("Pending · Architecture"))\n</a2ui>';
- const invalid = '<a2ui>\nroot = Image("https://example.test/never-load.png")\n</a2ui>';
+ const invalid = '<a2ui>\nroot = Image("https://example.test/'+ 'long-invalid-source-'.repeat(14) +'never-load.png")\n</a2ui>';
  const truncated = '<a2ui>\nroot = Text("unfinished")';
  const before = '**Review update.** Two items are ready and one is waiting.\n\n';
  const between = '\n\nFeedback is still due on the architecture review.\n\n';
@@ -50,6 +50,7 @@ window.fixtureA2ui = async () => {
   await wait('complete message and fallbacks', () => cards().length === 2 && fallbacks().length === 2);
   if (original !== cards()[0]) throw Error('completed update replaced an existing card');
   if (fallbacks()[0].textContent !== invalid || fallbacks()[1].textContent !== truncated) throw Error('fallback source lost');
+  if (row().scrollWidth > row().clientWidth+1 || fallbacks()[0].scrollWidth > fallbacks()[0].clientWidth+1) throw Error('long fallback widened the panel');
   if (row().querySelectorAll('.code-block').length !== 1 || !row().querySelector('p code')?.textContent.includes('<a2ui>')) throw Error('literal code was interpreted');
   if (!row().textContent.match(/Review update\.[\s\S]+Review summary[\s\S]+Feedback is still due[\s\S]+Pending · Architecture/)) throw Error('incorrect reply order');
   if (document.querySelector('[data-message-id="a2ui-user-literal"] .chat-a2ui-surface')) throw Error('user source was interpreted');
