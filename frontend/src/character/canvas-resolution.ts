@@ -1,5 +1,7 @@
 import type { WebGLRenderer } from 'three';
 
+export const petWidth=180,petHeight=240;
+
 // Size the visible WebGL buffer in display pixels. The native hit mask has
 // its own fixed coordinate system and render target.
 export function observeCharacterCanvas(renderer: WebGLRenderer, redraw: () => void) {

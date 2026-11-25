@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -61,7 +62,9 @@ func TestWorkerApprovalRefreshWithHealthyStream(t *testing.T) {
 				s.takeObservationsLocked(time.Now().Add(time.Duration(i) * time.Hour))
 			}
 			s.streams["work"] = true
-			_ = s.watch(t.Context(), s.client, "work", "instance")
+			if err := s.watch(t.Context(), s.client, "work", "instance"); err != io.EOF {
+				t.Fatalf("watch error = %v, want EOF", err)
+			}
 			if !s.state.Views["work"].ApprovalDirty {
 				t.Fatal("permission event did not request authoritative refresh")
 			}

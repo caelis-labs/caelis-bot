@@ -1,20 +1,19 @@
 package caelis
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/caelis-labs/caelis-bot/internal/testutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 func fixtureSession(t *testing.T, h http.HandlerFunc) *Session {
@@ -151,46 +150,90 @@ func TestComputerUseApprovalPreservesEveryNativeOptionAndSingleResolution(t *tes
 	}
 }
 func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
-	for _, valid := range []bool{false, true} {
-		t.Run(fmt.Sprint(valid), func(t *testing.T) {
+	const oldCursor, oldHistory = "opaque+/=", "previous-history"
+	original := commandResultEvidence{TurnID: "old-turn", Handle: "original-handle", TurnEnded: true}
+	for _, tc := range []struct {
+		name    string
+		endPage *int
+		synced  bool
+	}{
+		{name: "complete", endPage: pointer(1), synced: true},
+		{name: "wrong_end_page", endPage: pointer(2)},
+		{name: "eof_before_end"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var feed strings.Builder
+			send := func(event string, v any) {
+				t.Helper()
+				b, err := json.Marshal(v)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fmt.Fprintf(&feed, "event: %s\ndata: %s\n\n", event, b)
+			}
+			send("caelis.control.bootstrap", wire.SessionState{SessionId: "main", ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1"})
+			send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact"})
+			send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_begin", Source: "replacement", SnapshotId: pointer("s")})
+			raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"new"}}`)
+			send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_page", Source: "replacement", SnapshotId: pointer("s"), Events: []wire.Envelope{{TurnId: pointer("turn"), Update: &raw}}})
+			if tc.endPage != nil {
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_end", Source: "replacement", SnapshotId: pointer("s"), Page: tc.endPage})
+				// A rejected end must stop processing before this sync.
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", NextCursor: pointer("next"), HistoryBefore: pointer("older")})
+			}
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("after") != "opaque+/=" || r.URL.Query().Get("history_turns") != "1" {
-					t.Error("cursor was changed")
+				query := r.URL.Query()
+				if r.Method != http.MethodGet || r.URL.Path != "/api/control/v1/sessions/main/reconnect" ||
+					query.Get("after") != oldCursor || query.Get("history_turns") != "1" {
+					t.Errorf("unexpected reconnect request: %s %s", r.Method, r.URL)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
-				send := func(event string, v any) {
-					b, _ := json.Marshal(v)
-					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
+				if _, err := io.WriteString(w, feed.String()); err != nil {
+					t.Errorf("write fixture feed: %v", err)
 				}
-				send("caelis.control.bootstrap", wire.SessionState{SessionId: "main", ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1"})
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact"})
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_begin", Source: "replacement", SnapshotId: pointer("s")})
-				raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"new"}}`)
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_page", Source: "replacement", SnapshotId: pointer("s"), Events: []wire.Envelope{{TurnId: pointer("turn"), Update: &raw}}})
-				end := 1
-				if !valid {
-					end = 2
-				}
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_end", Source: "replacement", SnapshotId: pointer("s"), Page: &end})
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", NextCursor: pointer("next"), HistoryBefore: pointer("older")})
 			})
-			s.state.Views["main"].Items = []api.Item{{ID: "old", Text: "old"}}
-			s.state.Views["main"].Cursor = "opaque+/="
-			s.state.Views["main"].CommandResults = map[string]commandResultEvidence{"original": {TurnID: "old-turn", Handle: "original-handle", TurnEnded: true}}
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			_ = s.watch(ctx, s.client, "main", "instance")
-			v := s.state.Views["main"]
-			if v.CommandCaughtUp != valid {
-				t.Fatal("partial replacement enabled command followup")
-			}
-			if valid {
-				if len(v.Items) != 1 || v.Items[0].Text != "new" || v.Cursor != "next" || v.HistoryBefore != "older" || v.CommandResults["original"].Handle != "original-handle" {
-					t.Fatal("replacement missing")
+			old := s.state.Views["main"]
+			old.Items = []api.Item{{ID: "old", Text: "old"}}
+			old.Cursor, old.HistoryBefore = oldCursor, oldHistory
+			old.CommandResults = map[string]commandResultEvidence{"original": original}
+
+			// The fixture closes after the last frame. Reading EOF requires all
+			// preceding deliveries, including their checkpoint writes, to finish.
+			err := s.watch(t.Context(), s.client, "main", "instance")
+			if tc.endPage != nil && !tc.synced {
+				if err == nil || err.Error() != "恢复快照不匹配" {
+					t.Fatalf("watch error = %v, want replacement page mismatch", err)
 				}
-			} else if v.Items[0].Text != "old" || v.Cursor != "opaque+/=" {
-				t.Fatal("partial snapshot escaped")
+			} else if err != io.EOF {
+				t.Fatalf("watch error = %v, want EOF", err)
 			}
+			got := s.state.Views["main"]
+			if got.CommandCaughtUp != tc.synced {
+				t.Fatalf("command followup caught up = %t, want %t", got.CommandCaughtUp, tc.synced)
+			}
+			if (got != old) != tc.synced {
+				t.Fatalf("view replacement = %t, want %t", got != old, tc.synced)
+			}
+			text, cursor, history := "old", oldCursor, oldHistory
+			if tc.synced {
+				text, cursor, history = "new", "next", "older"
+			}
+			assertView := func(label string, v *view) {
+				t.Helper()
+				if v == nil {
+					t.Fatalf("%s: view missing", label)
+				}
+				if len(v.Items) != 1 || v.Items[0].Text != text || v.Cursor != cursor ||
+					v.HistoryBefore != history || v.CommandResults["original"] != original {
+					t.Fatalf("%s: items=%+v cursor=%q history=%q command=%+v", label, v.Items, v.Cursor, v.HistoryBefore, v.CommandResults["original"])
+				}
+			}
+			assertView("in memory", got)
+			restored, err := loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertView("checkpoint", restored.Views["main"])
 		})
 	}
 }

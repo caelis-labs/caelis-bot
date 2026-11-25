@@ -1,76 +1,131 @@
 import { AnimationMixer, LoopOnce, LoopRepeat, type AnimationAction, AnimationClip, type Object3D } from 'three';
 
 export type Activity = 'idle' | 'working' | 'waiting' | 'dreaming';
+export const activities:readonly Activity[] = ['idle','working','waiting','dreaming'];
 export type Gesture = 'attention' | 'nod' | 'celebrate';
-export const requiredClips = ['idle', 'working', 'attention', 'nod', 'celebrate'] as const;
-export const isGesture = (name:string):name is Gesture => ['attention','nod','celebrate'].includes(name);
+export const gestures:readonly Gesture[] = ['attention','nod','celebrate'];
+export type Feedback = Gesture | 'touch' | 'waiting';
+export type ClipMapping = {
+ idle:readonly string[];
+ activities?:Partial<Record<Exclude<Activity,'idle'>,string>>;
+ feedback?:Partial<Record<Feedback,string>>;
+};
 
-/** Presentation only. Native lifecycle facts select a loop; gestures never own work. */
+/** Native activity selects a loop. Only a feedback request selects LoopOnce. */
 export class CharacterAnimation {
  readonly mixer:AnimationMixer;
  private actions = new Map<string,AnimationAction>();
+ private idle:AnimationAction[];
+ private idleAction:AnimationAction;
  private current:AnimationAction;
  private quietRest:AnimationAction;
  private activity:Activity='idle';
  private reduced=false;
+ private transition:'idle'|'base'|undefined;
  private fadeElapsed=0;
  private blend:Map<AnimationAction,number>|undefined;
- constructor(private root:Object3D, clips:AnimationClip[], strict=true) {
-  if(!strict&&!clips.some(c=>c.name==='idle'))clips=[...clips,new AnimationClip('idle',1,[])];
-  for(const name of requiredClips)if(strict&&!clips.some(c=>c.name===name))throw new Error(`Missing character clip: ${name}`);
+ feedback:Feedback|undefined;
+
+ constructor(private root:Object3D, clips:AnimationClip[], private mapping:ClipMapping, {
+  strict=false, quietIdle=false, random=Math.random,
+ }:{strict?:boolean;quietIdle?:boolean;random?:()=>number}={}) {
+  this.random=random;
+  this.quietIdle=quietIdle;
+  const names=new Set([...mapping.idle,...Object.values(mapping.activities??{}),...Object.values(mapping.feedback??{})]);
+  const available=new Map(clips.filter(clip=>clip.duration>0).map(clip=>[clip.name,clip]));
+  for(const name of names)if(strict&&!available.has(name))throw new Error(`Missing character clip: ${name}`);
   this.mixer=new AnimationMixer(root);
-  for(const clip of clips)this.actions.set(clip.name,this.mixer.clipAction(clip));
-  this.current=this.actions.get('idle')!;
-  this.play('idle',false);
+  for(const name of names){
+   const clip=available.get(name);
+   if(clip)this.actions.set(name,this.mixer.clipAction(clip));
+
+  }
+  this.idle=mapping.idle.flatMap(name=>this.actions.get(name)??[]);
+  if(!this.idle.length)this.idle=[this.mixer.clipAction(new AnimationClip('',1,[]))];
+  this.idleAction=this.current=this.idle[0];
+  this.allActions=[...new Set([...this.actions.values(),...this.idle])];
   this.quietRest=this.mixer.clipAction(this.current.getClip().clone());
+  this.play(this.current,undefined,false);
   this.mixer.addEventListener('finished',this.finished);
+  this.mixer.addEventListener('loop',this.looped);
  }
- get clip() { return this.current.getClip().name; }
- get progress() { return this.current.time/this.current.getClip().duration; }
- get oneShot() { return isGesture(this.clip); }
- private finished=({action}:{action:AnimationAction})=>{if(action===this.current&&this.oneShot)this.play(this.base());};
- private base() { return !this.reduced&&this.activity==='working'?'working':'idle'; }
- setReducedMotion(value:boolean) {
-  if(value===this.reduced)return;
-  this.reduced=value;this.rest();
+ private readonly random:()=>number;
+ private readonly quietIdle:boolean;
+ private readonly allActions:AnimationAction[];
+
+ get clip(){return this.current.getClip().name;}
+ get progress(){return this.current.time/this.current.getClip().duration;}
+ get oneShot(){return this.feedback!==undefined;}
+ get animates(){return this.reduced?this.quietIdle&&this.idle[0].getClip().tracks.length>0:this.actions.size>0;}
+
+ private finished=({action}:{action:AnimationAction})=>{
+  if(action===this.current&&this.oneShot)this.transition='base';
+ };
+ private looped=({action}:{action:AnimationAction})=>{
+  if(action===this.current&&!this.oneShot&&this.activity==='idle'&&!this.reduced&&this.idle.length>1)this.transition='idle';
+ };
+ private base(){
+  if(this.reduced)return this.idle[0];
+  return (this.activity!=='idle'&&this.actions.get(this.mapping.activities?.[this.activity]??''))||this.idleAction;
  }
- private play(name:string,fade=true) {
-  if(!this.actions.has(name))name='idle';
-  const next=this.actions.get(name)!;
-  if(fade&&next===this.current&&next.isRunning())return;
-  const weights=new Map([...this.actions.values()].map(action=>[action,action.isScheduled()&&action.enabled?action.getEffectiveWeight():0]));
-  for(const action of this.actions.values())action.stopFading();
-  if(!next.isScheduled()||isGesture(name))next.reset();
-  next.setEffectiveTimeScale(1).setLoop(isGesture(name)?LoopOnce:LoopRepeat,Infinity);
-  next.clampWhenFinished=isGesture(name);
+ private play(next:AnimationAction,feedback?:Feedback,fade=true){
+  if(fade&&next===this.current&&feedback===this.feedback&&next.isRunning())return;
+  const weights=new Map(this.allActions.map(action=>[action,action.isScheduled()&&action.enabled?action.getEffectiveWeight():0]));
+  if(!next.isScheduled()||feedback!==undefined||this.feedback!==undefined&&next===this.current)next.reset();
+  next.setEffectiveTimeScale(1).setLoop(feedback===undefined?LoopRepeat:LoopOnce,Infinity);
+  next.clampWhenFinished=feedback!==undefined;
   if(fade){this.blend=weights;this.fadeElapsed=0;next.setEffectiveWeight(weights.get(next)??0);}
   else {this.mixer.stopAllAction();this.blend=undefined;next.reset().setEffectiveWeight(1);}
-  this.current=next;next.play();this.mixer.update(0);
+  this.current=next;this.feedback=feedback;next.play();this.mixer.update(0);
  }
- setActivity(activity:Activity,animate=true) {
+ setReducedMotion(value:boolean){
+  if(value===this.reduced)return;
+  this.rest(value);
+ }
+ setActivity(activity:Activity,animate=true){
   if(activity===this.activity)return;
   this.activity=activity;
-  if(activity==='waiting'&&animate&&!this.reduced)this.play('attention');
-  // Let feedback finish even when a tool's turn completes immediately after it.
-  // Its completion callback returns to the latest authoritative base activity.
-  else if(activity==='dreaming'||!animate||!this.oneShot)this.play(this.base());
+  if(!animate||this.reduced||activity==='dreaming'){this.rest();return;}
+  // Completed feedback resolves against the newest activity, even while its
+  // previous base is still fading. A waiting cue can start on a quiet entry.
+  if(!this.oneShot){
+   if(activity!=='waiting'||!this.react('waiting'))this.play(this.base());
+  }
  }
- gesture(name:Gesture) { if(!this.reduced)this.play(name); }
- rest() { this.play(this.base(),false);if(this.reduced)this.update(0); }
- update(seconds:number) {
+ react(feedback:Feedback){
+  const next=this.actions.get(this.mapping.feedback?.[feedback]??'');
+  if(!next||this.reduced||this.activity==='dreaming')return false;
+  this.play(next,feedback);return true;
+ }
+ rest(reduced=this.reduced){
+  this.reduced=reduced;this.transition=undefined;this.play(this.base(),undefined,false);
+  if(this.reduced)this.update(0);
+ }
+ update(seconds:number){
   if(this.reduced){
-   // Blend a slow idle into its first authored frame, not the rig's bind pose.
-   // Slowing large working/celebration gestures alone would not reduce amplitude.
-   this.quietRest.reset().setEffectiveWeight(.82).play();this.quietRest.paused=true;
-   this.current.setEffectiveWeight(.18);this.mixer.update(seconds*.5);return;
+   if(this.quietIdle){
+    // Blend a slow idle into its authored first frame to also reduce amplitude.
+    this.quietRest.reset().setEffectiveWeight(.82).play();this.quietRest.paused=true;
+    this.current.setEffectiveWeight(.18);this.mixer.update(seconds*.5);
+   }
+   return;
   }
   if(this.blend){
    this.fadeElapsed+=seconds;
    const t=Math.min(1,this.fadeElapsed/.4),weight=t*t*t*(t*(t*6-15)+10);
    for(const [action,from]of this.blend)action.setEffectiveWeight(from+(Number(action===this.current)-from)*weight);
-   if(t===1){for(const action of this.actions.values())if(action!==this.current)action.stop();this.blend=undefined;}
+   if(t===1){for(const action of this.allActions)if(action!==this.current)action.stop();this.blend=undefined;}
   }
   this.mixer.update(seconds);
+  const transition=this.transition;this.transition=undefined;
+  if(transition==='idle'){
+   const candidates=this.idle.filter(action=>action!==this.idleAction);
+   this.idleAction=candidates[Math.floor(this.random()*candidates.length)];
+  }
+  if(transition)this.play(this.base());
  }
- dispose() { this.mixer.removeEventListener('finished',this.finished);this.mixer.stopAllAction();this.mixer.uncacheRoot(this.root); }
+ dispose(){
+  this.mixer.removeEventListener('finished',this.finished);this.mixer.removeEventListener('loop',this.looped);
+  this.mixer.stopAllAction();this.mixer.uncacheRoot(this.root);
+ }
 }

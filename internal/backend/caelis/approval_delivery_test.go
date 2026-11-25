@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"io"
 	"net/http"
 	"testing"
 )
@@ -50,7 +51,9 @@ func TestApprovalEventsWakeAuthoritativeRefresh(t *testing.T) {
 			})
 			s.state.StoreID = "store"
 			s.streams["main"] = true
-			_ = s.watch(t.Context(), s.client, "main", "instance")
+			if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+				t.Fatalf("watch error = %v, want EOF", err)
+			}
 			if !s.needsRefreshLocked() {
 				t.Fatal("live permission change waits for lease maintenance")
 			}

@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +29,9 @@ func TestNonblockingRuntimeErrorsAreLoggedWithoutChatNotices(t *testing.T) {
 	})
 	dir := t.TempDir()
 	s.diagnostics = diagnosticlog.New(dir)
-	_ = s.watch(t.Context(), s.client, "main", "instance")
+	if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+		t.Fatalf("watch error = %v, want EOF", err)
+	}
 	v := s.Snapshot()
 	if v.Message != "" || v.Phase != "completed" || !v.CanSend {
 		t.Fatalf("component error became a user failure: %+v", v)

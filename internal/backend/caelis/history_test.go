@@ -335,7 +335,9 @@ func TestExactResumeKeepsEarlierHistoryBoundary(t *testing.T) {
 	})
 	v := s.state.Views["main"]
 	v.Cursor, v.HistoryBefore = "live", "old-before"
-	_ = s.watch(t.Context(), s.client, "main", "instance")
+	if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+		t.Fatalf("watch error = %v, want EOF", err)
+	}
 	if v.HistoryBefore != "old-before" || v.Cursor != "next" || !s.Snapshot().HasEarlier {
 		t.Fatal("exact resume lost older history")
 	}
