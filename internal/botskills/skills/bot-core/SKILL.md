@@ -36,7 +36,9 @@ dated notes under that root.
 Keep identity, personality, stable preferences and important agreements current
 in the core memory; keep detailed work records in notes. Bot memory is separate
 from Runtime Memory such as `~/.codex/memories`. Consult relevant notes, preserve
-user edits and check changing facts against current records.
+user edits and check changing facts against current records. For an earlier
+exchange, use the resident's read-only conversation archive as described in
+`references/memory.md`.
 
 Reuse suitable workspaces, caches and downloads. Clean up task-owned temporary
 resources after delivery; retain active dependencies, unique work and useful

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -35,6 +36,7 @@ type Log struct {
 	loaded           bool
 	earlier          bool
 	before           int64
+	ctx              context.Context
 	cancel           context.CancelFunc
 	done             chan struct{}
 	wake             chan struct{}
@@ -43,12 +45,13 @@ type Log struct {
 	closeOnce        sync.Once
 	projectionOnce   sync.Once
 	projection       sync.WaitGroup
+	archiveIssue     atomic.Bool
 	visibleLimit     int
 }
 
 func Open(path string) *Log {
 	ctx, cancel := context.WithCancel(context.Background())
-	l := &Log{path: path, dirty: map[string]api.Item{}, pendingInputs: map[string]api.Item{}, visibleLimit: pageSize, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+	l := &Log{path: path, dirty: map[string]api.Item{}, pendingInputs: map[string]api.Item{}, visibleLimit: pageSize, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 	go l.run(ctx)
 	return l
 }
