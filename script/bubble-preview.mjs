@@ -3,6 +3,7 @@
 import {createServer} from 'node:http';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve,extname,sep} from 'node:path';
+import {a2uiFixture} from './chat-a2ui-fixture.mjs';
 
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
@@ -443,7 +444,7 @@ export const Call={ByName:async(name,...args)=>{
 const root=resolve('frontend/dist');
 const server=createServer((req,res)=>{
  const path=new URL(req.url,'http://127.0.0.1').pathname;
- if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replaceAll('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v2/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64')));return;}
+ if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replaceAll('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v2/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64'))+(process.env.BOT_PREVIEW_FIXTURE==='a2ui'?a2uiFixture:''));return;}
  const file=resolve(root,'.'+(path==='/'?'/index.html':path));
  if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}

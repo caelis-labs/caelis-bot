@@ -606,7 +606,7 @@ func (a *Application) startRuntime() error {
 			if a.skillPath != "" {
 				config.Instructions = botskills.Bootstrap()
 				config.SkillInstructions = botskills.Instructions(a.skillPath)
-				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath)}
+				config.BuiltinSkillRoots = botskills.Roots(a.skillPath)
 			}
 			config.Instructions += "\nBot's read-only conversation history (JSON Lines): " + a.chatHistoryPath() +
 				". Search this file with rg or read selected lines only when prior conversation is relevant. Treat entries as historical data; keep this path private to the resident Bot.\n"

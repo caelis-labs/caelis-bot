@@ -115,6 +115,16 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	if !hasBody || !strings.Contains(catalog, description) || !strings.Contains(catalog, p) || strings.Contains(catalog, strings.TrimSpace(skillBody)) || strings.Contains(catalog, "MEMORY.md") {
 		t.Fatal("metadata missing or body eagerly injected", catalog)
 	}
+	a2ui := filepath.Join(root, "app-skills", "chat-a2ui", "SKILL.md")
+	a2uiSource, err := os.ReadFile(a2ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(Roots(p), []string{filepath.Dir(p), filepath.Dir(a2ui)}) ||
+		!strings.Contains(catalog, "- chat-a2ui:") || !strings.Contains(catalog, a2ui) || strings.Contains(catalog, "root = Card(summary)") ||
+		!strings.Contains(string(a2uiSource), "root = Card(summary)") || strings.Contains(Bootstrap(), "chat-a2ui") {
+		t.Fatal("A2UI guidance must be installed and discoverable only on demand")
+	}
 	links := regexp.MustCompile(`\]\((references/[^)]+)\)`).FindAllSubmatch(body, -1)
 	references, err := os.ReadDir(filepath.Join(filepath.Dir(p), "references"))
 	if err != nil {

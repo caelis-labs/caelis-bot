@@ -1,0 +1,7 @@
+.markdown-body .chat-a2ui-surface { margin: .65em 0; overflow-wrap: anywhere; }
+.chat-a2ui-surface .chat-a2ui-card { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); }
+.chat-a2ui-surface .chat-a2ui-column, .chat-a2ui-surface .chat-a2ui-row { display: flex; gap: 8px; }
+.chat-a2ui-surface .chat-a2ui-column { flex-direction: column; }
+.chat-a2ui-surface .chat-a2ui-row { flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+.chat-a2ui-surface small { font-size: .88em; color: var(--muted); }
+.markdown-body .chat-a2ui-surface hr { margin: 2px 0; }

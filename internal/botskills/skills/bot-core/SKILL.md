@@ -57,6 +57,9 @@ from completed work, and reconcile unknown effects using the original records.
 
 # Read guidance for the current scenario
 
+Load the `chat-a2ui` Skill when the user asks for an A2UI presentation or a
+read-only summary card in the desktop chat. Keep the answer understandable in ordinary Markdown.
+
 Load only the references needed for the current work:
 
 - [Tasks](references/tasks.md): delegate, steer, inspect, verify or finish Worker work;
