@@ -1,7 +1,7 @@
 // Opt-in only. Runs one synthetic conversation in each new isolated profile.
 import {spawn} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
-import {copyFile, mkdir, writeFile} from 'node:fs/promises';
+import {copyFile, mkdir, readdir, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {setTimeout as wait} from 'node:timers/promises';
 import {createElement} from 'react';
@@ -25,9 +25,13 @@ const cases = [
 ];
 
 const dir = resolve(output);
-await mkdir(dir, {mode: 0o700});
+const resume = process.env.BOT_A2UI_RESUME === '1';
+await mkdir(dir, {mode: 0o700, recursive: resume});
+// An existing profile can have an accepted operation even if the runner stopped.
+const existing = new Set(resume ? await readdir(dir) : []);
 const json = (path, object) => writeFile(path, JSON.stringify(object, null, 2)+'\n', {mode: 0o600});
 for (const sample of cases) {
+ if (existing.has(sample.name)) continue;
  const sampleDir = join(dir, sample.name);
  const profile = join(sampleDir, 'bot');
  await mkdir(profile, {recursive: true, mode: 0o700});
@@ -83,7 +87,7 @@ for (const sample of cases) {
    if (value.approvals?.some(item => item.status === 'pending')) throw Error('native decision needed');
    if (value.phase === 'failed') throw Error('native turn failed');
    const assistant = value.items?.filter(item => item.kind === 'assistant');
-   const ready = value.phase === 'completed' || (value.canSend && !value.canInterrupt && !value.currentTurn);
+   const ready = value.phase === 'completed' || (value.phase === 'idle' && value.canSend && !value.canInterrupt);
    receipt.observed = {phase: value.phase, canSend: value.canSend, canInterrupt: value.canInterrupt, active: Boolean(value.currentTurn), assistantStatuses: assistant?.map(item => item.status)};
    return ready && assistant?.length && assistant.every(item => item.status === 'completed') && value;
   }, 150_000);
