@@ -75,7 +75,7 @@ type Service struct {
 	displayChanged          func(DisplayState)
 	languageMu              sync.Mutex
 	languageSaveMu          sync.Mutex
-	languageFile            string
+	persistLanguage         func(string) error
 	systemLanguages         []string
 	language                LanguageState
 	languageChanged         func(LanguageState)

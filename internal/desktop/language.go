@@ -17,15 +17,19 @@ type LanguageState struct {
 	Revision   uint64      `json:"revision"`
 }
 
+type languagePreference struct {
+	Preference string `json:"preference"`
+}
+
 func (s *Service) configureLanguage(file string, languages []string) error {
-	s.languageFile = file
+	s.persistLanguage = func(preference string) error {
+		return localstate.Write(file, languagePreference{Preference: preference})
+	}
 	s.systemLanguages = append([]string(nil), languages...)
 	preference := "system"
 	data, err := os.ReadFile(file)
 	if err == nil {
-		var stored struct {
-			Preference string `json:"preference"`
-		}
+		var stored languagePreference
 		err = json.Unmarshal(data, &stored)
 		if err == nil && !i18n.ValidPreference(stored.Preference) {
 			err = errors.New("invalid language preference")
@@ -57,10 +61,10 @@ func (s *Service) SaveLanguage(preference string) (LanguageState, error) {
 	if !i18n.ValidPreference(preference) {
 		return current, errors.New("unsupported language preference")
 	}
-	if err := localstate.Write(s.languageFile, struct {
-		Preference string `json:"preference"`
-	}{preference}); err != nil {
-		return current, err
+	if s.persistLanguage != nil {
+		if err := s.persistLanguage(preference); err != nil {
+			return current, err
+		}
 	}
 	next := LanguageState{Preference: preference, Locale: i18n.Resolve(preference, s.systemLanguages), Revision: current.Revision + 1}
 	s.languageMu.Lock()
