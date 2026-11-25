@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"reflect"
@@ -156,8 +157,8 @@ func TestWorkerOutputWindowReplacementCannotEraseUnprovenLegacy(t *testing.T) {
 	legacyID := "turn/assistant/native-replacement"
 	s.state.Views["work"].Items = []api.Item{{ID: legacyID, TurnKey: "turn", Kind: "assistant", Text: "same legacy body", Status: "completed"}}
 	feedWorkerOutput(s, []wire.Envelope{workerOutputTool("first-tool", "old-tool")})
-	if err := s.watch(t.Context(), s.client, "work", s.state.InstanceID); err == nil {
-		t.Fatal("finite replacement fixture unexpectedly kept streaming")
+	if err := s.watch(t.Context(), s.client, "work", s.state.InstanceID); err != io.EOF {
+		t.Fatalf("watch error = %v, want EOF", err)
 	}
 	out, err := s.ObserveWork(t.Context(), "task")
 	if err != nil || len(out.Items) != 3 || out.Items[0].ID != legacyID || out.Items[0].HistoryID != "" || out.Items[2].HistoryID == "" || out.Items[0].Text != out.Items[2].Text {

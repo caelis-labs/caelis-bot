@@ -99,9 +99,12 @@ keep their native configuration and tools.
 
 On upgrade, Bot asks Core to cancel an active resident turn before clearing a
 non-empty legacy application tool catalog on the same Session. Bot preserves the
-journal and Worker bindings without claiming or replaying callbacks. Explicit
-Session creation includes the empty-catalog version token required by Core v0.85.0.
-Native MCP configuration updates omit the callback fields for an empty catalog.
+journal and Worker bindings without claiming or replaying callbacks. Starting
+with Core v0.86, callback receipts remain readable by original ID. Core settles
+pending receipts as cancelled and claimed receipts as unknown at Host startup.
+Explicit Session creation still supplies the empty-catalog version token for
+compatibility with older Hosts. Native MCP configuration updates omit the
+callback fields for an empty catalog.
 Existing background grants can still be revoked or used to complete their
 original schedules. New arrangements wake the resident as external material
 and any subsequent tool action follows native approval.
@@ -374,7 +377,9 @@ geometry, capture and permissions. Native coordinates use primary-display bottom
 Y up; saved scale is independent of pixels/DPI. Three.js owns model/mixer/local poses
 and GPU disposal; chat portraits use finished sprite atlases. Character contracts and
 provenance live in [content packs](content-packs.md), independently of conversation/task
-identity. Context records source/freshness/unknown fields; foreground is not task binding.
+identity. The shared pet passes activity, touch, gestures and pointer context to the
+selected presentation. Each model owns its mixer and pose layers. On replacement,
+the old layers release props and animation state. Context records source/freshness/unknown fields; foreground is not task binding.
 Local idle/attention and independent bounded pass-through props use no idle model.
 User input and pending decisions preempt decoration; hide/Space/disposal reclaims props.
 

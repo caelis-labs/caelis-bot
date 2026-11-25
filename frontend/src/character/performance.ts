@@ -1,10 +1,10 @@
-import type { Activity } from './animation';
+import type { Activity, Feedback } from './animation';
 import type { BehaviorDirector } from './behavior';
 import { interactionBusy, type DesktopContext } from './context';
 import { envelope, type ExpressionName } from './expression-profile';
 export type NearGesture='wave'|'think'|'ask';
 export type PerformanceFrame={gesture:NearGesture|null;phase:number;amount:number;expression:ExpressionName;expressionAmount:number};
-export type PerformanceState={activity:Activity;clip:string;progress:number;director:BehaviorDirector;context?:DesktopContext};
+export type PerformanceState={activity:Activity;feedback?:Feedback;progress:number;director:BehaviorDirector;context?:DesktopContext};
 const rest:PerformanceFrame={gesture:null,phase:0,amount:0,expression:'relaxed',expressionAmount:1};
 const duration:Record<NearGesture,number>={wave:2.4,think:4.8,ask:2.8};
 /** Shared local timeline for face and hands; no native or Agent work is scheduled. */
@@ -15,10 +15,10 @@ export class LocalPerformance {
  preview(name:NearGesture){this.cue={name,time:0};}
  reset(){this.cue=undefined;this.hovering=false;this.pendingAsk=false;}
  update(dt:number,state:PerformanceState):PerformanceFrame{
-  const {activity,clip,progress,director,context}=state;
+  const {activity,feedback,progress,director,context}=state;
   this.clock+=dt;
   if(activity==='dreaming'){this.reset();return rest;}
-  const hover=!!context?.pointer.hovering,busy=interactionBusy(context),oneShot=!['idle','working'].includes(clip);
+  const hover=!!context?.pointer.hovering,busy=interactionBusy(context),oneShot=feedback!==undefined;
   if(activity!==this.activity){this.activity=activity;this.cue=undefined;this.pendingAsk=activity==='waiting';}
   if(hover&&!this.hovering&&!busy&&activity==='idle'&&this.clock>=this.nextGreeting){this.cue={name:'wave',time:-.25};this.nextGreeting=this.clock+24;}
   this.hovering=hover;
@@ -26,7 +26,7 @@ export class LocalPerformance {
   if(!oneShot&&!busy&&this.pendingAsk){this.cue={name:'ask',time:0};this.pendingAsk=false;}
   if(this.cue&&!oneShot){this.cue.time+=dt;if(this.cue.time>=duration[this.cue.name]){this.cue=undefined;}}
   if(oneShot){
-   const expression=clip==='celebrate'?'joy':clip==='attention'?'curious':'soft_smile';
+   const expression=feedback==='celebrate'?'joy':feedback==='attention'||feedback==='waiting'?'curious':'soft_smile';
    return {...rest,expression,expressionAmount:envelope(progress,.01,.99,.17)};
   }
   if(busy)return {...rest,expression:activity==='waiting'?'expectant':'relaxed',expressionAmount:activity==='waiting'?.45:1};

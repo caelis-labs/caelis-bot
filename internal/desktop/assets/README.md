@@ -7,7 +7,7 @@ full-color status image up to 24pt, with a 2pt allowance for shorter menu bars,
 not a monochrome template. This compensates for the character's transparent
 breathing room without clipping its outline.
 
-Source and reproducible size conversion remain in the private asset repository;
+The shipped icon set is listed in the main repository asset manifest;
 see [character assets](../../../docs/content-packs.md) for delivery and licensing.
 `app-icon.png` supplies the matching Wails application/dialog icon.
 

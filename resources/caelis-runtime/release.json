@@ -1,27 +1,27 @@
 {
-  "version": "v0.85.0",
-  "commit": "d4cfd01b01f6310bd2f7d855f8dbd7d107d1d570",
+  "version": "v0.86.1",
+  "commit": "1184c745946f13776134104392c4c81aa7efd2d9",
   "team": "64KZ67PM5J",
   "targets": {
     "darwin-arm64": {
-      "artifact": "caelis_0.85.0_darwin_arm64.tar.gz",
-      "sha256": "197248fd49cca789afcd0a6d119e2d73be1e83eb2a92253b796da274b541f4bd",
-      "binary_sha256": "c2a7c06b9529677d7f609cfc85f1c86b66d478e4c02816a3af0cc8d29946ca7c"
+      "artifact": "caelis_0.86.1_darwin_arm64.tar.gz",
+      "sha256": "4359eb75b118b771458e1713f1f5d848bba3715487320b90723a9d9f362d87c5",
+      "binary_sha256": "d0ff286986949ea123675a5b7f278eba2e6172bee4e795eec7140efc2fc92256"
     },
     "windows-amd64": {
-      "artifact": "caelis_0.85.0_windows_amd64.tar.gz",
-      "sha256": "50239cf627228789b372e6df207dff749693fc3d45f3161956fff2a187f7f9e9",
-      "binary_sha256": "ba3ad4e08b2da6d68229b75e25f2294aac4df64b1fdf7daf937643756cc28861"
+      "artifact": "caelis_0.86.1_windows_amd64.tar.gz",
+      "sha256": "c313bf35688d0b1ea848a2aa54912f760f71949841587a9f746a1b30393c7d9b",
+      "binary_sha256": "7b2265413f15d67c3f062363cb0fb8eedc6f208b8b28889dbbf324c141157341"
     },
     "linux-amd64": {
-      "artifact": "caelis_0.85.0_linux_amd64.tar.gz",
-      "sha256": "b1d77b8ffc9919f06fbd3812f67f2022ac46c9730f358adf7d3ab81bf808fb78",
-      "binary_sha256": "f6cafc2cc09504868e3de28749dd85005bc73145ff2142ae062401a29b8ccc45"
+      "artifact": "caelis_0.86.1_linux_amd64.tar.gz",
+      "sha256": "f9af575626a573b84f188b55cf47cd08211eb8161254d9d40646fec6bebe2c3c",
+      "binary_sha256": "8f52a206994bcc7bd0aff711dd85e9bf2926a3210b38f41edb8b820168bff567"
     },
     "linux-arm64": {
-      "artifact": "caelis_0.85.0_linux_arm64.tar.gz",
-      "sha256": "c301c3643da40ea5e6cc6bc0c8d65567e5aa442f9d0b5e9a3e3c8a64ec861df2",
-      "binary_sha256": "3499f53fc558cff929e8fcfd2396e3560658d207c65f2b50d990ec3683eafbbf"
+      "artifact": "caelis_0.86.1_linux_arm64.tar.gz",
+      "sha256": "ff9b4cef05aab3797770f72f3669813eeb56d958254d82f324df4e3795108924",
+      "binary_sha256": "4cc13ebb3f22bf463a9c058283a5a2610bd5137165aa4ce097f78270be36d2c7"
     }
   }
 }

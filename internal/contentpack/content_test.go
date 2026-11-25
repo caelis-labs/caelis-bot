@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/resources"
 )
 
 func TestUnavailableContentStoreUsesBuiltinAndRecoversOriginalStore(t *testing.T) {
@@ -178,7 +180,7 @@ func TestRegistryLifecycleAndFences(t *testing.T) {
 		t.Fatal(e)
 	}
 	old := s.Appearance.Revision
-	s, e = r.Select(Selection{"builtin:stick", avatarKey(key, "portrait")})
+	s, e = r.Select(Selection{defaultSelection().Character, avatarKey(key, "portrait")})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -226,7 +228,7 @@ func TestResourceHandlerIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, e = r.Select(Selection{s.Characters[2].ID, "follow"})
+	s, e = r.Select(Selection{characterKey(packageKey(p.Manifest), p.Manifest.Characters[0].ID, p.Manifest.Characters[0].Variants[0].ID), "follow"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -345,16 +347,125 @@ func TestBotPresentationFollowsCharacterWithoutRewritingLegacySelection(t *testi
 	if _, err = r.Install(archiveFile(t, p)); err != nil {
 		t.Fatal(err)
 	}
-	legacy := Selection{"builtin:stick", avatarKey(packageKey(p.Manifest), "portrait")}
-	if _, err = r.Select(legacy); err != nil {
+	avatar := avatarKey(packageKey(p.Manifest), "portrait")
+	if _, err = r.Select(Selection{defaultSelection().Character, avatar}); err != nil {
 		t.Fatal(err)
 	}
-	shown := r.BotState().Appearance
-	if shown.Selection.Character != "builtin:caelis" || shown.Selection.Avatar != "follow" || shown.Model != "" || shown.Avatar != "" {
-		t.Fatalf("unexpected presentation: %+v", shown)
+	if got := r.BotState().Appearance; got.Selection != defaultSelection() || got.Avatar != "" {
+		t.Fatalf("legacy standalone avatar changed Bot presentation: %+v", got)
 	}
-	restored, err := NewRegistry(root)
-	if err != nil || restored.State().Appearance.Selection != legacy {
-		t.Fatalf("legacy selection was rewritten: %v", err)
+	if got := r.State().Appearance; got.Selection.Avatar != avatar || got.Avatar == "" {
+		t.Fatalf("lost support for standalone avatar: %+v", got)
+	}
+}
+
+func TestHiddenBuiltinsResolveBeforeSelectionAndOnUpgrade(t *testing.T) {
+	for _, id := range []string{"builtin:whale-girl/maid", "builtin:stick"} {
+		t.Run(id, func(t *testing.T) {
+			root := t.TempDir()
+			selectionPath := filepath.Join(root, "selection.json")
+			legacy := Selection{id, "follow"}
+			body, err := json.Marshal(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(selectionPath, body, 0600); err != nil {
+				t.Fatal(err)
+			}
+			registry, err := NewRegistry(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDefault := func(state State) {
+				t.Helper()
+				a := state.Appearance
+				if a.Selection != defaultSelection() || a.Key != defaultSelection().Character || a.Model != "" || a.Avatar != "" {
+					t.Fatalf("default appearance not fully resolved: %+v", a)
+				}
+				for _, choice := range state.Characters {
+					if choice.ID == id {
+						t.Fatalf("hidden choice surfaced: %+v", choice)
+					}
+				}
+			}
+			assertDefault(registry.BotState())
+			got, err := os.ReadFile(selectionPath)
+			if err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("upgrade rewrote the original profile: %v", err)
+			}
+
+			p := testPack(t)
+			if _, err = registry.Install(archiveFile(t, p)); err != nil {
+				t.Fatal(err)
+			}
+			external := Selection{characterKey(packageKey(p.Manifest), "orbit", "day"), "follow"}
+			if _, err = registry.Select(external); err != nil {
+				t.Fatal(err)
+			}
+			state, err := registry.Select(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDefault(state)
+			got, err = os.ReadFile(selectionPath)
+			var saved Selection
+			if err != nil || json.Unmarshal(got, &saved) != nil || saved != defaultSelection() {
+				t.Fatalf("direct selection did not save the resolved default: %+v, %v", saved, err)
+			}
+		})
+	}
+}
+
+func TestHiddenBuiltinAssetsRemainValidAndOneFlagRestoresCatalogEntry(t *testing.T) {
+	const id = "builtin:whale-girl/maid"
+	find := func(figures []builtinFigure) builtinFigure {
+		t.Helper()
+		for _, figure := range figures {
+			if figure.choice.ID == id {
+				return figure
+			}
+		}
+		t.Fatal("bundled figure missing")
+		return builtinFigure{}
+	}
+	current := find(builtinFigures)
+	if !current.hidden || current.model == "" || current.avatar == "" {
+		t.Fatal(current)
+	}
+
+	var pack struct {
+		Characters []map[string]json.RawMessage
+	}
+	var manifest map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(resources.CharacterPack), &pack); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(resources.CharacterPack), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, character := range pack.Characters {
+		if string(character["id"]) == `"whale-girl"` {
+			delete(character, "hidden")
+		}
+	}
+	manifest["characters"], _ = json.Marshal(pack.Characters)
+	body, _ := json.Marshal(manifest)
+	visible := find(readBuiltinFigures(string(body)))
+	if visible.hidden || visible.figure != current.figure || visible.choice != current.choice {
+		t.Fatal(visible)
+	}
+	for _, url := range []string{current.model, current.avatar} {
+		data, err := os.ReadFile(filepath.Join("../../frontend/public", url))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if url == current.model {
+			err = validateGLB(data)
+		} else {
+			err = validateImage(data, "png")
+		}
+		if err != nil {
+			t.Fatal(url, err)
+		}
 	}
 }

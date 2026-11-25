@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -225,43 +224,12 @@ func TestNativeHostIntegration(t *testing.T) {
 	defer cancel()
 	model := newAcceptanceModel()
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
-	defer server.Close()
-	root, rootErr := filepath.EvalSymlinks(t.TempDir())
-	if rootErr != nil {
-		t.Fatal(rootErr)
-	}
-	t.Cleanup(func() { preserveNativeHostFailure(t, root) })
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
-	if e := os.Mkdir(filepath.Join(root, "home"), 0700); e != nil {
-		t.Fatal(e)
-	}
+	defer closeNativeHTTP(server)
+	hostFixture := newNativeHostFixture(t, bin)
+	root, settings := hostFixture.Root, hostFixture.settings
 	environment := newExecutionFixture(t, root)
-	var cmd *exec.Cmd
-	start := func() {
-		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
-		cmd.Dir = root
-		cmd.Env = environment.env
-		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-		if e != nil {
-			t.Fatal(e)
-		}
-		cmd.Stdout = log
-		cmd.Stderr = log
-		if e = cmd.Start(); e != nil {
-			t.Fatal(e)
-		}
-		log.Close()
-		waitAcceptance(t, ctx, func() bool { _, _, e := Discover(settings); return e == nil })
-	}
-	stop := func() {
-		if cmd != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
-			_ = cmd.Wait()
-			cmd = nil
-		}
-	}
-	start()
-	defer stop()
+	hostFixture.Env = environment.env
+	hostFixture.start(t, ctx)
 	d, token, e := Discover(settings)
 	if e != nil {
 		t.Fatal(e)
@@ -375,6 +343,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		config.DeliverSystem = deliveryResident.SubmitSystem
 		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+		registerNativeFixture(t, s)
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -385,14 +354,14 @@ func TestNativeHostIntegration(t *testing.T) {
 		deliveryResident.Start(s)
 	}
 	open()
-	defer func() { _ = s.Close(context.Background()) }()
+
 	if !t.Run("B00_shared_principal_rebind", func(t *testing.T) {
 		ids := map[string]string{}
 		for _, name := range []string{"rebind-a", "rebind-b"} {
 			dir := filepath.Join(root, name)
 			openBot := func(connection *api.ToolConnection) *Session {
 				bot := New(Options{RequireApproval: true, Directory: dir, Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, ApprovalMode: "workspace-write"}})
-				t.Cleanup(func() { _ = bot.Close(context.Background()) })
+				defer closeNativeFixture(t, bot)
 				if err := bot.ConfigureBotTools(connection); err != nil {
 					t.Fatal(err)
 				}
@@ -513,13 +482,14 @@ Use this fixture only when asked about private Notebook skill discovery.
 		created.Plugins = selected.Clone()
 		created.Plugins.Servers = append(created.Plugins.Servers, plugins.SelectedServer{PackageID: "fixture", Name: "unavailable", Root: root, Server: plugins.Server{Type: "streamable-http", URL: "http://127.0.0.1:1/mcp"}})
 		fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-plugin-create"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
+		defer closeNativeFixture(t, fresh)
 		if err = fresh.ConfigureBotTools(created); err != nil {
 			t.Fatal(err)
 		}
 		if err = fresh.Connect(ctx); err != nil {
 			t.Fatal("Core rejected the public atomic creation profile", err)
 		}
-		defer func() { _ = fresh.Close(context.Background()) }()
+
 		createdConfig, err := fresh.Configuration(ctx)
 		if err != nil || !slices.Equal(createdConfig.Profile.SkillRoots, selected.SkillRoots) || !slices.Equal(createdConfig.Profile.SkillDirs, []string{workspaceSkillDir}) || !hasNativeMCPServer(createdConfig.Profile.McpServers, plugins.RuntimeName("fixture", "unavailable")) {
 			t.Fatal("public creation/configuration roundtrip lost the atomic selection", createdConfig.Profile, err)
@@ -608,13 +578,14 @@ Use this fixture only when asked about private Notebook skill discovery.
 		skillConfig.SkillInstructions = botskills.Instructions(skillPath)
 		skillConfig.BuiltinSkillRoots = []string{filepath.Dir(skillPath)}
 		s := New(Options{Directory: filepath.Join(root, "native-skill-bot"), Settings: settings})
+		registerNativeFixture(t, s)
 		if err := s.ConfigureBotTools(&skillConfig); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Connect(ctx); err != nil {
 			t.Fatal(err)
 		}
-		defer s.Close(context.Background())
+
 		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 		steps := []modelStep{{Name: "Skill", Args: map[string]string{"name": "bot-core"}}, {Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}}
 		for _, ref := range []string{"interactions.md", "screen-input.md", "recovery.md", "telegram-setup.md"} {
@@ -1292,8 +1263,8 @@ Use this fixture only when asked about private Notebook skill discovery.
 		sid := s.state.Session.SessionId
 		items := s.Snapshot().Items
 		_ = s.Close(ctx)
-		stop()
-		start()
+		hostFixture.stopForeground(t)
+		hostFixture.start(t, ctx)
 		open()
 		after, e := s.Configuration(ctx)
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
@@ -1333,11 +1304,10 @@ Use this fixture only when asked about private Notebook skill discovery.
 			t.Fatalf("idle Host shutdown: %v", err)
 			return false
 		})
-		if err := cmd.Wait(); err != nil {
+		if err := hostFixture.WaitForeground(ctx); err != nil {
 			t.Fatal("conditional Host exit", err)
 		}
-		cmd = nil
-		start()
+		hostFixture.start(t, ctx)
 		if err := s.Reconnect(ctx); err != nil {
 			t.Fatal("in-process reconnect", err)
 		}

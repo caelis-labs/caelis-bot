@@ -206,9 +206,9 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 		t.Fatal(err)
 	}
 	// Keep the generic CA transaction path covered by a synthetic connection
-	// on an existing reviewed package; Obsidian now contributes only a Skill.
+	// on the small reviewed HTTP package.
 	for i := range m.catalog {
-		if m.catalog[i].ID == "brave-search" {
+		if m.catalog[i].ID == "github" {
 			spec := *m.catalog[i].Connection
 			spec.TrustCA = true
 			m.catalog[i].Connection = &spec
@@ -229,22 +229,22 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 		}
 		return value, nil
 	}, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
-	if _, err := m.Mutate(t.Context(), "brave-search", "install", nil); err != nil {
+	if _, err := m.Mutate(t.Context(), "github", "install", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "FIRST_SYNTHETIC_TOKEN", "", false, func(context.Context, Selection) error { return errors.New("runtime busy") }); err == nil || len(secrets) != 0 {
+	if _, err := m.ConfigureConnection(t.Context(), "github", "FIRST_SYNTHETIC_TOKEN", "", false, func(context.Context, Selection) error { return errors.New("runtime busy") }); err == nil || len(secrets) != 0 {
 		t.Fatal("first rejected connection left a secret", err, secrets)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "", "", true, nil); err != nil {
+	if _, err := m.ConfigureConnection(t.Context(), "github", "", "", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Mutate(t.Context(), "brave-search", "uninstall", nil); err != nil || len(secrets) != 0 {
+	if _, err := m.Mutate(t.Context(), "github", "uninstall", nil); err != nil || len(secrets) != 0 {
 		t.Fatal("clear/uninstall retained a rejected secret", err, secrets)
 	}
-	if _, err := m.Mutate(t.Context(), "brave-search", "install", nil); err != nil {
+	if _, err := m.Mutate(t.Context(), "github", "install", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "FIRST_SYNTHETIC_TOKEN", "", false, nil); err != nil {
+	if _, err := m.ConfigureConnection(t.Context(), "github", "FIRST_SYNTHETIC_TOKEN", "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	confirmed := m.Selection().Servers[0].ConnectionRevision
@@ -252,10 +252,10 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 	defer server.Close()
 	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
 	failCA = true
-	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "SECOND_SYNTHETIC_TOKEN", ca, false, nil); err == nil {
+	if _, err := m.ConfigureConnection(t.Context(), "github", "SECOND_SYNTHETIC_TOKEN", ca, false, nil); err == nil {
 		t.Fatal("failed CA write reported success")
 	}
-	if len(secrets) != 1 || secrets[secretKey(root, "brave-search", confirmed)] != "FIRST_SYNTHETIC_TOKEN" || m.Selection().Servers[0].ConnectionRevision != confirmed {
+	if len(secrets) != 1 || secrets[secretKey(root, "github", confirmed)] != "FIRST_SYNTHETIC_TOKEN" || m.Selection().Servers[0].ConnectionRevision != confirmed {
 		t.Fatal("failed CA write lost confirmed credential or left new keys", secrets)
 	}
 }

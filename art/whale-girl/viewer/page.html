@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#edf2f7">
+<title>鲸鱼娘 · Caelis 模型展台</title>
+<style>/* VIEWER_STYLE */</style>
+</head>
+<body>
+<header><div class="brand"><b>Caelis</b><span>模型展台</span></div><button class="credit" id="credits">署名与许可</button></header>
+<main>
+<section class="stage" aria-label="交互模型">
+  <canvas id="stage" tabindex="0" aria-label="鲸鱼娘三维模型，拖动旋转，滚轮或双指缩放，方向键旋转"></canvas>
+  <div class="view-tag"><i></i><span id="angle-label">正面</span></div>
+  <div id="status" role="status">正在展开模型…</div>
+  <div class="stage-foot"><span class="hint">拖动旋转 · 滚轮或双指缩放</span>
+    <div class="zoom"><button id="minus" aria-label="缩小">−</button><output id="scale" aria-label="缩放比例">100%</output><button id="plus" aria-label="放大">+</button><button id="reset">复位</button></div>
+  </div>
+</section>
+<aside aria-label="模型控制">
+  <div class="identity"><div class="name-line"><h1>鲸鱼娘</h1><span class="version">v<!-- VERSION --></span></div><p>Whale Girl</p></div>
+  <fieldset><legend>观察范围</legend><div class="seg" id="layers"><button data-layer="full" aria-pressed="true">全身</button><button data-layer="outfit" aria-pressed="false">单独服装</button></div></fieldset>
+  <fieldset><legend>观察角度</legend><div class="angles" id="angles"><button data-yaw="0" aria-pressed="true">正面</button><button data-yaw="90" aria-pressed="false">侧面</button><button data-yaw="180" aria-pressed="false">背面</button></div></fieldset>
+  <div class="spin-line"><label for="spin">自动旋转</label><button id="spin" type="button" role="switch" aria-checked="false" aria-label="自动旋转"><i></i></button></div>
+  <fieldset><legend><label for="motion">动作</label></legend><div class="actions"><select id="motion"><option value="idle">自然站立</option><option value="working">思考</option><option value="celebrate">开心挥手</option><option value="attention">留意</option><option value="nod">点头</option></select><button id="play" aria-pressed="false">暂停</button></div></fieldset>
+  <fieldset id="mouth-control" hidden><legend><label for="mouth">口型</label></legend><div class="actions"><select id="mouth"><option value="auto">跟随动作</option><option value="1">闭口微笑</option><option value=".58">微张</option><option value="0">露齿笑</option></select></div></fieldset>
+  <details class="ref" open><summary>服装原设</summary><img src="data:image/webp;base64,INSERT_REFERENCE" alt="鲸鱼娘女仆装原设的正面、背面和侧面，可对照泡袖和裙摆"></details>
+</aside>
+</main>
+<dialog id="license"><h2>署名与许可</h2><p>角色原设 · 上善无形<br>DeepSeek 主题二创 · ZipZipPipe<br>三维改编 · Caelis Bot contributors</p><p>模型与服装参考采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>。本页收录原设服装局部及三维改编角色。</p><details><summary>软件许可</summary><pre>THIRD_PARTY_NOTICES</pre></details><form method="dialog"><button autofocus>关闭</button></form></dialog>
+<script id="model-bytes" type="application/octet-stream">INSERT_MODEL</script>
+<script>/* VIEWER_SCRIPT */</script>
+</body></html>

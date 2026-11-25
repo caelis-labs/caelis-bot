@@ -11,6 +11,7 @@ export const runtimeExtras=new Set(['desktopPetMouthRest','desktopPetWristRest',
 const fixedPaths=new Set(['frontend/public/models/caelis-SOURCES.md','frontend/public/icons/caelis-avatar.png','internal/desktop/assets/app-icon.png','internal/desktop/assets/status-icon.png','resources/macos/CaelisBot.icns']);
 const animatedAvatar='frontend/assets/caelis-avatar-v1.svg';
 const portraitPath=p=>/^frontend\/public\/portraits\/[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*\.(?:webp|png)$/.test(p);
+const noticePath=p=>/^frontend\/public\/models\/[a-z0-9]+(?:-[a-z0-9]+)*-SOURCES\.md$/.test(p);
 const modelPath=p=>/^frontend\/public\/models\/[a-z0-9]+(?:-[a-z0-9]+)*\.glb$/.test(p);
 const id=s=>typeof s==='string'&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
 export const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -23,18 +24,31 @@ function file(root,path){
  return current;
 }
 function exactKeys(object,keys){assert.deepEqual(Object.keys(object).sort(),keys.sort(),'unsupported manifest fields');}
+function validatePresentation(p,basic){
+ const activities=['working','waiting','dreaming'],feedback=['touch','waiting','attention','nod','celebrate'];
+ exactKeys(p,['idle',...['activities','feedback','rig','turn'].filter(key=>key in p)]);
+ assert.ok(Array.isArray(p.idle)&&p.idle.length>=1&&p.idle.length<=32&&new Set(p.idle).size===p.idle.length);
+ assert.ok(!('rig' in p)||(!basic&&p.rig==='desktop-pet-v1'),'invalid desktop rig');
+ assert.ok(!('turn' in p)||(!p.rig&&Number.isFinite(p.turn)&&p.turn>0&&p.turn<=1),'invalid character turn');
+ for(const [field,keys]of [['activities',activities],['feedback',feedback]])if(field in p){
+  const map=p[field];
+  assert.ok(map&&typeof map==='object'&&!Array.isArray(map)&&Object.keys(map).every(key=>keys.includes(key)),'unsupported presentation event');
+ }
+ assert.ok(presentationClips(p).every(id),'invalid mapped clip name');
+}
+const presentationClips=p=>[...p.idle,...Object.values(p.activities??{}),...Object.values(p.feedback??{})];
 export function validateManifest(m){
  exactKeys(m,['schemaVersion','packId','version','contractVersion','defaultCharacter','defaultVariant','characters','fallbackModel','props','branding','files']);
- assert.equal(m.schemaVersion,1);assert.ok([1,2,3].includes(m.contractVersion),'unsupported runtime contract');
+ assert.equal(m.schemaVersion,1);assert.ok([1,2,3,4,5].includes(m.contractVersion),'unsupported runtime contract');
  assert.ok(id(m.packId)&&/^\d+\.\d+\.\d+$/.test(m.version),'invalid pack version');
  assert.ok(Array.isArray(m.files)&&m.files.length>0&&m.files.length<=64);
  const paths=new Set();
  for(const f of m.files){
   exactKeys(f,['path','sha256','license']);
-  assert.ok(fixedPaths.has(f.path)||modelPath(f.path)||(m.contractVersion>=2&&f.path===animatedAvatar)||(m.contractVersion===3&&portraitPath(f.path)),`not an approved output path: ${f.path}`);
+  assert.ok(fixedPaths.has(f.path)||modelPath(f.path)||(m.contractVersion>=2&&f.path===animatedAvatar)||(m.contractVersion>=3&&portraitPath(f.path))||(m.contractVersion>=4&&noticePath(f.path)),`not an approved output path: ${f.path}`);
   assert.ok(!paths.has(f.path),'duplicate file');paths.add(f.path);
   assert.match(f.sha256,/^[a-f0-9]{64}$/);
-  assert.ok(['Apache-2.0','LicenseRef-Caelis-Character-1.0'].includes(f.license));
+  assert.ok(['Apache-2.0','LicenseRef-Caelis-Character-1.0','LicenseRef-Caelis-Character-2.0'].includes(f.license)||(m.contractVersion>=4&&f.license==='CC-BY-NC-SA-4.0'));
  }
  const use=p=>assert.ok(paths.has(p),`missing referenced file: ${p}`);
  const model=p=>{assert.ok(modelPath(p),'expected model');use(p);};
@@ -42,11 +56,22 @@ export function validateManifest(m){
  assert.ok(Array.isArray(m.characters)&&m.characters.length>0);
  const characters=new Set();
  for(const c of m.characters){
-  exactKeys(c,['id','variants']);assert.ok(id(c.id)&&!characters.has(c.id));characters.add(c.id);
+  exactKeys(c,['id','variants',...(m.contractVersion>=4?['name']:[]),...(m.contractVersion>=5&&'hidden' in c?['hidden']:[])]);
+  if('hidden' in c)assert.ok(typeof c.hidden==='boolean'&&!(c.hidden&&c.id===m.defaultCharacter),'invalid hidden character');
+  if(m.contractVersion>=4)assert.ok(typeof c.name==='string'&&c.name.trim()&&c.name.length<=64&&c.id!=='stick');
+  assert.ok(id(c.id)&&!characters.has(c.id));characters.add(c.id);
   assert.ok(c.variants.length>0);const variants=new Set();
   for(const v of c.variants){
-   exactKeys(v,['id','model','capabilities',...(m.contractVersion===3&&v.portrait?['portrait']:[])]);assert.ok(id(v.id)&&!variants.has(v.id));variants.add(v.id);model(v.model);
-   assert.deepEqual(v.capabilities,['body-v1','face-v1','hands-v1','view-v1','drag-run-v1'],'new capabilities require a reviewed app contract change');
+   const basic=m.contractVersion>=4&&v.capabilities?.[0]==='basic-3d-v1';
+   exactKeys(v,['id','model','capabilities',...(m.contractVersion>=5?['presentation']:[]),...(basic?['avatar','notice','version']:[]),...(m.contractVersion>=3&&v.portrait?['portrait']:[])]);assert.ok(id(v.id)&&!variants.has(v.id));variants.add(v.id);model(v.model);
+   if(basic){
+    assert.deepEqual(v.capabilities,['basic-3d-v1']);
+    assert.ok(!v.portrait&&!(c.id===m.defaultCharacter&&v.id===m.defaultVariant),'default character requires the full presentation contract');
+    assert.ok(/^\d+\.\d+\.\d+$/.test(v.version)&&portraitPath(v.avatar)&&v.avatar.endsWith('.png')&&noticePath(v.notice));
+    const license=m.files.find(f=>f.path===v.model).license;
+    for(const path of [v.avatar,v.notice]){use(path);assert.equal(m.files.find(f=>f.path===path).license,license);}
+   }else assert.deepEqual(v.capabilities,['body-v1','face-v1','hands-v1','view-v1','drag-run-v1'],'new capabilities require a reviewed app contract change');
+   if(m.contractVersion>=5)validatePresentation(v.presentation,basic);
    if(v.portrait){
     const p=v.portrait;exactKeys(p,['version','sourceSHA256','frameSize','columns','frameCount','fps','poster','clips']);
     assert.equal(p.version,1);assert.equal(p.sourceSHA256,m.files.find(f=>f.path===v.model).sha256,'portrait/model provenance mismatch');
@@ -70,7 +95,10 @@ export function validateManifest(m){
 export function readManifest(root='.'){return validateManifest(JSON.parse(readFileSync(file(root,manifestPath),'utf8')));}
 export async function verifyPack(root='.',{strict=false}={}){
  const m=readManifest(root);let total=0;
- const dimensions=new Map();
+ const dimensions=new Map(), mappedClips=new Map();
+ for(const c of m.characters)for(const v of c.variants)if(v.presentation){
+  mappedClips.set(v.model,[...(mappedClips.get(v.model)??[]),...presentationClips(v.presentation)]);
+ }
  for(const c of m.characters)for(const v of c.variants)if(v.portrait){
   const p=v.portrait;dimensions.set(p.poster,[p.frameSize,p.frameSize]);
   for(const path of Object.values(p.clips))dimensions.set(path,[p.frameSize*p.columns,p.frameSize*p.frameCount/p.columns]);
@@ -92,6 +120,9 @@ export async function verifyPack(root='.',{strict=false}={}){
     for(const [key,value]of Object.entries(o))if(key!=='extras')check(value);
    }
    check(doc);
+   for(const clip of mappedClips.get(f.path)??[]){
+    assert.equal((doc.animations??[]).filter(animation=>animation.name===clip).length,1,`missing or ambiguous mapped clip ${clip}: ${f.path}`);
+   }
    assert.ok(!/\/Users\/|\.blend\b|characters\/|sourceSHA|source_art|prompt/i.test(JSON.stringify(doc)),'private metadata in GLB');
    const result=await validator.validateBytes(new Uint8Array(bytes),{uri:f.path});
    assert.equal(result.issues.numErrors,0,JSON.stringify(result.issues.messages));

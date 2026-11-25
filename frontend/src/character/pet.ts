@@ -1,212 +1,161 @@
-import { characterAssets } from './assets';
+import { observeCharacterCanvas, petWidth as width, petHeight as height } from './canvas-resolution';
+import { characterSource, defaultCharacterKey, fallbackCharacter } from './assets';
 import { observeAppearance, builtinAppearance, type Appearance } from '../appearance';
-import { Mesh, MeshBasicMaterial, OrthographicCamera, Scene, Texture, WebGLRenderer, WebGLRenderTarget, Vector3, Box3, Group, type Material, type Object3D } from 'three';
-import { loadCharacterModel } from './load';
+import { MeshBasicMaterial, OrthographicCamera, Scene, WebGLRenderer, WebGLRenderTarget } from 'three';
+import { loadCharacter, type LoadedCharacter } from './load';
 import { desktop, type Placement } from '../desktop';
-import { CharacterAnimation, isGesture, type Activity } from './animation';
+import { activities, gestures, type Activity, type Gesture } from './animation';
 import { characterProfile } from './profile';
-import { LocalPerformance, type NearGesture } from './performance';
-import { FacialAnimation, type FacePreview } from './face';
-import { ViewCorrectives } from './view-correctives';
-import { DragRunPose } from './drag-run';
-import { BehaviorDirector, PoseLayer, idleBehaviors, type IdleBehavior } from './behavior';
-import { interactionBusy, type DesktopContext } from './context';
-import { disposePlane, flightPoint, type Flight } from './plane';
-import { HeldPlaneAnchor } from './held-plane';
+import { CharacterMotion } from './character-motion';
+import type { DesktopContext } from './context';
 import { createHitMaskEncoder } from './hit-mask';
 
-const width=180,height=240;
 // Preserve the native 44-point foot anchor and the entire five-clip envelope.
 const viewHeight=2.8,bottom=-viewHeight*44/height;
 export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  const renderer=new WebGLRenderer({canvas,alpha:true,antialias:true});renderer.setClearColor(0,0);
  const scene=new Scene(),camera=new OrthographicCamera(-viewHeight*width/height/2,viewHeight*width/height/2,bottom+viewHeight,bottom,.1,20);
- camera.position.set(0,0,5);
+ camera.position.set(0,0,5);camera.updateMatrixWorld();
  const target=new WebGLRenderTarget(width,height),rgba=new Uint8Array(width*height*4),maskMaterial=new MeshBasicMaterial();
  const encodeMask=createHitMaskEncoder(width,height);
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
- let disposed=false,visible=true,loaded=false,contextLost=false,frame=0,timer=0,lastFrame=0,lastMask=0;
- let root:Object3D|undefined,player:CharacterAnimation|undefined,profile:ReturnType<typeof characterProfile>|undefined;
- let activity:Activity='idle',activityEvents=0,contextEvents=0;
- let face:FacialAnimation|undefined;let views:ViewCorrectives|undefined;
- let running:DragRunPose|undefined;
- let context:DesktopContext|undefined,pose:PoseLayer|undefined,plane:Group|undefined,hand:Object3D|undefined;
- let planeAnchor:HeldPlaneAnchor|undefined;
- let flightID:string|undefined,nearAction=false;
- let flying:(Flight & {originX:number;originY:number;started:number})|undefined;
- const performanceDirector=new LocalPerformance();
- const director=new BehaviorDirector(),release=new Vector3();
- function cancelFlight(){const id=flightID;flightID=undefined;flying=undefined;if(id)void desktop('FinishPlane',id,false);}
- function attachPlane(){
-  if(!plane||!hand||!root)return;
-  plane.visible=expressive()&&activity==='idle'&&!player?.oneShot&&!nearAction
-   &&!interactionBusy(context)&&!context?.pointer.hovering&&!flightID&&director.holdsPlane;
-  planeAnchor?.place(plane);
- }
- function launchPlane(){
-  // The held prop has already been hidden on this release frame; its updated
-  // hand anchor still supplies the detached surface's launch point.
-  if(!plane||!hand||flightID||!expressive())return;
-  plane.getWorldPosition(release);release.project(camera);
-  const id=crypto.randomUUID();flightID=id;plane.visible=false;
-  void desktop<boolean>('LaunchPlane',id,(release.x+1)*width/2,(release.y+1)*height/2).then(accepted=>{
-   if(!accepted&&flightID===id)flightID=undefined;
-  }).catch(()=>{if(flightID===id)flightID=undefined;});
- }
- const propResult=(e:Event)=>{const result=(e as CustomEvent<{id:string}>).detail;if(result.id===flightID){flightID=undefined;flying=undefined;}};
- const propFlight=(e:Event)=>{const f=(e as CustomEvent<Flight & {originX:number;originY:number}>).detail;if(f.id===flightID)flying={...f,started:performance.now()};};
- const desktopChanged=(e:Event)=>{contextEvents++;context=(e as CustomEvent<DesktopContext>).detail;
-  if(interactionBusy(context)||context.pointer.hovering)cancelFlight();
- };
- const touch=()=>{director.touched();face?.acknowledge();};
- const facePreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['blink','happy','curious','relaxed','soft_smile','joy','focused','expectant'].includes(name)&&expressive())face?.preview(name as FacePreview);};
- const preview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(idleBehaviors.includes(name as IdleBehavior)&&activity==='idle'&&expressive())director.preview(name as IdleBehavior);};
- const nearPreview=(e:Event)=>{const name=(e as CustomEvent<string>).detail;if(['wave','think','ask'].includes(name)&&expressive())performanceDirector.preview(name as NearGesture);};
+ let disposed=false,visible=true,contextLost=false,frame=0,timer=0,lastFrame=0,lastMask=0;
+ let current:{character:LoadedCharacter;motion:CharacterMotion;profile:ReturnType<typeof characterProfile>}|undefined;
+ let activity:Activity='idle',context:DesktopContext|undefined;
+ let activityEvents=0,contextEvents=0,visibilityEvents=0;
  let pendingMask:string|null=null,maskBusy=false,lastSent='';
- const canDraw=()=>!disposed&&visible&&loaded&&!contextLost&&!document.hidden;
- const animate=()=>canDraw()&&!!player;
- const expressive=()=>animate()&&!reduced.matches;
- function releaseModel(model:Object3D) {
-  const materials=new Set<Material>(),textures=new Set<Texture>();
-  model.traverse(o=>{if(o instanceof Mesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);if('skeleton' in o)(o.skeleton as {dispose():void}).dispose();}});
-  for(const m of materials){for(const value of Object.values(m))if(value instanceof Texture)textures.add(value);m.dispose();}
-  textures.forEach(t=>t.dispose());
- }
+ const canDraw=()=>!disposed&&visible&&!!current&&!contextLost&&!document.hidden;
+ const animates=()=>canDraw()&&current!.motion.animates;
+ const acceptsFeedback=()=>canDraw()&&!reduced.matches&&activity!=='dreaming'&&!context?.interaction.dragging;
+
  async function uploadMask() {
   if(maskBusy)return;maskBusy=true;
-  try{while(pendingMask!==null&&!disposed){const value=pendingMask;pendingMask=null;await desktop('SetPackedHitMask',value);lastSent=value;}}
-  catch{if(!disposed)onError();}finally{maskBusy=false;}
+  try{
+   while(pendingMask!==null&&!disposed){
+    const value=pendingMask;pendingMask=null;
+    if(value!==lastSent){await desktop('SetPackedHitMask',value);lastSent=value;}
+   }
+  }catch{if(!disposed)onError();}finally{maskBusy=false;}
  }
  function updateMask() {
   const shadows=renderer.shadowMap.enabled;renderer.shadowMap.enabled=false;scene.overrideMaterial=maskMaterial;
   try{renderer.setRenderTarget(target);renderer.render(scene,camera);renderer.readRenderTargetPixels(target,0,0,width,height,rgba);}
   finally{renderer.setRenderTarget(null);scene.overrideMaterial=null;renderer.shadowMap.enabled=shadows;}
-  const encoded=encodeMask(rgba);if(encoded!==lastSent){pendingMask=encoded;void uploadMask();}
+  const encoded=encodeMask(rgba);
+  if(maskBusy||encoded!==lastSent){pendingMask=encoded;void uploadMask();}
  }
  function draw(now=performance.now(),forceMask=false) {
   if(!canDraw())return;
-  views?.apply(camera);renderer.shadowMap.needsUpdate=true;renderer.render(scene,camera);
+  current!.motion.view();renderer.shadowMap.needsUpdate=true;renderer.render(scene,camera);
   // At most 15 mask readbacks per second; coalesce IPC while a request is pending.
   if(forceMask||now-lastMask>=1000/15){lastMask=now;updateMask();}
  }
  function tick(now:number) {
-  frame=0;if(!animate())return;
+  frame=0;if(!animates())return;
   const dt=Math.min((now-lastFrame)/1000,.1);lastFrame=now;
-  if(reduced.matches){
-   player!.update(dt);
-   face?.update(dt,{activity,clip:player!.clip,progress:player!.progress,director,context});
-   draw(now);schedule();return;
-  }
-  const launch=director.update(dt,activity,context,player!.oneShot);
-  const point=flying?flightPoint(flying,Math.min(1,(now-flying.started)/7500)):undefined;
-  const follow=point&&flying?{x:point.x+flying.originX,y:point.y+flying.originY}:undefined;
-  running?.restore();pose?.restore();player!.update(dt);
-  const state={activity,clip:player!.clip,progress:player!.progress,director,context};
-  const expression=performanceDirector.update(dt,state);
-  nearAction=!!expression.gesture&&expression.amount>.001;
-  pose?.apply(dt,director,context,player!.oneShot,follow,expression);
-  running?.apply(dt,context);
-  face?.update(dt,state,expression);
-  attachPlane();if(launch)launchPlane();draw(now);schedule();
+  current!.motion.update(dt,now,activity,context);draw(now);schedule();
  }
  function schedule() {
-  // Throttle frame requests themselves: a permanent rAF still wakes WebKit's
-  // compositor at the display refresh rate even when most callbacks skip drawing.
-  timer=window.setTimeout(()=>{timer=0;if(animate())frame=requestAnimationFrame(tick);},1000/(reduced.matches?20:30)-6);
+  // Throttle requests themselves to avoid waking the compositor at display rate.
+  timer=window.setTimeout(()=>{timer=0;if(animates())frame=requestAnimationFrame(tick);},1000/(reduced.matches?20:30)-6);
  }
  function stopFrames() {
   clearTimeout(timer);cancelAnimationFrame(frame);timer=0;frame=0;
  }
- function resume() {
+ function redraw() {
   stopFrames();lastFrame=performance.now();
-  player?.setReducedMotion(reduced.matches);
-  if(!canDraw()||reduced.matches){cancelFlight();running?.rest();pose?.rest();player?.rest();pose?.capture();pose?.settle();face?.rest();performanceDirector.reset();nearAction=false;director.reset();}
-  if(!canDraw())return;
-  attachPlane();
-  draw(lastFrame,true);if(animate())schedule();
+  draw(lastFrame,true);if(animates())schedule();
  }
- function resize() {
-  // Cap actual backing pixels per on-screen point, including saved pet scale.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5)*window.innerWidth/width);
-  renderer.setSize(width,height,false);resume();
+ function lifecycleChanged() {
+  current?.motion.rest(reduced.matches);redraw();
  }
- const visibility=(e:Event)=>{visible=(e as CustomEvent<boolean>).detail;resume();};
+ const visibility=(e:Event)=>{visibilityEvents++;visible=(e as CustomEvent<boolean>).detail;lifecycleChanged();};
  const activityChanged=(e:Event)=>{
-  const value=(e as CustomEvent<string>).detail;if(!['idle','working','waiting','dreaming'].includes(value))return;
-  activityEvents++;activity=value as Activity;running?.restore();pose?.restore();player?.setActivity(activity,expressive());pose?.capture();if(activity!=='idle')cancelFlight();resume();
+  const value=(e as CustomEvent<Activity>).detail;if(!activities.includes(value))return;
+  activityEvents++;activity=value;current?.motion.setActivity(activity,acceptsFeedback());redraw();
  };
- const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!expressive()||activity==='dreaming')return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
- const lost=(e:Event)=>{e.preventDefault();contextLost=true;stopFrames();cancelFlight();};
- const restored=()=>{contextLost=false;lastSent='';resize();};
- window.addEventListener('pet-near-preview',nearPreview);window.addEventListener('pet-face-preview',facePreview);window.addEventListener('pet-context',desktopChanged);window.addEventListener('pet-touch',touch);window.addEventListener('pet-preview',preview);window.addEventListener('pet-prop-result',propResult);window.addEventListener('pet-prop-flight',propFlight);
- window.addEventListener('pet-visibility',visibility);window.addEventListener('pet-activity',activityChanged);window.addEventListener('pet-gesture',gesture);
- window.addEventListener('resize',resize);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
+ const contextChanged=(e:Event)=>{
+  contextEvents++;context=(e as CustomEvent<DesktopContext>).detail;current?.motion.contextChanged(context);
+ };
+ const gesture=(e:Event)=>{
+  const value=(e as CustomEvent<Gesture>).detail;
+  if(gestures.includes(value)&&acceptsFeedback()&&current?.motion.react(value))redraw();
+ };
+ const touch=()=>{if(acceptsFeedback()&&current?.motion.react('touch'))redraw();};
+ const lost=(e:Event)=>{e.preventDefault();contextLost=true;lifecycleChanged();};
+ const restored=()=>{contextLost=false;lastSent='';redraw();};
+ const events:Record<string,EventListener>={
+  'pet-context':contextChanged,'pet-touch':touch,'pet-visibility':visibility,
+  'pet-activity':activityChanged,'pet-gesture':gesture,
+  'pet-face-preview':e=>{if(acceptsFeedback())current?.motion.preview('face',(e as CustomEvent<string>).detail,activity);},
+  'pet-near-preview':e=>{if(acceptsFeedback())current?.motion.preview('near',(e as CustomEvent<string>).detail,activity);},
+  'pet-preview':e=>{if(acceptsFeedback())current?.motion.preview('idle',(e as CustomEvent<string>).detail,activity);},
+ };
+ for(const [name,listener]of Object.entries(events))window.addEventListener(name,listener);
+ const stopSizing=observeCharacterCanvas(renderer,draw);
+ document.addEventListener('visibilitychange',lifecycleChanged);reduced.addEventListener('change',lifecycleChanged);
  canvas.addEventListener('webglcontextlost',lost);canvas.addEventListener('webglcontextrestored',restored);
+
+ function releaseCurrent(){
+  if(!current)return;
+  const {character,motion,profile}=current;current=undefined;
+  motion.dispose();profile.dispose();scene.remove(character.root);character.dispose();
+ }
  let generation=0,requested='',latestAppearance=builtinAppearance;
  const selected=(value:Appearance)=>{
+  if(disposed||value.revision<latestAppearance.revision)return;
   latestAppearance=value;
-  if(value.key===requested)return;
-  requested=value.key;void load(value);
+  const selection=JSON.stringify([value.key,value.model]);
+  if(selection===requested)return;
+  requested=selection;void load(value);
  };
  async function load(value:Appearance) {
   const mine=++generation,stale=()=>disposed||mine!==generation;
-  let incoming:Object3D|undefined,incomingPlane:Group|undefined,newPlayer:CharacterAnimation|undefined;
-  let basic=value.basic;
+  let character:LoadedCharacter|undefined,motion:CharacterMotion|undefined,profile:ReturnType<typeof characterProfile>|undefined;
   try {
-   let gltf;
-   try{gltf=await loadCharacterModel(value.model||characterAssets.model,!value.basic);}
+   try{character=await loadCharacter(characterSource(value.key,value.model));}
    catch(error){
-    if(value.key!=='builtin:caelis')throw error;
-    gltf=await loadCharacterModel(characterAssets.fallback);basic=true;
+    if(stale())return;
+    if(value.key!==defaultCharacterKey)throw error;
+    character=await loadCharacter(fallbackCharacter);
    }
-   incoming=gltf.scene;
-   if(stale()){releaseModel(incoming);return;}
-   if(basic){
-    // Only basic geometry/clips are consumed from community files. Asset extras
-    // cannot enable the default character's face/hand/desktop behavior metadata.
-    const wrapper=new Group();wrapper.add(incoming);incoming=wrapper;
-    const box=new Box3().setFromObject(wrapper),size=box.getSize(new Vector3());
-    if(!Number.isFinite(size.length())||size.y<.001||size.x<.001)throw new Error('Invalid character bounds');
-    const scale=Math.min(2.2/size.y,1.65/size.x);
-    const center=box.getCenter(new Vector3());wrapper.scale.setScalar(scale);
-    wrapper.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);
-    wrapper.userData.desktopPetProfile='reference-v1';
-   }
-   newPlayer=new CharacterAnimation(incoming,gltf.animations,!basic);
-   if(!basic){try{incomingPlane=(await loadCharacterModel(characterAssets.paperPlane)).scene;}catch{/* Optional built-in prop. */}}
-   const observed=activityEvents,observedContext=contextEvents;
-   const [placement,current,initialContext]=await Promise.all([desktop<Placement>('Placement'),desktop<Activity>('CharacterActivity'),desktop<DesktopContext|undefined>('DesktopContext')]);
-   if(stale()){newPlayer.dispose();releaseModel(incoming);if(incomingPlane)disposePlane(incomingPlane);return;}
-   // Commit only once the complete replacement is ready. Old content remains
-   // visible during loading; late loads never replace a newer selection.
-   stopFrames();cancelFlight();player?.dispose();profile?.dispose();
-   if(root){scene.remove(root);releaseModel(root);}
-   if(plane){scene.remove(plane);disposePlane(plane);}
-   root=incoming;player=newPlayer;plane=incomingPlane;scene.add(root);
-   profile=characterProfile(renderer,scene,root);
-   pose=basic?undefined:new PoseLayer(root);running=basic?undefined:new DragRunPose(root);
-   face=basic?undefined:new FacialAnimation(root);views=basic?undefined:new ViewCorrectives(root);
-   hand=undefined;planeAnchor=undefined;
-   if(plane){plane.visible=false;plane.scale.setScalar(.28);scene.add(plane);hand=root.getObjectByName('handR')??root.getObjectByName('hand.R');if(hand)planeAnchor=new HeldPlaneAnchor(root,hand);}
-   performanceDirector.reset();director.reset();nearAction=false;lastSent='';
-   visible=placement.visible;if(activityEvents===observed)activity=current;if(contextEvents===observedContext)context=initialContext;
-   loaded=true;pose?.restore();player.setActivity(activity,visible&&!reduced.matches);pose?.capture();resize();
-  }catch{
-   newPlayer?.dispose();if(incoming&&incoming!==root)releaseModel(incoming);if(incomingPlane&&incomingPlane!==plane)disposePlane(incomingPlane);
    if(stale())return;
-   if(value.key!=='builtin:caelis'){
-    try{selected(await desktop<Appearance>('FallbackAppearance',latestAppearance.revision));}
-    catch{selected({...builtinAppearance,revision:latestAppearance.revision});}
-   }else onError();
+   motion=await CharacterMotion.load(character);
+   if(stale())return;
+   const a=activityEvents,c=contextEvents,v=visibilityEvents;
+   const [placement,initialActivity,initialContext]=await Promise.all([desktop<Placement>('Placement'),desktop<Activity>('CharacterActivity'),desktop<DesktopContext|null>('DesktopContext')]);
+   if(stale())return;
+   if(visibilityEvents===v)visible=placement.visible;
+   if(activityEvents===a)activity=initialActivity;
+   if(contextEvents===c)context=initialContext??undefined;
+
+   // Keep drawing the previous model while loading. Replace all layers together.
+   motion.attach(scene,camera);
+   motion.rest(reduced.matches);
+   motion.setActivity(activity,visible&&!contextLost&&!document.hidden&&!reduced.matches);
+   profile=characterProfile(renderer,scene,character.root,character.referenceLighting);
+   stopFrames();releaseCurrent();pendingMask=null;lastSent='';
+   scene.add(character.root);
+   current={character,motion,profile};character=motion=profile=undefined;
+   redraw();
+  }catch{
+   if(stale())return;
+   if(value.key===defaultCharacterKey){onError();return;}
+   const revision=latestAppearance.revision;
+   try{
+    const fallback=await desktop<Appearance>('FallbackAppearance',revision);
+    if(!stale())selected(fallback);
+   }catch{if(!stale())selected({...builtinAppearance,revision});}
+  }finally{
+   motion?.dispose();profile?.dispose();character?.dispose();
   }
  }
  const stopAppearance=observeAppearance(selected);
  return()=>{
-  disposed=true;generation++;stopAppearance();stopFrames();pendingMask=null;cancelFlight();
-  window.removeEventListener('pet-near-preview',nearPreview);window.removeEventListener('pet-face-preview',facePreview);window.removeEventListener('pet-context',desktopChanged);window.removeEventListener('pet-touch',touch);window.removeEventListener('pet-preview',preview);window.removeEventListener('pet-prop-result',propResult);window.removeEventListener('pet-prop-flight',propFlight);
-  window.removeEventListener('pet-visibility',visibility);window.removeEventListener('pet-activity',activityChanged);window.removeEventListener('pet-gesture',gesture);
-  window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',resume);reduced.removeEventListener('change',resume);
+  disposed=true;generation++;stopAppearance();stopFrames();pendingMask=null;releaseCurrent();
+  for(const [name,listener]of Object.entries(events))window.removeEventListener(name,listener);
+  stopSizing();document.removeEventListener('visibilitychange',lifecycleChanged);reduced.removeEventListener('change',lifecycleChanged);
   canvas.removeEventListener('webglcontextlost',lost);canvas.removeEventListener('webglcontextrestored',restored);
-  player?.dispose();profile?.dispose();if(plane)disposePlane(plane);if(root)releaseModel(root);target.dispose();maskMaterial.dispose();renderer.dispose();renderer.forceContextLoss();
+  target.dispose();maskMaterial.dispose();renderer.dispose();renderer.forceContextLoss();
  };
 }

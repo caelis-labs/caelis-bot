@@ -27,6 +27,11 @@ test('verified import is exact, rejects extra source files, symlinks and corrupt
   const m=readManifest();mkdirSync(dest,{recursive:true});
   for(const p of [manifestPath,...m.files.map(f=>f.path)]){mkdirSync(dirname(join(source,p)),{recursive:true});copyFileSync(p,join(source,p));}
   await verifyPack(source,{strict:true});await importPack(source,dest);assert.deepEqual(readManifest(dest),m);
+  const invalid=structuredClone(m);
+  invalid.characters[1].variants[0].presentation.feedback.touch='not-in-the-glb';
+  writeFileSync(join(source,manifestPath),JSON.stringify(invalid));
+  await assert.rejects(verifyPack(source),/missing or ambiguous mapped clip/);
+  writeFileSync(join(source,manifestPath),JSON.stringify(m));
   const original=readFileSync(join(dest,m.files[0].path));
   writeFileSync(join(source,'authoring.blend'),'private');await assert.rejects(importPack(source,dest),/unlisted/);rmSync(join(source,'authoring.blend'));
   const file=join(source,m.files[0].path);rmSync(file);
@@ -37,4 +42,34 @@ test('verified import is exact, rejects extra source files, symlinks and corrupt
   writeFileSync(file,'bad');await assert.rejects(importPack(source,dest),/hash mismatch/);
   assert.deepEqual(readFileSync(join(dest,m.files[0].path)),original);
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('basic built-in variants require a licensed local avatar and distribution notice',()=>{
+ const invalid=edit=>{
+  const pack=readManifest();
+  const variant=pack.characters.find(c=>c.id==='whale-girl').variants[0];
+  edit(pack,variant);
+  return ()=>validateManifest(pack);
+ };
+ assert.throws(invalid((_,v)=>{delete v.notice;}));
+ assert.throws(invalid((_,v)=>{v.avatar='https://example.invalid/avatar.png';}));
+ assert.throws(invalid((m,v)=>{m.files.find(f=>f.path===v.avatar).license='Apache-2.0';}));
+ assert.throws(invalid((_,v)=>{v.capabilities.push('hands-v1');}));
+});
+
+test('v5 validates presentation and visibility while v4 manifests retain their original contract',()=>{
+ const reject=edit=>{const m=readManifest();edit(m);assert.throws(()=>validateManifest(m));};
+ reject(m=>{m.characters[0].hidden=true;});
+ reject(m=>{m.characters[1].hidden='yes';});
+ reject(m=>{m.characters[1].variants[0].presentation.feedback.click='nod';});
+ reject(m=>{m.characters[1].variants[0].presentation.turn=2;});
+ reject(m=>{m.characters[1].variants[0].presentation.idle.push('idle');});
+ reject(m=>{m.characters[1].variants[0].presentation.rig='desktop-pet-v1';});
+ const legacy=readManifest();
+ legacy.contractVersion=4;
+ for(const character of legacy.characters){
+  delete character.hidden;
+  for(const variant of character.variants)delete variant.presentation;
+ }
+ assert.equal(validateManifest(legacy),legacy);
 });

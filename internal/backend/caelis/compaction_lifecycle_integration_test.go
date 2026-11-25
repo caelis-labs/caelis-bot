@@ -17,7 +17,7 @@ func TestCoreIdleForegroundAndRestart(t *testing.T) {
 			release := make(chan struct{})
 			model := &compactionHTTPModel{summaryStarted: make(chan struct{}, 1), summaryRelease: release}
 			server := httptest.NewServer(http.HandlerFunc(model.serve))
-			defer server.Close()
+			defer closeNativeHTTP(server)
 			h := newConfiguredCompactionProcess(t, ctx, compactionFixtureConfig(server.URL, false))
 			h.experiments(t, ctx, false, true)
 			selector := compactionModelSelector(t, ctx, h.host, "native-fixture")
@@ -47,18 +47,14 @@ func TestCoreIdleForegroundAndRestart(t *testing.T) {
 					submitCompactionText(t, ctx, s, "foreground", "Foreground interrupts summary generation; retain original receipts.")
 				} else {
 					previous := s.Snapshot().CurrentTurn
-					h.stop()
-					_ = s.Close(context.Background())
+					closeNativeFixture(t, s)
+					h.stop(t)
 					h.start(t, ctx)
 					restored := h.session(t, ctx, selector)
 					if restored.Snapshot().CurrentTurn != previous {
 						t.Fatal("restart replaced original foreground identity")
 					}
-					select {
-					case <-time.After(3 * time.Second):
-					case <-ctx.Done():
-						t.Fatal(ctx.Err())
-					}
+					waitAcceptance(t, ctx, func() bool { return restored.Snapshot().CanSend })
 				}
 				close(release)
 			}

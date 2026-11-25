@@ -21,7 +21,6 @@ const Bubble=lazy(()=>import('./Bubble').then(m=>({default:m.Bubble})));
 function Pet() {
   const { t } = useI18n();
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [scale, setScale] = useState(window.innerWidth / 180);
   const [failed, setFailed] = useState(false);
 	const [assetAttempt, setAssetAttempt] = useState(0);
 	useEffect(()=>{
@@ -38,13 +37,11 @@ function Pet() {
     return()=>{stopped=true;window.removeEventListener('pet-activity',change);};
   },[]);
   useEffect(() => {
-    const resize = () => setScale(window.innerWidth / 180);
-    window.addEventListener('resize', resize);
     let dispose: (() => void) | undefined, stopped=false;
     void import('./character/pet').then(({mountPet})=>{if(!stopped)dispose=mountPet(canvas.current!,()=>setFailed(true));}).catch(()=>{if(!stopped)setFailed(true);});
-    return () => { stopped=true;dispose?.(); window.removeEventListener('resize', resize); };
+    return () => { stopped=true;dispose?.(); };
   }, [assetAttempt]);
-  return <main className="pet-stage" style={{ transform: `scale(${scale})` }}>
+  return <main className="pet-stage">
     <canvas ref={canvas} width="180" height="240" aria-hidden="true" />
     {dreaming&&<span className="pet-dream" role="status" aria-label={t('chat.dreaming')} title={t('chat.dreamHint')}>zzz</span>}
     <button className="pet-open" tabIndex={-1} onClick={() => void desktop('Activate')} aria-label={failed ? t('native.petLoadFailed') : t('native.petActionHint')} />

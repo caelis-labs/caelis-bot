@@ -17,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
 )
 
 // Opt-in, billable acceptance. The caller explicitly configures an isolated
@@ -68,11 +69,15 @@ func TestConfiguredModelIntegration(t *testing.T) {
 	}
 	settings := api.RuntimeSettings{Runtime: "caelis", CaelisStore: store}
 	bin := os.Getenv("CAELIS_BOT_LIVE_BINARY")
-	var child *exec.Cmd
+	var child *hostfixture.Process
 	stop := func() {
 		if child != nil {
-			_ = child.Process.Signal(os.Interrupt)
-			_ = child.Wait()
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := child.Stop(cleanup); err != nil {
+				t.Error("live fixture foreground cleanup:", err)
+				return
+			}
 			child = nil
 		}
 	}
@@ -80,22 +85,25 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		if bin == "" {
 			return
 		}
+		if child != nil {
+			t.Fatal("previous live fixture foreground has not been reaped")
+		}
 		privateHome := filepath.Join(root, "home")
 		_ = os.MkdirAll(privateHome, 0700)
-		child = exec.CommandContext(ctx, bin, "serve", "--store-dir", store, "--listen", "127.0.0.1:0")
-		child.Dir = root
-		child.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + privateHome, "XDG_CONFIG_HOME=" + privateHome, "TMPDIR=" + os.TempDir()}
+		command := exec.Command(bin, "serve", "--store-dir", store, "--listen", "127.0.0.1:0")
+		command.Dir = root
+		command.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + privateHome, "XDG_CONFIG_HOME=" + privateHome, "TMPDIR=" + os.TempDir()}
 		log, err := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}
-		child.Stdout = log
-		child.Stderr = log
-		if err = child.Start(); err != nil {
-			log.Close()
-			t.Fatal(err)
+		command.Stdout = log
+		command.Stderr = log
+		child, err = hostfixture.Start(command)
+		closeErr := log.Close()
+		if err != nil || closeErr != nil {
+			t.Fatal(err, closeErr)
 		}
-		log.Close()
 		ready, c := context.WithTimeout(ctx, 20*time.Second)
 		defer c()
 		waitAcceptance(t, ready, func() bool {
@@ -112,7 +120,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 			return err == nil
 		})
 	}
-	defer stop()
+	t.Cleanup(stop)
 	start()
 	host, e := setupClient(ctx, settings)
 	if e != nil {
@@ -235,7 +243,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		})
 	}
 	open()
-	defer func() { _ = s.Close(context.Background()) }()
+	defer closeNativeFixture(t, s)
 	submit := func(t *testing.T, id, prompt string) {
 		t.Helper()
 		c, done := context.WithTimeout(ctx, 3*time.Minute)

@@ -30,7 +30,7 @@ export class FacialAnimation {
  }
  update(dt:number,state:PerformanceState,performance?:PerformanceFrame){
   if(!this.available)return;
-  const {activity,clip,progress,context}=state;
+  const {activity,feedback,progress,context}=state;
   const hover=!!context?.pointer.hovering,hardQuiet=!!context&&(context.interaction.dragging||context.interaction.menu||context.interaction.pressing);
   const input=!!context?.interaction.input;
   if(hover&&!this.hover){this.warmth=.9;this.nextBlink=Math.min(this.nextBlink,.22);}
@@ -38,8 +38,8 @@ export class FacialAnimation {
   this.nextBlink-=dt;
   if(this.blink<0&&this.nextBlink<=0){this.blink=0;this.nextBlink=3.2+this.random()*3.8;}
   if(this.blink>=0){this.blink+=dt;if(this.blink>.31)this.blink=-1;}
-  let expression:ExpressionName=performance?.expression??(clip==='celebrate'?'joy':clip==='attention'?'curious':clip==='nod'?'soft_smile':activity==='working'?'focused':activity==='waiting'?'expectant':'relaxed');
-  let amount=performance?.expressionAmount??(!['idle','working'].includes(clip)?envelope(progress,.01,.99,.17):1);
+  let expression:ExpressionName=performance?.expression??(feedback==='celebrate'?'joy':feedback==='attention'||feedback==='waiting'?'curious':feedback==='nod'?'soft_smile':activity==='working'?'focused':activity==='waiting'?'expectant':'relaxed');
+  let amount=performance?.expressionAmount??(feedback?envelope(progress,.01,.99,.17):1);
   if(this.warmth>0&&activity==='idle'&&!hardQuiet){expression='soft_smile';amount=Math.min(1,this.warmth/.25);}
   if(input){expression=activity==='waiting'?'expectant':this.warmth>0?'soft_smile':'relaxed';amount=activity==='waiting'?.4:1;}
   if(hardQuiet){expression='relaxed';amount=1;this.previewing=undefined;}

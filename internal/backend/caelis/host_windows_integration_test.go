@@ -5,16 +5,15 @@ package caelis
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
-	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
+	"github.com/caelis-labs/caelis-bot/internal/testsupport/hostfixture"
+	"github.com/caelis-labs/caelis-bot/internal/testutil"
 )
 
 // Real published CLI + shared Host lifecycle, entirely in an isolated Store.
@@ -26,32 +25,20 @@ func TestWindowsNativeHostDiscoveryAndLifecycle(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	root := t.TempDir()
+	fixture := hostfixture.New(t, bin, "隔离 Store")
+	fixture.IsolateRecoveryEnvironment(t)
+	root := fixture.Root
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "local"))
 	packageDir := filepath.Join(root, "ZIP")
 	if err := os.Mkdir(packageDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	bytes, err := os.ReadFile(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
 	packageCLI := filepath.Join(packageDir, "caelis.exe")
-	if err := os.WriteFile(packageCLI, bytes, 0700); err != nil {
+	if err := testutil.StageExecutable(bin, packageCLI); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(packageDir)
-	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(t.TempDir(), "隔离 Store")}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(cleanup, bin, "service", "stop", "--store-dir", settings.CaelisStore, "--format", "json")
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		cmd.Env = runtimeenv.Clean(os.Environ())
-		if err := cmd.Run(); err != nil {
-			t.Error("isolated Host cleanup", err)
-		}
-	}()
+	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: fixture.Path}
 	status, err := caelisruntime.Manage(ctx, "start", packageCLI, settings.CaelisStore)
 	if err != nil || !status.Installed {
 		t.Fatal("native service start", err)
