@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -90,7 +91,9 @@ func TestWorkerReplacementAndReopenRetainExactBoundedOutputWhenHistoryFails(t *t
 	})
 	addServiceWorker(s, "task", "work", head)
 	feedWorkerOutput(s, old)
-	_ = s.watch(t.Context(), s.client, "work", s.state.InstanceID)
+	if err := s.watch(t.Context(), s.client, "work", s.state.InstanceID); err != io.EOF {
+		t.Fatalf("watch error = %v, want EOF", err)
+	}
 	live, err := s.ObserveWork(t.Context(), "task")
 	if err != nil || len(live.Items) != 3 || live.Items[0].Text != "same body" || live.Items[1].Text != "canonical shared text" || live.Items[2].Text != "same body" {
 		t.Fatal("replacement lost cached IDs or merged equal text", live.Items, err)

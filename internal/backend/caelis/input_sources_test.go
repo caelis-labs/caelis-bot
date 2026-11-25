@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -68,7 +69,9 @@ func TestNativeInputScopeSurvivesPastSessionCacheAndReload(t *testing.T) {
 	if receipt, err := s.Submit(t.Context(), api.Submission{ID: "native-request", Text: "Fixture input"}, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	_ = s.watch(t.Context(), s.client, "main", "instance") // finite canonical feed closes after sync
+	if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+		t.Fatalf("watch error = %v, want EOF", err)
+	}
 	before := backend.NewService(s, nil, nil, nil, nil).Snapshot()
 	if len(before.InputSources) != 1 || before.InputSources[0].RequestID != "native-request" || before.InputSources[0].RuntimeOwner != before.RuntimeOwner {
 		t.Fatal("scoped feed/receipt did not establish input", before.InputSources)
@@ -205,7 +208,9 @@ func TestNativeReplayCannotUpgradeRetainedInputScope(t *testing.T) {
 						t.Fatal(err)
 					}
 					s.state = restored
-					_ = s.watch(t.Context(), s.client, "main", "instance")
+					if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+						t.Fatalf("watch error = %v, want EOF", err)
+					}
 					got := backend.NewService(s, nil, nil, nil, nil).Snapshot()
 					if len(got.Items) != 1 {
 						t.Fatal("replay discarded historical input")
@@ -256,7 +261,9 @@ func TestInputScopeSurvivesDisplayEvictionAndEarlierReload(t *testing.T) {
 			if proven {
 				s.state.Views["main"].InputScopes = map[string]inputScope{id: original}
 			}
-			_ = s.watch(t.Context(), s.client, "main", "instance")
+			if err := s.watch(t.Context(), s.client, "main", "instance"); err != io.EOF {
+				t.Fatalf("watch error = %v, want EOF", err)
+			}
 			if len(s.Snapshot().Items) != 0 {
 				t.Fatal("fixture did not evict old display item")
 			}
