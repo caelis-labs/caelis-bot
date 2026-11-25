@@ -17,9 +17,7 @@ import (
 //go:embed skills
 var files embed.FS
 
-var bundledSkills = []string{"bot-core", "chat-a2ui"}
-
-// Install replaces the host-managed skill directories. Other entries
+// Install replaces the host-managed core skill directory. Other entries
 // under app-skills, Notebook, plugin packages, and custom skills are untouched.
 func Install(root string) (string, error) {
 	appRoot := filepath.Join(root, "app-skills")
@@ -62,7 +60,7 @@ func Install(root string) (string, error) {
 	if err := installFile(filepath.Join(stage, "bot-core", "assets", "plugin-catalog.json"), body); err != nil {
 		return "", err
 	}
-	for _, name := range bundledSkills {
+	for _, name := range []string{"bot-core"} {
 		target := filepath.Join(appRoot, name)
 		backup := filepath.Join(stage, ".previous-"+name)
 		if _, err := os.Lstat(target); err == nil {
@@ -79,7 +77,7 @@ func Install(root string) (string, error) {
 			return "", err
 		}
 	}
-	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream"} {
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "chat-a2ui"} {
 		if err := os.RemoveAll(filepath.Join(appRoot, old)); err != nil {
 			return "", err
 		}
@@ -122,30 +120,20 @@ func Bootstrap() string {
 	return "You are Caelis Bot. At the start of each new Bot session, read the bot-core Skill before handling user work. Load its references only when relevant.\n"
 }
 
-// Roots selects only the bundled resident Skills, excluding unrelated local entries.
-func Roots(coreSkillPath string) []string {
-	appRoot := filepath.Dir(filepath.Dir(coreSkillPath))
-	roots := make([]string, 0, len(bundledSkills))
-	for _, skill := range bundledSkills {
-		roots = append(roots, filepath.Join(appRoot, skill))
-	}
-	return roots
-}
-
 // Instructions exposes standard skill metadata and a file locator to Codex.
 // Caelis uses native skill roots. Reading the body/references remains a model
 // tool action, never automatic prefix assembly.
 func Instructions(skillPath string) string {
 	var out strings.Builder
 	out.WriteString("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n")
-	for _, location := range Roots(skillPath) {
-		skill := filepath.Base(location)
+	for _, skill := range []string{"bot-core"} {
 		body, err := files.ReadFile(path.Join("skills", skill, "SKILL.md"))
 		if err != nil {
 			panic(err)
 		}
 		name, description := metadata(string(body))
-		fmt.Fprintf(&out, "- %s: %s (file: %s)\n", name, description, filepath.Join(location, "SKILL.md"))
+		location := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), skill, "SKILL.md")
+		fmt.Fprintf(&out, "- %s: %s (file: %s)\n", name, description, location)
 	}
 	return out.String()
 }

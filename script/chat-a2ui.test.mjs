@@ -5,6 +5,10 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {remarkChatA2ui} from '../frontend/src/chat-a2ui-markdown.ts';
+import {compileChatSurface} from '../frontend/src/chat-a2ui-compile.ts';
+import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
+import {MessageProcessor} from '@a2ui/web_core';
+import {collection, comparison, draft} from './a2ui-chat-examples.mjs';
 
 function render(text, receiving = false, enabled = true) {
  const blocks = [];
@@ -58,4 +62,35 @@ test('an incomplete block stays incomplete across chunks and finalization', () =
 test('CRLF and escaped close-tag text survive source extraction', () => {
  const block = '<a2ui>\r\nroot = Text("literal </a2ui>")\r\n</a2ui>';
  assert.deepEqual(render(block).blocks[0], {source: block, body: 'root = Text("literal </a2ui>")', closed: true, receiving: false});
+});
+
+test('the examples compile to one v1.0 surface each and are accepted by the pinned processor', () => {
+ for (const body of [comparison, collection, draft, 'root = Text("Saved heading", "title")']) {
+  const message = compileChatSurface(body);
+  assert.equal(message?.version, '1.0');
+  const processor = new MessageProcessor([chatCatalog], undefined, {version: 'v1.0'});
+  try {
+   processor.processMessages(message);
+   assert.equal(processor.model.surfacesMap.size, 1);
+  } finally { processor.dispose(); }
+ }
+});
+
+test('blocks unsupported actions and updates, oversized collections and unsafe paths', () => {
+ const opening = 'root = Text("safe")';
+ for (const body of [
+  'root = Button(Text("submit"),Event("submit"))',
+  'root = Text(openUrl("https://example.test"))',
+  `${opening}\nsurface chat\nroot = Text("replace")`,
+  `$/__proto__/a2uiMarker = 1\n${opening}`,
+  `$/items = {"\\u005f_proto__": {a2uiMarker: 1}}\n${opening}`,
+  `$/items/10000 = "far"\n${opening}`,
+  `$/items = [${Array(13).fill('1').join(',')}]\n${opening}`,
+ ]) {
+  let compiled;
+  try { compiled = compileChatSurface(body); }
+  catch { compiled = undefined; }
+  assert.equal(compiled, undefined, body);
+  assert.equal(Object.prototype.a2uiMarker, undefined);
+ }
 });

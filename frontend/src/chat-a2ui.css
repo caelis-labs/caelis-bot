@@ -1,7 +1,21 @@
-.markdown-body .chat-a2ui-surface { margin: .65em 0; overflow-wrap: anywhere; }
-.chat-a2ui-surface .chat-a2ui-card { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); }
-.chat-a2ui-surface .chat-a2ui-column, .chat-a2ui-surface .chat-a2ui-row { display: flex; gap: 8px; }
-.chat-a2ui-surface .chat-a2ui-column { flex-direction: column; }
-.chat-a2ui-surface .chat-a2ui-row { flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
-.chat-a2ui-surface small { font-size: .88em; color: var(--muted); }
-.markdown-body .chat-a2ui-surface hr { margin: 2px 0; }
+.markdown-body .chat-a2ui-surface {
+ margin: .65em 0;
+ min-width: 0;
+ overflow-wrap: anywhere;
+ --a2ui-color-surface: var(--wash);
+ --a2ui-color-on-surface: currentColor;
+ --a2ui-color-input: var(--surface);
+ --a2ui-color-on-input: currentColor;
+ --a2ui-color-border: var(--line);
+ --a2ui-color-primary: var(--accent);
+ --a2ui-border: 1px solid var(--line);
+ --a2ui-card-margin: 0;
+ --a2ui-card-padding: 12px;
+ --a2ui-card-border-radius: 10px;
+ --a2ui-row-gap: 12px;
+ --a2ui-column-gap: 8px;
+ --a2ui-textfield-padding: 8px;
+ --a2ui-textfield-border-radius: 6px;
+}
+.chat-a2ui-surface small, .markdown-body .chat-a2ui-local { font-size: .88em; color: var(--muted); }
+.markdown-body .chat-a2ui-local { margin: 0 0 8px; }

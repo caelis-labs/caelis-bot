@@ -7,6 +7,7 @@
     "node": ">=24.21.0 <25"
   },
   "scripts": {
+    "check:a2ui-reference": "node script/generate-chat-a2ui-reference.mjs --check",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",

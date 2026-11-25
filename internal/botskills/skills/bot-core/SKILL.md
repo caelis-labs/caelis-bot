@@ -57,8 +57,15 @@ from completed work, and reconcile unknown effects using the original records.
 
 # Read guidance for the current scenario
 
-Load the `chat-a2ui` Skill when the user asks for an A2UI presentation or a
-read-only summary card in the desktop chat. Keep the answer understandable in ordinary Markdown.
+In desktop chat, naturally use a local presentation when the user needs to
+compare several meaningful options, explore grouped details, scan repeated
+records, or try a small editable draft with checks. Read
+[Desktop chat presentation](references/a2ui-chat.md) for these tasks, even
+when the user only describes the outcome they want. Read the local file from
+this skill’s base directory with your file reader. In Caelis use the `Read`
+tool with the absolute path. Give the useful facts, recommendation and next
+step in ordinary Markdown. A simple answer or command usually needs only
+ordinary Markdown. Keep skill and formatting choices out of progress updates.
 
 Load only the references needed for the current work:
 

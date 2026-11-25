@@ -8,6 +8,7 @@ doctor:
 dev:
 	./script/npm.sh run dev
 check:
+	./script/npm.sh run check:a2ui-reference
 	./script/check.sh
 check-updater:
 	bash script/updater-native-test.sh
