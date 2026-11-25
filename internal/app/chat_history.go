@@ -2,8 +2,8 @@ package app
 
 import "path/filepath"
 
-func (a *Application) chatHistoryPath() string {
-	return filepath.Join(a.root, "ChatHistory", "conversation.jsonl")
+func (a *Application) chatHistoryDirectory() string {
+	return filepath.Join(a.root, "ChatHistory")
 }
 
 func (a *Application) introductionRequest() string {

@@ -62,11 +62,13 @@ func TestNativePrivateStdioWorkerRoundTrip(t *testing.T) {
 	var workerInput, workerFollowup, reportRead, isolated = false, false, false, true
 	var reminderFired int
 	var memoryFresh, historyFound bool
-	history := filepath.Join(root, "ChatHistory", "conversation.jsonl")
+	archive := filepath.Join(root, "ChatHistory")
+	now := time.Now()
+	history := filepath.Join(archive, filepath.FromSlash(now.Format("2006/01/02")+".log"))
 	log := chatlog.Open(filepath.Join(root, "chat.sqlite"))
 	defer log.Close()
-	log.StartHistoryFile(history, nil)
-	log.Observe([]api.Item{{ID: "history-test", Kind: "assistant", Text: "CODEX_NATIVE_HISTORY_FOUND", Status: "completed"}})
+	log.Observe([]api.Item{{ID: "history-test", Kind: "assistant", Text: "CODEX_NATIVE_HISTORY_FOUND", Status: "completed", SeenAt: now.UnixMicro()}})
+	log.StartHistoryArchive(archive, nil)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		body := string(raw)
@@ -108,7 +110,7 @@ func TestNativePrivateStdioWorkerRoundTrip(t *testing.T) {
 			workerInput = strings.Contains(body, "selected.txt")
 		}
 		if role == "worker" || role == "worker-followup" {
-			isolated = isolated && !strings.Contains(body, "caelis_tasks") && !strings.Contains(body, "bot-core") && !strings.Contains(body, history)
+			isolated = isolated && !strings.Contains(body, "caelis_tasks") && !strings.Contains(body, "bot-core") && !strings.Contains(body, archive)
 		}
 		counts[role]++
 		n := counts[role]

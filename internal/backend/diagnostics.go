@@ -54,7 +54,7 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		report["backend"] = detail.DiagnosticStatus()
 	}
 	if s.chat != nil {
-		report["localMessages"] = map[string]any{"storageIssue": s.chat.Status() != nil}
+		report["localMessages"] = map[string]any{"storageIssue": s.chat.Status() != nil, "archiveIssue": s.chat.ArchiveIssue()}
 	}
 	return json.MarshalIndent(report, "", "  ")
 }

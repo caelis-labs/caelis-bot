@@ -230,12 +230,16 @@ retain their native defaults.
 
 Each resident Session begins with the current `MEMORY.md`. Bot reads Notebook
 paths on demand. `chat.sqlite` owns the IM transcript and accepted user activity.
-The app atomically publishes a read-only JSON Lines file from committed SQLite rows
-in display order, including earlier pages. Same-ID updates replace the row and
-original request identity coalesces native echoes. The file excludes hidden remote
-controls, and regenerates from SQLite on restart, database edits and deletions.
-The resident gets the file location for targeted Read or rg queries. Worker
-configuration and prompts omit it. Original Worker handles, reminders and delivery
+The app projects settled user and Bot text into read-only `ChatHistory/YYYY/MM/DD.log`
+files by local date, with `baseline.log` for undated history. The archive keeps
+display order and the original multiline text. Controls, host activity, task
+and question cards, and unfinished stream updates stay out of the archive. SQLite queues affected
+days in the same transaction as transcript changes. Startup backfills existing
+history, repairs missing files and resumes pending work, then a five-minute batch
+reads the affected date ranges and atomically replaces files whose contents change.
+A changed local calendar triggers a one-time reprojection on restart. The legacy `conversation.jsonl` retires after catch-up. The resident receives the
+archive directory for targeted Read or rg queries. Worker configuration and prompts
+omit it. Original Worker handles, reminders and delivery
 receipts remain in their owner records across a resident replacement.
 
 Calendar and event arrangements can be registered from any resident tool turn admitted

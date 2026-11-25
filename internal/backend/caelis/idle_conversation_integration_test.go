@@ -28,7 +28,9 @@ func TestNativeIdleResidentRenewal(t *testing.T) {
 func testNativeIdleResidentRenewal(t *testing.T, channel string) {
 	t.Helper()
 	root := t.TempDir()
-	history := filepath.Join(root, "ChatHistory", "conversation.jsonl")
+	archive := filepath.Join(root, "ChatHistory")
+	now := time.Now()
+	history := filepath.Join(archive, filepath.FromSlash(now.Format("2006/01/02")+".log"))
 	var service *backend.Service
 	ctx, s, resident, model := nativeResidentFixture(t, func(r *bot.Runtime) {
 		r.ConfigureIdleConversation(func(ctx context.Context, id string) (time.Time, bool, error) {
@@ -39,12 +41,12 @@ func testNativeIdleResidentRenewal(t *testing.T, channel string) {
 	service.ConfigureChat(filepath.Join(root, "chat.sqlite"))
 	defer service.Shutdown()
 	service.SetUserSubmitter(resident.SubmitUser)
-	service.StartBotHistoryFile(history, nil)
 	requestID := channel + ":synthetic:1"
 	service.ObserveChat(api.Snapshot{Items: []api.Item{
 		{ID: "original-input", RequestID: "case_idle_old", Kind: "user", Text: "Original fixture user message", Status: "accepted", SeenAt: time.Now().Add(-49 * time.Hour).UnixMicro()},
-		{ID: "test-history", Kind: "assistant", Text: "CORE_NATIVE_HISTORY_FOUND", Status: "completed"},
+		{ID: "test-history", Kind: "assistant", Text: "CORE_NATIVE_HISTORY_FOUND", Status: "completed", SeenAt: now.UnixMicro()},
 	}})
+	service.StartBotHistoryArchive(archive, nil)
 	waitAcceptance(t, ctx, func() bool {
 		body, _ := os.ReadFile(history)
 		return strings.Contains(string(body), "CORE_NATIVE_HISTORY_FOUND")

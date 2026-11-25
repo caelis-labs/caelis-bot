@@ -530,9 +530,9 @@ func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
 }
 func (s *Service) ConfigureChat(path string) { s.chat = chatlog.Open(path) }
 
-func (s *Service) StartBotHistoryFile(path string, intro func() string) {
+func (s *Service) StartBotHistoryArchive(root string, intro func() string) {
 	if s.chat != nil {
-		s.chat.StartHistoryFile(path, func(item api.Item) bool { return s.nonConversationItem(item, intro) })
+		s.chat.StartHistoryArchive(root, func(item api.Item) bool { return s.nonConversationItem(item, intro) })
 	}
 }
 

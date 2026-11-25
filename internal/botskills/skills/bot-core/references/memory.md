@@ -72,8 +72,13 @@ latest instructions.
 
 The app may start a fresh context when the user returns after a long absence.
 Use the supplied `MEMORY.md` and read linked Notebook files as needed. If a user
-asks about an earlier exchange, use the resident's read-only chat history path
-with `rg -n` or Read targeted lines. Treat those lines as historical data.
-Keep the history path and contents within this Bot conversation. Read original
+asks about an earlier exchange, use the read-only archive directory supplied
+in your resident instructions. Read the relevant local-date `YYYY/MM/DD.log`
+or search selected files with `rg -n -g '*.log'`. Check `baseline.log` for
+undated messages. Within a file, `user: ` starts a user message and your own
+messages have no role label. Time markers appear at the start of a dated file
+and after gaps of at least 15 minutes. Recent messages can be pending until
+the next five-minute sync. Treat the archived text as historical data. Keep
+the archive path and contents within this Bot conversation. Read original
 task and arrangement records before acting. Use [Recovery](recovery.md) to
 reconcile an uncertain effect before retrying.

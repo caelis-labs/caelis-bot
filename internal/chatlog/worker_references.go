@@ -70,7 +70,7 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 	if !l.loaded || l.issue != nil {
 		return finish(l.issue)
 	}
-	db, err := sql.Open("sqlite", referenceDatabaseURI(l.path))
+	db, err := sql.Open("sqlite", sqliteDatabaseURI(l.path, "ro"))
 	if err != nil {
 		return finish(err)
 	}
@@ -117,14 +117,14 @@ func (l *Log) WorkerFileReferences(ctx context.Context) (workerfiles.Protection,
 	return finish(err)
 }
 
-func referenceDatabaseURI(path string) string {
+func sqliteDatabaseURI(path, mode string) string {
 	// SQLite URI filenames require /C:/... rather than a drive-letter authority.
-	// Preserve mode=ro; a read-only transaction must not create a missing DB.
+	// The readers use ro or rw so a missing database is never created here.
 	if len(path) >= 3 && path[1] == ':' && (path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z') {
 		path = "/" + strings.ReplaceAll(path, `\`, "/")
 	} else {
 		path = filepath.ToSlash(path)
 	}
-	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}
+	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=" + mode}
 	return u.String()
 }
