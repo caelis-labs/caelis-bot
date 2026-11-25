@@ -39,7 +39,8 @@ ${examples.map(([title, body]) => '### '+title+'\n\n```text\n<a2ui>\n'+body+'\n<
 `;
 const result = local + rules.trimEnd() + '\n';
 if (process.argv.includes('--check')) {
- if (readFileSync(target, 'utf8') !== result) throw Error('Stale desktop chat A2UI reference. Run node script/generate-chat-a2ui-reference.mjs');
+ // Git can check text files out with CRLF on Windows.
+ if (readFileSync(target, 'utf8').replaceAll('\r\n', '\n') !== result) throw Error('Stale desktop chat A2UI reference. Run node script/generate-chat-a2ui-reference.mjs');
 } else {
  writeFileSync(target, result);
 }
