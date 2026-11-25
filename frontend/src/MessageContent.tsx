@@ -36,14 +36,14 @@ function ExternalLink({url,children,report}:{url?:string;children:ReactNode;repo
 type A2uiState = 'receiving' | 'final';
 
 function A2uiSlot({node}: ExtraProps) {
- const {source, body, closed, receiving} = node?.properties ?? {};
+ const {source, body, closed, receiving, permitted} = node?.properties ?? {};
  if (typeof source !== 'string' || typeof body !== 'string') return null;
- return <ChatA2uiBlock source={source} body={body} closed={closed === true} receiving={receiving === true}/>;
+ return <ChatA2uiBlock source={source} body={body} closed={closed === true} receiving={receiving === true} permitted={permitted === true}/>;
 }
 
-const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui}:{source:string;report:(error:string)=>void;a2ui?:A2uiState}) {
+const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui,blockOffset}:{source:string;report:(error:string)=>void;a2ui?:A2uiState;blockOffset:number}) {
  const {t} = useI18n();
- const plugins: Options['remarkPlugins'] = a2ui ? [remarkGfm, [remarkChatA2ui, {receiving: a2ui === 'receiving'}]] : [remarkGfm];
+ const plugins: Options['remarkPlugins'] = a2ui ? [remarkGfm, [remarkChatA2ui, {source, receiving: a2ui === 'receiving', blockOffset}]] : [remarkGfm];
  const components = {
   'chat-a2ui-block': A2uiSlot,
   a:({href,children}:React.ComponentProps<'a'>)=><ExternalLink url={href} report={report}>{children}</ExternalLink>,
@@ -56,6 +56,12 @@ const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui}:{source:str
 });
 export const MessageContent=memo(function MessageContent({text,report,animate=false,a2ui}:{text:string;report:(error:string)=>void;animate?:boolean;a2ui?:A2uiState}) {
  const shown=useStreamingText(text,animate);
- const chunks=useMemo(()=>markdownChunks(shown),[shown]);
- return <div className="markdown-body">{chunks.map((source,index)=><MarkdownChunk key={index} source={source} report={report} a2ui={a2ui}/>)}</div>;
+ const chunks=useMemo(()=>markdownChunks(shown, !!a2ui),[shown,a2ui]);
+ let blockOffset=0;
+ return <div className="markdown-body">{chunks.map((source,index)=>{
+  const chunk=<MarkdownChunk key={index} source={source} report={report} a2ui={a2ui} blockOffset={blockOffset}/>;
+  // Count preceding candidate lines conservatively across independent chunks.
+  if(a2ui)blockOffset+=(source.match(/^<a2ui>[ \t]*\r?$/gm)??[]).length;
+  return chunk;
+ })}</div>;
 });

@@ -67,13 +67,15 @@ window.fixtureA2ui = async () => {
   const samples = Object.fromEntries(Object.entries(scenes).map(([name, body]) => [name, wrap(body)]));
   const noEvent = wrap('root = Button(Text("Do this"),Event("deliver"))');
   const noUpdate = wrap('root = Text("first")\n\nsurface chat\nroot = Text("second")');
+  const badReference = wrap('root = Column([missing])');
+  const badExpression = wrap('$/price = "words"\nroot = Text(formatNumber($/price,2))');
   const noRemoteCall = wrap('root = Text(openUrl("https://example.test/no-connection"))');
   const scene = 'The quiet studio is cheaper. Notebooks cost 12.50 and pens cost 8.00. The mock form stays local.';
-  const interactive = [scene, ...Object.values(samples), samples.draft, noEvent, noUpdate, noRemoteCall].join('\n\n');
+  const interactive = [scene, ...Object.values(samples), samples.draft, badReference, badExpression, noEvent, noUpdate, noRemoteCall].join('\n\n');
   const callsBefore = sendCount;
   write(interactive, 'completed');
-  await wait('interactive surfaces and rejected event/update/call', () => cards().length === 4 && fallbacks().length === 3);
-  if (JSON.stringify(fallbacks().map(el => el.textContent)) !== JSON.stringify([noEvent,noUpdate,noRemoteCall])) throw Error('unsupported sources were lost');
+  await wait('interactive surfaces and rejected event/update/call', () => cards().length === 4 && fallbacks().length === 5);
+  if (JSON.stringify(fallbacks().map(el => el.textContent)) !== JSON.stringify([badReference,badExpression,noEvent,noUpdate,noRemoteCall])) throw Error('unsupported sources were lost');
   const tab = () => deep(cards()[0], '[role=tab]').find(el => el.textContent.includes('Fast workshop'));
   await wait('initial comparison panel', () => tab() && cards()[0].textContent.includes('20 minutes away'));
   tab().click();
@@ -100,12 +102,20 @@ window.fixtureA2ui = async () => {
   if (!inputs(cards()[3]).some(el => el.value === 'missing-at') || inputs(cards()[3]).some(el => el.checked)) throw Error('draft state crossed surfaces');
   if (deep(cards()[2], 'form,button[type=submit],a').length || sendCount !== callsBefore || snapshot.items.at(-1).text !== interactive) throw Error('local draft was sent or history mutated');
   checks.push('mail validation, bounded slider, checkbox and radio changed locally without submit or cross-surface changes');
-  snapshot.items = [];
-  revision++;
-  await wait('interactive rows removed', () => !row());
-  write(interactive, 'completed');
-  await wait('local form replayed in initial state', () => email()?.value === 'missing-at' && email()?.getAttribute('aria-invalid') === 'true' && !!checkbox() && !checkbox().checked && radio().length === 2 && radio().every(el => !el.checked));
-  checks.push('unsupported actions and updates fell back, replay reset local edits');
+  const retainedRow = row();
+  const retainedItem = snapshot.items.at(-1);
+  const editedCard = cards()[2];
+  window.webkit.messageHandlers.historyLifecycle.postMessage('hide-and-reopen');
+  await wait('native chat hidden and reopened', () => window.fixtureVisibility?.visible);
+  if (!window.fixtureVisibility.hidden || !window.fixtureVisibility.released || retainedRow !== row() || retainedItem !== snapshot.items.at(-1)) throw Error('history was not retained while releasing the cards');
+  await wait('local form reopened in initial state', () => email()?.value === 'missing-at' && email()?.getAttribute('aria-invalid') === 'true' && !!checkbox() && !checkbox().checked && radio().length === 2 && radio().every(el => !el.checked));
+  if (cards()[2] === editedCard || sendCount !== callsBefore || retainedItem.text !== interactive) throw Error('reopening retained a draft or mutated history');
+  checks.push('native close and hide released cards, reopening restored initial input while retaining history');
+  row().dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:140,clientY:150}));
+  await wait('message menu', () => document.querySelectorAll('.message-menu [role=menuitem]').length===2);
+  document.querySelectorAll('.message-menu [role=menuitem]')[1].click();
+  await wait('source copy', () => window.fixtureCopiedText === interactive);
+  checks.push('message context menu copied the original Markdown including the desktop blocks');
   const screenshot = ${JSON.stringify(process.env.BOT_PREVIEW_A2UI_CASE ?? 'draft')};
   if (samples[screenshot]) {
    const prose = {comparison:'The quiet studio saves $15. Choose a tab to see the trade-offs.', collection:'The two supply lines total 20.50. Notebooks are the costlier line.', draft:'Try the practice values below. There is nothing to submit.'};
@@ -117,5 +127,41 @@ window.fixtureA2ui = async () => {
   window.fixtureExpected = {ok:false, error:String(error), checks};
  }
 };
-setTimeout(() => window.fixtureA2ui(), 100);
+async function verifyA2uiBubble() {
+ const code = String.fromCharCode(96).repeat(3);
+ const block = '<a2ui>\nroot = Text("Desktop-only value")\n</a2ui>';
+ const example = code + 'text\n<a2ui>\nroot = Text("Literal example")\n</a2ui>\n' + code;
+ const output = () => document.querySelector('.bubble-copy');
+ const write = (text, status) => {
+  const receiving = status==='inProgress';
+  Object.assign(snapshot,{items:[{id:'a2ui-bubble',kind:'assistant',text,status,artifacts:[],turnKey:'bubble-turn'}],
+   currentTurn:receiving?'bubble-turn':'',activity:null,phase:receiving?'working':'completed',canInterrupt:receiving});
+  revision++;
+ };
+ const wait = async (label, predicate) => {
+  const deadline = performance.now()+3500;
+  while (!predicate()) {
+   if (performance.now()>deadline) throw Error(label);
+   await new Promise(requestAnimationFrame);
+  }
+  if (output()?.textContent.includes('Desktop-only value') || output()?.querySelector('.chat-a2ui-surface')) throw Error('desktop block escaped into bubble');
+ };
+ const checks = [];
+ try {
+  write('Read this reply.\n\n' + block.slice(0, -7), 'inProgress');
+  await wait('streamed prose', () => output()?.textContent.includes('Read this reply.'));
+  checks.push('streamed prose was readable and incomplete DSL stayed out');
+  const final = 'Read this reply.\n\n' + block + '\n\n' + example;
+  write(final, 'completed');
+  await wait('literal example', () => output()?.querySelector('pre code')?.textContent.includes('Literal example'));
+  if (snapshot.items[0].text !== final) throw Error('projection changed history');
+  checks.push('completed bubble preserved fenced code and original history');
+  write(block, 'completed');
+  await wait('desktop fallback', () => output()?.textContent.includes('Caelis Bot'));
+  checks.push('block-only bubble pointed to desktop chat');
+  window.fixtureExpected = {ok:true, checks};
+ } catch (error) { window.fixtureExpected = {ok:false, error:String(error), checks}; }
+}
+
+setTimeout(() => previewParams.get('surface')==='bubble' ? verifyA2uiBubble() : window.fixtureA2ui(), 100);
 `;

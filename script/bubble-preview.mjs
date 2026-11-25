@@ -419,6 +419,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='PasteAttachments')return {handled:true,files:draftFiles};
  if(method==='MediaImage')return args[0]==='media-fixture-one'?'__MEDIA_ONE__':'__MEDIA_TWO__';
  if(method==='HistoryVisible')return true;
+ if(method==='CopyText'){window.fixtureCopiedText=args[0];return;}
  if(method==='Interrupt')window.fixtureSet('stop');
  if(method==='DismissPreview')snapshot.previewDismissed=true;
  if(method==='Decide'){const p=snapshot.approvals.find(p=>p.id===args[0].id);if(p){p.status='sent';revision++;await new Promise(r=>setTimeout(r,900));p.status='resolved';p.resolution={choiceId:args[0].choice,outcome:args[0].choice.includes('deny')?'declined':'allowed',scope:'once'};revision++;}return;}

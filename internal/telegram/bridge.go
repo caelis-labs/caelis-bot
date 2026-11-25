@@ -1128,9 +1128,11 @@ func (b *Bridge) quotedMessage(m *tg.Message, bot, owner int64) *api.QuotedMessa
 	// The hash prevents a later edited item from becoming a different quote.
 	if q.Text == "" && b.host.Snapshot != nil {
 		for _, item := range b.host.Snapshot().Items {
-			if matches == 1 && item.Kind == "assistant" && itemKey(item) == q.LocalID && len(delivered.IDs) == 1 && delivered.IDs[0] == old.MessageID && len(delivered.Hashes) == 1 && delivered.Hashes[0] == digest(item.Text) && item.Text != "" {
-				q.Text, q.Role = item.Text, "assistant"
-				break
+			if matches == 1 && item.Kind == "assistant" && itemKey(item) == q.LocalID && len(delivered.IDs) == 1 && delivered.IDs[0] == old.MessageID && len(delivered.Hashes) == 1 {
+				if body := b.readableReply(item); body != "" && delivered.Hashes[0] == digest(body) {
+					q.Text, q.Role = body, "assistant"
+					break
+				}
 			}
 			if acceptedInput && item.Kind == "user" && item.RequestID == input && item.Text != "" {
 				q.Text, q.Role, q.LocalID = item.Text, "user", input
@@ -1571,6 +1573,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 				b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
 			}
 		} else if i.Kind == "assistant" {
+			body := b.readableReply(i)
 			rendered := false
 			if b.host.TextControl != nil {
 				if text, keys, ok := asyncQuestionButtons(b.host.TextControl.AsyncButtonQuestions(i.ID)); ok {
@@ -1578,10 +1581,10 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 					rendered = true
 				}
 			}
-			if !rendered && i.Task != nil && i.Task.ID != "" {
-				b.sendTaskText(ctx, c, itemKey(i), chat, i.Text, i.Task.Title)
-			} else if !rendered {
-				b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
+			if !rendered && body != "" && i.Task != nil && i.Task.ID != "" {
+				b.sendTaskText(ctx, c, itemKey(i), chat, body, i.Task.Title)
+			} else if !rendered && body != "" {
+				b.sendAssistantText(ctx, c, itemKey(i), chat, body)
 			}
 		}
 		for _, a := range i.Artifacts {
@@ -2019,6 +2022,11 @@ func (b *Bridge) sendTaskText(ctx context.Context, c client, key string, chat in
 		return
 	}
 	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
+}
+
+func (b *Bridge) readableReply(item api.Item) string {
+	return textchannel.ReadableAssistantText(item.Text, item.Status == "inProgress",
+		b.text("Open Caelis Bot on your desktop to view this reply.", "请在桌面端 Caelis Bot 查看这条回复。"))
 }
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {

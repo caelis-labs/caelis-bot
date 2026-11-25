@@ -1,3 +1,5 @@
+import {chatA2uiEnvelope, chatA2uiOpen, partialChatA2uiOpen} from './chat-a2ui-envelope.ts';
+
 // Bound the work done when a long reply grows. A completed chunk never changes
 // on an append, so React can keep its parsed Markdown and DOM in place.
 // Split only at top-level blank lines; constructs that can span those lines
@@ -17,8 +19,8 @@ function independent(previous: string, next: string): boolean {
  return true;
 }
 
-export function markdownChunks(text: string): string[] {
- if (text.length <= targetSize || referenceDefinition.test(text) || htmlBlock.test(text)) return [text];
+export function markdownChunks(text: string, chatA2ui = false): string[] {
+ if (text.length <= targetSize || referenceDefinition.test(text) || !chatA2ui && htmlBlock.test(text)) return [text];
  const chunks: string[] = [];
  let start = 0, lineStart = 0, previous = '', boundary = 0;
  let fence = '', fenceLength = 0;
@@ -31,6 +33,24 @@ export function markdownChunks(text: string): string[] {
    chunks.push(text.slice(start, boundary));
    start = boundary;
   }
+  if (chatA2ui && !fence && (chatA2uiOpen.test(line) || end < 0 && (partialChatA2uiOpen.test(line) || line === '<a'))) {
+   if (lineStart && !boundary) return [text]; // Keep CommonMark's paragraph context.
+   const envelope = chatA2uiEnvelope(text, lineStart);
+   const after = text.indexOf('\n', envelope.end);
+   if (envelope.close === undefined) {
+    // A recovery boundary starts another Markdown block on its own line.
+    if (envelope.end >= text.length) break;
+    lineStart = envelope.end;
+    boundary = lineStart;
+   } else {
+    if (after < 0) break;
+    lineStart = after + 1;
+    boundary = 0;
+   }
+   previous = line;
+   continue;
+  }
+  if (chatA2ui && !fence && htmlBlock.test(line)) return [text];
   if (!blank) boundary = 0;
   const marker = line.match(fenceMarker)?.[1];
   if (marker) {

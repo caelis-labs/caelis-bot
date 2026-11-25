@@ -15,6 +15,7 @@ import type { Approval, ChatUpdate, Decision, Draft, Item, QuotedMessage, Receip
 import { readComposer, writeComposer, composerSelection, insertComposerReference, insertComposerText, copyComposer, pasteComposer, deleteComposerReference, type ReferencePosition } from './composer-document';
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
+import { ChatA2uiMount } from './ChatA2uiBlock';
 import { ArtifactLink } from './ArtifactLink';
 import { chatTimeline, chatTimeLabel, type ChatTimeAnchor } from './chat-time';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
@@ -604,11 +605,12 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    const el=scroll.current!,question=el.querySelector<HTMLElement>('[data-question-pending]');
    return question?Math.max(0,el.scrollTop+question.getBoundingClientRect().top-el.getBoundingClientRect().top-12):undefined;
   });return()=>{position.current=null;};},[]);
+ const [a2uiEpoch, resetA2ui] = useState(0);
  useEffect(()=>{
   let activeNow=false;
   // Every explicit open must acknowledge its native presentation token, even
   // when the conversation and active state are unchanged behind another app.
-  const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
+  const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);resetA2ui(epoch=>epoch+1);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!isWebSurface()&&activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
@@ -674,11 +676,11 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!awaitingRecovery&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
+   <ChatA2uiMount.Provider value={active ? a2uiEpoch : null}><div className="history-messages">{timeline.rows.flatMap(({key,item:i,dividerAt},index)=>[<div key={key} className="history-message-group">
     {dividerAt!==undefined&&<div className="history-time-divider"><time dateTime={new Date(dividerAt/1000).toISOString()}>{chatTimeLabel(dividerAt,locale)}</time></div>}
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} refresh={refreshQuestions} onQuestionAnswered={questionAnswered} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>,...(snapshot?.approvals??[]).filter(p=>p.turnKey&&p.turnKey===i.turnKey&&!timeline.rows.slice(index+1).some(row=>row.item.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)])}
-   {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div>
+   {(snapshot?.approvals??[]).filter(p=>!p.turnKey||!messages.some(i=>i.turnKey===p.turnKey)).map(p=><ApprovalMessage key={`approval:${p.id}`} value={p} refresh={refreshQuestions}/>)}</div></ChatA2uiMount.Provider>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={activity==='thinking'?'think':avatar.clip}/>}
    {awaitingRecovery&&!connection&&<p className="quiet" role="status">{t('chat.reconnectingUnconfirmed')}</p>}
    {connection&&<article className="message-row assistant state-message">

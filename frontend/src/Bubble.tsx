@@ -1,10 +1,11 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { backend, desktop, type Placement } from './desktop';
 import { Prompt, useConversation } from './Panel';
 import { useI18n } from './i18n';
 import { approvalTitle } from './approval-presentation';
 import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
+import { readableChatReply } from './chat-a2ui-markdown';
 import { chatActivity, incompleteAssistant } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
 import { presentationWarning } from './presentation-warning';
@@ -56,16 +57,19 @@ export function Bubble() {
  const prompt=prompts[Math.min(index,Math.max(0,prompts.length-1))];
  const output=snapshot?.items.filter(i=>i.kind==='assistant').at(-1);
  const partial=output?incompleteAssistant(output,snapshot):false;
+ const receiving=output?.status==='inProgress'&&!partial;
+ const desktopHint=t('chat.a2uiOpenChat');
+ const reply=useMemo(()=>readableChatReply(output?.text??'',receiving,desktopHint),[output?.text,receiving,desktopHint]);
  const working=!!snapshot?.canInterrupt;
  const activity=chatActivity(snapshot);
  const dreaming=activity==='dreaming';
  const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='thinking'?t('chat.bubbleThinking'):'';
  const attention=!!prompt;
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const conversationContent=(prompt&&approvalTitle(prompt,locale))||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
+ const conversationContent=(prompt&&approvalTitle(prompt,locale))||(dreaming?progress:'')||reply||progress||(working?t('chat.bubbleThinking'):terminal);
  const conversationWanted=(!snapshot?.quiet||dreaming||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
  const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention,notice);
- const markdown=!showNotice&&!prompt&&!!output?.text&&content===output.text;
+ const markdown=!showNotice&&!prompt&&!!reply&&content===reply;
  const progressText=!showNotice&&!attention&&content!==progress?progress:'';
  const readingMessage=reading&&!prompt;
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);
@@ -92,7 +96,7 @@ export function Bubble() {
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
      {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
-     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={()=>presentationWarning('bubble_action_failed')} animate={visible&&output.status==='inProgress'&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={reply} report={()=>presentationWarning('bubble_action_failed')} animate={visible&&output.status==='inProgress'&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
      {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>

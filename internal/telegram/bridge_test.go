@@ -2054,3 +2054,33 @@ func TestRetiredSecretCardReplyIsPrivateAfterCacheCollectionAndRestart(t *testin
 		t.Fatal("retired privacy marker became authority")
 	}
 }
+
+func TestAssistantDesktopBlocksNeverReachTelegramSendOrEdit(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	const block = "<a2ui>\nroot = Text(\"desktop only\")\n</a2ui>"
+	const example = "```text\n<a2ui>\nroot = Text(\"literal example\")\n</a2ui>\n```"
+	items := []api.Item{{ID: "reply", Kind: "assistant", Status: "inProgress", Text: "Readable\n\n<a2ui>\nroot = Text("}}
+	snapshot := api.Snapshot{Items: items}
+	b.mirror(t.Context(), f, snapshot)
+	if f.sends != 1 || f.messages[0].Text != "Readable" {
+		t.Fatalf("unexpected streaming send: %#v", f.messages)
+	}
+
+	final := "Readable\n\n" + block + "\n\n" + example
+	items[0].Text, items[0].Status = final, "completed"
+	b.mirror(t.Context(), f, snapshot)
+	if f.sends != 1 || f.edits != 1 || !strings.Contains(f.messages[1].Text, "literal example") || strings.Contains(f.messages[1].Text, "desktop only") {
+		t.Fatalf("unexpected streamed edit: %#v", f.messages)
+	}
+
+	history := api.Snapshot{Items: []api.Item{{ID: "saved", Kind: "assistant", Status: "completed", Text: block}}}
+	b.mirror(t.Context(), f, history)
+	b.mirror(t.Context(), f, history)
+	if f.sends != 2 || f.edits != 1 || f.messages[2].Text != "Open Caelis Bot on your desktop to view this reply." {
+		t.Fatalf("block-only history did not get a single readable send: %#v", f.messages)
+	}
+	if items[0].Text != final || history.Items[0].Text != block {
+		t.Fatal("mirror changed stored source")
+	}
+}

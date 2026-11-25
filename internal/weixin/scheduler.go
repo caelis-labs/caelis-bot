@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
 const (
@@ -101,6 +102,20 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			return
 		}
 		candidate := b.state.Delivery.Queue[index]
+		// Project any retained pre-upgrade body before splitting. Frozen parts
+		// keep their original receipts and cannot be rewritten.
+		if candidate.Priority >= resultPriority && candidate.Artifact == nil {
+			body := textchannel.ReadableAssistantText(candidate.Body, false, desktopReplyHint)
+			if body != candidate.Body {
+				if len(candidate.Parts) != 0 {
+					b.mu.Unlock()
+					b.finishDelivery(candidate.Key, "obsolete")
+					continue
+				}
+				candidate.Body = body
+				b.state.Delivery.Queue[index].Body = body
+			}
+		}
 		if candidate.Priority >= resultPriority && !b.deliveryDueLocked(candidate, snapshot, workers, workersKnown, urgent) {
 			b.mu.Unlock()
 			return
@@ -314,7 +329,7 @@ func (b *Bridge) freezeDeliveryLocked(index int) queuedDelivery {
 			// Never merge action cards, files, partial replies, different priorities,
 			// or held recovery results. Preserve FIFO within each priority.
 			if !barrier && !other.Held && other.Priority == q.Priority && other.Artifact == nil && other.NoticeFor == "" && !other.BodyExcerpt && len(other.Parts) == 0 && fitsText(q.Body+progressDivider+other.Body) {
-				q.Body += progressDivider + other.Body
+				q.Body += progressDivider + textchannel.ReadableAssistantText(other.Body, false, desktopReplyHint)
 				q.Members = append(q.Members, other.Key)
 			} else {
 				if other.Priority == q.Priority && !other.Held {

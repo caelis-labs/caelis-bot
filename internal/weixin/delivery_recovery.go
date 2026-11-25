@@ -3,10 +3,19 @@ package weixin
 import (
 	"strconv"
 	"strings"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
 // Reuse only the current shared IM tail: no paging or adapter-owned transcript.
 const recoveryItemLimit = 128
+
+const desktopReplyHint = "请在桌面端 Caelis Bot 查看这条回复。"
+
+func readableReply(item api.Item) string {
+	return textchannel.ReadableAssistantText(item.Text, item.Status == "inProgress", desktopReplyHint)
+}
 
 func (b *Bridge) deliveryAttemptedLocked(key string) bool {
 	for id, out := range b.state.Outputs {
@@ -134,7 +143,7 @@ func (b *Bridge) recoverProgress() {
 		if !b.recoverableDispositionLocked(key) {
 			continue
 		}
-		body := withArtifactNames(item.Text, item.Artifacts)
+		body := withArtifactNames(readableReply(item), item.Artifacts)
 		if len(item.Artifacts) > 0 {
 			body += "\n\n完整文件可在桌面同一 Bot 对话获取。"
 		}

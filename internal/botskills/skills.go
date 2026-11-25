@@ -77,7 +77,7 @@ func Install(root string) (string, error) {
 			return "", err
 		}
 	}
-	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "chat-a2ui"} {
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream"} {
 		if err := os.RemoveAll(filepath.Join(appRoot, old)); err != nil {
 			return "", err
 		}

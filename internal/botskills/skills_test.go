@@ -91,13 +91,16 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "chat-a2ui"} {
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream"} {
 		if _, err := os.Stat(filepath.Join(root, "app-skills", old)); !os.IsNotExist(err) {
 			t.Fatalf("old system skill retained: %s: %v", old, err)
 		}
 	}
-	if _, err := os.ReadFile(filepath.Join(root, "app-skills", "custom-guide", "SKILL.md")); err != nil {
-		t.Fatal("custom skill changed", err)
+	for _, name := range []string{"custom-guide", "chat-a2ui"} {
+		body, err := os.ReadFile(filepath.Join(root, "app-skills", name, "SKILL.md"))
+		if err != nil || string(body) != "old or user content" {
+			t.Fatalf("custom skill %s changed: %v", name, err)
+		}
 	}
 	body, err := os.ReadFile(p)
 	if err != nil {
