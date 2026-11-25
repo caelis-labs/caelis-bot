@@ -386,7 +386,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
  if(method==='PetSnapshot'||method==='Snapshot'||method==='ComposerSnapshot')return structuredClone({...snapshot,revision:++revision});
- if(method==='ChatSnapshot'){
+ if(method==='ChatSnapshot'||method==='PetSnapshotUpdate'){
   const value=structuredClone({...snapshot,revision:sendMode?revision:++revision});
   if(sendMode==='accepted'&&sendCount&&!staleHeld){staleHeld=true;await delay(1200);}
   return {changed:true,snapshot:value};
