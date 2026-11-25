@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.24.0](https://github.com/caelis-labs/caelis-bot/compare/v0.23.0...v0.24.0) (2026-11-25)
+
+
+### Features
+
+* **chatlog:** archive conversation text by local day ([#311](https://github.com/caelis-labs/caelis-bot/issues/311)) ([7196274](https://github.com/caelis-labs/caelis-bot/commit/71962741514f7cebc5f3878198ee45c2a99fab83))
+* render interactive A2UI replies in desktop chat ([#310](https://github.com/caelis-labs/caelis-bot/issues/310)) ([884a796](https://github.com/caelis-labs/caelis-bot/commit/884a796e327deec6b2af2541dcb1c003fa48ab92))
+
+
+### Bug Fixes
+
+* bundle Caelis v0.86.2 ([#312](https://github.com/caelis-labs/caelis-bot/issues/312)) ([955a601](https://github.com/caelis-labs/caelis-bot/commit/955a6017b55bd997c620c85638a321b1a845f227))
+* drive pet interactions from character profiles and hide Whale Girl ([#308](https://github.com/caelis-labs/caelis-bot/issues/308)) ([de0e038](https://github.com/caelis-labs/caelis-bot/commit/de0e0389b59f6c7d75cbb35a63934846eedfb32f))
+
 ## [0.23.0](https://github.com/caelis-labs/caelis-bot/compare/v0.22.6...v0.23.0) (2026-11-24)
 
 
