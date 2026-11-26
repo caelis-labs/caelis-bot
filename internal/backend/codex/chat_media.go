@@ -15,7 +15,6 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
 )
 
 const citationPrefix = "chat-citation-"
@@ -33,6 +32,7 @@ func (s *Session) projectChatLinks(view *api.Item) {
 	}
 	document := goldmark.DefaultParser().Parse(text.NewReader([]byte(view.Text)))
 	seen := make(map[string]bool)
+	destinations := make(map[string]bool)
 	artifacts := make(map[string]bool)
 	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -47,11 +47,14 @@ func (s *Session) projectChatLinks(view *api.Item) {
 		default:
 			return ast.WalkContinue, nil
 		}
-		destination := string(util.ResolveEntityNames(util.ResolveNumericReferences(util.UnescapePunctuations(target))))
+		destination, name := markdownfile.LinkTarget(target)
 		value := markdownfile.Decode(destination)
-		if !seen[value] {
-			seen[value] = true
-			if link, ok := s.chatLink(destination); ok {
+		admitted, visited := seen[value]
+		if !visited {
+			link, ok := s.chatLink(destination, name)
+			admitted = ok
+			seen[value] = ok
+			if admitted {
 				view.Links = append(view.Links, link)
 				if link.File.ID != "" && !artifacts[link.File.ID] {
 					view.Artifacts = append(view.Artifacts, link.File)
@@ -59,16 +62,15 @@ func (s *Session) projectChatLinks(view *api.Item) {
 				}
 			}
 		}
+		if admitted {
+			destinations[string(target)] = true
+		}
 		return ast.WalkContinue, nil
 	})
 	if len(view.Links) == 0 {
 		return
 	}
 	view.ChatText = view.Text
-	destinations := make(map[string]bool, len(view.Links))
-	for _, link := range view.Links {
-		destinations[link.Destination] = true
-	}
 	// Keep the established text-only projection for the channels. Only the
 	// parsed links admitted above participate in this compatibility path.
 	view.Text = artifactLink.ReplaceAllStringFunc(view.Text, func(match string) string {
@@ -80,8 +82,8 @@ func (s *Session) projectChatLinks(view *api.Item) {
 	})
 }
 
-func (s *Session) chatLink(destination string) (api.ChatLink, bool) {
-	path := markdownfile.Path(destination)
+func (s *Session) chatLink(destination, name string) (api.ChatLink, bool) {
+	path := markdownfile.Path(name)
 	if path == "" || strings.HasPrefix(destination, "#") {
 		return api.ChatLink{}, false
 	}

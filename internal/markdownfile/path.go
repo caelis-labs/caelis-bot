@@ -8,7 +8,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/yuin/goldmark/util"
 )
+
+// LinkTarget keeps a drive path's native separators for filesystem lookup.
+// Markdown still unescapes punctuation for the renderer's destination.
+func LinkTarget(raw []byte) (destination, name string) {
+	destination = decodeEntities(util.UnescapePunctuations(raw))
+	name = decodeEntities(raw)
+	if len(name) < 3 || !drive(name[:2]) || name[2] != '\\' {
+		name = destination
+	}
+	return destination, name
+}
+
+func decodeEntities(value []byte) string {
+	return string(util.ResolveEntityNames(util.ResolveNumericReferences(value)))
+}
 
 func Decode(destination string) string {
 	value, err := url.PathUnescape(destination)

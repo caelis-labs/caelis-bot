@@ -4,7 +4,31 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
+
+func TestMarkdownLinkTargetKeepsNativeWindowsSeparators(t *testing.T) {
+	const nativePath = `C:\Users\RUNNER~1\Notebook\.agents\skills\bot-core\SKILL.md:47`
+	const displayedPath = `C:\Users\RUNNER~1\Notebook.agents\skills\bot-core\SKILL.md:47`
+	source := []byte("[SKILL.md:47](" + nativePath + ")")
+	document := goldmark.DefaultParser().Parse(text.NewReader(source))
+	link, ok := document.FirstChild().FirstChild().(*ast.Link)
+	if !ok {
+		t.Fatal("Markdown did not parse the citation")
+	}
+	destination, file := LinkTarget(link.Destination)
+	if destination != displayedPath || file != nativePath {
+		t.Fatalf("renderer received %q, filesystem received %q", destination, file)
+	}
+	const slashStyle = `C:/Project/report\(draft\).md`
+	destination, file = LinkTarget([]byte(slashStyle))
+	if destination != "C:/Project/report(draft).md" || file != destination {
+		t.Fatalf("slash-style Markdown escapes became filesystem separators: %q and %q", destination, file)
+	}
+}
 
 func TestFileURIPathAcceptsOnlyLocalWindowsDriveForms(t *testing.T) {
 	for _, tc := range []struct {

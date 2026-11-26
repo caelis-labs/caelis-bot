@@ -16,7 +16,6 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
 )
 
 const localChatFilePrefix = "local-chat-file:"
@@ -81,8 +80,8 @@ func projectLocalChatFiles(item *api.Item, files map[string]localChatFile) {
 		default:
 			return ast.WalkContinue, nil
 		}
-		destination := string(util.ResolveEntityNames(util.ResolveNumericReferences(util.UnescapePunctuations(target))))
-		path := localChatPath(destination)
+		destination, name := markdownfile.LinkTarget(target)
+		path := localChatPath(name)
 		if path == "" {
 			return ast.WalkContinue, nil
 		}
