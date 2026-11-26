@@ -1,82 +1,173 @@
 /* Caelis is the built-in palette. Layout and type live with their components. */
 :root {
- --caelis-window:#f5f5f7;
- --caelis-sidebar:#eeeef0;
- --caelis-content:#ffffff;
- --caelis-raised:#ffffff;
- --caelis-chat:#f5f5f7;
- --caelis-composer:#ffffff;
- --caelis-popover:#ffffff;
- --caelis-user-bubble:#e9e9f2;
- --caelis-text:#242429;
- --caelis-text-secondary:#696970;
- --caelis-text-disabled:#94949c;
- --caelis-border:#dedee3;
- --caelis-focus:#5e60a8;
- --caelis-link:#4e5095;
- --caelis-selected:#e8e8f2;
- --caelis-selected-text:#4e5095;
- --caelis-hover:#eeeef2;
- --caelis-pressed:#e2e2ea;
- --caelis-disabled:#f0f0f3;
- --caelis-action:#5e60a8;
- --caelis-action-hover:#4e5095;
- --caelis-action-pressed:#40427e;
- --caelis-action-disabled:#e7e7ee;
- --caelis-on-action:#ffffff;
- --caelis-success:#3c7053;
- --caelis-error:#a83f3d;
- --caelis-warning:#98651e;
- --caelis-glass-reading:rgba(255,255,255,.86);
- --caelis-bubble-reading:rgba(255,255,255,.96);
- --bg:var(--caelis-window);
- --surface:var(--caelis-content);
- --ink:var(--caelis-text);
- --muted:var(--caelis-text-secondary);
- --line:var(--caelis-border);
- --wash:var(--caelis-hover);
- --accent:var(--caelis-action);
- --on-accent:var(--caelis-on-action);
- --error:var(--caelis-error);
- --success:var(--caelis-success);
+  --caelis-window: #f5f5f7;
+  --caelis-sidebar: #eeeef1;
+  --caelis-content: #ffffff;
+  --caelis-raised: #ffffff;
+  --caelis-chat: #f5f5f7;
+  --caelis-composer: #ffffff;
+  --caelis-popover: #ffffff;
+  --caelis-user-bubble: #ececf6;
+
+  --caelis-text: #1f1f24;
+  --caelis-text-secondary: #63636c;
+  --caelis-text-disabled: #94949e;
+  --caelis-border: #e0e0e6;
+  --caelis-border-subtle: color-mix(in oklab, var(--caelis-border) 68%, transparent);
+
+  --caelis-focus: #5b5da8;
+  --caelis-link: #4a4c94;
+  --caelis-selected: #e8e8f5;
+  --caelis-selected-text: #4a4c94;
+  --caelis-hover: #ededf2;
+  --caelis-pressed: #e2e2ea;
+  --caelis-disabled: #f0f0f4;
+
+  --caelis-action: #5b5da8;
+  --caelis-action-hover: #4c4e96;
+  --caelis-action-pressed: #3f4180;
+  --caelis-action-disabled: #e6e6ee;
+  --caelis-on-action: #ffffff;
+
+  --caelis-success: #2f6f4e;
+  --caelis-error: #b33a38;
+  --caelis-warning: #996317;
+
+  --accent-soft: color-mix(in oklab, var(--caelis-action) 13%, transparent);
+  --success-soft: color-mix(in oklab, var(--caelis-success) 13%, transparent);
+  --warning-soft: color-mix(in oklab, var(--caelis-warning) 14%, transparent);
+  --error-soft: color-mix(in oklab, var(--caelis-error) 12%, transparent);
+
+  --shadow-xs: 0 1px 2px rgba(15, 15, 25, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 15, 25, 0.07), 0 1px 2px rgba(15, 15, 25, 0.04);
+  --shadow-composer: 0 2px 10px rgba(15, 15, 25, 0.05), 0 1px 2px rgba(15, 15, 25, 0.04);
+  --shadow-composer-focus: 0 0 0 3px color-mix(in oklab, var(--caelis-focus) 16%, transparent), 0 4px 16px rgba(15, 15, 25, 0.07);
+  --shadow-popover: 0 12px 32px rgba(15, 15, 25, 0.14), 0 2px 6px rgba(15, 15, 25, 0.06);
+  --shadow-dialog: 0 20px 56px rgba(15, 15, 25, 0.20), 0 2px 8px rgba(15, 15, 25, 0.08);
+
+  --scrollbar-thumb: color-mix(in oklab, var(--caelis-text-secondary) 28%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--caelis-text-secondary) 48%, transparent);
+  --scrollbar-track: transparent;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+  --radius-control: 8px;
+  --radius-surface: 14px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --duration-fast: 140ms;
+  --duration-normal: 200ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --caelis-glass-reading: rgba(255, 255, 255, 0.86);
+  --caelis-bubble-reading: rgba(255, 255, 255, 0.96);
+
+  /* Legacy aliases preserved across surfaces until migration finishes. */
+  --bg: var(--caelis-window);
+  --surface: var(--caelis-content);
+  --ink: var(--caelis-text);
+  --muted: var(--caelis-text-secondary);
+  --line: var(--caelis-border);
+  --wash: var(--caelis-hover);
+  --accent: var(--caelis-action);
+  --on-accent: var(--caelis-on-action);
+  --error: var(--caelis-error);
+  --success: var(--caelis-success);
+  --panel: transparent;
 }
+
 :root[data-mode="dark"] {
-  --caelis-window:#19191c;
-  --caelis-sidebar:#1c1c20;
-  --caelis-content:#202024;
-  --caelis-raised:#29292e;
-  --caelis-chat:#202024;
-  --caelis-composer:#29292e;
-  --caelis-popover:#29292e;
-  --caelis-user-bubble:#323240;
-  --caelis-text:#eeeef1;
-  --caelis-text-secondary:#aaaab3;
-  --caelis-text-disabled:#787882;
-  --caelis-border:#37373e;
-  --caelis-focus:#b6b7ec;
-  --caelis-link:#b6b7ec;
-  --caelis-selected:#333342;
-  --caelis-selected-text:#b6b7ec;
-  --caelis-hover:#303036;
-  --caelis-pressed:#3b3b44;
-  --caelis-disabled:#29292e;
-  --caelis-action:#b0b1e8;
-  --caelis-action-hover:#c2c3f0;
-  --caelis-action-pressed:#9c9edb;
-  --caelis-action-disabled:#363642;
-  --caelis-on-action:#202033;
-  --caelis-success:#a2cbaa;
-  --caelis-error:#f0a29e;
-  --caelis-warning:#e3b875;
-  --caelis-glass-reading:rgba(32,32,36,.88);
-  --caelis-bubble-reading:rgba(32,32,36,.96);
+  --caelis-window: #16161a;
+  --caelis-sidebar: #1a1a1f;
+  --caelis-chat: #18181c;
+  --caelis-content: #212127;
+  --caelis-composer: #26262d;
+  --caelis-hover: #292931;
+  --caelis-raised: #2e2e37;
+  --caelis-popover: #2e2e38;
+  --caelis-pressed: #383844;
+  --caelis-disabled: #25252c;
+  --caelis-user-bubble: #33344a;
+
+  --caelis-text: #f0f0f4;
+  --caelis-text-secondary: #a5a5b0;
+  --caelis-text-disabled: #72727d;
+  --caelis-border: #363640;
+  --caelis-border-subtle: color-mix(in oklab, var(--caelis-border) 68%, transparent);
+
+  --caelis-focus: #b4b5ef;
+  --caelis-link: #b4b5ef;
+  --caelis-selected: #34354a;
+  --caelis-selected-text: #c6c7f7;
+
+  --caelis-action: #a9aaf0;
+  --caelis-action-hover: #bcbdf5;
+  --caelis-action-pressed: #9495e4;
+  --caelis-action-disabled: #32323e;
+  --caelis-on-action: #1a1a2e;
+
+  --caelis-success: #9ad1a7;
+  --caelis-error: #f29f9b;
+  --caelis-warning: #e6bc78;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-composer: 0 4px 16px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-composer-focus: 0 0 0 3px color-mix(in oklab, var(--caelis-focus) 22%, transparent), 0 6px 20px rgba(0, 0, 0, 0.38);
+  --shadow-popover: 0 14px 40px rgba(0, 0, 0, 0.48), 0 2px 8px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.58), 0 4px 12px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --scrollbar-thumb: color-mix(in oklab, var(--caelis-text-secondary) 32%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--caelis-text-secondary) 54%, transparent);
+
+  --caelis-glass-reading: rgba(30, 30, 36, 0.88);
+  --caelis-bubble-reading: rgba(33, 33, 39, 0.96);
 }
-@media (prefers-contrast:more) {
- :root { --caelis-border:#74747d; --caelis-text-secondary:#45454d; --caelis-focus:#363875; --caelis-link:#363875; --caelis-selected:#e2e2f2; }
+
+@media (prefers-contrast: more) {
+  :root {
+    --caelis-border: #74747d;
+    --caelis-text-secondary: #45454d;
+    --caelis-focus: #363875;
+    --caelis-link: #363875;
+    --caelis-selected: #e2e2f2;
+    --line: currentColor;
+    --muted: var(--ink);
+  }
+  :root[data-mode="dark"] {
+    --caelis-border: #aaaab4;
+    --caelis-text-secondary: #e2e2ea;
+    --caelis-focus: #d0d1ff;
+    --caelis-link: #d0d1ff;
+    --caelis-selected: #484862;
+    --line: currentColor;
+    --muted: var(--ink);
+  }
 }
-@media (prefers-contrast:more) {
- :root[data-mode="dark"] { --caelis-border:#aaaab4; --caelis-text-secondary:#e2e2ea; --caelis-focus:#d0d1ff; --caelis-link:#d0d1ff; --caelis-selected:#484862; }
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --caelis-glass-reading: var(--caelis-composer);
+    --caelis-bubble-reading: var(--caelis-raised);
+  }
 }
-@media (prefers-reduced-transparency:reduce) {
- :root { --caelis-glass-reading:var(--caelis-composer); --caelis-bubble-reading:var(--caelis-raised); }
+
+@media (forced-colors: active) {
+  :root {
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-composer: none;
+    --shadow-composer-focus: none;
+    --shadow-popover: none;
+    --shadow-dialog: none;
+  }
 }

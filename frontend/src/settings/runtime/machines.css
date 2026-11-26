@@ -45,7 +45,7 @@
 .remote-dialog-status{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.6}
 .settings-window .remote-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:24px}
 .settings-window .remote-dialog-footer>button,.settings-window .remote-request-actions>button{font-size:12px;min-height:34px;padding:7px 12px;border-radius:8px}
-.remote-dialog-error{font-size:12px;line-height:1.6;margin:14px 0 0;color:var(--caelis-danger,var(--ink))}
+.remote-dialog-error{font-size:12px;line-height:1.6;margin:14px 0 0;color:var(--caelis-error)}
 .remote-dialog-error p{margin:0 0 8px}
 .remote-inline-state{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px;font-size:12px;line-height:1.6;padding:14px 0;color:var(--muted)}
 .remote-inline-state button{font-size:12px}
@@ -90,7 +90,7 @@
 .machine-status.attention{color:var(--accent)}
 .remote-action-copy strong{display:block;font-size:14px;font-weight:500;overflow-wrap:anywhere}
 .remote-action-copy p{font-size:12px;line-height:1.7;color:var(--muted);margin:12px 0 0}
-.settings-window .remote-destructive{color:var(--caelis-danger,var(--ink))}
+.settings-window .remote-destructive{color:var(--caelis-error)}
 @media(max-width:480px){.machine-row-detail{display:grid;gap:3px}.machine-row>.settings-chevron{display:none}.remote-dialog-footer{flex-wrap:wrap}}
 .remote-request-list{list-style:none;padding:0;margin:0}
 
@@ -117,4 +117,4 @@
 
 .settings-window .remote-list-toolbar .remote-primary-actions>button{width:34px;height:34px;min-width:34px;padding:0}
 
-.remote-field-error { color: var(--ink-muted); font-size: 12px; font-weight: 400; line-height: 1.4; }
+.remote-field-error { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.4; }

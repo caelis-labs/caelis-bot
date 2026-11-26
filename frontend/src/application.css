@@ -1,15 +1,21 @@
-/* Load the shared cascade once, before any lazy surface mounts. Component CSS
-   must not arrive after surface.css and overwrite its grid/control contracts. */
-@import './style.css';
-@import './settings/settings.css';
-@import './settings/runtime/runtime.css';
-@import './settings/runtime/machines.css';
-@import './settings/plugins.css';
-@import './media-message.css';
-@import './screen-message.css';
-@import './surface.css';
-@import './windows.css';
-@import './worker-chat.css';
+/* Load the shared cascade once, before any lazy surface mounts. */
+@layer tokens, base, legacy, components, surfaces;
+
+@import './theme/caelis.css' layer(tokens);
+@import './styles/base.css' layer(base);
+
+/* Legacy stylesheets pending area-by-area migration and retirement. */
+@import './style.css' layer(legacy);
+@import './settings/settings.css' layer(legacy);
+@import './settings/runtime/runtime.css' layer(legacy);
+@import './settings/runtime/machines.css' layer(legacy);
+@import './settings/plugins.css' layer(legacy);
+@import './surface.css' layer(legacy);
+@import './windows.css' layer(legacy);
+@import './worker-chat.css' layer(legacy);
+
+/* Modernized area stylesheets. */
+@import './styles/chat.css' layer(surfaces);
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */

@@ -7,6 +7,8 @@ import {flushSync} from 'react-dom';
 import {CharacterPreview} from '../CharacterPreview';
 import type {Appearance} from '../appearance';
 import {defaultCharacterKey,fallbackCharacter} from './assets';
+import '../theme/caelis.css';
+import '../styles/base.css';
 import '../style.css';
 
 const contexts=new Map<HTMLCanvasElement,WebGLRenderingContext|WebGL2RenderingContext>();

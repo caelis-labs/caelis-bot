@@ -25,20 +25,22 @@ test('Bot plugin display names follow the selected language without changing pac
  assert.equal(botMenuPlugins(items,'en-US')[0].name,'Computer Use');
 });
 
-test('popover matches the composer width and never overlaps the input',()=>{
+test('popover uses a compact width up to 344px and never overlaps the input',()=>{
  const anchor={left:40,top:568,bottom:630,width:560};
  const menu=attachmentMenuLayout(anchor,{width:640,height:700},360);
- assert.equal(menu.width,anchor.width);
+ assert.equal(menu.width,344);
  assert.equal(menu.height,360);
  assert.ok(menu.top+menu.height<anchor.top);
  assert.equal(menu.left,anchor.left);
+ const narrowComposer=attachmentMenuLayout({...anchor,left:20,width:280},{width:640,height:700},200);
+ assert.equal(narrowComposer.width,280);
  const narrow=attachmentMenuLayout({...anchor,left:15,top:90,bottom:152,width:270},{width:300,height:300},360);
  assert.ok(narrow.left>=12 && narrow.left+narrow.width<=288);
  assert.equal(narrow.height,70);
  assert.ok(narrow.top+narrow.height<90);
  assert.ok(narrow.top>=12);
  const fileOnly=attachmentMenuLayout(anchor,{width:640,height:700},48);
- assert.equal(fileOnly.width,anchor.width);
+ assert.equal(fileOnly.width,344);
  assert.ok(fileOnly.top+fileOnly.height<anchor.top);
 });
 

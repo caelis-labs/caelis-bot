@@ -19,7 +19,7 @@ import { ChatA2uiMount } from './ChatA2uiBlock';
 import { ChatA2uiReply, ChatA2uiSubmission, useChatA2uiSubmission } from './chat-a2ui-submit';
 import { ArtifactLink } from './ArtifactLink';
 import { chatTimeline, chatTimeLabel, type ChatTimeAnchor } from './chat-time';
-import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
+import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, shouldCloseHistoryOnKey, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
@@ -33,11 +33,39 @@ import { ChatScroll } from './chat-scroll';
 import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, visibleDraftFiles, readDraftAndFiles, retryRead, sameComposerSnapshot } from './chat-observation';
 import { useI18n } from './i18n';
 import { decisionNotDispatched, approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
+import { PlusIcon } from '@phosphor-icons/react/dist/csr/Plus';
+import { ArrowUpIcon } from '@phosphor-icons/react/dist/csr/ArrowUp';
+import { PaperclipIcon } from '@phosphor-icons/react/dist/csr/Paperclip';
+import { ArrowBendUpLeftIcon } from '@phosphor-icons/react/dist/csr/ArrowBendUpLeft';
+import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
 import { CheckIcon, XIcon, SettingsChevron } from './SettingsIcons';
 import { workerTaskStatusKey } from './WorkerOutput';
 import type { MessageKey } from './i18n/catalogs';
 
-function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
+function QuotePreviewDialog({ quote, onClose }: { quote: QuotedMessage; onClose: () => void }) {
+ const { t } = useI18n();
+ const dialog = useRef<HTMLDialogElement>(null);
+ useEffect(() => {
+  const el = dialog.current;
+  if (!el) return;
+  if (!el.open) el.showModal();
+  return () => { if (el.open) el.close(); };
+ }, []);
+ return createPortal(
+  <dialog ref={dialog} className="quote-preview-dialog" aria-label={t('chat.quoteMessage')}
+   onCancel={e => { e.preventDefault(); onClose(); }}
+   onKeyDown={e => { if (e.key === 'Escape' || (e.metaKey && e.key === 'w')) { e.preventDefault(); e.stopPropagation(); onClose(); } }}
+   onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+   <div className="quote-preview-surface">
+    <button type="button" className="quote-preview-close" aria-label={t('common.close')} onClick={onClose}>
+     <XIcon size={14} weight="bold" aria-hidden="true" />
+    </button>
+    <pre>{quote.text}</pre>
+   </div>
+  </dialog>,
+  document.body
+ );
+}
 
 function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLElement|null}) {
  const {t}=useI18n();
@@ -57,7 +85,7 @@ function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLEleme
   }).catch(()=>{if(current)setFailed(true)});
   return()=>{current=false};
  },[open,file.id]);
- const copy=<>{url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>}<span className="attachment-details"><strong>{file.name}</strong><small>{file.unavailable?t('chat.mediaUnavailable'):file.type}</small></span></>;
+ const copy=<>{url?<img className="draft-thumbnail" src={url} alt=""/>:<PaperclipIcon className="attachment-fallback-icon" size={16} aria-hidden="true"/>}<span className="attachment-details"><strong>{file.name}</strong><small>{file.unavailable?t('chat.mediaUnavailable'):file.type}</small></span></>;
  return <>{url?<button className="attachment-open" type="button" aria-label={t('chat.mediaOpen',{name:file.name})} onClick={()=>setOpen(true)}>{copy}</button>:<span className="attachment-open">{copy}</span>}
   {open&&<SettingsDialog portalTarget={document.body} returnFocus={returnFocus} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><div className="draft-image-toolbar">{full&&!failed&&<button type="button" aria-pressed={actualSize} onClick={()=>setActualSize(value=>!value)}>{t(actualSize?'chat.imageFit':'chat.imageActualSize')}</button>}</div>{full&&!failed?<div className={`draft-image-canvas${actualSize?' actual-size':''}`}><img src={full} alt={file.name} onError={()=>setFailed(true)}/></div>:<p role="status">{t(failed?'chat.mediaUnavailable':'common.loading')}</p>}</SettingsDialog>}
  </>;
@@ -165,12 +193,14 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
   return <article data-message-id={item.id} className={`message-row ${item.kind}${item.questionCards?.length?' question-message':''}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
    <ChatA2uiReply.Provider value={item.kind === 'assistant' && item.status === 'completed' ? item.id : undefined}>
-   <div className={`message${item.task?.id?' task-message':''} ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
+   <div className={`message${item.task?.id?' task-message':''} ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`}
+    onMouseDown={e=>{if(e.button===2&&item.text&&window.getSelection()?.isCollapsed)e.preventDefault();}}
+    onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
     {item.questionReply ? <><p className="interaction-reply-context" title={item.questionReply.title}>{item.questionReply.title}</p><p>{item.questionReply.answer}</p><small className="interaction-reply-status" role="status">{t(item.questionReply.outcome==='accepted'?'chat.questionAnswered':item.questionReply.outcome==='rejected'?'chat.replyRejected':item.questionReply.outcome==='sending'?'chat.decisionSubmitting':'chat.questionUnknown')}</small></> : item.task?.id ? <TaskMessageAction task={item.task} text={item.text} report={report}/> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind==='tool'&&item.media ? <MediaMessage value={item.media} note={item.text}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-list">{item.questionCards.map(card=><QuestionPrompt key={card.shortId+card.binding} card={card} refresh={refresh} onAnswered={onQuestionAnswered}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} links={item.links} report={report} animate={reveal&&receiving} a2ui={!isWebSurface()?(receiving?'receiving':'final'):undefined}/> : item.text && <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className={item.kind==='user'?'sent-files':'artifacts'}>{item.artifacts.map((file,index)=><ArtifactLink file={file} report={report} attachment={item.kind==='user'} key={file.id||index}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
-    {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
+    {delivery&&<small className="message-delivery pending" data-status={item.status} role="status">{delivery}</small>}
    </div>
    </ChatA2uiReply.Provider>
   </article>;
@@ -234,8 +264,8 @@ function MessageMenu({item,x,y,onQuote,onClose,report}:{item:Item;x:number;y:num
  const copy=async()=>{onClose();try{await desktop('CopyText',item.text);}catch{report(t('chat.copyFailed'));}};
  return createPortal(<div ref={node} className="message-menu" role="menu" aria-label={t('chat.messageActions')}
   style={{left:Math.max(8,Math.min(x,innerWidth-176)),top:Math.max(8,Math.min(y,innerHeight-94))}}>
-  <button role="menuitem" onClick={()=>{onQuote(item);onClose();}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9 4 14l5 5M4 14h10a6 6 0 0 1 6 6"/></svg><span>{t('chat.quoteMessage')}</span></button>
-  <button role="menuitem" onClick={()=>void copy()}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>{t('chat.copyAction')}</span></button>
+  <button role="menuitem" onClick={()=>{onQuote(item);onClose();}}><ArrowBendUpLeftIcon size={16} aria-hidden="true"/><span>{t('chat.quoteMessage')}</span></button>
+  <button role="menuitem" onClick={()=>void copy()}><CopyIcon size={16} aria-hidden="true"/><span>{t('chat.copyAction')}</span></button>
  </div>,document.body);
 }
 
@@ -542,9 +572,9 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   onDrop={()=>setDragging(false)}>
   <div className="composer-scroll">
   {(!!quoted||!!files.length)&&<div className="composer-context">
-  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>{save(draft.current,refs,null);input.current?.focus();}}><Icon name="xmark"/></button></div>}
+  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>{save(draft.current,refs,null);input.current?.focus();}}><XIcon size={12} weight="bold" aria-hidden="true"/></button></div>}
   {!!files.length&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f} returnFocus={input.current}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');input.current?.focus();}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f} returnFocus={input.current}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');input.current?.focus();}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><XIcon size={12} weight="bold" aria-hidden="true"/></button></li>)}
 
   </ul>}
   </div>}
@@ -567,8 +597,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
 
   </div>
   <div className="capsule composer-actions">
-   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?connectionHint:actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
+   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><PlusIcon size={17} weight="bold" aria-hidden="true"/></button>
+   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-busy={preparingSend} aria-label={preparingSend?t('common.loading'):actionLabel} title={needsConnection?connectionHint:actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:preparingSend?<span className="composer-progress" aria-hidden="true"/>:<ArrowUpIcon size={17} weight="bold" aria-hidden="true"/>}</button>
   </div>
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
@@ -598,12 +628,6 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  const quoteConsumed=useCallback(()=>setQuoteRequest(null),[]);
  const showQuotePreview=useCallback((quote:QuotedMessage)=>setQuotePreview(quote),[]);
  useEffect(()=>{if(!active){setMenu(null);setQuotePreview(null);}},[active]);
- useEffect(()=>{
-  if(!quotePreview)return;
-  const close=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();setQuotePreview(null);}};
-  window.addEventListener('keydown',close,true);
-  return()=>window.removeEventListener('keydown',close,true);
- },[quotePreview]);
  const stage=useCallback((item:Item)=>{if(item.status==='sending'){position.current?.latest();setUnread(false);}setOutgoing(previous=>{const prior=previous.find(p=>p.requestId===item.requestId);return [...previous.filter(p=>p.requestId!==item.requestId),prior?.status==='accepted'?prior:item];});},[]);
  const a2uiSubmission=useChatA2uiSubmission(snapshot,refresh,stage);
  useEffect(()=>{const known=new Set(snapshot?.items.map(i=>i.requestId).filter(Boolean));setOutgoing(previous=>previous.filter(i=>!known.has(i.requestId)));},[snapshot]);
@@ -621,7 +645,7 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
   const opened=(event?:Event)=>{activeNow=true;setActive(true);setPresentation(value=>value+1);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
-  const key=(e:KeyboardEvent)=>{if(!isWebSurface()&&activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
+  const key=(e:KeyboardEvent)=>{const hasOverlay=!!document.querySelector('dialog[open], .attachment-menu, .message-menu, .artifact-context-menu');if(shouldCloseHistoryOnKey(e.key,e.metaKey,activeNow,e.defaultPrevented,e.isComposing,hasOverlay,isWebSurface())){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
   surfaceMounted('chat');
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
@@ -720,6 +744,6 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
   </footer>
   {approvalPage&&<ApprovalPage id={approvalPage} onClose={()=>setApprovalPage('')}/>}
   {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}
-  {quotePreview&&createPortal(<div className="quote-preview-backdrop" onClick={()=>setQuotePreview(null)}><section className="quote-preview" role="dialog" aria-modal="true" aria-label={t('chat.quoteMessage')} onClick={e=>e.stopPropagation()}><button className="quote-preview-close" aria-label={t('common.close')} onClick={()=>setQuotePreview(null)}><Icon name="xmark"/></button><pre>{quotePreview.text}</pre></section></div>,document.body)}
+  {quotePreview&&<QuotePreviewDialog quote={quotePreview} onClose={()=>setQuotePreview(null)}/>}
  </main>;
 }

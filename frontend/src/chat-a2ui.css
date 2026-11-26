@@ -2,7 +2,7 @@
  margin: .65em 0;
  min-width: 0;
  overflow-wrap: anywhere;
- --a2ui-control-border: color-mix(in srgb, var(--muted) 49%, var(--line));
+ --a2ui-control-border: color-mix(in oklab, var(--muted) 49%, var(--line));
 }
 
 .chat-a2ui-card, .chat-a2ui-form {
@@ -10,7 +10,7 @@
  border: 1px solid var(--line);
  border-radius: 10px;
  padding: 12px;
- background: var(--surface);
+ background: var(--caelis-raised);
 }
 .message.assistant:has(.chat-a2ui-form) { width: min(472px, calc(100% - 50px)); }
 .chat-a2ui-form {

@@ -1,3 +1,5 @@
+import '../theme/caelis.css';
+import '../styles/base.css';
 import '../style.css';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
