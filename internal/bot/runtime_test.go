@@ -19,13 +19,13 @@ type fakeEngine struct {
 	view        api.Snapshot
 	outcome     string
 	submissions []api.Submission
-	onSubmit    func(api.Submission)
+	onSubmit    func()
 }
 
 func (f *fakeEngine) Snapshot() api.Snapshot { return f.view }
 func (f *fakeEngine) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
 	if f.onSubmit != nil {
-		f.onSubmit(in)
+		f.onSubmit()
 	}
 	f.submissions = append(f.submissions, in)
 	r := api.Receipt{ID: in.ID, Outcome: f.outcome}
@@ -135,15 +135,11 @@ func TestUnknownDispatchNeverReplaysAndReconcilesReceipt(t *testing.T) {
 }
 func TestPersistenceBeforeDispatchAndStableIdentity(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	var saved Wake
+	var saved, savedAtSubmit Wake
 	failedStatus := "pending"
 	saveErr := errors.New("test wake write failed")
 	f := &fakeEngine{view: api.Snapshot{CanSend: true}, outcome: "accepted"}
-	f.onSubmit = func(in api.Submission) {
-		if saved.Status != "dispatching" || saved.ID != in.ID {
-			t.Fatalf("submitted %q before saving its dispatch intent: %+v", in.ID, saved)
-		}
-	}
+	f.onSubmit = func() { savedAtSubmit = saved }
 	r := &Runtime{
 		provider: "codex",
 		now:      func() time.Time { return now },
@@ -180,11 +176,18 @@ func TestPersistenceBeforeDispatchAndStableIdentity(t *testing.T) {
 	}
 
 	failedStatus = ""
-	if err := r.Tick(t.Context()); err != nil {
+	err := r.Tick(t.Context())
+	if len(f.submissions) != 1 || f.submissions[0].ID != originalID {
+		t.Fatalf("dispatch did not use the original wake %q: submissions=%+v err=%v", originalID, f.submissions, err)
+	}
+	if savedAtSubmit.ID != originalID || savedAtSubmit.Status != "dispatching" {
+		t.Fatalf("submitted %q before saving its dispatch intent: %+v", originalID, savedAtSubmit)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.submissions) != 1 || f.submissions[0].ID != originalID || saved.ID != originalID || saved.Status != "accepted" {
-		t.Fatalf("dispatch did not settle the original wake %q: submissions=%+v saved=%+v", originalID, f.submissions, saved)
+	if saved.ID != originalID || saved.Status != "accepted" {
+		t.Fatalf("dispatch did not settle the original wake %q: saved=%+v", originalID, saved)
 	}
 }
 func TestIdenticalSaveDoesNotMoveReminderAndRemovePreservesOtherQueuedWork(t *testing.T) {
