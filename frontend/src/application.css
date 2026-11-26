@@ -1,22 +1,14 @@
 /* Load the shared cascade once, before any lazy surface mounts. */
-@layer tokens, base, legacy, components, surfaces;
+@layer tokens, base, components, surfaces;
 
 @import './theme/caelis.css' layer(tokens);
 @import './styles/base.css' layer(base);
-
-/* Legacy stylesheets pending area-by-area migration and retirement. */
-@import './style.css' layer(legacy);
-@import './settings/settings.css' layer(legacy);
-@import './settings/runtime/runtime.css' layer(legacy);
-@import './surface.css' layer(legacy);
-@import './windows.css' layer(legacy);
-@import './worker-chat.css' layer(legacy);
-
-/* Modernized area stylesheets. */
 @import './styles/settings-shell.css' layer(components);
 @import './styles/chat.css' layer(surfaces);
 @import './styles/settings-core.css' layer(surfaces);
 @import './styles/settings-extended.css' layer(surfaces);
+@import './styles/onboarding.css' layer(surfaces);
+@import './styles/desktop-surfaces.css' layer(surfaces);
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */

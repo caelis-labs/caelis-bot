@@ -1,6 +1,4 @@
 import {SetupButton} from './SetupLoading';
-import { SettingsSelect } from './SettingsSelect';
-import {SettingsDialog} from './settings/runtime/SettingsDialog';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
@@ -16,10 +14,8 @@ const outcomes:Record<PermissionRequestResult['state'],MessageKey>={requested:'s
 
 export function PermissionSettings({embedded=false,active=true,focusVersion=0,call=desktop}:{embedded?:boolean;active?:boolean;focusVersion?:number;call?:typeof desktop}) {
  const {t}=useI18n();
- const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
+ const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>('');
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
- const [repairOpen,setRepairOpen]=useState(false);
- const [repair,setRepair]=useState<PermissionID>('accessibility'),[confirmed,setConfirmed]=useState(false);
  const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false),lastRead=useRef(0),wasActive=useRef(false);
  const refresh=useCallback(async()=>{
   const previous=loading.current;
@@ -60,7 +56,6 @@ export function PermissionSettings({embedded=false,active=true,focusVersion=0,ca
       <div className="permission-description">
        <label id={`permission-label-${p.id}`} htmlFor={`permission-${p.id}`}>{t(names[p.id])}</label>
        <p id={`permission-description-${p.id}`}>{t(descriptions[p.id])}</p>
-       {p.target&&<small>{t('settings.permissionTarget',{name:p.target})}</small>}
       </div>
       <div className="permission-toggle">
        <span id={`permission-status-${p.id}`} data-status={p.status} role="status">{t(busy===p.id?'settings.permissionWaiting':statuses[p.status]??'settings.permissionUnknown')}</span>
@@ -74,39 +69,13 @@ export function PermissionSettings({embedded=false,active=true,focusVersion=0,ca
      </div>;
  };
  return <section className="permission-settings">
-  {embedded?<h2 className="settings-section-title">{t('settings.systemPermissions')}</h2>:<h1>{t('settings.permissions')}</h1>}
-  <p className="permission-intro">{t('settings.permissionIntroduction')}</p>
+  {!embedded&&<h1>{t('settings.permissions')}</h1>}
   {!state&&<p role="status">{t('common.loading')}</p>}
   {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
   {state?.supported&&<>
    <div className="permission-list">
     {state.permissions.filter(p=>p.id in names).map(permissionRow)}
    </div>
-   <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
-   <section className="permission-privacy" aria-labelledby="permission-privacy-title">
-    <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
-    <p>{t('settings.permissionPrivacyBody')}</p>
-    <p>{t('settings.permissionPrivacyManual')}</p>
-    <p>{t('settings.permissionPrivacyRecording')}</p>
-   </section>
-   <button className="text-action permission-repair-entry" onClick={()=>setRepairOpen(true)}>{t('settings.permissionRepairTitle')}</button>
-   {repairOpen&&<SettingsDialog title={t('settings.permissionRepairTitle')} busy={!!busy} onClose={()=>{setRepairOpen(false);setConfirmed(false);}}><div className="permission-repair">
-    <p className="settings-note">{t('settings.permissionMissingApp')}</p>
-    <div className="permission-app-path"><code>{state.appPath}</code><button disabled={!!busy} onClick={()=>void perform('reveal',()=>call('RevealPermissionApp'))}>{t('settings.permissionReveal')}</button></div>
-    <p className="settings-note">{t('settings.permissionRepairHelp')}</p>
-    {state.development&&<p className="settings-note">{t('settings.permissionDevelopment')}</p>}
-    {state.permissions.some(p=>p.id==='notifications'&&p.status==='authorized')&&<button className="text-action" disabled={!!busy} onClick={()=>void perform('test-notification',()=>call('Notify',`notification-test-${crypto.randomUUID()}`,t('settings.notificationTestTitle'),t('settings.notificationTestBody'),true))}>{t('settings.notificationTest')}</button>}
-    <div className="permission-reset-category"><label htmlFor="permission-repair-category">{t('settings.permissionRepairCategory')}</label>
-     <SettingsSelect id="permission-repair-category" value={repair} disabled={!!busy} onChange={e=>{setRepair(e.target.value as PermissionID);setConfirmed(false);setNotice(false);}}>
-      {(['accessibility','screenCapture','automation'] as const).map(id=><option key={id} value={id}>{t(names[id])}</option>)}
-     </SettingsSelect>
-    </div>
-    <p className="settings-note">{t('settings.permissionResetScope')}</p>
-    <label className="permission-reset-consent"><input type="checkbox" checked={confirmed} disabled={!!busy} onChange={e=>setConfirmed(e.target.checked)}/>{t('settings.permissionResetConfirm')}</label>
-    <button disabled={!confirmed||!!busy} onClick={()=>void perform('reset',async()=>{await call('ResetSystemPermission',repair);if(alive.current){setNotice(true);setConfirmed(false);}})}>{t('settings.permissionReset')}</button>
-    {notice&&<p role="status">{t('settings.permissionResetDone')}</p>}
-    {error&&<p className="inline-error" role="alert">{t(error)}</p>}
-   </div></SettingsDialog>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
  </section>;

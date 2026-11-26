@@ -44,10 +44,6 @@
   border-bottom: 1px solid var(--caelis-border-subtle);
 }
 
-.settings-window .general-settings .maintenance-surface {
-  margin-top: 24px;
-}
-
 /* Uniform 240px control column across General rows */
 .settings-window .settings-select:has(#interface-language) {
   width: 100%;
@@ -443,6 +439,20 @@
 
 .settings-window .setting-list > div:last-child > button.connection-navigation-row,
 .settings-window .setting-list > button.connection-navigation-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-window .connections-page .setting-list > div > p.settings-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px 20px 14px;
+  border-bottom: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .connections-page .setting-list > div:last-child > p.settings-note:last-child {
   border-bottom: 0;
 }
 

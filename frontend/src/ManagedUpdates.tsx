@@ -2,9 +2,9 @@ import {useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import type {MessageKey} from './i18n/catalogs';
 import {useI18n} from './i18n';
-import {SettingGroup,SettingRow} from './SettingsUI';
-import {Maintenance} from './Maintenance';
+import {UpdateSettingsShell} from './UpdateSettingsShell';
 import {updateProgress,updateReason,type UpdateIntent,type UpdateView} from './managed-update-client';
+
 export function ManagedUpdates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}){
  const {t}=useI18n(),[view,setView]=useState<UpdateView>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),refresh=useRef(()=>{}),flight=useRef(false);
  useEffect(()=>{
@@ -20,20 +20,27 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
  const progress=status?updateProgress(status):undefined;
  const reason=error||(status?.reason?updateReason(status.reason):'');
  const working=['checking','downloading','verifying','waiting_idle','restarting','rolling_back'].includes(state);
- return <section className="update-settings">
-  <h1>{t('settings.updates')}</h1>
-  <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>CaelisBot</h2><p>{status?.current.version||version}{status?.testArtifact?' · '+t('settings.managedQA'):''}</p></div></div>
-  <SettingGroup>
-   {managed&&<SettingRow label={t('settings.managedAutomatic')} htmlFor="managed-automatic" description={t('settings.managedAutomaticHint')}><input id="managed-automatic" className="settings-switch" role="switch" type="checkbox" checked={status.automatic} disabled={locked||working||state==='unknown'} onChange={e=>void act({action:'automatic',automatic:e.target.checked})}/></SettingRow>}
-   <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{t(('settings.managedPhase_'+phase) as MessageKey)}{status?.latest&&['available','ready','downloading','verifying','waiting_idle'].includes(state)?' '+status.latest:''}</span>}><button disabled={!status||locked||working||state==='unknown'} onClick={()=>void act({action:'check'})}>{t('settings.checkUpdatesButton')}</button></SettingRow>
-   {status?.runtime&&status.runtime.state!=='inactive'&&status.runtime.state!==''&&<SettingRow label={t('settings.managedRuntime')} description={t(('settings.managedRuntime_'+(['ready','pending','external'].includes(status.runtime.state)?status.runtime.state:'failed')) as MessageKey,{bundled:status.runtime.bundledVersion||'—',actual:status.runtime.hostVersion||'—'})}>{null}</SettingRow>}
-   {reason&&<SettingRow label={t('settings.managedDetail')} description={t(('settings.managedReason_'+reason) as MessageKey)}><button onClick={()=>{setError('');refresh.current()}}>{t('settings.managedRefresh')}</button></SettingRow>}
-   {state==='downloading'&&status&&<SettingRow label={t('settings.managedDownload')} description={`${(status.receivedBytes/1048576).toFixed(1)} MB${status.totalBytes>0?' / '+(status.totalBytes/1048576).toFixed(1)+' MB':''}`}><progress aria-label={t('settings.managedDownload')} max={100} value={progress}/></SettingRow>}
-   {view?.pending&&<p className="settings-note" role="status">{t('settings.managedPending')}</p>}
-   {managed&&status?.offerId&&['available','failed'].includes(state)&&<SettingRow label={t('settings.managedDownload')} description={t('settings.managedDownloadHint')}><button disabled={locked} onClick={()=>void act({action:'download',offerId:status.offerId})}>{t('settings.managedDownload')}</button></SettingRow>}
-   {managed&&state==='ready'&&<SettingRow label={t('settings.managedInstall')} description={t('settings.managedInstallHint')}><button disabled={locked} onClick={()=>void act({action:'install',offerId:status?.offerId,when:'idle'})}>{t('settings.managedSchedule')}</button><button disabled={locked} onClick={()=>void act({action:'install',offerId:status?.offerId,when:'now'})}>{t('settings.managedInstall')}</button></SettingRow>}
-   {managed&&state==='waiting_idle'&&status?.transactionId&&<SettingRow label={t('settings.managedScheduled')}><button disabled={locked} onClick={()=>void act({action:'cancel',transactionId:status.transactionId,revision:status.revision})}>{t('common.cancel')}</button></SettingRow>}
-   {view?.confirmed&&status?.current.version!==version&&<SettingRow label={t('settings.managedReload')} description={t('settings.managedReloadHint')}><button onClick={()=>void desktop('RestartSurface')}>{t('settings.managedReload')}</button></SettingRow>}
-  </SettingGroup><Maintenance storage={false} embedded/>
- </section>;
+ const latestSuffix=status?.latest&&['available','ready','downloading','verifying','waiting_idle'].includes(state)?` ${status.latest}`:'';
+ const reasonText=reason?t(('settings.managedReason_'+reason) as MessageKey):'';
+ const reloadReady=!!(view?.confirmed&&status?.current.version!==version);
+ const statusText=view?.pending?t('settings.managedPending'):
+  error?reasonText:
+  reloadReady?t('settings.managedReloadHint'):
+  state==='idle'?(reasonText||t('settings.checkNewVersion')):
+  `${t(('settings.managedPhase_'+phase) as MessageKey)}${latestSuffix}${reasonText?` · ${reasonText}`:''}`;
+ const progressInfo=state==='downloading'&&status?{
+  label:t('settings.managedDownload'),
+  value:progress,
+  detail:`${(status.receivedBytes/1048576).toFixed(1)} MB${status.totalBytes>0?' / '+(status.totalBytes/1048576).toFixed(1)+' MB':''}`,
+ }:undefined;
+ const actions=reloadReady?
+  <button className="primary" onClick={()=>void desktop('RestartSurface')}>{t('settings.managedReload')}</button>:
+  managed&&state==='waiting_idle'&&status?.transactionId?
+  <button disabled={locked} onClick={()=>void act({action:'cancel',transactionId:status.transactionId,revision:status.revision})}>{t('common.cancel')}</button>:
+  managed&&state==='ready'?
+  <button className="primary" disabled={locked} onClick={()=>void act({action:'install',offerId:status?.offerId,when:'now'})}>{t('settings.managedInstall')}</button>:
+  managed&&status?.offerId&&['available','failed'].includes(state)?
+  <button className="primary" disabled={locked} onClick={()=>void act({action:'download',offerId:status.offerId})}>{t('settings.managedDownload')}</button>:
+  <button disabled={!status||locked||working||state==='unknown'} onClick={()=>void act({action:'check'})}>{t('settings.checkUpdatesButton')}</button>;
+ return <UpdateSettingsShell version={status?.current.version||version} badge={status?.testArtifact?t('settings.managedQA'):undefined} status={statusText} progress={progressInfo} actions={actions}/>;
 }

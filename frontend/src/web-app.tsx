@@ -85,7 +85,7 @@ export function WebApp({client}:{client:WebClient}){
      <WebTasks active={!!taskOpen&&!settingsOpen} client={client} tasks={taskState.tasks} selected={workspaceNav?.task} onSelect={id=>void client.navigation({view:'task',task:id}).catch(()=>setNavigationFailed(true))} onClose={closeTasks} listError={taskState.error} onRetryList={taskState.retry}/>
     </div>
     <div className="web-settings-layer" hidden={!settingsOpen} onPointerDown={event=>{if(event.target===event.currentTarget&&!settingsHasModal())void desktop('CloseSettings').catch(()=>setNavigationFailed(true));}}>
-     <div className="web-settings web-settings-panel" ref={settingsPanel} role="dialog" aria-modal="true" aria-label="CaelisBot" data-settings-panel tabIndex={-1} onKeyDown={event=>{
+     <div className="web-settings web-settings-panel" ref={settingsPanel} role="dialog" aria-modal="true" aria-label="Caelis Bot" data-settings-panel tabIndex={-1} onKeyDown={event=>{
       if(event.key!=='Tab'||settingsHasModal())return;
       const nodes=[...settingsPanel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]')].filter(n=>n.getClientRects().length&&!n.closest('[inert]'));
       const first=nodes[0],last=nodes.at(-1);

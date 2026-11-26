@@ -19,12 +19,12 @@ import { ScreenInputSettings } from './ScreenInputSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { PermissionSettings } from './PermissionSettings';
 import { TaskSettings } from './TaskSettings';
-import { Maintenance } from './Maintenance';
 import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
 import { LoginAtLoginSetting } from './LoginAtLoginSetting';
 import { PluginSettings } from './PluginSettings';
-import { SettingGroup, SettingRow } from './SettingsUI';
+import { SettingGroup } from './SettingsUI';
+import { UpdateSettingsShell } from './UpdateSettingsShell';
 
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean; state?:string; message?:string; format?:string; latest?:string };
@@ -81,7 +81,7 @@ export function Settings({onNavigate}:{onNavigate?:(section:Section)=>void}={}) 
  const channel=section==='telegram'||section==='weixin';
  const crumbs=[{label:t('settings.windowTitle'),open:()=>navigate('general')},...(trail.length?trail:channel?[{label:t('settings.chatConnections'),open:()=>navigate('chatConnections')},{label:section==='telegram'?'Telegram':t('settings.weixinTitle')}]:[{label:t(`settings.${section}`)}])];
  return <SettingsToolbarContext.Provider value={setTrail}><SettingsActionsContext.Provider value={actionsHost}><main className="settings-window">
-  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>{isWebSurface()?'CaelisBot':'Caelis Bot'}</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{groups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(!settingsHasModal()&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))navigate(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav></aside>
+  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{groups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(!settingsHasModal()&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))navigate(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav></aside>
   <div className="settings-main"><header className="settings-toolbar"><SettingsBreadcrumbs items={crumbs} label={t('settings.navLabel')}/><div className="settings-page-actions" ref={setActionsHost}/>{isWebSurface()&&<button className="context-navigation settings-navigation" aria-label={t('native.closeSettings')} onClick={()=>requestChatReturn(false,visible,()=>void desktop('CloseSettings'))}><XIcon size={18}/></button>}</header><div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{section==='permissions'&&<><h1>{t('settings.permissions')}</h1><PermissionSettings embedded active={visible} focusVersion={focusVersion}/></>}</div>
    <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<RuntimeSettings active={visible&&section==='connections'} refreshKey={opened}/>}</div>
@@ -135,23 +135,15 @@ function NativeUpdates({version,active,focusVersion}:{version:string;active:bool
   setBusy(true);setError('');
   try{await desktop('InstallUpdate');await refresh();}catch{setError(t('settings.updateCheckFailed'));}finally{setBusy(false);}
  };
- const automatic=async(value:boolean)=>{
-  setBusy(true);setError('');
-  try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
-  catch{setError(t('settings.updatePreferencesSaveFailed'));}finally{setBusy(false);}
- };
  const updateStatus=preferences?.state==='failed'?t('chat.surfaceRestartNeeded'):
   preferences?.state==='preparing'?t('settings.updatePreparing'):
   preferences?.state==='closing'?t('settings.updateClosing'):
   preferences?.state==='restarting'?t('settings.updateRestarting'):
   preferences?.format&&preferences.message?preferences.message:preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion');
- return <section className="update-settings">
-  <h1>{t('settings.updates')}</h1>
-  <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>Caelis Bot</h2><p>{result?.current||version}</p></div></div>
-  <SettingGroup>{preferences?.available&&<SettingRow label={t('settings.autoUpdateLabel')} htmlFor="automatic-updates" description={t('settings.autoUpdateDescription')}><input id="automatic-updates" className="settings-switch" role="switch" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
-  <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{error||updateStatus}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button></SettingRow>
-  {preferences?.format&&preferences.state==='ready'&&<SettingRow label={t('settings.newVersionAvailable',{version:preferences.latest||''})} description={t('settings.windowsUpdateInstallDescription')}><button disabled={busy||preferences.waiting} onClick={()=>void install()}>{t('settings.windowsUpdateInstall')}</button></SettingRow>}
-  <SettingRow label={result?.state==='available'?t('settings.newVersionAvailable',{version:result.latest}):t('settings.releaseAndInstall')}><button onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{result?.state==='available'?t('settings.downloadNewVersion'):t('settings.viewReleasePage')}</button></SettingRow></SettingGroup>
-  <p className="settings-note">{preferences?.available?t('settings.updateNoteAvailable'):t('settings.updateNoteManual')}</p><Maintenance storage={false} embedded/>
- </section>;
+ const actions=preferences?.format&&preferences.state==='ready'?
+  <button className="primary" disabled={busy||preferences.waiting} onClick={()=>void install()}>{t('settings.windowsUpdateInstall')}</button>:
+  result?.state==='available'?
+  <button className="primary" onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{t('settings.downloadNewVersion')}</button>:
+  <button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button>;
+ return <UpdateSettingsShell version={result?.current||version} status={error||updateStatus} actions={actions}/>;
 }

@@ -1709,18 +1709,7 @@ dialog.plugin-dialog .plugin-refresh-tools {
   color: var(--caelis-link);
 }
 
-/* --- Permissions & Repair Dialog --- */
-.settings-window .permission-settings > .settings-section-title {
-  margin: 0 0 8px;
-}
-
-.settings-window .permission-settings .permission-intro {
-  margin: 0 0 18px;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--muted);
-}
-
+/* --- Permissions --- */
 .settings-window .permission-list {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1755,14 +1744,6 @@ dialog.plugin-dialog .plugin-refresh-tools {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.settings-window .permission-description small {
-  display: block;
-  margin-top: 5px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--muted);
 }
 
 .settings-window .permission-toggle {
@@ -1825,112 +1806,13 @@ dialog.plugin-dialog .plugin-refresh-tools {
   font-size: 12px;
 }
 
-.settings-window .permission-system-note {
-  margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.6;
-}
-
-.settings-window .permission-privacy {
-  padding: 0;
-  margin: 22px 0 12px;
-}
-
-.settings-window .permission-privacy h2 {
-  margin: 0 0 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.5;
-  color: var(--ink);
-}
-
-.settings-window .permission-privacy p {
-  max-width: 65ch;
-  margin: 4px 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted);
-}
-
-.settings-window button.permission-repair-entry {
-  min-height: 28px;
-  padding: 0;
-  font-size: 12.5px;
-  text-align: left;
-  color: var(--caelis-link);
-}
-
-.permission-repair {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-size: 12.5px;
-}
-
-.permission-app-path {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--caelis-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--caelis-content);
-}
-
-.permission-app-path code {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 11.5px;
-  user-select: text;
-}
-
-.permission-app-path button {
-  flex: none;
-}
-
-.permission-reset-category {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  margin-top: 14px;
-}
-
-.permission-reset-category .settings-select {
-  width: 220px;
-  max-width: 100%;
-}
-
-.permission-repair .permission-reset-consent {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 14px 0 18px;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-dialog.runtime-dialog .permission-reset-consent input[type="checkbox"] {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 2px 0 0;
-}
-
-/* --- Updates, About & Storage Confirmation --- */
+/* --- Updates & About --- */
 .settings-window .about-identity {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 18px 20px;
-  margin: 0 0 22px;
+  margin: 0 0 24px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--caelis-raised);
@@ -1962,33 +1844,24 @@ dialog.runtime-dialog .permission-reset-consent input[type="checkbox"] {
   font-variant-numeric: tabular-nums;
 }
 
-.settings-window .update-settings progress {
-  width: 180px;
-  height: 6px;
-  accent-color: var(--accent);
+.settings-window .update-settings .setting-control > button {
+  white-space: nowrap;
 }
 
-.settings-window .storage-confirm {
-  margin: 14px 0 0;
-  padding: 16px 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--caelis-raised);
-  box-shadow: var(--shadow-xs);
-}
-
-.settings-window .storage-confirm p {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.6;
+.settings-window .update-inline-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
-.settings-window .storage-confirm > div {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin: 14px 0 0;
+.settings-window .update-inline-progress progress {
+  width: 140px;
+  height: 6px;
+  accent-color: var(--accent);
 }
 
 /* --- Responsive & Accessibility --- */

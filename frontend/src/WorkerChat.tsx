@@ -1,4 +1,5 @@
 import {useLayoutEffect,useMemo,useRef,useState,type ReactNode} from 'react';
+import {ArrowDownIcon} from '@phosphor-icons/react/dist/csr/ArrowDown';
 import type {Task} from './backend/contract';
 import {CopyText,MessageContent} from './MessageContent';
 import {ArtifactLink} from './ArtifactLink';
@@ -66,7 +67,7 @@ export function WorkerChat({id,task,output,onClose,heading,closeLabel,active=tru
     </article>)}
     {!messages.length&&<p className="worker-chat-empty" role="status">{t(output.conversation?'chat.taskHistoryEmpty':failed?'chat.taskHistoryUnavailable':'chat.taskLoading')}</p>}
    </div>
-  </div>{!following&&<button className="worker-chat-latest" onClick={latest}>{t('chat.taskLatest')} ↓</button>}</div>
+  </div>{!following&&<button className="worker-chat-latest" onClick={latest}>{t('chat.taskLatest')}<ArrowDownIcon size={13} weight="bold" aria-hidden="true"/></button>}</div>
   {error&&<div className="worker-chat-notice" role="status"><span>{error}</span><button className="text-action" onClick={()=>setError('')}>{t('chat.taskDismiss')}</button></div>}
  </section>;
 }

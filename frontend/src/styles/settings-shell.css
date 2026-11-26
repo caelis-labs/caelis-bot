@@ -56,6 +56,11 @@ html[data-native-material="solid"] .context-window .settings-window aside {
   background: var(--caelis-content);
 }
 
+.settings-identity > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .settings-identity strong {
   display: block;
   font-size: 13px;
@@ -69,6 +74,9 @@ html[data-native-material="solid"] .context-window .settings-window aside {
   margin: 3px 0 0;
   padding: 0;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-window aside nav {
@@ -536,13 +544,6 @@ html[data-native-material="solid"] .context-window .settings-window aside {
 .runtime-path input {
   flex: 1;
   width: 0;
-}
-
-.settings-content .maintenance-surface {
-  height: auto;
-  padding: 0;
-  overflow: visible;
-  background: transparent;
 }
 
 /* --- Shared Buttons, Inputs, Chevron & Focus --- */

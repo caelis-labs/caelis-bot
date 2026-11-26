@@ -9,7 +9,6 @@ import type {Appearance} from '../appearance';
 import {defaultCharacterKey,fallbackCharacter} from './assets';
 import '../theme/caelis.css';
 import '../styles/base.css';
-import '../style.css';
 import '../styles/settings-shell.css';
 import '../styles/settings-core.css';
 
