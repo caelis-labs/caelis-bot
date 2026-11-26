@@ -9,6 +9,7 @@ test('chat return is denied for setup, hidden windows, dialogs and dirty owners'
 
 test('hidden retained dialogs do not block navigation, while visible unsaved forms do',()=>{
  const root=(visible)=>({querySelectorAll:selector=>{
+  assert.match(selector,/dialog\[open\]/);
   assert.match(selector,/data-settings-dirty/);
   return visible.map(shown=>({getClientRects:()=>shown?[{}]:[]}));
  }});

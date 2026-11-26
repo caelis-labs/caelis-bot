@@ -8,8 +8,6 @@
 @import './style.css' layer(legacy);
 @import './settings/settings.css' layer(legacy);
 @import './settings/runtime/runtime.css' layer(legacy);
-@import './settings/runtime/machines.css' layer(legacy);
-@import './settings/plugins.css' layer(legacy);
 @import './surface.css' layer(legacy);
 @import './windows.css' layer(legacy);
 @import './worker-chat.css' layer(legacy);
@@ -18,6 +16,7 @@
 @import './styles/settings-shell.css' layer(components);
 @import './styles/chat.css' layer(surfaces);
 @import './styles/settings-core.css' layer(surfaces);
+@import './styles/settings-extended.css' layer(surfaces);
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */

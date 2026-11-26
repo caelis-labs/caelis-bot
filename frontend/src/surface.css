@@ -19,27 +19,7 @@ body[data-surface=context] { background:var(--caelis-chat); }
 /* Native chrome is outside the viewport; the floating navigation takes no layout space. */
 .context-view { animation:surface-arrive .16s ease-out; }
 @keyframes surface-arrive { from { opacity:.65; transform:translateY(3px); } to { opacity:1; transform:none; } }
-/* Native Chrome & View transitions; settings/core styles live in styles/settings-*.css */
-.settings-window .permission-row { border:0; padding:15px 0; }
-.settings-window .permission-description p { margin:5px 0 0; font-size:12px; }
-.settings-window .permission-row>.permission-toggle { align-items:center; gap:8px; }
-.settings-window .runtime-dialog { padding:24px; border-radius:16px; border:1px solid var(--line); box-shadow:0 16px 48px #00000028; animation:dialog-arrive .14s ease-out; }
-.settings-window .runtime-dialog .setting-row { grid-template-columns:minmax(0,1fr) minmax(100px,200px); gap:18px; }
-.settings-window .runtime-dialog .runtime-choices button { border-radius:10px; }
-.settings-window .runtime-dialog .setup-end { gap:8px; }
-.settings-window .runtime-dialog form>label { display:block; margin:16px 0; }
-.settings-window .runtime-dialog form>label>input { margin-top:7px; }
-.settings-window .runtime-dialog-scrim { background:#17251e30; }
-.settings-window .runtime-popover-scrim { background:transparent; }
-.settings-window .runtime-dialog .runtime-dialog-heading h2 { font-size:16px; }
-@keyframes dialog-arrive { from { opacity:0; transform:translateY(5px) scale(.99); } to { opacity:1; transform:none; } }
-.settings-window .messaging-channel { padding:18px 20px; margin:8px 0; gap:16px; border:1px solid var(--line); border-radius:10px; }
-.settings-window .messaging-chevron { flex:none; margin-left:4px; }
-.settings-window .messaging-channel-copy strong { font-size:14px; }
-.settings-window .messaging-channel-copy>span { font-size:12px; }
-.settings-window .telegram-heading,.settings-window .telegram-step,.settings-window .telegram-notice { border:0; }
-.settings-window .telegram-heading { padding-bottom:10px; }
-.settings-window .about-identity { margin:14px 0 32px; }
+/* Onboarding, provider detail, recovery, and native chrome transitions pending Milestone 4. */
 /* Existing onboarding order, with consistent progress and a stable footer. */
 .settings-window.setup-window { background:var(--caelis-content); }
 .setup-page { max-width:620px; padding:32px 32px 24px; }
@@ -49,37 +29,25 @@ body[data-surface=context] { background:var(--caelis-chat); }
 .setup-flow .setup-lead { font-size:13px; line-height:1.7; margin-bottom:26px; }
 .setup-flow .setup-end { border-top:0!important; background:var(--caelis-content)!important; }
 @media(prefers-reduced-motion:reduce) {
- .context-view,.runtime-dialog { animation:none!important; }
+ .context-view { animation:none!important; }
 }
 html[data-native-material=solid] .context-window .settings-window aside { background:var(--caelis-sidebar); }
-.terminal-command-editor label { display:block; margin:14px 0 8px; font-size:12px; }
-.terminal-command-editor textarea { width:100%; height:90px; max-height:160px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-family:ui-monospace,monospace; font-size:12px; line-height:1.6; }
-.terminal-command-editor .custom-terminal-enable { display:flex; align-items:center; gap:8px; }
 .settings-window .runtime-location-entry { margin:18px 0 8px; color:var(--muted); }
-.settings-window .runtime-dialog input[type=checkbox] { width:16px; height:16px; padding:0; margin:0; flex:none; accent-color:var(--accent); }
-.settings-window .runtime-dialog .custom-terminal-enable { display:flex; flex-direction:row; align-items:center; gap:8px; }
 .context-window .settings-window.setup-window { justify-content:center; background:var(--caelis-content); }
 .settings-window .setup-page { width:100%; max-width:620px; margin:0 auto; }
 /* New presentation also supports WebKit versions predating dynamic viewport units. */
 .context-window,.context-view,.settings-window,.setup-page { height:100vh; height:100dvh; }
-.settings-window .runtime-dialog { max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); }
 
 /* Onboarding, connection dialogs, and worker setup. */
 .settings-window .runtime-worker-options { font-size:12px; color:var(--muted); margin:8px 0; }
 .settings-window .runtime-worker-options summary,.settings-window .runtime-permissions-disclosure>summary { cursor:pointer; padding:10px 0; }
 .settings-window .runtime-worker-options[open] summary { color:var(--ink); }
-.settings-window .runtime-worker-recovery { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 0; }
-.settings-window .runtime-worker-actions { display:flex; gap:8px; }
-.settings-window .runtime-worker-recovery p { margin:0; font-size:12px; }
 .settings-window .runtime-permissions-disclosure { border-top:1px solid var(--line); margin-top:20px; font-size:13px; }
 .settings-window .runtime-permissions-disclosure .setting-section { margin-top:8px; }
 .settings-window .runtime-connect-catalog { grid-template-columns:1fr; max-height:300px; }
 .settings-window .runtime-connect-catalog button { min-height:44px; padding:12px 14px; border-radius:8px; }
-.settings-window .runtime-dialog>label { display:flex; flex-direction:column; gap:7px; margin:18px 0; }
 .settings-window .runtime-dialog .gateway-catalog-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 18px; font-size:12px; color:var(--muted); }
 .settings-window .gateway-catalog-status p { margin:0; }
-.settings-window .runtime-dialog select { min-height:38px; padding-right:28px; }
-.settings-window .runtime-dialog input[type=checkbox] { width:16px; height:16px; padding:0; }
 .settings-window .setup-page { padding:32px 32px 28px; max-width:600px; }
 .settings-window .setup-progress { gap:18px; font-size:11px; margin-bottom:36px; }
 .settings-window .setup-progress li>span { width:20px; height:20px; }
@@ -96,48 +64,17 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-flow .permission-settings { padding-top:0; }
 .settings-window .setup-flow .permission-privacy { margin-top:16px; }
 @media(max-width:720px) {
- .settings-window .runtime-worker-recovery { flex-wrap:wrap; }
  .settings-window .setup-page { padding:24px; }
  .settings-window .setup-progress { gap:12px; }
 }
 .settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)>summary { display:flex; align-items:center; gap:8px; width:fit-content; border-radius:4px; }
 .settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)[open]>summary svg { transform:rotate(90deg); }
-.settings-window .permission-row { padding:18px 20px; background:var(--caelis-raised); border:1px solid var(--line); border-radius:10px; margin:10px 0; }
-.settings-window .channel-card,.settings-window .machine-card { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; }
-.settings-window .plugin-list { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.settings-window .plugin-row { padding:6px 16px; }
-.settings-window .runtime-dialog { background:var(--caelis-popover); }
-.settings-window .runtime-dialog-scrim { background:rgba(12,12,16,.42); backdrop-filter:blur(3px); }
-.settings-window .runtime-popover-scrim { background:transparent; backdrop-filter:none; }
-.settings-window :is(.messaging-settings,.telegram-page,.plugin-settings,.machine-settings) { max-width:none; }
-.settings-window .messaging-channel { background:var(--caelis-raised); }
-.settings-window .telegram-heading { padding:0 0 16px; }
-.settings-window .telegram-heading h1,.settings-window .plugin-detail-head h1 { font-size:20px; margin:0 0 8px; }
-.settings-window .telegram-step { padding:20px; margin:12px 0; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
-.settings-window .telegram-step p { max-width:64ch; }
-.settings-window .telegram-back,.settings-window .plugin-back { margin-bottom:16px; }
-.settings-window .permission-list { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.settings-window .permission-row { border:0; border-radius:0; border-bottom:1px solid var(--line); margin:0; }
-.settings-window .permission-row:last-child { border-bottom:0; }
-.settings-window .permission-privacy { padding:20px 0; }
-.settings-window .permission-repair { border:0; margin:0; padding:0; }
-.settings-window .permission-app-path { overflow-wrap:anywhere; }
-.settings-window .plugin-tabs { margin-top:0; }
-.settings-window .machine-page-intro { margin-top:0; }
-.settings-window .permission-repair .permission-reset-consent { display:flex; align-items:flex-start; gap:10px; }
-.settings-window .permission-reset-consent input { flex:none; width:16px; height:16px; margin:2px 0 0; }
 
-.settings-window .runtime-dialog p.inline-error { color:var(--error); margin:4px 0 16px; }
-.context-view:has(.settings-window),.settings-window .runtime-dialog { animation:none; }
+.context-view:has(.settings-window) { animation:none; }
 .settings-window .connection-detail.runtime-team-dialog { width:100%; }
 
-/* Runtime install progress dialog & provider details. */
+/* Provider details. */
 .settings-window .codex-update-result { margin:0; padding:0 20px 16px; color:var(--muted); font-size:12px; }
-.settings-window .runtime-install-dialog { width:420px; }
-.runtime-install-progress { height:6px; border-radius:6px; overflow:hidden; margin:24px 0 18px; background:var(--wash); }
-.runtime-install-progress span { display:block; height:100%; width:36%; border-radius:inherit; background:var(--accent); animation:runtime-install-travel 1.6s ease-in-out infinite alternate; }
-@keyframes runtime-install-travel { from { transform:translateX(0); } to { transform:translateX(178%); } }
-@media(prefers-reduced-motion:reduce) { .runtime-install-progress span { animation:quiet-progress 2.4s ease-in-out infinite; width:36%; transform:none; } }
 
 .settings-window .provider-connection .setup-end { justify-content:flex-end; }
 .settings-window .provider-connection .connection-detail-body { max-width:760px; }
@@ -160,7 +97,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 
 .settings-window .provider-model-scroll { max-height:240px; overflow:auto; padding:2px; }
 .settings-window .provider-model-count { margin-left:8px; color:var(--muted); font-size:12px; }
-.runtime-install-progress.is-measured span { animation:none; transition:width .35s ease; }
 
 /* First-run pages: one readable column and a consistent action rhythm. */
 .settings-window .setup-page { max-width:620px; padding:28px 36px; }
@@ -464,18 +400,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .gateway-read-notice>div { display:flex; align-items:center; gap:12px; }
 .context-navigation{position:absolute;right:14px;top:6px;z-index:4;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;color:var(--muted);background:transparent}
 .context-navigation:hover{background:var(--wash);color:var(--ink)}
-
-/* Permissions share one reading edge inside and outside the existing list. */
-.settings-window .permission-settings .permission-intro { margin:6px 0 18px; font-size:12px; line-height:1.65; }
-.settings-window .permission-settings .permission-description p { line-height:1.6; }
-.settings-window .permission-settings .permission-description small { font-size:11px; line-height:1.6; }
-.settings-window .permission-settings .permission-system-note { margin:10px 0 0; font-size:11px; line-height:1.6; }
-.settings-window .permission-settings .permission-privacy { padding:0; margin:22px 0 12px; }
-.settings-window .permission-settings .permission-privacy h2 { margin:0 0 8px; font-size:12px; line-height:1.6; }
-.settings-window .permission-settings .permission-privacy p { max-width:none; margin:4px 0; font-size:12px; line-height:1.65; }
-.settings-window .permission-settings .permission-repair-entry { padding:0; min-height:28px; border:0; background:transparent; font-size:12px; text-align:left; }
-
-.settings-window .permission-settings>.settings-section-title { margin:0 0 8px; }
 
 /* Account connection pages scroll with Settings rather than a short nested list. */
 .settings-window .provider-connection:not(.onboarding-connection) .connection-detail-body { max-width:860px; }

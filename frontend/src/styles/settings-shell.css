@@ -1230,9 +1230,16 @@ details[open] > summary > .settings-chevron {
   .settings-switch,
   .settings-switch::before,
   .settings-select-menu,
-  .settings-select-trigger svg {
+  .settings-select-trigger svg,
+  .runtime-install-progress span {
     scroll-behavior: auto;
     transition: none !important;
+    animation: none !important;
+  }
+
+  dialog.runtime-dialog,
+  dialog.runtime-dialog::backdrop {
+    transition-duration: 0.1s;
     animation: none !important;
   }
 }
@@ -1242,10 +1249,16 @@ details[open] > summary > .settings-chevron {
   html[data-native-material] .context-window .settings-window aside {
     background: var(--caelis-sidebar);
   }
+
+  dialog.runtime-dialog[open]::backdrop {
+    backdrop-filter: none;
+    background: rgba(12, 14, 18, 0.56);
+  }
 }
 
 @media (prefers-contrast: more) {
-  .settings-window {
+  .settings-window,
+  dialog.runtime-dialog {
     --line: currentColor;
   }
 
@@ -1267,5 +1280,427 @@ details[open] > summary > .settings-chevron {
 
   .settings-window input.settings-switch:checked {
     background: Highlight;
+  }
+
+  dialog.runtime-dialog {
+    border: 2px solid CanvasText;
+  }
+}
+
+/* --- Unified Native <dialog> Overlays --- */
+dialog.runtime-dialog {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--caelis-popover);
+  color: var(--ink);
+  box-shadow: var(--shadow-dialog);
+  overflow-y: auto;
+  font-size: 13px;
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-out);
+  transition-behavior: allow-discrete;
+}
+
+dialog.runtime-dialog:focus {
+  outline: none;
+}
+
+dialog.runtime-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.runtime-dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(12, 14, 18, 0);
+  backdrop-filter: blur(0);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-out);
+  transition-behavior: allow-discrete;
+}
+
+dialog.runtime-dialog[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog.runtime-dialog[open] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.runtime-dialog {
+    transform: translateY(6px) scale(0.985);
+  }
+
+  dialog.runtime-dialog[open] {
+    transform: none;
+  }
+
+  @starting-style {
+    dialog.runtime-dialog[open] {
+      transform: translateY(6px) scale(0.985);
+    }
+  }
+}
+
+dialog.runtime-dialog[open]::backdrop {
+  background-color: rgba(12, 14, 18, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+@starting-style {
+  dialog.runtime-dialog[open]::backdrop {
+    background-color: rgba(12, 14, 18, 0);
+    backdrop-filter: blur(0);
+  }
+}
+
+dialog.runtime-popover-dialog {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+dialog.runtime-popover-dialog::backdrop,
+dialog.runtime-popover-dialog[open]::backdrop {
+  background-color: transparent;
+  backdrop-filter: none;
+  transition: none;
+}
+
+dialog.runtime-dialog .runtime-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+dialog.runtime-dialog .runtime-dialog-title-group {
+  min-width: 0;
+}
+
+dialog.runtime-dialog .runtime-dialog-eyebrow {
+  display: block;
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog .runtime-dialog-heading h2 {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+dialog.runtime-dialog .runtime-dialog-description {
+  margin: 8px 0 18px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog > .runtime-dialog-heading + :not(.runtime-dialog-description) {
+  margin-top: 16px;
+}
+
+dialog.runtime-dialog label {
+  font-size: 13px;
+}
+
+dialog.runtime-dialog form > label,
+dialog.runtime-dialog > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 14px 0;
+}
+
+dialog.runtime-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+dialog.runtime-dialog select,
+dialog.runtime-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--caelis-content);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+dialog.runtime-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+dialog.runtime-dialog select {
+  min-height: 36px;
+  padding: 6px 11px;
+}
+
+dialog.runtime-dialog textarea {
+  min-height: 80px;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+dialog.runtime-dialog input[type="checkbox"],
+dialog.runtime-dialog input[type="radio"],
+.settings-window dialog.runtime-dialog input[type="checkbox"],
+.settings-window dialog.runtime-dialog input[type="radio"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+
+dialog.runtime-dialog .settings-note {
+  margin: 12px 0;
+}
+
+dialog.runtime-dialog p.inline-error {
+  margin: 6px 0 14px;
+  color: var(--error);
+}
+
+dialog.runtime-dialog .setup-end {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+dialog.runtime-dialog .setting-row {
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 200px);
+  gap: 18px;
+}
+
+dialog.runtime-dialog button:not(.runtime-close):not([role^="menuitem"]) {
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-raised);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+dialog.runtime-dialog button.settings-select-trigger {
+  min-height: 36px;
+  height: 36px;
+  padding: 6px 11px;
+  background: var(--caelis-content);
+}
+
+dialog.runtime-dialog button:not(.runtime-close):not([role^="menuitem"]):not(:disabled):hover {
+  background: var(--caelis-hover);
+  border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
+}
+
+dialog.runtime-dialog .settings-select-menu button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: transparent;
+}
+
+dialog.runtime-dialog .settings-select-menu button:not(:disabled):hover,
+dialog.runtime-dialog .settings-select-menu button:not(:disabled):focus-visible {
+  background: var(--caelis-hover);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog .settings-select-menu button[aria-checked="true"],
+dialog.runtime-dialog .settings-select-menu button[aria-checked="true"]:hover {
+  background: var(--caelis-selected);
+  color: var(--caelis-selected-text);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+dialog.runtime-dialog button.primary:not(:disabled):hover {
+  background: var(--caelis-action-hover);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog button.text-action {
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog button.text-action:not(:disabled):hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+dialog.runtime-dialog .runtime-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog .runtime-close:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+dialog.runtime-dialog :is(button, summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--caelis-focus);
+  outline-offset: 2px;
+}
+
+/* Variant sizing inside unified native dialogs */
+dialog.runtime-install-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.runtime-install-progress {
+  height: 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 22px 0 16px;
+  background: var(--caelis-hover);
+}
+
+.runtime-install-progress span {
+  display: block;
+  height: 100%;
+  width: 36%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: runtime-install-travel 1.6s ease-in-out infinite alternate;
+}
+
+.runtime-install-progress.is-measured span {
+  animation: none;
+  transition: width 0.35s ease;
+}
+
+@keyframes runtime-install-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(178%);
+  }
+}
+
+dialog.runtime-team-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+dialog.runtime-model-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  height: 560px;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+
+dialog.runtime-model-dialog > :not(.runtime-model-options) {
+  flex-shrink: 0;
+}
+
+dialog.runtime-model-dialog .runtime-model-options {
+  flex: 1 1 160px;
+  min-height: 80px;
+  max-height: none;
+  scrollbar-gutter: stable;
+}
+
+dialog.settings-action-menu {
+  width: 176px;
+  padding: 5px;
+  border-radius: var(--radius-md);
+}
+
+dialog.settings-action-menu .runtime-dialog-heading {
+  display: none;
+}
+
+dialog.settings-action-menu > [role="menu"] {
+  display: grid;
+  gap: 2px;
+  margin-top: 0;
+}
+
+dialog.settings-action-menu button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 450;
+}
+
+dialog.settings-action-menu button:not(:disabled):hover,
+dialog.settings-action-menu button:not(:disabled):focus-visible {
+  background: var(--caelis-hover);
+  border-color: transparent;
+}
+
+dialog.settings-window-dialog .web-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 60dvh;
+  overflow: auto;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border: 1px solid var(--caelis-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+@media (max-width: 560px) {
+  dialog.runtime-dialog {
+    padding: 20px;
+    max-height: calc(100dvh - 24px);
   }
 }

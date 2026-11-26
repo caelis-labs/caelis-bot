@@ -1,65 +1,6 @@
-/* Extended settings, permissions, messaging, and onboarding legacy styles pending Milestones 3-4. */
-.settings-window .permission-intro{line-height:1.6}
-.settings-window .permission-row{padding:16px 0;gap:24px}
-.settings-window .permission-description p{line-height:1.6}
-.settings-window .permission-toggle>span{max-width:160px}
-.settings-window .permission-toggle button{min-width:90px}
-.settings-window .about-identity{margin:12px 0 30px}
-.settings-window .about-identity h2{font-size:20px;margin:0 0 6px}
-.settings-window .about-identity p{font-size:13px;color:var(--muted)}
+/* Onboarding, connection wizard, and setup-flow legacy styles pending Milestone 4. */
 .settings-window .runtime-section-title{margin:20px 0 8px}
 .runtime-feedback{margin:8px 0 0;font-size:12px}
-.settings-window .runtime-team-dialog{width:480px}
-.runtime-team-dialog .runtime-section-title{margin:12px 0}
-.runtime-team-dialog .runtime-row-actions{flex:none;max-width:65%;min-width:0}
-.runtime-team-dialog .runtime-model-summary{max-width:100%;min-width:0}
-.runtime-team-dialog .runtime-system-agents{margin:20px 0 0}
-.runtime-team-dialog .runtime-system-agents>summary{padding:10px 0}
-.settings-window .runtime-dialog{border-radius:14px;padding:22px;box-shadow:0 16px 48px #0002;border:1px solid var(--line)}
-.settings-window .runtime-dialog-heading h2{font-size:17px;font-weight:600}
-.settings-window .runtime-dialog-scrim{background:rgba(28,33,40,.22)}
-.settings-window .runtime-popover-scrim{background:transparent;padding:0;display:block}
-.settings-window .runtime-popover-scrim>.runtime-dialog{position:fixed}
-.settings-window .runtime-dialog .runtime-close{width:24px;height:24px;min-height:24px;padding:4px}
-.settings-window .runtime-model-popover .inline-error{font-size:12px;line-height:1.5;overflow-wrap:anywhere;margin:10px 0}
-@media(max-width:650px){.settings-window .permission-row{column-gap:14px}}
-.settings-window .machine-row{border-radius:0}
-.settings-window .runtime-team-dialog .runtime-section-title h2{font-size:13px;font-weight:500;margin:0}
-.settings-window .runtime-worker-recovery{padding:14px 0 10px;border-bottom:1px solid var(--line)}
-.settings-window .runtime-worker-recovery .settings-note{margin:0 0 10px;line-height:1.55}
-.settings-window .runtime-worker-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-
-.telegram-page{max-width:620px}
-.weixin-qr{display:block;margin:10px 0 18px;border:8px solid #fff;border-radius:10px;box-sizing:content-box;image-rendering:pixelated}
-.telegram-back{border:0;background:transparent;padding:0;margin:0 0 22px}
-.messaging-settings{max-width:620px}
-.messaging-channel{display:flex;align-items:center;text-align:left;width:100%;gap:16px;padding:16px 4px;border:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--ink)}
-.messaging-channel:hover{background:var(--wash)}
-.messaging-channel-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
-.messaging-channel-copy strong{font-size:15px}.messaging-channel-copy>span{font-size:13px;color:var(--muted)}
-.messaging-chevron{font-size:24px;line-height:1;color:var(--muted)}
-.telegram-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:22px;border-bottom:1px solid var(--line)}
-.telegram-heading h1{font-size:22px;margin:0 0 7px}
-.telegram-heading p,.telegram-step p,.telegram-notice p,.telegram-forget p{font-size:13px;line-height:1.6;margin:0 0 14px;color:var(--muted)}
-.telegram-state{flex:none;font-size:12px;font-weight:600;padding:5px 9px;border-radius:999px;background:var(--wash);color:var(--ink)}
-.telegram-state-connected{color:var(--success)}
-.telegram-state-error{color:var(--error)}
-.telegram-step{padding:18px 0;border-bottom:1px solid var(--line)}
-.telegram-step h3{font-size:14px;margin:0 0 12px}
-.telegram-step label{display:block;font-size:13px;font-weight:500;margin:0 0 7px}
-.telegram-step input[type=password]{display:block;width:100%;max-width:480px;margin:0 0 8px}
-.telegram-step .settings-description{font-size:12px;margin-top:12px}
-.telegram-step .text-action{margin:0;padding-left:0;border:0;background:transparent}
-.telegram-step .link-action{color:var(--caelis-link);text-decoration:underline;text-underline-offset:2px}
-.telegram-route{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
-.telegram-route button[aria-pressed=true]{border-color:var(--caelis-focus);color:var(--caelis-selected-text);background:var(--caelis-selected)}
-.telegram-notice{padding:15px 0;border-bottom:1px solid var(--line)}
-.telegram-notice p{color:var(--ink)}
-.telegram-manage{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:24px 0}
-.telegram-manage>.text-action{border:0;background:transparent;color:var(--muted)}
-.telegram-forget{width:100%;padding:14px;border:1px solid var(--line);border-radius:8px}
-.telegram-forget button{margin-right:8px}
-.telegram-feedback{padding:20px 0}
 .setup-capture-choice{padding:14px 0 22px;border-bottom:1px solid var(--line)}
 .setup-capture-choice label{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
 .setup-capture-choice p{font-size:12px;line-height:1.6;color:var(--muted);margin:8px 0 0 28px}
@@ -73,4 +14,3 @@
 .setup-flow .runtime-onboarding-model-list{max-height:min(300px,32dvh);overflow-y:auto;overscroll-behavior:contain;padding-right:8px;scrollbar-gutter:stable}
 .setup-flow .runtime-onboarding-model-list .setting-row:last-child{border-bottom:0}
 .setup-flow .permission-privacy>summary{font-size:12px;color:var(--muted);padding:8px 0}
-@media(max-width:650px){.telegram-heading{flex-wrap:wrap}.telegram-state{margin-left:0}.telegram-page{min-width:0}}

@@ -67,18 +67,9 @@ body[data-surface="artifact-preview"] { background:var(--caelis-content); }
 .maintenance-actions,.storage-confirm > div { display:flex; gap:10px; margin:18px 0; }
 .maintenance-surface button { background:var(--wash); border:1px solid var(--line); border-radius:9px; padding:8px 12px; font-size:12px; }
 
-.telegram-link-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.settings-window a.telegram-open { display:inline-flex; border:1px solid transparent; border-radius:var(--radius-control); padding:7px 11px; font-size:12px; }
-.settings-window a.telegram-open.primary { background:var(--accent); color:var(--on-accent); text-decoration:none; }
-.settings-window a.telegram-open.primary:hover { background:var(--caelis-action-hover); }
-.telegram-copy-fallback { display:grid; gap:8px; margin-block:12px; }
-.telegram-copy-fallback input { width:100%; min-width:0; box-sizing:border-box; }
 .storage-confirm { padding:14px 16px; border:1px solid var(--line); border-radius:12px; }
 .storage-confirm p { margin:0; font-size:12px; color:var(--muted); }
 .storage-confirm > div { justify-content:flex-end; margin:14px 0 0; }
-.about-identity { display:flex; align-items:center; gap:16px; margin:0 0 30px; }
-.about-identity h2 { font-size:20px; margin:0 0 4px; font-weight:600; }
-.about-identity p { margin:0; color:var(--muted); font-size:12px; }
 /* Native material supplies the backdrop while opaque text stays legible. The
    native material still supplies blur/refraction; this translucent fill keeps
    text contrast stable when macOS changes the glass's active appearance. Leave
@@ -108,41 +99,6 @@ body[data-surface="artifact-preview"] { background:var(--caelis-content); }
 .bot-introduction textarea:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .setup-introduction-status { max-width:560px; margin:0 auto 28px; font-size:13px; color:var(--muted); text-align:center; }
 
-.permission-settings h1 { margin-bottom:12px; }
-.settings-page > .permission-settings { margin-bottom:30px; }
-.permission-intro { margin:0 0 28px; color:var(--muted); font-size:13px; }
-.permission-list { border-top:1px solid var(--line); }
-.permission-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:24px; padding:19px 0; border-bottom:1px solid var(--line); }
-.permission-description label { font-size:14px; font-weight:550; }
-.permission-description p { margin:5px 0 0; color:var(--muted); font-size:12px; }
-.permission-description small { display:block; margin-top:5px; font-size:11px; color:var(--muted); }
-.permission-toggle { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
-.permission-toggle > span { max-width:110px; text-align:right; color:var(--muted); font-size:11px; line-height:1.4; }
-.settings-window input.permission-switch { width:36px; height:22px; border-radius:14px; transition:background .16s; }
-.permission-switch::before { width:16px; height:16px; transition:transform .16s; }
-.permission-switch:checked::before { transform:translateX(14px); }
-.permission-switch:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-.permission-feedback { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; color:var(--muted); font-size:12px; }
-.permission-system-note { margin:12px 0 26px; color:var(--muted); font-size:11px; }
-.permission-privacy h2 { margin:0 0 6px; font-size:12px; font-weight:550; }
-.permission-privacy p { margin:0; max-width:65ch; color:var(--muted); font-size:12px; }
-.permission-repair { margin-top:24px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; }
-.permission-repair summary { cursor:pointer; width:fit-content; color:var(--muted); }
-.permission-app-path { display:flex; align-items:center; gap:12px; margin:12px 0; }
-.permission-app-path code { overflow-wrap:anywhere; font-size:11px; flex:1; user-select:text; }
-.permission-app-path button { flex-shrink:0; }
-.permission-reset-category { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:16px; }
-.permission-reset-consent { display:flex; align-items:flex-start; gap:8px; margin:12px 0; }
-.permission-reset-consent input { flex-shrink:0; margin-top:4px; }
-@media(prefers-reduced-motion:reduce) { .permission-switch,.permission-switch::before { transition:none!important; } }
-@media(max-width:800px) { .permission-row { column-gap:16px; }.permission-toggle { flex-direction:column-reverse; align-items:flex-end; gap:6px; }.permission-toggle > span { max-width:90px; } }
-
-.permission-badge { display:inline-block; color:var(--muted); font-size:12px; text-align:right; line-height:1.5; }
-.permission-toggle { flex-direction:row; align-items:center; gap:12px; }
-.permission-toggle > span { max-width:160px; }
-.permission-toggle > span[data-status="authorized"] { color:var(--success); }
-.permission-toggle button { min-width:82px; }
-@media(max-width:700px) { .permission-toggle { flex-direction:column-reverse; align-items:flex-end; gap:6px; } }
 .setup-page { padding-top:28px; scrollbar-gutter:stable; }
 .setup-flow { max-width:560px; margin:auto; }
 .setup-progress { display:flex; justify-content:center; gap:26px; margin:0 auto 28px; padding:0; list-style:none; font-size:12px; color:var(--muted); }
@@ -162,10 +118,6 @@ body[data-surface="artifact-preview"] { background:var(--caelis-content); }
 
 .visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 .runtime-empty .text-action { margin-left:18px; }
-
-.permission-more { font-size:12px; color:var(--muted); margin-top:12px; }
-.permission-more summary { cursor:pointer; padding:8px 0; }
-.permission-more .permission-list { margin-top:8px; color:var(--ink); }
 
 /* Host-owned maintenance status; motion is decorative and never blocks input. */
 .pet-dream{position:absolute;top:10.4167%;right:9.4444%;color:#59677f;font-size:calc(100vw * 19 / 180);font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #fff;pointer-events:none;animation:dream-breathe 3s ease-in-out infinite}
