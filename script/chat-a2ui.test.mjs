@@ -10,7 +10,7 @@ import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
 import {MessageProcessor, NodeResolver} from '@a2ui/web_core';
 import {canRenderChatA2ui} from '../frontend/src/chat-a2ui-capabilities.ts';
 import {markdownChunks} from '../frontend/src/markdown-chunks.ts';
-import {collection, comparison, draft} from './a2ui-chat-examples.mjs';
+import {collection, comparison, draft, exam} from './a2ui-chat-examples.mjs';
 
 function render(text, receiving = false, enabled = true, blockOffset = 0) {
  const blocks = [];
@@ -67,7 +67,7 @@ test('CRLF and escaped close-tag text survive source extraction', () => {
 });
 
 test('the examples compile to one v1.0 surface each and are accepted by the pinned processor', () => {
- for (const body of [comparison, collection, draft, 'root = Text("Saved heading", "title")']) {
+ for (const body of [comparison, collection, draft, exam, 'root = Text("Saved heading", "title")']) {
   const message = compileChatSurface(body);
   assert.equal(message?.version, '1.0');
   const processor = new MessageProcessor([chatCatalog], undefined, {version: 'v1.0', validationConfig: chatValidation});
@@ -76,6 +76,13 @@ test('the examples compile to one v1.0 surface each and are accepted by the pinn
    assert.equal(processor.model.surfacesMap.size, 1);
   } finally { processor.dispose(); }
  }
+});
+
+test('only the form root can submit and an obscured value cannot become an answer', () => {
+ assert.ok(compileChatSurface(exam));
+ assert.equal(compileChatSurface(exam.replace('root = Form', 'root = Card(form)\nform = Form')), undefined);
+ assert.equal(compileChatSurface(exam.replace('placeholder="例如 Windows"', 'variant="obscured"')), undefined);
+ assert.equal(compileChatSurface('root = Form(child=label,title="Title")\nlabel = Text("Read this")'), undefined);
 });
 
 test('blocks unsupported actions and updates, oversized collections and unsafe paths', () => {

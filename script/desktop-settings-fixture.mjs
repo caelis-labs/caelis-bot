@@ -86,7 +86,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'CopyText':window.fixtureCopied=args[0];return;
 
  case 'UpdatePreferences':return {available:true,automatic:false,waiting:false};
- case 'ChatSnapshot':return {changed:true,snapshot};
+ case 'ChatSnapshot':case 'LocalChatSnapshot':return {changed:true,snapshot};
  case 'Snapshot':case 'ComposerSnapshot':case 'SnapshotSummary':return snapshot;
  case 'Draft':return draft;
  case 'SaveDraft':draft={...draft,...args[0],revision:draft.revision+1};return draft;

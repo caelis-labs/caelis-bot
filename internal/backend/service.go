@@ -282,19 +282,19 @@ func (s *Service) snapshot(recent bool) api.Snapshot {
 			items[i] = s.presentChatItem(items[i])
 		}
 		knownInput := make(map[string]bool, len(items))
-		knownArtifact := make(map[string]bool, len(items))
+		knownToolResult := make(map[string]bool, len(items))
 		for _, item := range items {
 			if item.Kind == "user" && item.RequestID != "" {
 				knownInput[item.RequestID] = true
 			}
-			if item.Kind == "tool" && len(item.Artifacts) > 0 {
-				knownArtifact[item.ID] = true
+			if item.HasToolResult() {
+				knownToolResult[item.ID] = true
 			}
 		}
 		for _, item := range v.Items {
 			if item.Kind == "user" && strings.HasPrefix(item.ID, "outgoing:") && !knownInput[item.RequestID] {
 				items = append(items, item) // only the transient sending bubble
-			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" && !(item.Kind == "tool" && knownArtifact[item.ID]) {
+			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" && !(item.Kind == "tool" && knownToolResult[item.ID]) {
 				items = append(items, item)
 			}
 		}
@@ -495,13 +495,13 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
-		item = s.presentChatAttachments(item)
+		item = presentInlineChatLinks(s.presentChatAttachments(item))
 		if item.Kind == "user" && item.QuestionReply == nil {
 			if item.RemoteCommand != nil && *item.RemoteCommand || item.RemoteCommand == nil && s.legacyRemoteCommand != nil && s.legacyRemoteCommand(item) {
 				continue
 			}
 		}
-		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.Kind == "tool" && (item.Status == "completed" || item.Status == "accepted") && len(item.Artifacts) > 0 {
+		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.HasToolResult() {
 			item.Details = ""
 			items = append(items, item)
 		}
@@ -520,7 +520,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 		}
 		return cmp.Compare(a.SeenAt, b.SeenAt)
 	})
-	v.Items = items
+	v.Items = positionChatResults(items)
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }
 func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
@@ -554,7 +554,18 @@ func (s *Service) ConfigureLegacyRemoteCommand(classify func(api.Item) bool) {
 
 func (s *Service) ObserveChat(v api.Snapshot) {
 	if s.chat != nil {
-		s.chat.Observe(v.Items)
+		items := make([]api.Item, 0, len(v.Items))
+		for _, item := range v.Items {
+			items = append(items, s.retainChatImages(item))
+		}
+		s.chat.Observe(items)
+		if len(v.ChatLinkRepairs) > 0 {
+			repairs := make([]api.Item, 0, len(v.ChatLinkRepairs))
+			for _, item := range v.ChatLinkRepairs {
+				repairs = append(repairs, s.retainChatImages(item))
+			}
+			s.chat.RepairAssistantLinks(repairs)
+		}
 	}
 }
 
@@ -730,6 +741,24 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	return s.submitChat(ctx, input, true)
+}
+
+// SubmitChatAnswers shares ordinary user admission and transcript delivery.
+// These answers originate outside the composer and own none of its draft state.
+func (s *Service) SubmitChatAnswers(ctx context.Context, id, text string) (api.Receipt, error) {
+	input := api.Submission{ID: id, Text: text}
+	receipt, err := s.submitChat(ctx, input, false)
+	if errors.Is(err, api.ErrRecoveryPending) {
+		return api.Receipt{ID: id, Outcome: "rejected"}, nil
+	}
+	if receipt.ID == id && (receipt.Outcome == "accepted" || receipt.Outcome == "rejected") {
+		return receipt, nil
+	}
+	return receipt, err
+}
+
+func (s *Service) submitChat(ctx context.Context, input api.Submission, fromComposer bool) (api.Receipt, error) {
 	defer s.beginUserActivity()()
 	input.Quoted = api.BoundQuote(input.Quoted)
 	s.mu.Lock()
@@ -738,7 +767,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.mu.Unlock()
 	// An explicit command in the new body stays a command. Quoted text is only
 	// model context and is never parsed as a decision.
-	if commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 {
+	if fromComposer && commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 {
 		if receipt, handled, err := commandHandler(ctx, input); handled {
 			if err == nil && receipt.Outcome == "accepted" {
 				s.clearDraftAtRevision(input, draftRevision)
@@ -749,6 +778,9 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
+		if !fromComposer {
+			return api.Receipt{ID: input.ID, Outcome: "rejected"}, nil
+		}
 		return api.Receipt{}, errors.New("请先完成运行时设置")
 	}
 
@@ -765,9 +797,13 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "先核对或清理上一条附件消息，不能再次发送原附件"}, nil
 	}
 
-	files, err := s.files(input.FileIDs)
-	if err != nil {
-		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+	var files []api.InputFile
+	if fromComposer {
+		var err error
+		files, err = s.files(input.FileIDs)
+		if err != nil {
+			return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+		}
 	}
 	projected, err := s.resolvePluginReferences(ctx, input)
 	if err != nil {
@@ -787,7 +823,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		}
 	}
 	s.mu.Lock()
-	if len(input.FileIDs) == 0 {
+	if fromComposer && len(input.FileIDs) == 0 {
 		s.pendingDraft = &input
 		s.pendingDraftRevision = s.draft.Revision
 	}
@@ -798,7 +834,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		s.discardOutgoing(input.ID)
 		if len(input.FileIDs) > 0 {
 			s.reconcileDraftReceipt(api.Receipt{ID: input.ID, Outcome: "rejected"})
-		} else {
+		} else if fromComposer {
 			s.mu.Lock()
 			if s.pendingDraft != nil && s.pendingDraft.ID == input.ID {
 				s.pendingDraft = nil
@@ -813,7 +849,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		s.reconcileDraftReceipt(receipt)
 		return receipt, err
 	}
-	if receipt.Outcome == "accepted" {
+	if fromComposer && receipt.Outcome == "accepted" {
 		s.mu.Lock()
 		pending := s.pendingDraft
 		revision := s.pendingDraftRevision

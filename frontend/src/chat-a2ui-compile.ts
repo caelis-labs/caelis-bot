@@ -1,7 +1,7 @@
 import {ExpressParser} from '@a2ui/agent';
 import {getComponentReferences, STRICT_VALIDATION} from '@a2ui/web_core';
 import type {CreateSurfaceMessage} from '@a2ui/web_core/v1_0';
-import {chatCatalog} from './chat-a2ui-catalog.ts';
+import {chatCatalog, formComponents} from './chat-a2ui-catalog.ts';
 
 const chatSurfaceId = 'chat';
 const parser = new ExpressParser(chatCatalog, chatSurfaceId, 'v1.0');
@@ -81,5 +81,9 @@ export function compileChatSurface(body: string) {
  if (Object.keys(opening).some(key => !['catalogId', 'surfaceId', 'components', 'dataModel'].includes(key))) return;
  if (!boundedData(opening.dataModel) || opening.components.some(component => !boundedData(component))) return;
  if (!withinRenderBudget(opening.components)) return;
+ const rootForm = opening.components.some(component => component.id === 'root' && component.component === 'Form');
+ if (opening.components.some(component => component.component === 'Form' && component.id !== 'root')) return;
+ if (rootForm && (!opening.components.some(component => formComponents.includes(component.component)) ||
+  opening.components.some(component => component.component === 'TextField' && component.variant === 'obscured'))) return;
  return create;
 }

@@ -1,10 +1,10 @@
-import {Component, createContext, lazy, Suspense, useContext, type ReactNode} from 'react';
+import {Component, createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode} from 'react';
 
 import {canRenderChatA2ui} from './chat-a2ui-capabilities';
 
-// A hidden native history window retains its React tree. Only its temporary
-// surface models are released, leaving history, composer and copy intact.
-export const ChatA2uiMount = createContext<number | null>(0);
+// A hidden native history window retains its React tree. The Express surface
+// releases previews and keeps answer forms available for recovery.
+export const ChatA2uiMount = createContext(true);
 
 const ExpressSurface = lazy(() => import('./ExpressChatSurface'));
 
@@ -18,12 +18,16 @@ class BlockBoundary extends Component<{fallback: ReactNode; children: ReactNode}
  render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 
-export function ChatA2uiBlock({source, body, closed, receiving, permitted}: {source: string; body: string; closed: boolean; receiving: boolean; permitted: boolean}) {
- const epoch = useContext(ChatA2uiMount);
- if (epoch === null || !closed && receiving) return null;
+export function ChatA2uiBlock({source, body, closed, receiving, permitted, replyKey}: {
+ source: string; body: string; closed: boolean; receiving: boolean; permitted: boolean; replyKey?: string;
+}) {
+ const visible = useContext(ChatA2uiMount);
+ const [seen, setSeen] = useState(visible);
+ useEffect(() => { if (visible) setSeen(true); }, [visible]);
+ if ((!seen && !visible) || !closed && receiving) return null;
  const fallback = <A2uiSource source={source}/>;
- if (!closed || !body || !permitted || !canRenderChatA2ui(globalThis)) return fallback;
- return <BlockBoundary key={`${epoch}:${source}`} fallback={fallback}>
-  <Suspense fallback={null}><ExpressSurface body={body} fallback={fallback}/></Suspense>
+ if (!closed || !body || !permitted || !canRenderChatA2ui(globalThis)) return visible ? fallback : null;
+ return <BlockBoundary key={source} fallback={visible ? fallback : null}>
+  <Suspense fallback={null}><ExpressSurface body={body} fallback={fallback} replyKey={replyKey} receiving={receiving} visible={visible}/></Suspense>
  </BlockBoundary>;
 }

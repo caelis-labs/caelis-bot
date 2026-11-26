@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 )
 
 func workerNativeTarget(t *testing.T, s *Session, id string) (string, string) {
@@ -242,6 +243,27 @@ func TestWorkerServiceFilesUseNativeInputsAndTaskProvenOutputs(t *testing.T) {
 	if err != nil || len(messages) != 1 || len(messages[0].Artifacts) != 1 {
 		t.Fatal(messages, err)
 	}
+	resident, err := bot.New(filepath.Join(t.TempDir(), "bot.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resident.ConfigureTasks(m, nil); err != nil {
+		t.Fatal(err)
+	}
+	report := resident.CallTool(testContext(t), "bot_tasks", raw(map[string]any{
+		"request": map[string]any{"type": "read", "task": task.ID},
+	}))
+	if report.IsError {
+		t.Fatal("Worker tool did not read original report")
+	}
+	reportMessages, ok := report.StructuredContent["data"].(map[string]any)["messages"].([]api.TaskConversationMessage)
+	if !ok || len(reportMessages) != 1 || len(reportMessages[0].Artifacts) != 1 {
+		t.Fatal("Worker report did not include its file")
+	}
+	ref, ok := api.ParseTaskArtifactID(reportMessages[0].Artifacts[0].ID)
+	if !ok || ref.TaskID != task.ID || ref.ID != messages[0].Artifacts[0].ID || reportMessages[0].Text != text {
+		t.Fatal("Worker report changed the original path or artifact binding")
+	}
 	file, err := s.ReadWorkFile(testContext(t), task.ID, messages[0].Artifacts[0].ID)
 	if err != nil || string(file.Data) != "worker result" {
 		t.Fatal(file, err)
@@ -356,7 +378,7 @@ func TestWorkerServiceNativeOutputFilesRemainTaskScopedAcrossBindingReload(t *te
 		t.Fatal(err)
 	}
 	thread, run := workerNativeTarget(t, s, task.ID)
-	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": thread, "turnId": run, "item": nativeItem{ID: "native-output", Type: "imageGeneration", Path: filePath, Status: "completed"}})})
+	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": thread, "turnId": run, "item": nativeItem{ID: "native-output", Type: "imageGeneration", SavedPath: filePath, Status: "completed"}})})
 	awaitState(t, s, func(api.Snapshot) bool {
 		v, e := s.ObserveWork(testContext(t), task.ID)
 		return e == nil && len(v.Items) > 0 && len(v.Items[len(v.Items)-1].Artifacts) > 0

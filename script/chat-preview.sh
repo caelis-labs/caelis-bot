@@ -13,6 +13,10 @@ if [[ "${BOT_PREVIEW_FIXTURE:-}" == question-lifecycle ]]; then
   preview_bundle="$BOT_ROOT/dist/Caelis Question Preview.app"
   preview_identifier="dev.caelis.question-preview.$(printf %s "$BOT_ROOT" | shasum | cut -c1-8)"
 fi
+if [[ "${BOT_PREVIEW_FIXTURE:-}" =~ ^(chat-media|chat-combined|chat-local-files)$ ]]; then
+  preview_bundle="$BOT_ROOT/dist/Caelis Media Preview.app"
+  preview_identifier="dev.caelis.media-preview.$(printf %s "$BOT_ROOT" | shasum | cut -c1-8)"
+fi
 mkdir -p "$preview_bundle/Contents/MacOS" "$BOT_ROOT/.cache"
 clang -fobjc-arc -fblocks -framework Cocoa -framework WebKit script/chat-preview.m -o "$preview_bundle/Contents/MacOS/chat-preview"
 cat > "$preview_bundle/Contents/Info.plist" <<PLIST
@@ -26,3 +30,11 @@ args=("$(cat "$preview_dir/url")" "$capture_path")
 if [[ "${BOT_PREVIEW_AUTO_CAPTURE:-}" == 1 ]]; then args+=(auto); else args+=(manual); fi
 args+=("${BOT_PREVIEW_APPEARANCE:-light}")
 /usr/bin/open -W -n "$preview_bundle" --args "${args[@]}"
+if [[ "${BOT_PREVIEW_AUTO_CAPTURE:-}" == 1 && "${BOT_PREVIEW_FIXTURE:-}" =~ ^(a2ui|chat-media|chat-combined|chat-local-files)$ ]]; then
+  node --input-type=module -e '
+    import {readFileSync} from "node:fs";
+    const result = JSON.parse(readFileSync(process.argv[1], "utf8")).expected;
+    if (!result?.ok) throw Error(result?.error ?? "Chat preview did not finish");
+    console.log(JSON.stringify(result));
+  ' "$capture_path.json"
+fi

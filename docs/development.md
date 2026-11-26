@@ -94,9 +94,12 @@ migrate automatically between those identities. Release instances keep one
 product lock. Closing a panel or hiding the pet does not quit the application.
 
 Desktop assistant replies can include A2UI Express blocks for comparisons, grouped
-records and editable local drafts. The chat panel renders complete blocks offline.
-Copy and history retain the original Markdown. Reopening a reply restores the
-initial form values. Hiding the chat panel releases its local form state.
+records, editable local drafts and questionnaires. The chat panel renders complete
+blocks offline. Copy and history retain the original Markdown. A root `Form` offers
+an explicit submit button for the visible fields, using ordinary user-message
+admission and receipts while preserving the composer. Hiding the chat panel
+releases preview and local-draft state. Questionnaires retain edits while that
+panel is mounted. A matched receipt restores submission status from history.
 The pet bubble, Telegram and Weixin show the prose. A completed block-only reply
 points the reader to desktop chat. Unsupported WebViews show the exact block source.
 
@@ -106,7 +109,21 @@ reference with `node script/generate-chat-a2ui-reference.mjs` using the pinned
 Node toolchain. `make check` verifies the generated file and the Markdown tests.
 For native panel coverage, including hiding and reopening with history retained,
 run the chat preview with `BOT_PREVIEW_FIXTURE=a2ui`
-and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection` or `draft`.
+and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection`, `draft`, `exam` or `exam-error`.
+
+Use `BOT_PREVIEW_FIXTURE=chat-combined` with the same native preview command
+to exercise a form and image, file and website links in one reply. The preview
+checks native WebKit keyboard activation and focus, the file and website
+bridge calls, and a synthetic submission receipt across a history reopen.
+Set `BOT_PREVIEW_COMBINED_SUBMITTED=1` to capture the settled reply and preserved draft.
+
+For desktop local-file links, run `TestLocalChatFileDelivery` in
+`./internal/desktop`. Set `BOT_CHAT_FILE_EVIDENCE_DIR` to the directory of the four
+`combined-*.png` captures to test their original absolute paths. To capture the
+rendered chat, set `BOT_CHAT_FILE_CAPTURE_INPUT` to a scratch JSON path for both
+the test and `BOT_PREVIEW_FIXTURE=chat-local-files` in the native chat preview.
+The test checks the original file bytes and persisted chat. The preview uses that
+result to check WebKit rendering, enlargement, keyboard focus and reopening.
 
 Inspect the actual desktop/chat/settings windows before claiming visual behavior.
 `bash script/run-ui-review.sh --verify` supplies an isolated review profile.

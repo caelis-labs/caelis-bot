@@ -4,16 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 )
 
 type nativeThread struct {
@@ -66,6 +65,7 @@ type nativeItem struct {
 	Result            json.RawMessage `json:"result"`
 	Error             json.RawMessage `json:"error"`
 	Path              string          `json:"path"`
+	SavedPath         string          `json:"savedPath"`
 	AgentThreadID     string          `json:"agentThreadId"`
 	ActivityKind      string          `json:"kind"`
 	ReceiverThreadIDs []string        `json:"receiverThreadIds"`
@@ -99,18 +99,24 @@ func (s *Session) applyTurn(thread string, turn nativeTurn, history bool) {
 	if (!knownTurn && !terminal(turn.Status)) || s.lastTurn == "" || turn.Status == "inProgress" || history {
 		s.lastTurn = turn.ID
 	}
+	anchors := imageReplyAnchors(turn)
 	for _, item := range turn.Items {
 		if history && terminal(turn.Status) && item.Type == "agentMessage" {
 			// A recovered summary can lag live deltas from this owner. A shorter
 			// summary does not prove that the already shown item completed.
 			if index, ok := s.items[opaque(turn.ID, item.ID)]; ok {
-				seen := s.state.Items[index].Text
+				seen := chatItemText(s.state.Items[index])
 				if strings.HasPrefix(seen, item.Text) && len(seen) > len(item.Text) {
 					continue
 				}
 			}
 		}
 		s.applyItem(thread, turn.ID, item, terminal(turn.Status))
+		if before := anchors[item.ID]; before != "" {
+			if index, ok := s.items[opaque(turn.ID, item.ID)]; ok && s.state.Items[index].ImageOutput != nil {
+				s.state.Items[index].BeforeItem = before
+			}
+		}
 	}
 	if turn.Status == "inProgress" {
 		s.run = turn.ID
@@ -250,21 +256,7 @@ func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) 
 			}
 		}
 		if complete {
-			for _, match := range artifactLink.FindAllStringSubmatch(item.Text, -1) {
-				path := strings.Trim(match[2], "<>")
-				if u, err := url.Parse(path); !filepath.IsAbs(path) && err == nil && (u.Scheme != "" || strings.HasPrefix(path, "#")) {
-					continue
-				}
-				if !filepath.IsAbs(path) {
-					path = filepath.Join(s.opts.Directory, path)
-				}
-				rel, err := filepath.Rel(s.opts.Directory, filepath.Clean(path))
-				inWork := err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, ".attachments"+string(filepath.Separator))
-				if inWork || s.boundTempArtifact(path) {
-					s.addArtifact(&view, path)
-					view.Text = strings.ReplaceAll(view.Text, match[0], match[1])
-				}
-			}
+			s.projectChatLinks(&view)
 		}
 	case "plan":
 		view.Kind = "activity"
@@ -309,7 +301,17 @@ func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) 
 		for _, id := range item.ReceiverThreadIDs {
 			s.rememberChild(id)
 		}
-	case "imageView", "imageGeneration":
+	case "imageGeneration":
+		view.Kind = "activity"
+		view.Text = "处理图片"
+		if complete && item.Status == "completed" {
+			s.projectImageOutput(thread, &view, item.SavedPath)
+		}
+		// A later partial history item cannot replace an observed result.
+		if index, ok := s.items[key]; ok && view.ImageOutput == nil && s.state.Items[index].ImageOutput != nil {
+			return
+		}
+	case "imageView":
 		view.Kind = "activity"
 		view.Text = "处理图片"
 		if complete {
@@ -346,6 +348,7 @@ func (s *Session) applyItem(thread, run string, item nativeItem, complete bool) 
 		s.inputSources[key] = source
 	}
 	if index, ok := s.items[key]; ok {
+		view.BeforeItem = s.state.Items[index].BeforeItem
 		s.state.Items[index] = view
 	} else {
 		s.items[key] = len(s.state.Items)
@@ -378,7 +381,7 @@ func (s *Session) boundTempArtifact(path string) bool {
 	if !inside(path) {
 		return false
 	}
-	file, ok := existingArtifactFile(path)
+	file, ok := markdownfile.RegularFile(path)
 	if !ok || s.artifacts[opaque("artifact", path)] != file {
 		return false
 	}
@@ -394,11 +397,17 @@ func (s *Session) addArtifact(view *api.Item, path string) {
 		path = filepath.Join(s.opts.Directory, path)
 	}
 	path = filepath.Clean(path)
-	file, ok := existingArtifactFile(path)
+	file, ok := markdownfile.RegularFile(path)
 	if !ok {
 		return
 	}
 	id := opaque("artifact", path)
+	if s.registerArtifact(id, file) {
+		view.Artifacts = append(view.Artifacts, api.Artifact{ID: id, Name: filepath.Base(path)})
+	}
+}
+
+func (s *Session) registerArtifact(id, file string) bool {
 	if s.binding.Artifacts == nil {
 		s.binding.Artifacts = map[string]string{}
 	}
@@ -412,32 +421,14 @@ func (s *Session) addArtifact(view *api.Item, path string) {
 				} else {
 					delete(s.binding.Artifacts, id)
 				}
-				return
+				return false
 			}
 		}
 	}
 	s.artifacts[id] = file
-	view.Artifacts = append(view.Artifacts, api.Artifact{ID: id, Name: filepath.Base(path)})
+	return true
 }
 
-// Native citations may append a line number to a real local file. Keep that
-// label and its original opaque ID, but reveal the file rather than `file:line`.
-func existingArtifactFile(path string) (string, bool) {
-	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-		return path, true
-	}
-	at := strings.LastIndexByte(path, ':')
-	if at <= 0 || at == len(path)-1 {
-		return "", false
-	}
-	// Use the final colon, so Windows drive prefixes are not mistaken for lines.
-	base, line := path[:at], path[at+1:]
-	if n, err := strconv.Atoi(line); err != nil || n <= 0 {
-		return "", false
-	}
-	info, err := os.Stat(base)
-	return base, err == nil && info.Mode().IsRegular()
-}
 func (s *Session) applyEvent(event Notification) {
 	s.observeContinuity(event)
 	if len(event.RequestID) > 0 {
@@ -569,10 +560,13 @@ func (s *Session) applyEvent(event Notification) {
 					if n.Item.Status == "failed" {
 						s.logEvent(event, "tool_failed", "native tool failed; execution remains runtime-owned")
 					}
-					// Only reconcile an already seen assistant item of this turn. A
-					// late notification cannot create a new output or replay tool work.
+					if n.Item.Type == "imageGeneration" && s.runs[target.TurnID] != "" {
+						s.applyItem(target.ThreadID, target.TurnID, n.Item, true)
+						s.positionLateImage(target.TurnID, n.Item.ID)
+					}
+					// Reconcile only a known assistant item of the terminal turn.
 					if index, ok := s.items[opaque(target.TurnID, n.Item.ID)]; ok && n.Item.Type == "agentMessage" && s.state.Items[index].Kind == "assistant" {
-						seen := s.state.Items[index].Text
+						seen := chatItemText(s.state.Items[index])
 						if strings.HasPrefix(seen, n.Item.Text) && len(seen) > len(n.Item.Text) {
 							n.Item.Text = seen
 						}

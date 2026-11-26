@@ -200,7 +200,19 @@ as a prior submission when testing idle renewal. Chat pages local IM even offlin
 Runtime owns execution/tool history. Reconnect reads a recent Turn, not full history.
 Optional display sync/Worker reads cannot block admission. Damaged display databases are
 preserved before rebuilding; disk failure retains live cache. Artifacts are host-resolved
-handles, never model-written path authority; preview/open/save revalidate the file.
+handles, and preview/open/save revalidate the file. Codex resolves explicit Markdown
+file links within the Notebook and already-bound temporary results. The original
+Markdown and link labels remain in the message. Images selected by that projection
+use private image copies; website links use the platform browser on request.
+
+Completed Codex ImageGen items contribute a chat tool result when the native
+`savedPath` names a PNG inside the original thread's generated-image directory
+under the App Server's handshake home. The adapter discards inline tool payloads.
+The host retains the validated bytes and thumbnail in MessageMedia and the IM
+stores the item identity and media handle. A read of up to five recent turns
+can restore missing tool displays and recover the original Markdown of matching
+older IM rows after reconnect. It only patches known replies and does not replay
+the native turn.
 
 [Packaged English skills](../internal/botskills/skills.go) install owned bundles under
 private `app-skills`, preserving Notebook/plugin/custom skills. Discovery exposes only

@@ -1,5 +1,5 @@
 import {isWebSurface} from './transport';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, desktop } from './desktop';
 import type { Artifact,TaskFileCopy } from './backend/contract';
@@ -12,7 +12,7 @@ const fileLabel = (value: string) => {
  return name.length > 255 || /[\u0000-\u001f\u007f]/.test(name) ? 'artifact' : name;
 };
 
-export function ArtifactLink({ file, report, attachment = false }: { file: Artifact; report: (message: string) => void; attachment?: boolean }) {
+export function ArtifactLink({ file, report, attachment = false, label }: { file: Artifact; report: (message: string) => void; attachment?: boolean; label?: ReactNode }) {
  const { t } = useI18n();
  const trigger = useRef<HTMLButtonElement>(null);
  const menu = useRef<HTMLDivElement>(null);
@@ -23,8 +23,9 @@ export function ArtifactLink({ file, report, attachment = false }: { file: Artif
  const dot = name.lastIndexOf('.');
  const extension = dot > 0 && name.length - dot <= 12 ? name.slice(dot) : '';
  const attachmentLabel = <><PaperclipIcon size={14} aria-hidden="true"/><span className="sent-file-name">{name.slice(0, name.length - extension.length)}</span>{extension && <span className="sent-file-extension">{extension}</span>}</>;
+ const inline = label !== undefined;
  const isText = textFile(name);
- const failure = (error:unknown) => report(error instanceof Error ? error.message : t('chat.artifactUnavailable'));
+ const failure = () => report(t('chat.artifactUnavailable'));
  const action = (method:string,...args:unknown[]) => {
   setPosition(null);
   if(file.id.startsWith('task-file:'))void backend<TaskFileCopy>('WorkerFileCopy',file.id,false).then(setCopyInfo).catch(()=>{});
@@ -34,7 +35,7 @@ export function ArtifactLink({ file, report, attachment = false }: { file: Artif
  };
  const refresh=async()=>{
   if(fetching)return;setFetching(true);setPosition(null);
-  try{setCopyInfo(await backend<TaskFileCopy>('WorkerFileCopy',file.id,true));}catch(cause){failure(cause);}finally{setFetching(false);}
+  try{setCopyInfo(await backend<TaskFileCopy>('WorkerFileCopy',file.id,true));}catch{failure();}finally{setFetching(false);}
  };
  useEffect(() => {
   if(!position)return;
@@ -43,12 +44,13 @@ export function ArtifactLink({ file, report, attachment = false }: { file: Artif
   window.addEventListener('pointerdown',outside,true);window.addEventListener('keydown',escape,true);
   return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
  },[position]);
+ if(inline && !file.id)return <span className="message-link-unavailable">{label} <small>({t('chat.artifactUnavailable')})</small></span>;
  if(attachment && !file.id)return <span className="sent-file" title={name}>{attachmentLabel}</span>;
  return <>
-  <button ref={trigger} type="button" className={attachment?'sent-file':'artifact-link'} title={attachment?name:undefined} aria-label={attachment?name:undefined} onClick={()=>action(isText?'ShowArtifactPreview':'OpenArtifact')} onContextMenu={event=>{
+  <button ref={trigger} type="button" role={inline?'link':undefined} className={inline?'message-link':attachment?'sent-file':'artifact-link'} title={inline||attachment?name:undefined} aria-label={attachment?name:undefined} onClick={()=>action(isText?'ShowArtifactPreview':'OpenArtifact')} onContextMenu={event=>{
    event.preventDefault();event.stopPropagation();openMenu(event.clientX,event.clientY);
   }} onKeyDown={event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=event.currentTarget.getBoundingClientRect();openMenu(box.left,box.bottom+4);}}}>
-   {attachment?attachmentLabel:<><span aria-hidden="true">↗</span>{name}</>}
+   {inline?label:attachment?attachmentLabel:<><span aria-hidden="true">↗</span>{name}</>}
   </button>
   {copyInfo&&<small className="settings-note" role="status">{t(copyInfo.cached?'chat.workerFileCached':'chat.workerFileFetched',{time:new Date(copyInfo.fetchedAt).toLocaleString()})}</small>}
   {position&&createPortal(<div ref={menu} className="artifact-context-menu" role="menu" style={{left:position.x,top:position.y}}>

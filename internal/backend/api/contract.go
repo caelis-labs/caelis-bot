@@ -2,7 +2,10 @@
 // Native protocol payloads and paths used to dispatch work never come from the UI.
 package api
 
-import "context"
+import (
+	"context"
+	"os"
+)
 
 // SilentReminder is the exact final response for a skipped scheduled activation.
 const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
@@ -29,12 +32,14 @@ type Snapshot struct {
 	ScheduledSources []ScheduledSource `json:"-"`
 	// ReportSources carries native receipt provenance independently of hidden
 	// hostNotice items. It is private routing metadata, never renderer input.
-	ReportSources    []ReportSource `json:"-"`
-	PreviewKey       string         `json:"previewKey"`
-	PreviewDismissed bool           `json:"previewDismissed"`
-	Revision         uint64         `json:"revision"`
-	Connection       string         `json:"connection"`
-	ConnectionIssue  string         `json:"connectionIssue"`
+	ReportSources []ReportSource `json:"-"`
+	// ChatLinkRepairs carry recovered Markdown for existing local messages.
+	ChatLinkRepairs  []Item `json:"-"`
+	PreviewKey       string `json:"previewKey"`
+	PreviewDismissed bool   `json:"previewDismissed"`
+	Revision         uint64 `json:"revision"`
+	Connection       string `json:"connection"`
+	ConnectionIssue  string `json:"connectionIssue"`
 	// RecoveryNoticeKey is an original-request keyed host notification edge. It
 	// carries no authority and is never a Runtime retry instruction.
 	RecoveryNoticeKey string      `json:"recoveryNoticeKey,omitempty"`
@@ -110,6 +115,13 @@ type Item struct {
 	Artifacts []Artifact          `json:"artifacts"`
 	Screen    *ScreenPresentation `json:"screen,omitempty"`
 	Media     *MediaPresentation  `json:"media,omitempty"`
+	Links     []ChatLink          `json:"links,omitempty"`
+	// ChatText preserves Markdown for the desktop. Text retains the existing
+	// text channel projection of local links and their separate file handles.
+	ChatText string `json:"chatText,omitempty"`
+	// BeforeItem places a recovered result at its original reply boundary.
+	BeforeItem  string           `json:"beforeItem,omitempty"`
+	ImageOutput *ChatImageSource `json:"-"`
 	// Quoted is a bounded, presentation-only copy of the user's quoted context.
 	// It is never used to resolve a control request.
 	Quoted *QuotedMessage    `json:"quoted,omitempty"`
@@ -170,12 +182,28 @@ type AsyncQuestion struct {
 	Options []string
 }
 
-// MediaPresentation is an App-owned, request-correlated display projection.
+// MediaPresentation describes App-owned images retained for a chat item.
 // IDs are opaque byte handles; paths and model inputs never enter the renderer.
 type MediaPresentation struct {
 	Images  []MediaImage `json:"images"`
 	Caption string       `json:"caption,omitempty"`
 }
+
+// ChatLink describes a Markdown destination already present in the message.
+// An opaque file or media handle is the only authority used to open it.
+type ChatLink struct {
+	Destination string           `json:"destination"`
+	File        Artifact         `json:"file"`
+	Image       *MediaImage      `json:"image,omitempty"`
+	Source      *ChatImageSource `json:"-"`
+}
+
+// ChatImageSource is an adapter-validated file opener for host-side retention.
+type ChatImageSource struct {
+	Name string
+	Open func() (*os.File, error)
+}
+
 type MediaImage struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -202,6 +230,12 @@ type Activity struct {
 	Kind   string `json:"kind"`
 	Target string `json:"target"`
 }
+
+func (i Item) HasToolResult() bool {
+	return i.Kind == "tool" && (i.Status == "completed" || i.Status == "accepted") &&
+		(len(i.Artifacts) > 0 || i.Media != nil && len(i.Media.Images) > 0)
+}
+
 type Artifact struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`

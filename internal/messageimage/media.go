@@ -1,6 +1,5 @@
-// Package messageimage retains ordinary user image presentation independently
-// of the native model input and of screen capture. Only native submission may
-// insert bytes; the renderer can read only opaque IDs found in saved records.
+// Package messageimage retains chat images independently of native model input
+// and screen capture. The renderer reads opaque IDs from saved records.
 package messageimage
 
 import (
@@ -46,7 +45,7 @@ type record struct {
 	MIMEs   []string         `json:"mimes"`
 }
 
-var imageID = regexp.MustCompile(`^([a-f0-9]{64})-([0-7])$`)
+var imageID = regexp.MustCompile(`^((?:result-)?[a-f0-9]{64})-([0-7])$`)
 
 func key(request string) string {
 	hash := sha256.Sum256([]byte(request))
@@ -157,9 +156,33 @@ func (s *Store) Save(request, caption string, files []api.InputFile) error {
 	if s == nil || request == "" || len(request) > 256 || len(caption) > 128<<10 {
 		return errors.New("image presentation storage unavailable")
 	}
+	return s.save(key(request), caption, files, os.Open)
+}
+
+// RetainResult reuses the same bounded image storage and thumbnail pipeline.
+// The result namespace is independent of user-supplied request IDs.
+func (s *Store) RetainResult(id string, source *api.ChatImageSource) *api.MediaPresentation {
+	if s == nil || id == "" || source == nil || source.Open == nil {
+		return nil
+	}
+	k := "result-" + key(id)
+	if err := s.save(k, "", []api.InputFile{{Name: source.Name}}, func(string) (*os.File, error) {
+		return source.Open()
+	}); err == nil {
+		if retained := s.presentation(k); retained != nil {
+			return retained
+		}
+	}
+	// Keep the original item visible even if its file disappeared before Bot
+	// could copy it. The unavailable handle has no readable media record.
+	return &api.MediaPresentation{Images: []api.MediaImage{{
+		ID: k + "-0", Name: source.Name, Unavailable: true,
+	}}}
+}
+
+func (s *Store) save(k, caption string, files []api.InputFile, open func(string) (*os.File, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := key(request)
 	if _, err := s.record(k); err == nil {
 		return nil
 	}
@@ -173,7 +196,7 @@ func (s *Store) Save(request, caption string, files []api.InputFile) error {
 		if len(r.Images) == maxImages {
 			break
 		}
-		f, err := os.Open(file.Path)
+		f, err := open(file.Path)
 		if err != nil {
 			return errors.New("image attachment unavailable")
 		}
@@ -339,9 +362,12 @@ func (s *Store) Presentation(request string) *api.MediaPresentation {
 	if s == nil || request == "" {
 		return nil
 	}
+	return s.presentation(key(request))
+}
+func (s *Store) presentation(k string) *api.MediaPresentation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, err := s.record(key(request))
+	r, err := s.record(k)
 	if err != nil {
 		return nil
 	}
@@ -376,6 +402,32 @@ func (s *Store) DataURL(id string, thumbnail bool) (string, error) {
 	}
 	if _, _, ok := supported(data, mime); !ok {
 		return "", errors.New("image unavailable")
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+// FileDataURL displays a checked open file without retaining another copy.
+// Its caller owns the file and authorization for the original path.
+func FileDataURL(file *os.File, preview bool) (string, error) {
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxImage {
+		return "", errors.New("image unavailable")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxImage+1))
+	if err != nil {
+		return "", errors.New("image unavailable")
+	}
+	mime := http.DetectContentType(data)
+	width, height, ok := supported(data, mime)
+	if !ok {
+		return "", errors.New("image unavailable")
+	}
+	if preview && mime != "image/webp" {
+		data, err = thumbnail(data, width, height)
+		if err != nil {
+			return "", errors.New("image unavailable")
+		}
+		mime = "image/jpeg"
 	}
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }

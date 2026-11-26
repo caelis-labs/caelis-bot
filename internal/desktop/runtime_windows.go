@@ -65,6 +65,7 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	s, core := assembly.Service, assembly.Core
+	s.localChat.snapshot = core.Backend.ChatSnapshot
 	defer core.Close()
 	s.loginAtLogin = newWindowsLoginAtLogin()
 	s.readClipboard = readWindowsClipboard

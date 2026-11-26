@@ -2,20 +2,256 @@
  margin: .65em 0;
  min-width: 0;
  overflow-wrap: anywhere;
- --a2ui-color-surface: var(--wash);
- --a2ui-color-on-surface: currentColor;
- --a2ui-color-input: var(--surface);
- --a2ui-color-on-input: currentColor;
- --a2ui-color-border: var(--line);
- --a2ui-color-primary: var(--accent);
- --a2ui-border: 1px solid var(--line);
- --a2ui-card-margin: 0;
- --a2ui-card-padding: 12px;
- --a2ui-card-border-radius: 10px;
- --a2ui-row-gap: 12px;
- --a2ui-column-gap: 8px;
- --a2ui-textfield-padding: 8px;
- --a2ui-textfield-border-radius: 6px;
+ --a2ui-control-border: color-mix(in srgb, var(--muted) 49%, var(--line));
 }
-.chat-a2ui-surface small, .markdown-body .chat-a2ui-local { font-size: .88em; color: var(--muted); }
+
+.chat-a2ui-card, .chat-a2ui-form {
+ min-width: 0;
+ border: 1px solid var(--line);
+ border-radius: 10px;
+ padding: 12px;
+ background: var(--surface);
+}
+.message.assistant:has(.chat-a2ui-form) { width: min(472px, calc(100% - 50px)); }
+.chat-a2ui-form {
+ width: 100%;
+ box-sizing: border-box;
+}
+.chat-a2ui-row, .chat-a2ui-column {
+ display: flex;
+ gap: 10px;
+ min-width: 0;
+}
+.chat-a2ui-row { flex-wrap: wrap; }
+.chat-a2ui-column { flex-direction: column; }
+.chat-a2ui-row > *, .chat-a2ui-column > *, .chat-a2ui-row [role="listitem"] { min-width: 0; }
+
+.chat-a2ui-title { display: block; font-size: 1.13em; line-height: 1.35; }
+.chat-a2ui-caption, .markdown-body .chat-a2ui-local, .chat-a2ui-hint {
+ color: var(--muted);
+ font-size: .88em;
+ line-height: 1.45;
+}
 .markdown-body .chat-a2ui-local { margin: 0 0 8px; }
+.markdown-body .chat-a2ui-divider { width: 100%; margin: 0; }
+.markdown-body .chat-a2ui-divider[aria-orientation="vertical"] {
+ width: 0;
+ min-height: 1em;
+ border-top: 0;
+ border-inline-start: 1px solid var(--line);
+}
+
+.chat-a2ui-heading {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: baseline;
+ justify-content: space-between;
+ gap: 4px 12px;
+ border-bottom: 1px solid var(--line);
+ padding-bottom: 10px;
+}
+.markdown-body .chat-a2ui-heading h3 { margin: 0; font-size: 1.18em; line-height: 1.35; }
+.chat-a2ui-heading span { color: var(--muted); font-size: .88em; }
+.chat-a2ui-questions { padding-block: 11px 14px; }
+.chat-a2ui-questions .chat-a2ui-column { gap: 13px; }
+.chat-a2ui-questions .chat-a2ui-card { padding: 0; border: 0; }
+
+.chat-a2ui-field {
+ display: grid;
+ gap: 5px;
+ min-width: 0;
+}
+.chat-a2ui-label { font-weight: 630; line-height: 1.4; }
+.chat-a2ui-input {
+ box-sizing: border-box;
+ width: 100%;
+ min-width: 0;
+ min-height: 32px;
+ border: 1px solid var(--a2ui-control-border);
+ border-radius: 6px;
+ padding: 5px 9px;
+ font: inherit;
+ line-height: 1.45;
+ color: var(--ink);
+ background: var(--surface);
+}
+textarea.chat-a2ui-input { resize: vertical; }
+.chat-a2ui-input::placeholder { color: var(--muted); }
+.chat-a2ui-input:focus { border-color: var(--caelis-focus); }
+.chat-a2ui-field .chat-a2ui-input:focus-visible {
+ outline: 1px solid var(--caelis-focus);
+ outline-offset: 1px;
+}
+.chat-a2ui-input[aria-invalid="true"] { border-color: var(--error); }
+.chat-a2ui-input[aria-invalid="true"]:focus-visible { outline-color: var(--error); }
+.chat-a2ui-input:disabled { color: var(--muted); background: var(--caelis-disabled); }
+.a2ui-error-message {
+ display: flex;
+ align-items: baseline;
+ gap: 6px;
+ color: var(--error);
+ font-size: .88em;
+ line-height: 1.45;
+}
+.a2ui-error-message > span {
+ display: inline-grid;
+ flex: 0 0 14px;
+ place-items: center;
+ height: 14px;
+ border: 1px solid currentColor;
+ border-radius: 50%;
+ font-size: 10px;
+ font-weight: 700;
+ line-height: 1;
+}
+
+.chat-a2ui-options { display: grid; gap: 3px; }
+.chat-a2ui-options.inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-a2ui-options.inline .chat-a2ui-option {
+ flex: 1 1 7em;
+ border-color: var(--line);
+}
+.chat-a2ui-option {
+ display: flex;
+ align-items: center;
+ gap: 9px;
+ min-width: 0;
+ min-height: 28px;
+ box-sizing: border-box;
+ border: 1px solid transparent;
+ border-radius: 6px;
+ padding: 3px 7px;
+ line-height: 1.45;
+ cursor: pointer;
+}
+.chat-a2ui-option:hover { background: var(--wash); }
+.chat-a2ui-options .chat-a2ui-option:has(input:checked) { background: var(--caelis-selected); border-color: transparent; }
+.chat-a2ui-options.inline .chat-a2ui-option:has(input:checked) { border-color: transparent; }
+.chat-a2ui-option:has(input:focus-visible) { outline: 2px solid var(--caelis-focus); outline-offset: 1px; }
+.chat-a2ui-option input {
+ appearance: none;
+ display: grid;
+ place-items: center;
+ inline-size: 16px;
+ block-size: 16px;
+ flex: 0 0 16px;
+ margin: 0;
+ border: 1.5px solid var(--a2ui-control-border);
+ background: var(--surface);
+ cursor: inherit;
+}
+.chat-a2ui-option input:focus-visible { outline: none; }
+.chat-a2ui-option input[type="radio"] { border-radius: 50%; }
+.chat-a2ui-option input[type="checkbox"] { border-radius: 4px; }
+.chat-a2ui-option input:checked { border-color: var(--accent); }
+.chat-a2ui-option input[type="radio"]:checked::before {
+ content: "";
+ width: 8px;
+ height: 8px;
+ border-radius: 50%;
+ background: var(--accent);
+}
+.chat-a2ui-option input[type="checkbox"]:checked { background: var(--accent); }
+.chat-a2ui-option input[type="checkbox"]:checked::before {
+ content: "";
+ width: 7px;
+ height: 4px;
+ margin-top: -2px;
+ border: solid var(--on-accent);
+ border-width: 0 0 2px 2px;
+ transform: rotate(-45deg);
+}
+.chat-a2ui-option:has(input:disabled) { cursor: default; }
+.chat-a2ui-option:has(input:disabled):not(:has(input:checked)):hover { background: transparent; }
+
+.chat-a2ui-range { display: flex; align-items: center; gap: 10px; }
+.chat-a2ui-range input {
+ appearance: none;
+ flex: 1;
+ min-width: 0;
+ height: 5px;
+ margin-inline: 2px;
+ border-radius: 5px;
+ background: linear-gradient(to right, var(--accent) var(--range-fill), var(--line) var(--range-fill));
+}
+.chat-a2ui-range input::-webkit-slider-thumb {
+ appearance: none;
+ width: 15px;
+ height: 15px;
+ border: 2px solid var(--accent);
+ border-radius: 50%;
+ background: var(--surface);
+}
+.chat-a2ui-range input::-moz-range-thumb {
+ width: 12px;
+ height: 12px;
+ border: 2px solid var(--accent);
+ border-radius: 50%;
+ background: var(--surface);
+}
+.chat-a2ui-range input:focus-visible { outline-offset: 6px; }
+.chat-a2ui-range input[aria-invalid="true"] { outline: 1px solid var(--error); outline-offset: 5px; }
+.a2ui-slider-value {
+ min-width: 2.9em;
+ box-sizing: border-box;
+ border: 1px solid var(--a2ui-control-border);
+ border-radius: 6px;
+ padding: 1px 5px;
+ text-align: center;
+ font-variant-numeric: tabular-nums;
+}
+
+.chat-a2ui-tabs [role="tablist"] {
+ display: flex;
+ flex-wrap: wrap;
+ border-bottom: 1px solid var(--line);
+ margin-bottom: 8px;
+}
+.chat-a2ui-tabs [role="tab"] {
+ min-width: 0;
+ border: 0;
+ border-radius: 0;
+ border-bottom: 2px solid transparent;
+ margin-bottom: -1px;
+ padding: 5px 9px;
+ background: transparent;
+ color: var(--muted);
+ font: inherit;
+ overflow-wrap: anywhere;
+}
+.chat-a2ui-tabs [role="tab"][aria-selected="true"] {
+ border-bottom-color: var(--accent);
+ color: var(--caelis-selected-text);
+ font-weight: 630;
+}
+.chat-a2ui-tabs [role="tab"]:hover { background: var(--wash); }
+.chat-a2ui-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
+.chat-a2ui-tabs [role="tabpanel"]:focus-visible { outline: 2px solid var(--caelis-focus); outline-offset: 2px; }
+
+.chat-a2ui-footer {
+ display: grid;
+ gap: 7px;
+ border-top: 1px solid var(--line);
+ padding-top: 10px;
+ text-align: center;
+}
+.chat-a2ui-heading + .chat-a2ui-footer { border-top: 0; }
+.chat-a2ui-footer .a2ui-error-message { justify-content: center; }
+button.chat-a2ui-submit {
+ min-height: 34px;
+ width: 100%;
+ border: 0;
+ border-radius: 7px;
+ padding: 5px 10px;
+ font: inherit;
+ font-weight: 650;
+ color: var(--on-accent);
+ background: var(--accent);
+}
+button.chat-a2ui-submit:not(:disabled):hover { background: var(--caelis-action-hover); }
+button.chat-a2ui-submit:not(:disabled):active { background: var(--caelis-action-pressed); }
+button.chat-a2ui-submit:disabled {
+ color: var(--muted);
+ background: var(--caelis-action-disabled);
+ cursor: default;
+}

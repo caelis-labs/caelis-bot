@@ -31,8 +31,10 @@ func (item *nativeItem) UnmarshalJSON(data []byte) error {
 		fields = append(fields, "status", "tool", "receiverThreadIds")
 	case "subAgentActivity":
 		fields = append(fields, "agentThreadId", "kind")
-	case "imageView", "imageGeneration":
+	case "imageView":
 		fields = append(fields, "status", "path")
+	case "imageGeneration":
+		fields = append(fields, "status", "savedPath")
 	case "webSearch":
 		fields = append(fields, "action")
 	default:
