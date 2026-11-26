@@ -42,5 +42,18 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
   managed&&status?.offerId&&['available','failed'].includes(state)?
   <button className="primary" disabled={locked} onClick={()=>void act({action:'download',offerId:status.offerId})}>{t('settings.managedDownload')}</button>:
   <button disabled={!status||locked||working||state==='unknown'} onClick={()=>void act({action:'check'})}>{t('settings.checkUpdatesButton')}</button>;
- return <UpdateSettingsShell version={status?.current.version||version} badge={status?.testArtifact?t('settings.managedQA'):undefined} status={statusText} progress={progressInfo} actions={actions}/>;
+ return <UpdateSettingsShell
+  badge={status?.testArtifact?t('settings.managedQA'):undefined}
+  status={statusText}
+  progress={progressInfo}
+  actions={actions}
+  automatic={{
+   id:'managed-automatic',
+   label:t('settings.managedAutomatic'),
+   description:!status?t('common.loading'):managed?t('settings.managedAutomaticHint'):(reasonText||t('settings.updateNoteManual')),
+   checked:managed?status.automatic:false,
+   disabled:!managed||locked||working||state==='unknown',
+   onChange:value=>void act({action:'automatic',automatic:value}),
+  }}
+ />;
 }

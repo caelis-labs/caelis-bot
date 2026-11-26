@@ -113,11 +113,12 @@ export function SettingsDialog({ title, description, eyebrow, closeLabel, busy =
     if (busyRef.current || blockedRef.current || document.querySelector('[data-select-open="true"]')) return;
     onCloseRef.current();
    }}
-   onClose={() => {
+   onClose={event => {
     if (unmountingRef.current) return;
-    const dialog = dialogRef.current;
+    const dialog = event.currentTarget;
+    if (dialog.open) return;
     if (busyRef.current || blockedRef.current || document.querySelector('[data-select-open="true"]')) {
-     if (dialog && !dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
+     if (typeof dialog.showModal === 'function') dialog.showModal();
      return;
     }
     onCloseRef.current();

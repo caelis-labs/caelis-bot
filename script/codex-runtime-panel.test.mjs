@@ -49,7 +49,7 @@ test('model summaries start in an explicit loading state before any runtime fact
  const html=renderToStaticMarkup(React.createElement(ConnectionsPage,{active:false}));
  assert.equal((html.match(/aria-busy="true"/g)||[]).length,2);
  assert.equal((html.match(/<strong>Loading/g)||[]).length,2);
- assert.doesNotMatch(html,/Prepare a runtime first/);
+ assert.doesNotMatch(html,/Prepare a runtime first|Recheck/);
 });
 const render=(state)=>renderToStaticMarkup(React.createElement(CodexRuntimePanel,{state,busy:false,checking:false,onAction:()=>{},onDetect:()=>{}}));
 const base={state:'login',installation:{installed:true,version:'1.0',updateState:''},loginPending:false};

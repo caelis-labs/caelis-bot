@@ -108,8 +108,8 @@ function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  </section>;
 }
 
-function Updates(props:{version:string;active:boolean;focusVersion:number}){return isWebSurface()?<ManagedUpdates {...props}/>:<NativeUpdates {...props}/>;}
-function NativeUpdates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}) {
+function Updates(props:{version:string;active:boolean;focusVersion:number}){return isWebSurface()?<ManagedUpdates {...props}/>:<NativeUpdates active={props.active} focusVersion={props.focusVersion}/>;}
+function NativeUpdates({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [result,setResult]=useState<Update|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [preferences,setPreferences]=useState<UpdatePreferences|null>(null);
@@ -135,6 +135,12 @@ function NativeUpdates({version,active,focusVersion}:{version:string;active:bool
   setBusy(true);setError('');
   try{await desktop('InstallUpdate');await refresh();}catch{setError(t('settings.updateCheckFailed'));}finally{setBusy(false);}
  };
+ const automatic=async(value:boolean)=>{
+  setBusy(true);setError('');
+  try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
+  catch{setError(t('settings.updatePreferencesSaveFailed'));}finally{setBusy(false);}
+ };
+ const autoAvailable=!!preferences?.available;
  const updateStatus=preferences?.state==='failed'?t('chat.surfaceRestartNeeded'):
   preferences?.state==='preparing'?t('settings.updatePreparing'):
   preferences?.state==='closing'?t('settings.updateClosing'):
@@ -145,5 +151,16 @@ function NativeUpdates({version,active,focusVersion}:{version:string;active:bool
   result?.state==='available'?
   <button className="primary" onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{t('settings.downloadNewVersion')}</button>:
   <button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button>;
- return <UpdateSettingsShell version={result?.current||version} status={error||updateStatus} actions={actions}/>;
+ return <UpdateSettingsShell
+  status={error||updateStatus}
+  actions={actions}
+  automatic={{
+   id:'automatic-updates',
+   label:t('settings.autoUpdateLabel'),
+   description:!preferences?t('common.loading'):autoAvailable?t('settings.autoUpdateDescription'):t('settings.updateNoteManual'),
+   checked:autoAvailable?preferences.automatic:false,
+   disabled:busy||!autoAvailable,
+   onChange:value=>void automatic(value),
+  }}
+ />;
 }

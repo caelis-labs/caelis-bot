@@ -1791,8 +1791,28 @@ dialog.plugin-dialog .plugin-refresh-tools {
   color: var(--warning);
 }
 
-.settings-window .permission-toggle button {
+.settings-window .permission-toggle button:not(.permission-icon-action) {
   min-width: 86px;
+}
+
+.settings-window .permission-toggle button.permission-icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.settings-window .permission-toggle button.permission-icon-action:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
 }
 
 .permission-feedback {
@@ -1806,42 +1826,173 @@ dialog.plugin-dialog .plugin-refresh-tools {
   font-size: 12px;
 }
 
-/* --- Updates & About --- */
-.settings-window .about-identity {
+.settings-window .permission-footer {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  margin: 0 0 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--caelis-raised);
-  box-shadow: var(--shadow-xs);
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
-.settings-window .about-identity img {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border: 1px solid var(--caelis-border-subtle);
-  border-radius: 14px;
-  background: var(--caelis-content);
-  object-fit: contain;
+.settings-window button.permission-repair-trigger {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
 }
 
-.settings-window .about-identity h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+.settings-window button.permission-repair-trigger:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
   color: var(--ink);
 }
 
-.settings-window .about-identity p {
-  margin: 0;
+dialog.permission-repair-dialog {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.permission-repair {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
   font-size: 12.5px;
+}
+
+.permission-repair-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permission-repair-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.permission-repair-label,
+.permission-repair-field-head > span {
+  font-size: 12px;
+  font-weight: 550;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+}
+
+dialog.permission-repair-dialog button.permission-reveal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--caelis-link);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+dialog.permission-repair-dialog button.permission-reveal-link:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+}
+
+.permission-app-path {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--caelis-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+}
+
+.permission-app-path code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  user-select: text;
+}
+
+.permission-repair-field .settings-select {
+  width: 100%;
+}
+
+.permission-repair .permission-reset-consent {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.permission-repair .permission-reset-consent:has(input:checked) {
+  color: var(--ink);
+}
+
+dialog.runtime-dialog .permission-reset-consent input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+}
+
+.permission-repair-status,
+.permission-repair-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.permission-repair-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--caelis-border-subtle);
+}
+
+dialog.permission-repair-dialog button.permission-reset-submit:not(:disabled) {
+  border-color: color-mix(in oklab, var(--error) 32%, var(--line));
+  background: var(--error-soft);
+  color: var(--error);
+  font-weight: 600;
+}
+
+dialog.permission-repair-dialog button.permission-reset-submit:not(:disabled):hover {
+  border-color: var(--error);
+  background: color-mix(in oklab, var(--error) 18%, var(--caelis-raised));
+}
+
+/* --- Updates & About --- */
+.settings-window .update-status-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-window .update-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 16px;
 }
 
 .settings-window .update-settings .setting-control > button {
