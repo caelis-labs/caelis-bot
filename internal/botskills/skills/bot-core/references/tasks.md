@@ -106,6 +106,13 @@ the returned `localPath`; the response also gives SHA-256, name, size, `cached`
 and `fetchedAt`. Cached files remain readable offline. State when verification
 uses cached bytes that may not be the latest remote version.
 
+To show a local Worker deliverable in desktop chat, link to its confirmed
+absolute local path and preserve the user's label. See [Resources](resources.md).
+For a remote Worker, first obtain a checked local copy via `bot_tasks` `file`
+and use its `localPath` in the desktop reply. The task-file ID is for Worker
+tools and delegation. Web and messaging channels keep their own file delivery
+rules.
+
 Remote login and URL requests retain their original user card. Some target-only
 web flows are unsupported; do not invent a proxy or ask for task approval on the
 other Bot. See [Interactions](interactions.md).

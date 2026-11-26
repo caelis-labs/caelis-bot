@@ -194,7 +194,11 @@ export function useConversation(active: boolean, pet=false, chat=false) {
   if(!observing.current)return;
   const ticket=order.current.request(),expectedRevision=order.current.revision;
   let next:Snapshot|null;
-  if(chat||pet){const update=await backend<ChatUpdate>(pet?'PetSnapshotUpdate':'ChatSnapshot',expectedRevision,botStatus.current,order.current.processEpoch);next=update.changed?update.snapshot:null;}
+  if(chat||pet){
+   const args=[expectedRevision,botStatus.current,order.current.processEpoch] as const;
+   const update=chat&&!isWebSurface()?await desktop<ChatUpdate>('LocalChatSnapshot',...args):await backend<ChatUpdate>(pet?'PetSnapshotUpdate':'ChatSnapshot',...args);
+   next=update.changed?update.snapshot:null;
+  }
   else next=await backend<Snapshot>('Snapshot');
   if(!next){order.current.accept(ticket,expectedRevision);return;}
   if(observing.current&&order.current.accept(ticket,next.revision,next.processEpoch)){

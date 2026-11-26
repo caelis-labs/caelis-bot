@@ -6,3 +6,7 @@ export function messageURL(value: string): string {
   return url.href;
  } catch { return ''; }
 }
+
+export function isLocalChatFile(id: string) {
+ return id.startsWith('local-chat-file:');
+}

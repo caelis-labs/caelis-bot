@@ -405,3 +405,29 @@ func (s *Store) DataURL(id string, thumbnail bool) (string, error) {
 	}
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
+
+// FileDataURL displays a checked open file without retaining another copy.
+// Its caller owns the file and authorization for the original path.
+func FileDataURL(file *os.File, preview bool) (string, error) {
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxImage {
+		return "", errors.New("image unavailable")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxImage+1))
+	if err != nil {
+		return "", errors.New("image unavailable")
+	}
+	mime := http.DetectContentType(data)
+	width, height, ok := supported(data, mime)
+	if !ok {
+		return "", errors.New("image unavailable")
+	}
+	if preview && mime != "image/webp" {
+		data, err = thumbnail(data, width, height)
+		if err != nil {
+			return "", errors.New("image unavailable")
+		}
+		mime = "image/jpeg"
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}

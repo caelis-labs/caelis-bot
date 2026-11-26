@@ -117,6 +117,14 @@ checks native WebKit keyboard activation and focus, the file and website
 bridge calls, and a synthetic submission receipt across a history reopen.
 Set `BOT_PREVIEW_COMBINED_SUBMITTED=1` to capture the settled reply and preserved draft.
 
+For desktop local-file links, run `TestLocalChatFileDelivery` in
+`./internal/desktop`. Set `BOT_CHAT_FILE_EVIDENCE_DIR` to the directory of the four
+`combined-*.png` captures to test their original absolute paths. To capture the
+rendered chat, set `BOT_CHAT_FILE_CAPTURE_INPUT` to a scratch JSON path for both
+the test and `BOT_PREVIEW_FIXTURE=chat-local-files` in the native chat preview.
+The test checks the original file bytes and persisted chat. The preview uses that
+result to check WebKit rendering, enlargement, keyboard focus and reopening.
+
 Inspect the actual desktop/chat/settings windows before claiming visual behavior.
 `bash script/run-ui-review.sh --verify` supplies an isolated review profile.
 The native launch script also supports `--bubble-preview`, `--chat-preview` and

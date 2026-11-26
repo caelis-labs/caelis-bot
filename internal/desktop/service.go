@@ -46,6 +46,7 @@ type Service struct {
 	telegram                *telegram.Bridge
 	weixin                  *weixin.Bridge
 	openExternalURL         func(string) error
+	localChat               localChatFiles
 	capture                 captureState
 	permissionGuide         permissionGuide
 	featureGuide            permissionGuide

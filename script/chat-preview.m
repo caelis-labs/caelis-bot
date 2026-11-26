@@ -13,7 +13,7 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
  BOOL question=[[NSURL URLWithString:self.url].query containsString:@"fixture=question-lifecycle"];
  BOOL a2ui=[[NSURL URLWithString:self.url].query containsString:@"fixture=a2ui"];
- BOOL media=[[NSURL URLWithString:self.url].query containsString:@"fixture=chat-media"]||[[NSURL URLWithString:self.url].query containsString:@"fixture=chat-combined"];
+ BOOL media=[[NSURL URLWithString:self.url].query containsString:@"fixture=chat-media"]||[[NSURL URLWithString:self.url].query containsString:@"fixture=chat-combined"]||[[NSURL URLWithString:self.url].query containsString:@"fixture=chat-local-files"];
  CGFloat width=760,height=672;
  for(NSURLQueryItem *item in [NSURLComponents componentsWithString:self.url].queryItems){if([item.name isEqual:@"width"])width=MAX(300,item.value.doubleValue);if([item.name isEqual:@"height"])height=MAX(400,item.value.doubleValue);}
  self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(240,100,width,height+(question||a2ui||media?0:152)) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];

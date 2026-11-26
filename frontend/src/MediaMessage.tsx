@@ -1,8 +1,11 @@
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {backend} from './desktop';
+import {backend,desktop} from './desktop';
 import type {MediaImage,MediaPresentation} from './backend/contract';
 import {useI18n} from './i18n';
+import {isLocalChatFile} from './message-url';
+
+const imageURL=(id:string,thumbnail:boolean)=>isLocalChatFile(id)?desktop<string>('LocalChatImage',id,thumbnail):backend<string>('MediaImage',id,thumbnail);
 
 export function MessageImage({value,label=value.name,inline=false}:{value:MediaImage;label?:string;inline?:boolean}) {
  const {t}=useI18n(),[url,setURL]=useState(''),[failed,setFailed]=useState(false),[open,setOpen]=useState(false),[full,setFull]=useState(''),[fullFailed,setFullFailed]=useState(false),dialog=useRef<HTMLDialogElement>(null),trigger=useRef<HTMLButtonElement>(null);
@@ -12,7 +15,7 @@ export function MessageImage({value,label=value.name,inline=false}:{value:MediaI
  useEffect(()=>{
   let active=true;setURL('');setFailed(false);
   if(value.unavailable){setFailed(true);return()=>{active=false}}
-  void backend<string>('MediaImage',value.id,true).then(data=>{
+  void imageURL(value.id,true).then(data=>{
    if(!active)return;
    if(/^data:image\/(png|jpeg|gif|webp);base64,/.test(data))setURL(data);else setFailed(true);
   }).catch(()=>{if(active)setFailed(true)});
@@ -20,7 +23,7 @@ export function MessageImage({value,label=value.name,inline=false}:{value:MediaI
  },[value.id,value.unavailable]);
  useEffect(()=>{
   let active=true;setFull('');setFullFailed(false);
-  if(open)void backend<string>('MediaImage',value.id,false).then(data=>{
+  if(open)void imageURL(value.id,false).then(data=>{
    if(!active)return;
    if(/^data:image\/(png|jpeg|gif|webp);base64,/.test(data))setFull(data);else setFullFailed(true);
   }).catch(()=>{if(active)setFullFailed(true)});

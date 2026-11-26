@@ -4,6 +4,7 @@ import {createServer} from 'node:http';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve,extname,sep} from 'node:path';
 import {a2uiFixture} from './chat-a2ui-fixture.mjs';
+import {localChatFilesFixture} from './chat-local-files-fixture.mjs';
 
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
@@ -533,7 +534,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
  if(method==='PetSnapshot'||method==='Snapshot'||method==='ComposerSnapshot')return structuredClone({...snapshot,revision:++revision});
- if(method==='ChatSnapshot'||method==='PetSnapshotUpdate'){
+ if(method==='ChatSnapshot'||method==='LocalChatSnapshot'||method==='PetSnapshotUpdate'){
   const value=structuredClone({...snapshot,revision:sendMode?revision:++revision});
   if(sendMode==='accepted'&&sendCount&&!staleHeld){staleHeld=true;await delay(1200);}
   return {changed:true,snapshot:value};
@@ -566,6 +567,8 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='PickFiles')return draftFiles;
  if(method==='PasteAttachments')return {handled:true,files:draftFiles};
  if(method==='MediaImage')return args[0]==='media-fixture-one'?'__MEDIA_ONE__':'__MEDIA_TWO__';
+ if(method==='LocalChatImage')return window.localChatFileData?.images[args[0]]?.[args[1]?0:1];
+ if(method==='OpenLocalChatFile'){window.localChatFileOpens.push(args[0]);return;}
  if(method==='HistoryVisible')return true;
  if(window.fixtureMediaActions&&['CloseHistory','OpenArtifact','ShowArtifactPreview','OpenMessageLink'].includes(method)){window.fixtureMediaActions.push([method,...args]);return;}
  if(method==='CopyText'){window.fixtureCopiedText=args[0];return;}
@@ -592,12 +595,15 @@ export const Call={ByName:async(name,...args)=>{
 }};
 `;
 const root=resolve('frontend/dist');
+const localFiles=process.env.BOT_PREVIEW_FIXTURE==='chat-local-files'
+ ? '\nwindow.localChatFileData='+JSON.stringify(JSON.parse(readFileSync(process.env.BOT_CHAT_FILE_CAPTURE_INPUT,'utf8')))+';\n'+localChatFilesFixture
+ : '';
 const server=createServer((req,res)=>{
  const path=new URL(req.url,'http://127.0.0.1').pathname;
- if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replaceAll('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v2/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64'))+(process.env.BOT_PREVIEW_FIXTURE==='a2ui'?a2uiFixture:''));return;}
+ if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replaceAll('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v2/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64'))+(process.env.BOT_PREVIEW_FIXTURE==='a2ui'?a2uiFixture:'')+localFiles);return;}
  const file=resolve(root,'.'+(path==='/'?'/index.html':path));
  if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&questionCase='+(process.env.BOT_PREVIEW_QUESTION_CASE||'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672)+(process.env.BOT_PREVIEW_MEDIA_VIEWER?'&viewer=1':'')+(process.env.BOT_PREVIEW_COMBINED_SUBMITTED?'&submitted=1':'');writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&questionCase='+(process.env.BOT_PREVIEW_QUESTION_CASE||'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672)+(process.env.BOT_PREVIEW_MEDIA_VIEWER?'&viewer=1':'')+(process.env.BOT_PREVIEW_COMBINED_SUBMITTED?'&submitted=1':'')+(process.env.BOT_PREVIEW_LOCAL_PROJECT?'&project=1':'');writeFileSync(process.argv[2],url);console.log(url);});

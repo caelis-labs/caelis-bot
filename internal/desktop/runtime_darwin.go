@@ -58,6 +58,7 @@ func Run(assets fs.FS) error {
 	s.loginAtLogin = newMacLoginAtLogin()
 	defer core.Close()
 	back := core.Backend
+	s.localChat.snapshot = back.ChatSnapshot
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})

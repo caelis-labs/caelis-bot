@@ -22,9 +22,13 @@ isolated profile unless it would conflict with another owner or risk live data.
 
 ## Deliver and reclaim
 
-Use Markdown links in desktop replies to share files and images you produced
-in Notebook. Link to the actual file and give it a recognizable label. Use a
-full HTTPS URL for a website and show what the reader can find there.
+In a desktop reply, use a Markdown link with the file's actual absolute path
+and a recognizable label, for example `[Light preview](</absolute/path/亮色 预览.png>)`.
+Quote the destination with angle brackets when it has spaces. Link directly
+to a readable local file in Notebook, a project or a local Worker workspace.
+Supported images appear at that label and can be enlarged. Keep delivered
+files at their original paths for as long as the user needs them. Use a full
+HTTPS URL for a website and show what the reader can find there.
 
 Own cleanup for resources you create or ask Workers to create. Identify each
 path's owner, active tasks/processes and unique or undelivered content. Preserve

@@ -21,7 +21,7 @@ func developmentDefault(base string) (developmentProfile, error) {
 		return developmentProfile{}, nil
 	}
 	path := filepath.Join(base, "Caelis Bot Dev", "active-profile.json")
-	f, e := openDevelopmentProfile(path)
+	f, e := openLocalRegularFile(path)
 	if os.IsNotExist(e) {
 		return developmentProfile{}, nil
 	}
