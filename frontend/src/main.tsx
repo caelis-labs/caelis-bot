@@ -1,4 +1,4 @@
-import './theme/display';
+import { loadDisplayPreferences } from './theme/display';
 import './application.css';
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,6 +8,8 @@ import { SurfaceBoundary } from './SurfaceBoundary';
 import { WindowsTaskDock } from './WindowsTaskDock';
 import { WindowsCapture } from './WindowsCapture';
 import { observeStatusMotion } from './status-motion';
+
+void loadDisplayPreferences();
 
 // Each native surface loads only its own UI. In particular, an explicit screen
 // capture must not parse chat, markdown, settings and provider configuration.

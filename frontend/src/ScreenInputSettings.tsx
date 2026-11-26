@@ -13,7 +13,7 @@ function NativeScreenInputSettings() {
  const save=async(next:boolean)=>{
   setBusy(true);try{setValue(await desktop<Preferences>('SetCaptureEnabled',next));setCapabilities(await desktop<FeatureCapabilities>('FeatureCapabilities'));setError(false)}catch{setError(true)}finally{setBusy(false)}
  };
- return <><p className="settings-page-intro">{t('settings.extrasIntro')}</p><SettingGroup title={t('settings.extrasCaptureTitle')}>
+ return <SettingGroup>
   <SettingRow label={t('settings.extrasCaptureToggle')} description={t('settings.extrasCaptureDescription')} htmlFor="capture-enabled">
    <input id="capture-enabled" className="settings-switch" type="checkbox" role="switch" checked={capabilities?.capture.enabled??value?.enabled??false} disabled={!value||!capabilities?.capture.available||busy} onChange={e=>void save(e.target.checked)}/>
   </SettingRow>
@@ -21,5 +21,5 @@ function NativeScreenInputSettings() {
   <ShortcutSettings capture/><ShortcutSettings paste/>
   </>}
   {error&&<p role="alert" className="settings-note">{t('settings.screenPreferencesFailed')}</p>}
- </SettingGroup></>;
+ </SettingGroup>;
 }

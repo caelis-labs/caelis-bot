@@ -1,4 +1,5 @@
 import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
+export { CaretUpDownIcon } from '@phosphor-icons/react/dist/csr/CaretUpDown';
 export { LightningIcon } from '@phosphor-icons/react/dist/csr/Lightning';
 export { CheckIcon } from '@phosphor-icons/react/dist/csr/Check';
 export { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
@@ -6,6 +7,7 @@ export { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/csr/MagnifyingGl
 export { XIcon } from '@phosphor-icons/react/dist/csr/X';
 export { DesktopTowerIcon } from '@phosphor-icons/react/dist/csr/DesktopTower';
 export { ArrowSquareOutIcon } from '@phosphor-icons/react/dist/csr/ArrowSquareOut';
+export { GearSixIcon } from '@phosphor-icons/react/dist/csr/GearSix';
 export function SettingsChevron({ open = false }: { open?: boolean }) {
  return <CaretRightIcon aria-hidden="true" size={16} weight="regular" className={`settings-chevron${open ? ' is-open' : ''}`}/>;
 }

@@ -1,7 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
+import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
 import {backend,desktop} from './desktop';
 import type {ScreenImage,ScreenPresentation} from './backend/contract';
 import {useI18n} from './i18n';
+import { XIcon } from './SettingsIcons';
 
 function useImage(id:string,thumbnail:boolean) {
  const [url,setURL]=useState(''),[failed,setFailed]=useState(false);
@@ -28,8 +30,8 @@ function ImageViewer({image,close,report}:{image:ScreenImage;close:()=>void;repo
  return <dialog className="screen-viewer" ref={dialog} aria-label={label} onCancel={close} onClick={e=>{if(e.target===e.currentTarget)close()}}
   onKeyDown={e=>{if(e.key==='Escape'||(e.metaKey&&e.key==='w')){e.stopPropagation();e.preventDefault();close()}}}>
   <div className="screen-viewer-toolbar"><span>{label}</span><button aria-label={t('chat.screenCopy')} title={t('chat.screenCopy')} disabled={!url||failed}
-   onClick={()=>void desktop('CopyScreenImage',image.id).catch(()=>report(t('chat.screenCopyFailed')))}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg></button>
-   <button aria-label={t('common.close')} title={t('common.close')} onClick={close}><img className="symbol" src="/icons/xmark.png" alt=""/></button></div>
+   onClick={()=>void desktop('CopyScreenImage',image.id).catch(()=>report(t('chat.screenCopyFailed')))}><CopyIcon size={17} aria-hidden="true"/></button>
+   <button aria-label={t('common.close')} title={t('common.close')} onClick={close}><XIcon size={17} aria-hidden="true"/></button></div>
   {url&&!failed?<img className="screen-full-image" src={url} alt={label} onError={fail}/>:<p role="status">{failed?t('chat.screenImageUnavailable'):t('common.loading')}</p>}
  </dialog>;
 }

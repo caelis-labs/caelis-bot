@@ -1,15 +1,14 @@
-/* Load the shared cascade once, before any lazy surface mounts. Component CSS
-   must not arrive after surface.css and overwrite its grid/control contracts. */
-@import './style.css';
-@import './settings/settings.css';
-@import './settings/runtime/runtime.css';
-@import './settings/runtime/machines.css';
-@import './settings/plugins.css';
-@import './media-message.css';
-@import './screen-message.css';
-@import './surface.css';
-@import './windows.css';
-@import './worker-chat.css';
+/* Load the shared cascade once, before any lazy surface mounts. */
+@layer tokens, base, components, surfaces;
+
+@import './theme/caelis.css' layer(tokens);
+@import './styles/base.css' layer(base);
+@import './styles/settings-shell.css' layer(components);
+@import './styles/chat.css' layer(surfaces);
+@import './styles/settings-core.css' layer(surfaces);
+@import './styles/settings-extended.css' layer(surfaces);
+@import './styles/onboarding.css' layer(surfaces);
+@import './styles/desktop-surfaces.css' layer(surfaces);
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */

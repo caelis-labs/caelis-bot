@@ -6,7 +6,6 @@ import {SetupButton} from '../../SetupLoading';
 import {DeviceCode} from './DeviceCode';
 import type {MessageKey} from '../../i18n/catalogs';
 import {isWebSurface} from '../../transport';
-import './codex-login.css';
 
 // Shared App/Web ceremony. Authentication and its lifetime belong to Codex on
 // the service host. This component only reads, copies and opens the user challenge.

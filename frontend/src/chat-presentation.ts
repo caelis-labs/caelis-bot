@@ -4,6 +4,20 @@ export function canSubmit(snapshot: Snapshot | null) {
  return !!(snapshot?.canSend || snapshot?.canSteer);
 }
 
+export function shouldCloseHistoryOnKey(
+ key: string,
+ metaKey: boolean,
+ active: boolean,
+ defaultPrevented: boolean,
+ isComposing: boolean,
+ hasOpenOverlay: boolean,
+ webSurface: boolean
+): boolean {
+ if (webSurface || !active || defaultPrevented || isComposing) return false;
+ if (key === 'Escape') return !hasOpenOverlay;
+ return metaKey && key === 'w';
+}
+
 export function withOutgoing(items: Item[], outgoing: Item[]): Item[] {
  const known = new Set(items.map(item => item.requestId).filter(Boolean));
  const staged = new Map(outgoing.filter(item=>item.requestId).map(item=>[item.requestId,item]));

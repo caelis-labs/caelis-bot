@@ -4,6 +4,7 @@ import {backend,desktop} from './desktop';
 import type {MediaImage,MediaPresentation} from './backend/contract';
 import {useI18n} from './i18n';
 import {isLocalChatFile} from './message-url';
+import { XIcon } from './SettingsIcons';
 
 const imageURL=(id:string,thumbnail:boolean)=>isLocalChatFile(id)?desktop<string>('LocalChatImage',id,thumbnail):backend<string>('MediaImage',id,thumbnail);
 
@@ -38,7 +39,7 @@ export function MessageImage({value,label=value.name,inline=false}:{value:MediaI
   {createPortal(<dialog className="screen-viewer" ref={dialog} aria-label={label} onCancel={e=>{e.preventDefault();dismiss();}} onClose={()=>{if(returnFocus.current)trigger.current?.focus({preventScroll:true});returnFocus.current=false;}}
    onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dismiss();}}}
    onClick={e=>{if(e.target===e.currentTarget)dismiss();}}>
-   <div className="screen-viewer-toolbar"><span>{label}</span><button type="button" onClick={dismiss} aria-label={t('common.close')}>×</button></div>
+   <div className="screen-viewer-toolbar"><span>{label}</span><button type="button" onClick={dismiss} aria-label={t('common.close')}><XIcon size={17} aria-hidden="true"/></button></div>
    {full&&!fullFailed?<img className="screen-full-image" src={full} alt={label} onError={()=>setFullFailed(true)}/>:<p role="status">{fullFailed?t('chat.mediaUnavailable'):t('common.loading')}</p>}
   </dialog>,document.body)}
  </span>;

@@ -1,4 +1,10 @@
-import '../style.css';
+import '../theme/caelis.css';
+import '../styles/base.css';
+import '../styles/settings-shell.css';
+import '../styles/settings-core.css';
+import '../styles/settings-extended.css';
+import '../styles/onboarding.css';
+import '../styles/desktop-surfaces.css';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './index';

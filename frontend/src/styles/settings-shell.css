@@ -1,0 +1,1707 @@
+/* Settings shell, navigation rail, breadcrumb bar, and shared form controls. */
+
+.settings-window {
+  --settings-bg: var(--caelis-content);
+  --settings-control-w: 240px;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--caelis-window);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* --- Sidebar & Navigation Rail --- */
+.settings-window aside {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 212px;
+  width: 212px;
+  padding: 20px 12px 14px;
+  background: var(--caelis-sidebar);
+  border-right: 1px solid var(--caelis-border-subtle);
+  user-select: none;
+}
+
+:root[data-native-material] .settings-window {
+  background: transparent;
+}
+
+:root[data-native-material] .settings-window aside {
+  background: color-mix(in oklab, var(--caelis-sidebar) 84%, transparent);
+}
+
+html[data-native-material] .context-window .settings-window aside {
+  background: transparent;
+}
+
+:root[data-native-material="solid"] .settings-window aside,
+html[data-native-material="solid"] .context-window .settings-window aside {
+  background: var(--caelis-sidebar);
+}
+
+.settings-identity {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0 10px 18px;
+}
+
+.settings-identity img {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--caelis-border-subtle);
+  object-fit: contain;
+  background: var(--caelis-content);
+}
+
+.settings-identity > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-identity strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-window .settings-identity small {
+  display: block;
+  font-size: 11px;
+  margin: 3px 0 0;
+  padding: 0;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-window aside nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  gap: 0;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: 18px;
+}
+
+.settings-nav-group > p {
+  margin: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+}
+
+.settings-window aside nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 35px;
+  margin: 1px 0;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  font-size: 13px;
+  font-weight: 450;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window aside nav button:hover {
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+.settings-window aside nav button[aria-current] {
+  background: var(--caelis-selected);
+  color: var(--caelis-selected-text);
+  font-weight: 600;
+}
+
+.settings-window aside nav button svg {
+  flex: none;
+}
+
+.settings-window aside small {
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* --- Main Content Shell & Breadcrumb Toolbar --- */
+.settings-window .settings-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--caelis-content);
+}
+
+.settings-window .settings-toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: auto;
+  min-height: 58px;
+  padding: 10px max(32px, calc((100% - 760px) / 2));
+  padding-right: max(56px, calc((100% - 760px) / 2));
+  border-bottom: 1px solid var(--caelis-border-subtle);
+  background: var(--caelis-content);
+  color: var(--muted);
+}
+
+.settings-window .settings-toolbar h1 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.settings-toolbar:has(.settings-subpage-crumb) > h1 {
+  display: none;
+}
+
+.settings-subpage-slot:empty {
+  display: none;
+}
+
+.settings-subpage-crumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-window .settings-subpage-crumb > button {
+  padding: 3px 6px;
+  margin: -3px -6px;
+  border: 0;
+  border-radius: 6px;
+  min-height: 28px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--muted);
+}
+
+.settings-window .settings-subpage-crumb > button:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+.settings-breadcrumbs {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16px;
+}
+
+.settings-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-breadcrumbs li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-window .settings-breadcrumbs button {
+  border: 0;
+  background: transparent;
+  padding: 3px 7px;
+  margin: -3px -7px;
+  border-radius: 6px;
+  min-height: 28px;
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--muted);
+  text-align: left;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window .settings-breadcrumbs button:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+.settings-breadcrumbs [aria-current="page"] {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 28px;
+}
+
+.settings-window .settings-navigation {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0;
+  border: 0;
+  min-height: 28px;
+  background: transparent;
+}
+
+.settings-window .settings-navigation:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+.settings-window .settings-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding: 24px 32px 44px;
+  background: var(--caelis-content);
+}
+
+.settings-window .settings-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.settings-page[hidden] {
+  display: none;
+}
+
+.settings-page > h1,
+.settings-page > section > h1 {
+  display: none;
+}
+
+.settings-content h1 {
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  margin: 0 0 24px;
+}
+
+.settings-content p {
+  line-height: 1.6;
+}
+
+.settings-window .settings-page .settings-page-intro,
+.settings-intro {
+  margin: 0 0 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.settings-note {
+  margin: 14px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 22px 0;
+}
+
+.settings-save-bar {
+  position: sticky;
+  bottom: -44px;
+  margin-bottom: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--caelis-border-subtle);
+  background: var(--settings-bg);
+}
+
+.settings-save-bar > :first-child {
+  margin-right: auto;
+}
+
+.settings-save-bar .settings-note {
+  margin-block: 0;
+}
+
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 28px 0 10px;
+}
+
+.settings-disclosure {
+  border-top: 1px solid var(--caelis-border-subtle);
+  margin-top: 24px;
+  font-size: 13px;
+}
+
+.settings-disclosure > summary {
+  padding: 16px 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.settings-disclosure[open] > summary {
+  color: var(--ink);
+}
+
+.settings-disclosure[open] > .setting-section {
+  margin: 0 0 22px;
+  padding-left: 20px;
+}
+
+.setting-help {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.setting-help summary {
+  display: list-item;
+  width: fit-content;
+  padding: 2px 0;
+}
+
+.setting-help p {
+  margin: 10px 0;
+}
+
+.execution-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.work-model-settings {
+  margin: 20px 0;
+  font-size: 13px;
+}
+
+.work-model-settings > summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+
+.work-model-settings > summary span {
+  color: var(--muted);
+  margin-left: 12px;
+  font-size: 12px;
+}
+
+/* --- Grouped Cards & Setting Rows --- */
+.settings-window .setting-section {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-window .setting-section h2,
+.settings-window .general-preferences h2 {
+  margin: 0 0 8px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings-window .setting-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--caelis-raised);
+  box-shadow: var(--shadow-xs);
+}
+
+.settings-window .setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, var(--settings-control-w));
+  align-items: center;
+  gap: 24px;
+  min-height: 64px;
+  margin: 0;
+  padding: 14px 20px;
+  border-top: 0;
+  border-bottom: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .setting-list .setting-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-window .runtime-dialog .setting-row {
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 200px);
+  gap: 18px;
+}
+
+.settings-window .setting-label {
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.settings-window .setting-label :is(span, label) {
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.settings-window .setting-label p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.settings-window .setting-label p :is(span, label) {
+  font-size: 12px;
+  font-weight: 400;
+  color: inherit;
+}
+
+.settings-window .setting-control {
+  min-width: 0;
+  max-width: none;
+  justify-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-window .setting-control > :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) {
+  width: 100%;
+  min-width: 0;
+}
+
+.setting-value {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.setting-feedback {
+  margin: 0;
+  padding: 0 20px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setting-feedback.permission-warning {
+  color: var(--error);
+}
+
+.setting-custom-path {
+  padding: 0 20px 16px;
+}
+
+.setting-custom-path > label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.runtime-path {
+  display: flex;
+  gap: 8px;
+}
+
+.runtime-path input {
+  flex: 1;
+  width: 0;
+}
+
+/* --- Shared Buttons, Inputs, Chevron & Focus --- */
+.settings-window svg {
+  flex: none;
+}
+
+.settings-chevron {
+  color: var(--muted);
+  transition: transform var(--duration-fast) var(--ease-out);
+  flex: none;
+}
+
+.settings-chevron.is-open,
+details[open] > summary > .settings-chevron {
+  transform: rotate(90deg);
+}
+
+.settings-window summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  line-height: 1.5;
+}
+
+.settings-window summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-window summary::marker {
+  content: "";
+}
+
+.settings-window button:not(nav button) {
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-raised);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
+}
+
+.settings-window button:not(nav button):not(:disabled):hover {
+  background: var(--caelis-hover);
+  border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
+}
+
+.settings-window button:not(nav button):disabled {
+  background: var(--caelis-disabled);
+  color: var(--caelis-text-disabled);
+  border-color: var(--caelis-border-subtle);
+  cursor: default;
+}
+
+.settings-window button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+.settings-window button.primary:not(:disabled):hover {
+  background: var(--caelis-action-hover);
+  border-color: transparent;
+}
+
+.settings-window button.primary:not(:disabled):active {
+  background: var(--caelis-action-pressed);
+}
+
+.settings-window button.primary:disabled:not([aria-busy="true"]) {
+  background: var(--caelis-disabled);
+  color: var(--caelis-text-disabled);
+  border-color: var(--caelis-border-subtle);
+  opacity: 1;
+}
+
+.settings-window button.text-action {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  color: var(--muted);
+}
+
+.settings-window button.text-action:not(:disabled):hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+.settings-window button.text-action:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--caelis-text-disabled);
+  text-decoration: none;
+}
+
+.settings-window button.link-action {
+  color: var(--caelis-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-window .runtime-dialog .runtime-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.settings-window .runtime-dialog .runtime-close:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .settings-window button:not(nav button):not(:disabled):active {
+    transform: scale(0.985);
+  }
+}
+
+.settings-window :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--caelis-content);
+  color: var(--ink);
+  font-size: 13px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) {
+  min-height: 36px;
+  height: 36px;
+  padding: 6px 11px;
+}
+
+.settings-window select {
+  width: 200px;
+  text-overflow: ellipsis;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m5 6 3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+
+.settings-window :is(button, summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--caelis-focus);
+  outline-offset: 2px;
+}
+
+/* --- Animated Switch Control --- */
+.settings-window input.settings-switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--caelis-hover);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window input.settings-switch:not(:disabled):hover {
+  border-color: color-mix(in oklab, var(--ink) 22%, var(--line));
+}
+
+.settings-switch::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  transition: transform var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window input.settings-switch:checked {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.settings-window input.settings-switch:checked::before {
+  transform: translateX(16px);
+  background: var(--on-accent);
+}
+
+.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Shared Custom Select & Popover Menu --- */
+.settings-select {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  font-size: 13px;
+}
+
+.settings-window .settings-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  height: 36px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+  color: var(--ink);
+  text-align: left;
+  font-size: 13px;
+  font-weight: 450;
+}
+
+.settings-window .settings-select-trigger:not(:disabled):hover {
+  background: var(--caelis-hover);
+  border-color: color-mix(in oklab, var(--ink) 22%, var(--line));
+}
+
+.settings-select[data-select-open] .settings-select-trigger {
+  border-color: var(--caelis-focus);
+}
+
+.settings-select-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-select-trigger svg {
+  flex: none;
+  transform: rotate(90deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.settings-select[data-select-open] .settings-select-trigger svg {
+  transform: rotate(270deg);
+}
+
+.settings-select-menu {
+  position: fixed;
+  z-index: 110;
+  inset: auto;
+  margin: 0;
+  padding: 5px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-width: calc(100vw - 16px);
+  background: var(--caelis-popover);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.settings-select-menu[hidden] {
+  display: none;
+}
+
+.settings-select-menu:popover-open {
+  display: block;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out),
+              display var(--duration-fast),
+              overlay var(--duration-fast);
+  transition-behavior: allow-discrete;
+}
+
+@starting-style {
+  .settings-select-menu:popover-open {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+.settings-select-menu button,
+.settings-window .settings-select-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-size: 13px;
+  font-weight: 450;
+}
+
+.settings-select-menu button:hover,
+.settings-select-menu button:focus-visible,
+.settings-window .settings-select-menu button:hover,
+.settings-window .settings-select-menu button:focus-visible {
+  background: var(--caelis-hover);
+  outline: none;
+}
+
+.settings-select-menu button[aria-checked="true"],
+.settings-window .settings-select-menu button[aria-checked="true"] {
+  background: var(--caelis-selected);
+  color: var(--caelis-selected-text);
+  font-weight: 600;
+}
+
+.settings-select-menu button:disabled {
+  color: var(--caelis-text-disabled);
+  opacity: 0.6;
+}
+
+.settings-select-menu .settings-select-option-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-select-menu .settings-select-check {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.settings-select-menu .settings-select-search,
+.settings-window .settings-select-menu input.settings-select-search {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 12px);
+  min-width: 0;
+  max-width: calc(100% - 12px);
+  min-height: 32px;
+  height: 32px;
+  margin: 6px 6px 10px;
+  padding: 5px 10px;
+}
+
+.settings-select-menu input.settings-select-search:focus,
+.settings-select-menu input.settings-select-search:focus-visible {
+  outline-offset: -2px;
+}
+
+.settings-select-value {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-select-value > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-source-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+
+.settings-select-value .settings-source-badge {
+  margin-left: auto;
+}
+
+.settings-select-centered .settings-select-trigger {
+  position: relative;
+  padding-inline: 17px;
+  text-align: left;
+}
+
+.settings-select-centered .settings-select-trigger svg {
+  position: absolute;
+  right: 14px;
+}
+
+.settings-select-menu .settings-select-badge {
+  display: flex;
+  align-items: center;
+}
+
+.settings-select-detail {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  margin-top: 2px;
+}
+
+/* Center one shared content column when space permits. */
+.settings-select-centered .settings-select-value,
+.settings-select-menu-centered .settings-select-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(100%) auto 14px minmax(0, 1fr);
+  column-gap: 8px;
+}
+
+.settings-select-menu-centered .settings-select-options {
+  padding-inline: 12px;
+}
+
+.settings-select-centered .settings-select-value > .settings-select-option-copy {
+  grid-column: 2;
+  grid-row: 1;
+  text-align: left;
+}
+
+.settings-select-centered .settings-select-value > .settings-source-badge {
+  grid-column: 3;
+  grid-row: 1;
+  margin: 0;
+}
+
+.settings-select-measure {
+  display: contents;
+}
+
+.settings-select-measure > span {
+  grid-row: 1;
+  visibility: hidden;
+  height: 0;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.settings-select-measure > .settings-select-option-copy {
+  grid-column: 2;
+}
+
+.settings-select-measure > .settings-select-badge {
+  grid-column: 3;
+}
+
+.settings-select-menu-centered .settings-select-options button {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  text-align: left;
+  column-gap: 8px;
+  padding-inline: 0;
+}
+
+.settings-select-menu-centered .settings-select-option-copy {
+  grid-column: 2;
+}
+
+.settings-select-menu-centered .settings-select-badge {
+  grid-column: 3;
+}
+
+.settings-select-menu-centered .settings-select-check {
+  grid-column: 4;
+}
+
+/* --- Segmented Controls --- */
+.runtime-segments {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  background: var(--caelis-hover);
+  border: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .runtime-segments button {
+  flex: 1;
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.settings-window .runtime-segments button:not(:disabled):not([aria-pressed="true"]):hover {
+  background: color-mix(in oklab, var(--caelis-raised) 50%, transparent);
+  color: var(--ink);
+}
+
+.settings-window .runtime-segments button[aria-pressed="true"] {
+  background: var(--caelis-raised);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.settings-window .runtime-segments button:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--caelis-text-disabled);
+}
+
+.settings-window .runtime-effort-segments {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  margin-top: 9px;
+  border-radius: var(--radius-sm);
+  background: var(--caelis-hover);
+  border: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .runtime-effort-segments > label {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.settings-window .runtime-effort-segments input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-window .runtime-effort-segments span {
+  display: block;
+  min-width: 44px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+  color: var(--muted);
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window .runtime-effort-segments label:hover span {
+  color: var(--ink);
+}
+
+.settings-window .runtime-effort-segments input:checked + span {
+  background: var(--caelis-raised);
+  border-color: var(--line);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.settings-window .runtime-effort-segments input:focus-visible + span {
+  outline: 2px solid var(--caelis-focus);
+  outline-offset: 1px;
+}
+
+.settings-window .runtime-effort-segments input:disabled + span {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Responsive & Accessibility Preferences --- */
+@media (max-width: 900px) {
+  .settings-window {
+    --settings-control-w: 210px;
+  }
+
+  .settings-window .settings-toolbar {
+    padding-inline: 24px 56px;
+  }
+
+  .settings-window .settings-content {
+    padding: 24px 24px 36px;
+  }
+
+  .settings-window .setting-row {
+    gap: 16px;
+    padding: 14px 16px;
+  }
+}
+
+@media (max-width: 650px) {
+  .settings-window aside {
+    flex-basis: 164px;
+    width: 164px;
+    min-width: 164px;
+    padding: 18px 8px 12px;
+  }
+
+  .settings-window aside nav {
+    padding: 0;
+  }
+
+  .settings-window .settings-identity {
+    margin-left: 8px;
+    margin-right: 8px;
+  }
+
+  .settings-window .settings-toolbar {
+    padding-inline: 20px 52px;
+  }
+
+  .settings-window .settings-content {
+    padding: 20px 20px 32px;
+  }
+
+  .settings-window .setting-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .settings-window .setting-label {
+    flex-basis: auto;
+  }
+
+  .settings-window .setting-control {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-window *,
+  .settings-chevron,
+  .settings-switch,
+  .settings-switch::before,
+  .settings-select-menu,
+  .settings-select-trigger svg,
+  .runtime-install-progress span {
+    scroll-behavior: auto;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  dialog.runtime-dialog,
+  dialog.runtime-dialog::backdrop {
+    transition-duration: 0.1s;
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-native-material] .settings-window aside,
+  html[data-native-material] .context-window .settings-window aside {
+    background: var(--caelis-sidebar);
+  }
+
+  dialog.runtime-dialog[open]::backdrop {
+    backdrop-filter: none;
+    background: rgba(12, 14, 18, 0.56);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .settings-window,
+  dialog.runtime-dialog {
+    --line: currentColor;
+  }
+
+  .settings-window aside nav button[aria-current] {
+    outline: 1px solid currentColor;
+  }
+}
+
+@media (forced-colors: active) {
+  .settings-window aside nav button[aria-current],
+  .settings-window .runtime-segments button[aria-pressed="true"],
+  .settings-window .runtime-effort-segments input:checked + span {
+    outline: 2px solid Highlight;
+  }
+
+  .settings-window input.settings-switch {
+    border: 1px solid ButtonText;
+  }
+
+  .settings-window input.settings-switch:checked {
+    background: Highlight;
+  }
+
+  dialog.runtime-dialog {
+    border: 2px solid CanvasText;
+  }
+}
+
+/* --- Unified Native <dialog> Overlays --- */
+dialog.runtime-dialog {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--caelis-popover);
+  color: var(--ink);
+  box-shadow: var(--shadow-dialog);
+  overflow-y: auto;
+  font-size: 13px;
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-out);
+  transition-behavior: allow-discrete;
+}
+
+dialog.runtime-dialog:focus {
+  outline: none;
+}
+
+dialog.runtime-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.runtime-dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(12, 14, 18, 0);
+  backdrop-filter: blur(0);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-out);
+  transition-behavior: allow-discrete;
+}
+
+dialog.runtime-dialog[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog.runtime-dialog[open] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.runtime-dialog {
+    transform: translateY(6px) scale(0.985);
+  }
+
+  dialog.runtime-dialog[open] {
+    transform: none;
+  }
+
+  @starting-style {
+    dialog.runtime-dialog[open] {
+      transform: translateY(6px) scale(0.985);
+    }
+  }
+}
+
+dialog.runtime-dialog[open]::backdrop {
+  background-color: rgba(12, 14, 18, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+@starting-style {
+  dialog.runtime-dialog[open]::backdrop {
+    background-color: rgba(12, 14, 18, 0);
+    backdrop-filter: blur(0);
+  }
+}
+
+dialog.runtime-popover-dialog {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+dialog.runtime-popover-dialog::backdrop,
+dialog.runtime-popover-dialog[open]::backdrop {
+  background-color: transparent;
+  backdrop-filter: none;
+  transition: none;
+}
+
+dialog.runtime-dialog .runtime-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+dialog.runtime-dialog .runtime-dialog-title-group {
+  min-width: 0;
+}
+
+dialog.runtime-dialog .runtime-dialog-eyebrow {
+  display: block;
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog .runtime-dialog-heading h2 {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+dialog.runtime-dialog .runtime-dialog-description {
+  margin: 8px 0 18px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog > .runtime-dialog-heading + :not(.runtime-dialog-description) {
+  margin-top: 16px;
+}
+
+dialog.runtime-dialog label {
+  font-size: 13px;
+}
+
+dialog.runtime-dialog form > label,
+dialog.runtime-dialog > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 14px 0;
+}
+
+dialog.runtime-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+dialog.runtime-dialog select,
+dialog.runtime-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--caelis-content);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+dialog.runtime-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+dialog.runtime-dialog select {
+  min-height: 36px;
+  padding: 6px 11px;
+}
+
+dialog.runtime-dialog textarea {
+  min-height: 80px;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+dialog.runtime-dialog input[type="checkbox"],
+dialog.runtime-dialog input[type="radio"],
+.settings-window dialog.runtime-dialog input[type="checkbox"],
+.settings-window dialog.runtime-dialog input[type="radio"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+
+dialog.runtime-dialog .settings-note {
+  margin: 12px 0;
+}
+
+dialog.runtime-dialog p.inline-error {
+  margin: 6px 0 14px;
+  color: var(--error);
+}
+
+dialog.runtime-dialog .setup-end {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+dialog.runtime-dialog .setting-row {
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 200px);
+  gap: 18px;
+}
+
+dialog.runtime-dialog button:not(.runtime-close):not([role^="menuitem"]) {
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-raised);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+dialog.runtime-dialog button.settings-select-trigger {
+  min-height: 36px;
+  height: 36px;
+  padding: 6px 11px;
+  background: var(--caelis-content);
+}
+
+dialog.runtime-dialog button:not(.runtime-close):not([role^="menuitem"]):not(:disabled):hover {
+  background: var(--caelis-hover);
+  border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
+}
+
+dialog.runtime-dialog .settings-select-menu button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: transparent;
+}
+
+dialog.runtime-dialog .settings-select-menu button:not(:disabled):hover,
+dialog.runtime-dialog .settings-select-menu button:not(:disabled):focus-visible {
+  background: var(--caelis-hover);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog .settings-select-menu button[aria-checked="true"],
+dialog.runtime-dialog .settings-select-menu button[aria-checked="true"]:hover {
+  background: var(--caelis-selected);
+  color: var(--caelis-selected-text);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+dialog.runtime-dialog button.primary:not(:disabled):hover {
+  background: var(--caelis-action-hover);
+  border-color: transparent;
+}
+
+dialog.runtime-dialog button.text-action {
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog button.text-action:not(:disabled):hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+dialog.runtime-dialog .runtime-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+dialog.runtime-dialog .runtime-close:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--caelis-hover);
+  color: var(--ink);
+}
+
+dialog.runtime-dialog :is(button, summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--caelis-focus);
+  outline-offset: 2px;
+}
+
+/* Variant sizing inside unified native dialogs */
+dialog.runtime-install-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.runtime-install-progress {
+  height: 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 22px 0 16px;
+  background: var(--caelis-hover);
+}
+
+.runtime-install-progress span {
+  display: block;
+  height: 100%;
+  width: 36%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: runtime-install-travel 1.6s ease-in-out infinite alternate;
+}
+
+.runtime-install-progress.is-measured span {
+  animation: none;
+  transition: width 0.35s ease;
+}
+
+@keyframes runtime-install-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(178%);
+  }
+}
+
+dialog.runtime-team-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+dialog.runtime-model-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  height: 560px;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+
+dialog.runtime-model-dialog > :not(.runtime-model-options) {
+  flex-shrink: 0;
+}
+
+dialog.runtime-model-dialog .runtime-model-options {
+  flex: 1 1 160px;
+  min-height: 80px;
+  max-height: none;
+  scrollbar-gutter: stable;
+}
+
+dialog.settings-action-menu {
+  width: 176px;
+  padding: 5px;
+  border-radius: var(--radius-md);
+}
+
+dialog.settings-action-menu .runtime-dialog-heading {
+  display: none;
+}
+
+dialog.settings-action-menu > [role="menu"] {
+  display: grid;
+  gap: 2px;
+  margin-top: 0;
+}
+
+dialog.settings-action-menu button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 450;
+}
+
+dialog.settings-action-menu button:not(:disabled):hover,
+dialog.settings-action-menu button:not(:disabled):focus-visible {
+  background: var(--caelis-hover);
+  border-color: transparent;
+}
+
+dialog.settings-window-dialog .web-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 60dvh;
+  overflow: auto;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border: 1px solid var(--caelis-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+@media (max-width: 560px) {
+  dialog.runtime-dialog {
+    padding: 20px;
+    max-height: calc(100dvh - 24px);
+  }
+}

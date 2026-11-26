@@ -21,6 +21,14 @@ import { SetupButton, SetupLoading } from '../../SetupLoading';
 import {isWebSurface} from '../../transport';
 import {DeviceCode} from './DeviceCode';
 
+function FieldHelpTip({label,text}:{label:string;text:string}) {
+ const tipID=useId(),[open,setOpen]=useState(false);
+ const nativePopover=typeof HTMLElement!=='undefined'&&typeof HTMLElement.prototype.showPopover==='function';
+ const buttonProps=nativePopover?({popoverTarget:tipID,popoverTargetAction:'toggle',interestfor:tipID} as Record<string,string>):{};
+ const tooltipProps=nativePopover?({popover:'auto'} as Record<string,string>):{hidden:!open};
+ return <span className="provider-field-help-wrap"><button type="button" className="provider-field-help" aria-label={label} aria-expanded={open} {...buttonProps} onClick={!nativePopover?()=>setOpen(value=>!value):undefined}>?</button><span id={tipID} role="tooltip" className="provider-field-tooltip" {...tooltipProps} onToggle={event=>setOpen((event.currentTarget as HTMLElement).matches(':popover-open'))}>{text}</span></span>;
+}
+
 function friendlyModel(name:string) {
  const id=name.includes('/')?name.slice(name.lastIndexOf('/')+1):name;
  if(/^gpt-/i.test(id))return id.replace(/^gpt-/i,'GPT-');
@@ -205,8 +213,8 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true,inli
      {gateway && !onboarding && !optionsFailed && options.models.length>0 && <div className="gateway-catalog-status">{!loading&&!error&&!options.models.length&&<p role="status">{t('connections.gatewayEmpty')}</p>}<button className="text-action" disabled={busy||loading||onboarding&&flow?.stage==='complete'} onClick={()=>setOptionsRefresh(n=>n+1)}>{t('runtime.recheck')}</button></div>}
      {!(onboarding&&(builtinProvider||reuseAuth))&&!ollama&&(!gateway || !reuseAuth && !localGateway) && <label>{t('connections.apiKey')}{reuseAuth && <small>{t('connections.reuseAuthHint')}</small>}<input disabled={busy} type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={e => setAPIKey(e.target.value)} placeholder={reuseAuth ? t('connections.handledByCaelis') : t('connections.enterApiKey')}/></label>}
      {choice.id==='custom' && <>
-      <label>{t('connections.contextWindowTokens')}<div className="provider-token-field"><input disabled={busy} aria-label={t('connections.contextWindowTokens')} type="number" min="1" step="1" required value={contextWindow} onChange={e=>setContextWindow(e.target.value)} placeholder="131072"/><span className="provider-field-help" tabIndex={0} role="note" aria-label={t('runtime.contextTokensHelp')}>?<span role="tooltip">{t('runtime.contextTokensHelp')}</span></span></div></label>
-      <label>{t('connections.maxOutputTokens')}<div className="provider-token-field"><input disabled={busy} aria-label={t('connections.maxOutputTokens')} type="number" min="1" step="1" required value={maxOutput} onChange={e=>setMaxOutput(e.target.value)} placeholder="32768"/><span className="provider-field-help" tabIndex={0} role="note" aria-label={t('runtime.outputTokensHelp')}>?<span role="tooltip">{t('runtime.outputTokensHelp')}</span></span></div></label>
+      <label>{t('connections.contextWindowTokens')}<div className="provider-token-field"><input disabled={busy} aria-label={t('connections.contextWindowTokens')} type="number" min="1" step="1" required value={contextWindow} onChange={e=>setContextWindow(e.target.value)} placeholder="131072"/><FieldHelpTip label={t('runtime.contextTokensHelp')} text={t('runtime.contextTokensHelp')}/></div></label>
+      <label>{t('connections.maxOutputTokens')}<div className="provider-token-field"><input disabled={busy} aria-label={t('connections.maxOutputTokens')} type="number" min="1" step="1" required value={maxOutput} onChange={e=>setMaxOutput(e.target.value)} placeholder="32768"/><FieldHelpTip label={t('runtime.outputTokensHelp')} text={t('runtime.outputTokensHelp')}/></div></label>
       <label>{t('connections.reasoningLevels')}<input disabled={busy} value={reasoningLevels} onChange={e=>setReasoningLevels(e.target.value)} placeholder={t('runtime.customReasoningPlaceholder')}/></label>
       <div className="provider-plan-row"><span>{t('connections.imageInput')}</span><div className="runtime-segments provider-plan-switch"><button disabled={busy} aria-pressed={!imageInput} onClick={()=>setImageInput(false)}>{t('runtime.imageNo')}</button><button disabled={busy} aria-pressed={imageInput} onClick={()=>setImageInput(true)}>{t('runtime.imageYes')}</button></div></div>
      </>}

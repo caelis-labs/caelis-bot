@@ -62,6 +62,6 @@ export function SettingsSelect({id,value,disabled,onChange,children,placeholder,
   <button id={id} ref={trigger} className="settings-select-trigger" data-placeholder={!selected&&!value||undefined} type="button" disabled={disabled} aria-label={ariaLabel} title={selected?.title} aria-haspopup="menu" aria-expanded={open} aria-controls={menuID} onClick={show} onKeyDown={event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();show();}}}><span className="settings-select-value">{columnSizes}<span className="settings-select-option-copy">{selected?.children??(value||placeholder)}</span>{selected?.['data-badge']&&<small className="settings-source-badge">{selected['data-badge']}</small>}</span><SettingsChevron open={open}/></button>
   {/* Older WebKit has no top layer. Escape scrolling/stacking ancestors while
       staying inside the active dialog layer and its existing inert boundary. */}
-  {nativePopover?popup:open&&createPortal(popup,trigger.current?.closest('.runtime-dialog-scrim')??trigger.current?.closest('.settings-window')??document.body)}
+  {nativePopover?popup:open&&createPortal(popup,trigger.current?.closest('dialog, .runtime-dialog-scrim')??trigger.current?.closest('.settings-window')??document.body)}
  </div>;
 }

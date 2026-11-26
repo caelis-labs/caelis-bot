@@ -1,6 +1,8 @@
 import { Children, isValidElement, memo, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy';
 import Markdown, {type ExtraProps, type Options} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { CheckIcon } from './SettingsIcons';
 import { backend, desktop } from './desktop';
 import { isLocalChatFile, messageURL } from './message-url';
 import { useI18n } from './i18n';
@@ -23,9 +25,7 @@ export function CopyText({text,label,report}:{text:string;label?:string;report:(
   catch {report(t('chat.copyFailed'));}
  };
  return <button type="button" className="copy-text" aria-label={copied?t('chat.copied'):effectiveLabel} title={copied?t('chat.copied'):effectiveLabel} onClick={()=>void copy()} onBlur={()=>setCopied(false)}>
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-   {copied?<path d="m5 12 4 4L19 6"/>:<><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></>}
-  </svg>
+  {copied?<CheckIcon size={15} weight="bold" aria-hidden="true"/>:<CopyIcon size={15} aria-hidden="true"/>}
  </button>;
 }
 function plain(children:ReactNode):string {

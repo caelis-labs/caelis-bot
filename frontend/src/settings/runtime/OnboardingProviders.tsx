@@ -12,8 +12,16 @@ type Provider = ConnectChoice & { kind: ConnectionKind };
 export const providerNames: Record<string,string> = { codex:'Codex',grok:'Grok',deepseek:'DeepSeek',xiaomi:'Xiaomi MiMo',magpie:'Magpie',ollama:'Ollama' };
 const hints = {codex:'runtime.providerHintCodex',grok:'runtime.providerHintGrok',deepseek:'runtime.providerHintDeepseek',xiaomi:'runtime.providerHintXiaomi',magpie:'runtime.providerHintMagpie',ollama:'runtime.providerHintOllama',custom:'runtime.providerHintCustom'} as const;
 const logos: Record<string,string> = { deepseek:'deepseek.ico',ollama:'ollama.png',xiaomi:'xiaomi.ico',grok:'grok.svg',magpie:'magpie.png' };
+function resolveProviderLogo(id: string): string | undefined {
+ const key = id.trim().toLowerCase();
+ if (logos[key]) return logos[key];
+ const match = Object.keys(logos).find(k => key.startsWith(`${k}-`) || key.startsWith(`${k}:`) || key.includes(k));
+ return match ? logos[match] : undefined;
+}
 export function ProviderLogo({id}:{id:string}) {
- return <span className="onboarding-provider-logo" aria-hidden="true">{logos[id]?<img src={`/icons/provider-logos/${logos[id]}`} alt=""/>:id==='codex'?<TerminalIcon size={24}/>:<PlugsConnectedIcon size={24}/>}</span>;
+ const key = id.trim().toLowerCase();
+ const logo = resolveProviderLogo(key);
+ return <span className="onboarding-provider-logo" aria-hidden="true">{logo?<img src={`/icons/provider-logos/${logo}`} alt=""/>:(key==='codex'||key.includes('codex'))?<TerminalIcon size={24}/>:<PlugsConnectedIcon size={24}/>}</span>;
 }
 export function OnboardingProviders({client,onSelect,disabled,onBack}:{client:RuntimeSettingsClient;onSelect:(kind:ConnectionKind,id:string)=>void;disabled:boolean;onBack?:()=>void}) {
  const {t}=useI18n();

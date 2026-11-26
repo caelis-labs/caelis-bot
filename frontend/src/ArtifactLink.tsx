@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { backend, desktop } from './desktop';
 import type { Artifact,TaskFileCopy } from './backend/contract';
 import { useI18n } from './i18n';
-import { PaperclipIcon } from '@phosphor-icons/react';
+import { PaperclipIcon } from '@phosphor-icons/react/dist/csr/Paperclip';
 
 const textFile = (name: string) => /\.(txt|md|markdown|json|jsonl|sql|log|csv|tsv|ya?ml|xml|toml|ini|sh|py|go|swift|js|ts|tsx|css|html)$/i.test(name);
 const fileLabel = (value: string) => {
@@ -40,7 +40,7 @@ export function ArtifactLink({ file, report, attachment = false, label }: { file
  useEffect(() => {
   if(!position)return;
   const outside=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)&&event.target!==trigger.current)setPosition(null);};
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();setPosition(null);trigger.current?.focus();}};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();setPosition(null);trigger.current?.focus();}};
   window.addEventListener('pointerdown',outside,true);window.addEventListener('keydown',escape,true);
   return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
  },[position]);

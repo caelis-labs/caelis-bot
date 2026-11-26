@@ -14,7 +14,7 @@ export function CodexRuntimePanel({state,busy,checking,error=false,onAction,onDe
  const available=state.installation.updateState==='available';
 
  return <div className="codex-runtime-panel">
-  <section className={`codex-runtime-status${ready?' is-ready':''}`}>
+  <section className={`codex-runtime-status${ready?' is-ready':''}`} data-status={ready?'ready':'pending'}>
    <div className="codex-runtime-symbol" aria-hidden="true">{ready?<CheckIcon size={24}/>:<span>⌘</span>}</div>
    <div className="codex-runtime-copy"><h3>{t(!installed?'settings.codexInstallTitle':ready?'settings.codexReadyTitle':state.loginPending?'runtime.waitingBrowserLogin':login?'settings.codexLoginTitle':'settings.codexUnavailableTitle')}</h3>
    <p>{t(!installed?'settings.codexInstallHint':ready?'settings.codexReadyHint':state.loginPending?'settings.codexLoginPendingHint':login?'settings.codexLoginHint':'settings.codexUnavailableHint')}</p></div>

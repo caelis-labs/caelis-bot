@@ -42,8 +42,9 @@ has its own configured copy. No private modeling credentials enter public builds
 
 ### Install and use
 
-Published macOS packages are Apple Silicon (`arm64`). The app target is macOS 12.0; Caelis Computer Use
-requires arm64/macOS 14.2. Intel packages are not published.
+Published macOS packages are Apple Silicon (`arm64`). The app requires macOS 13.3 for the system WebKit
+matching Vite's Safari 16.4 build target. The renderer uses native dialogs, CSS cascade layers and
+`color-mix()`. Caelis Computer Use requires macOS 14.2.
 
 1. Compare [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) with the
    [macOS manifest](https://releases.caelis.dev/caelis-bot/latest.json); pause on mismatched tags/missing assets.

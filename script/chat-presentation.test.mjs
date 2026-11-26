@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeReplyID, canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from '../frontend/src/chat-presentation.ts';
+import { activeReplyID, canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, shouldCloseHistoryOnKey, withOutgoing } from '../frontend/src/chat-presentation.ts';
 
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
@@ -198,9 +198,18 @@ test('pending introduction uses the normal working animation before connection i
  assert.equal(chatActivity({...running,connection:'disconnected',introductionPending:false}),null);
 });
 
-import {decisionNotDispatched} from '../frontend/src/approval-presentation.ts';
-test('only structured owning-boundary rejection unlocks an approval',()=>{
- assert.equal(decisionNotDispatched({code:'operation_rejected'}),true);
- assert.equal(decisionNotDispatched({cause:{code:'decision_not_dispatched'}}),true);
- for(const error of [new Error('decision_not_dispatched'),{code:'operation_unconfirmed'},{cause:{Message:'required'}},null])assert.equal(decisionNotDispatched(error),false);
-});
+ import {decisionNotDispatched} from '../frontend/src/approval-presentation.ts';
+ test('only structured owning-boundary rejection unlocks an approval',()=>{
+  assert.equal(decisionNotDispatched({code:'operation_rejected'}),true);
+  assert.equal(decisionNotDispatched({cause:{code:'decision_not_dispatched'}}),true);
+  for(const error of [new Error('decision_not_dispatched'),{code:'operation_unconfirmed'},{cause:{Message:'required'}},null])assert.equal(decisionNotDispatched(error),false);
+ });
+
+ test('Escape does not close chat history while a menu or modal dialog is open',()=>{
+  assert.equal(shouldCloseHistoryOnKey('Escape',false,true,false,false,true,false),false);
+  assert.equal(shouldCloseHistoryOnKey('Escape',false,true,true,false,false,false),false);
+  assert.equal(shouldCloseHistoryOnKey('Escape',false,true,false,true,false,false),false);
+  assert.equal(shouldCloseHistoryOnKey('Escape',false,true,false,false,false,true),false);
+  assert.equal(shouldCloseHistoryOnKey('Escape',false,true,false,false,false,false),true);
+  assert.equal(shouldCloseHistoryOnKey('w',true,true,false,false,false,false),true);
+ });
