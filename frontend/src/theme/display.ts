@@ -9,5 +9,7 @@ export function acceptDisplay(v:DisplayState){if(v.revision<current.revision)ret
 window.addEventListener('display-changed',event=>acceptDisplay((event as CustomEvent<DisplayState>).detail));
 media.addEventListener('change',apply);
 apply();
-void desktop<DisplayState>('DisplayPreferences').then(acceptDisplay).catch(()=>{});
+export function loadDisplayPreferences(){
+ return desktop<DisplayState>('DisplayPreferences').then(acceptDisplay).catch(()=>{});
+}
 export function useDisplay(){return useSyncExternalStore(fn=>{listeners.add(fn);return()=>{listeners.delete(fn);};},()=>current);}

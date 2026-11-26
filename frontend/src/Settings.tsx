@@ -141,19 +141,22 @@ function NativeUpdates({active,focusVersion}:{active:boolean;focusVersion:number
   catch{setError(t('settings.updatePreferencesSaveFailed'));}finally{setBusy(false);}
  };
  const autoAvailable=!!preferences?.available;
+ const openReleasePage=()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')));
  const updateStatus=preferences?.state==='failed'?t('chat.surfaceRestartNeeded'):
   preferences?.state==='preparing'?t('settings.updatePreparing'):
   preferences?.state==='closing'?t('settings.updateClosing'):
   preferences?.state==='restarting'?t('settings.updateRestarting'):
   preferences?.format&&preferences.message?preferences.message:preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion');
- const actions=preferences?.format&&preferences.state==='ready'?
+ const installReady=preferences?.format&&preferences.state==='ready';
+ const downloadReady=!installReady&&result?.state==='available';
+ const action=installReady?
   <button className="primary" disabled={busy||preferences.waiting} onClick={()=>void install()}>{t('settings.windowsUpdateInstall')}</button>:
-  result?.state==='available'?
-  <button className="primary" onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{t('settings.downloadNewVersion')}</button>:
+  downloadReady?
+  <button className="primary" onClick={openReleasePage}>{t('settings.downloadNewVersion')}</button>:
   <button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button>;
  return <UpdateSettingsShell
   status={error||updateStatus}
-  actions={actions}
+  actions={<>{action}{!downloadReady&&<button className="text-action" onClick={openReleasePage}>{t('settings.viewReleasePage')}</button>}</>}
   automatic={{
    id:'automatic-updates',
    label:t('settings.autoUpdateLabel'),

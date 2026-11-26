@@ -18,14 +18,16 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
  const phases=['idle','checking','no_compatible_update','available','downloading','verifying','ready','waiting_idle','restarting','installed','rolling_back','rolled_back','failed','unknown','check_failed'];
  const phase=state==='installed'&&!view?.confirmed?'restarting':phases.includes(state)?state:'loading';
  const progress=status?updateProgress(status):undefined;
- const reason=error||(status?.reason?updateReason(status.reason):'');
+ const cancellationResolved=view?.confirmed&&(error==='commit_already_started'||error==='transaction_conflict');
+ const commandError=cancellationResolved?'':error;
+ const reason=commandError||(status?.reason?updateReason(status.reason):'');
  const working=['checking','downloading','verifying','waiting_idle','restarting','rolling_back'].includes(state);
  const latestSuffix=status?.latest&&['available','ready','downloading','verifying','waiting_idle'].includes(state)?` ${status.latest}`:'';
  const reasonText=reason?t(('settings.managedReason_'+reason) as MessageKey):'';
  const reloadReady=!!(view?.confirmed&&status?.current.version!==version);
  const statusText=view?.pending?t('settings.managedPending'):
-  error?reasonText:
   reloadReady?t('settings.managedReloadHint'):
+  commandError?reasonText:
   state==='idle'?(reasonText||t('settings.checkNewVersion')):
   `${t(('settings.managedPhase_'+phase) as MessageKey)}${latestSuffix}${reasonText?` · ${reasonText}`:''}`;
  const progressInfo=state==='downloading'&&status?{
@@ -33,7 +35,7 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
   value:progress,
   detail:`${(status.receivedBytes/1048576).toFixed(1)} MB${status.totalBytes>0?' / '+(status.totalBytes/1048576).toFixed(1)+' MB':''}`,
  }:undefined;
- const actions=reloadReady?
+ const action=reloadReady?
   <button className="primary" onClick={()=>void desktop('RestartSurface')}>{t('settings.managedReload')}</button>:
   managed&&state==='waiting_idle'&&status?.transactionId?
   <button disabled={locked} onClick={()=>void act({action:'cancel',transactionId:status.transactionId,revision:status.revision})}>{t('common.cancel')}</button>:
@@ -46,7 +48,7 @@ export function ManagedUpdates({version,active,focusVersion}:{version:string;act
   badge={status?.testArtifact?t('settings.managedQA'):undefined}
   status={statusText}
   progress={progressInfo}
-  actions={actions}
+  actions={<>{action}{commandError&&!reloadReady&&<button className="text-action" onClick={()=>{setError('');refresh.current()}}>{t('settings.managedRefresh')}</button>}</>}
   automatic={{
    id:'managed-automatic',
    label:t('settings.managedAutomatic'),

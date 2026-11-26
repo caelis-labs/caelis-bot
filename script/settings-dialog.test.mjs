@@ -498,6 +498,8 @@ const { createRoot } = await import('react-dom/client');
 const { SettingsDialog } = await server.ssrLoadModule('/src/settings/runtime/SettingsDialog.tsx');
 const { UpdateSettingsShell } = await server.ssrLoadModule('/src/UpdateSettingsShell.tsx');
 const { PermissionSettings } = await server.ssrLoadModule('/src/PermissionSettings.tsx');
+const { ManagedUpdates } = await server.ssrLoadModule('/src/ManagedUpdates.tsx');
+const { installTransport, productTransport } = await server.ssrLoadModule('/src/transport.ts');
 
 after(async () => {
  for (const dlg of doc.querySelectorAll('dialog')) dlg.cancelTimers?.();
@@ -695,6 +697,55 @@ test('UpdateSettingsShell omits duplicate identity header and renders automatic 
  );
  assert.match(disabledToggle, /id="automatic-updates"/);
  assert.match(disabledToggle, /disabled=""/);
+});
+
+test('ManagedUpdates keeps cancellation conflict visible until installation is confirmed', async t => {
+ const host = doc.createElement('div');
+ doc.body.appendChild(host);
+ const root = createRoot(host);
+ const previousTransport = productTransport();
+ t.after(() => {
+  React.act(() => { root.unmount(); });
+  installTransport(previousTransport);
+  doc.body.removeChild(host);
+ });
+
+ const waiting = { mode: 'managed', automatic: false, state: 'waiting_idle', current: { version: '1.0.0' }, transactionId: 'update-tx', revision: 2 };
+ const installed = { ...waiting, state: 'installed', current: { version: '2.0.0' } };
+ let next = { status: waiting, pending: false, confirmed: false };
+ const commands = [];
+ installTransport(async (_service, method, args) => {
+  if (method === 'ManagedUpdateRead') return next;
+  assert.equal(method, 'ManagedUpdateCommand');
+  commands.push(args[0]);
+  next = { ...next, status: installed };
+  throw new Error('commit_already_started');
+ });
+ const button = text => host.querySelectorAll('button').find(item => item.textContent === text);
+ const click = item => React.act(async () => {
+  assert.ok(item);
+  item.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }));
+ });
+
+ const render = (version, focusVersion) => React.act(async () => {
+  root.render(React.createElement(ManagedUpdates, { version, active: true, focusVersion }));
+ });
+ await render('1.0.0', 0);
+ await click(button('Cancel'));
+ assert.deepEqual(commands, [{ action: 'cancel', transactionId: 'update-tx', revision: 2 }]);
+ assert.match(host.textContent, /Installation has started and can no longer be cancelled/);
+ assert.equal(button('Reload page'), undefined);
+ assert.ok(button('Refresh status'));
+
+ next = { ...next, confirmed: true };
+ await render('1.0.0', 1);
+ assert.match(host.textContent, /The service is updated/);
+ assert.doesNotMatch(host.textContent, /no longer be cancelled/);
+ assert.ok(button('Reload page'));
+ await render('2.0.0', 1);
+ assert.match(host.textContent, /Update completed/);
+ assert.equal(button('Reload page'), undefined);
+ assert.equal(commands.length, 1);
 });
 
 test('PermissionSettings renders footer repair trigger, icon manage action without redundant hint, and clean repair modal', async t => {

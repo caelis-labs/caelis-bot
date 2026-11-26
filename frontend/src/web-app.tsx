@@ -1,6 +1,5 @@
 import {ChatSettingsButton} from './ChatSettingsButton';
 import {ListChecksIcon} from '@phosphor-icons/react/dist/csr/ListChecks';
-import './theme/display';
 import {useEffect,useRef,useState} from 'react';
 import {History} from './Panel';
 import {Settings} from './Settings';

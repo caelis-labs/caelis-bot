@@ -130,6 +130,9 @@ Inspect the actual desktop/chat/settings windows before claiming visual behavior
 The native launch script also supports `--bubble-preview`, `--chat-preview` and
 `--input-menu-preview` for focused production-component fixtures. Synthetic
 fixtures prove their controlled behavior, not live Runtime or OS input acceptance.
+Set `BOT_INPUT_MENU_BASELINE` to a commit SHA to preview that commit's renderer,
+fixtures and assets. If its dependency lockfile differs, run the preview from a
+checkout of that commit with its own installed dependencies.
 Check real focus, hit regions, display scaling and permissions when affected.
 
 ### Development signing and permissions

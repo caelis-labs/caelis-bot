@@ -34,22 +34,13 @@ export function SettingsDialog({ title, description, eyebrow, closeLabel, busy =
   unmountingRef.current = false;
   const dialog = dialogRef.current;
   const explicitPrior = returnFocusRef.current || anchorRef.current;
-  if (dialog && !dialog.open) {
-   if (typeof dialog.showModal === 'function') dialog.showModal();
-   else dialog.setAttribute('open', '');
-  }
+  if (dialog && !dialog.open) dialog.showModal();
   const guard = (event: Event) => event.preventDefault();
   window.addEventListener('settings-navigate', guard);
   return () => {
    unmountingRef.current = true;
    window.removeEventListener('settings-navigate', guard);
-   if (dialog) {
-    if (typeof dialog.close === 'function') {
-     if (dialog.open) dialog.close();
-    } else {
-     dialog.removeAttribute('open');
-    }
-   }
+   if (dialog?.open) dialog.close();
    if (explicitPrior) {
     restoreFrame.current = requestAnimationFrame(() => {
      if (explicitPrior.isConnected && !explicitPrior.closest('[inert]')) explicitPrior.focus();
@@ -118,7 +109,7 @@ export function SettingsDialog({ title, description, eyebrow, closeLabel, busy =
     const dialog = event.currentTarget;
     if (dialog.open) return;
     if (busyRef.current || blockedRef.current || document.querySelector('[data-select-open="true"]')) {
-     if (typeof dialog.showModal === 'function') dialog.showModal();
+     dialog.showModal();
      return;
     }
     onCloseRef.current();

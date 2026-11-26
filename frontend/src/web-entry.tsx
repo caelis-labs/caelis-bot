@@ -1,4 +1,4 @@
-import './theme/display';
+import {loadDisplayPreferences} from './theme/display';
 import {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {installTransport} from './transport';
@@ -13,6 +13,7 @@ async function start(){
  if(!response.ok){root.render(<ConnectRetry/>);return;}
  const bootstrap=await response.json() as WebBootstrap,client=createWebTransport(bootstrap);
  installTransport(client.transport);
+ void loadDisplayPreferences();
  const {WebApp}=await import('./web-app');client.start();
  window.addEventListener('web-logged-out',()=>{client.close();location.reload()},{once:true});
  root.render(<WebApp client={client}/>);
