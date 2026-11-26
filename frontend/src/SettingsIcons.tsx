@@ -1,4 +1,5 @@
 import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
+export { CaretUpDownIcon } from '@phosphor-icons/react/dist/csr/CaretUpDown';
 export { LightningIcon } from '@phosphor-icons/react/dist/csr/Lightning';
 export { CheckIcon } from '@phosphor-icons/react/dist/csr/Check';
 export { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwise';

@@ -10,6 +10,8 @@ import {defaultCharacterKey,fallbackCharacter} from './assets';
 import '../theme/caelis.css';
 import '../styles/base.css';
 import '../style.css';
+import '../styles/settings-shell.css';
+import '../styles/settings-core.css';
 
 const contexts=new Map<HTMLCanvasElement,WebGLRenderingContext|WebGL2RenderingContext>();
 const getContext=HTMLCanvasElement.prototype.getContext;

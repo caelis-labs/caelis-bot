@@ -1,6 +1,8 @@
 import '../theme/caelis.css';
 import '../styles/base.css';
 import '../style.css';
+import '../styles/settings-shell.css';
+import '../styles/settings-core.css';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './index';

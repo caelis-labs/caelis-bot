@@ -19,62 +19,10 @@ body[data-surface=context] { background:var(--caelis-chat); }
 /* Native chrome is outside the viewport; the floating navigation takes no layout space. */
 .context-view { animation:surface-arrive .16s ease-out; }
 @keyframes surface-arrive { from { opacity:.65; transform:translateY(3px); } to { opacity:1; transform:none; } }
-.settings-window aside { flex-basis:212px; width:212px; padding:22px 12px 14px; background:var(--caelis-sidebar); }
-html[data-native-material] .context-window .settings-window aside { background:transparent; }
-.settings-identity { display:flex; gap:10px; align-items:center; margin:0 12px 20px; }
-.settings-identity img { width:32px; height:32px; border-radius:9px; object-fit:contain; background:var(--caelis-content); }
-.settings-identity strong { display:block; font-size:13px; font-weight:600; }
-.settings-window .settings-identity small { display:block; font-size:11px; margin:3px 0 0; padding:0; }
-.settings-window aside nav { flex:1; overflow:auto; min-height:0; gap:0; }
-.settings-nav-group + .settings-nav-group { margin-top:20px; }
-.settings-nav-group>p { margin:0 12px 7px; font-size:11px; font-weight:500; color:var(--muted); }
-.settings-window aside nav button { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; margin:2px 0; padding:8px 12px; color:var(--muted); border-radius:8px; text-align:left; }
-.settings-window aside nav button svg { flex:none; }
-.settings-window aside nav button[aria-current] { background:var(--caelis-selected); color:var(--ink); font-weight:600; }
-.settings-window .settings-content { padding:38px 44px 48px; background:var(--caelis-content); }
-.settings-window .settings-page { width:100%; max-width:760px!important; margin:0 auto; }
-.settings-window h1 { font-size:26px; line-height:1.3; letter-spacing:-.035em; margin:0 0 28px; font-weight:650; }
-.settings-window .settings-page-intro { margin:-16px 0 28px; font-size:12px; line-height:1.6; }
-.settings-window .setting-section { margin:26px 0; padding:0; border:0; background:transparent; border-radius:0; }
-.settings-window .setting-section h2,.settings-window .general-preferences h2 { color:var(--muted); font-size:12px; font-weight:600; margin:0 0 8px; }
-.settings-window .setting-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,220px); align-items:center; gap:28px; min-height:64px; padding:13px 0; border:0; }
-.settings-window .setting-label { min-width:0; }
-.settings-window .setting-label :is(span,label) { font-size:13px; font-weight:550; }
-.settings-window .setting-label p { font-size:12px; line-height:1.6; margin:5px 0 0; }
-.settings-window .setting-control { min-width:0; max-width:none; justify-self:stretch; display:flex; justify-content:flex-end; gap:8px; }
-.settings-window .setting-control :is(select,input:not([type=checkbox]):not([type=range])) { width:100%; min-width:0; }
-.settings-window .setting-control .task-limit { width:76px!important; text-align:center; }
-.settings-window :is(button,select,input:not([type=checkbox]):not([type=radio]):not([type=range])) { font-size:12px; min-height:34px; border-radius:8px; }
-.settings-window :is(select,input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea) { background-color:var(--caelis-content); border-color:var(--line); }
-.settings-window .general-settings .general-preferences { padding:0; background:transparent; border:0; border-radius:0; }
-.settings-window .general-settings>.setting-section { padding:0; border:0; background:transparent; border-radius:0; margin:26px 0; }
-.settings-window .general-preferences .setting-section { margin:0; }
-.settings-window .general-settings .maintenance-surface { margin-top:26px; }
-.settings-window .shortcut-setting { border:0; }
-.settings-window .shortcut-editor { padding:12px 0; }
-.settings-window .shortcut-editor .setting-row { display:flex; }
-.settings-window .shortcut-editor .setting-label { flex:1; }
-.settings-window .shortcut-record { white-space:normal; }
-.settings-window .size-control { width:100%; min-width:0; }
+/* Native Chrome & View transitions; settings/core styles live in styles/settings-*.css */
 .settings-window .permission-row { border:0; padding:15px 0; }
 .settings-window .permission-description p { margin:5px 0 0; font-size:12px; }
 .settings-window .permission-row>.permission-toggle { align-items:center; gap:8px; }
-.settings-window .appearance-settings .character-preview { border:0; margin:6px 0 22px; }
-.settings-window .appearance-settings .setting-section { padding:0; border:0; background:transparent; border-radius:0; }
-.settings-window .runtime-active { padding:12px 0 18px; border:0; }
-.settings-window .runtime-setting-row { padding:14px 0; min-height:68px; gap:24px; border:0; }
-.settings-window .runtime-setting-row>div:first-child>strong { font-size:13px; font-weight:550; }
-.settings-window .runtime-setting-row p { margin:5px 0 0; font-size:12px; }
-.settings-window .runtime-model-summary { max-width:240px; width:220px; min-width:0; padding:8px 10px; text-align:left; background:var(--wash); border:1px solid transparent; }
-.settings-window .runtime-model-summary:hover:not(:disabled) { border-color:var(--line); }
-.settings-window .runtime-model-summary strong { color:var(--ink); font-weight:500; }
-.settings-window .runtime-model-summary small { font-size:11px; margin-top:3px; }
-.settings-window .runtime-model-section { margin-top:16px; }
-.settings-window .runtime-model-section h2 { font-size:12px; color:var(--muted); margin:26px 0 8px; }
-.settings-window .runtime-segments { margin:0; border:0; padding:3px; gap:2px; border-radius:8px; }
-.settings-window .runtime-segments button { padding:6px 13px; min-height:28px; border-radius:6px; }
-.settings-window .runtime-segments button[aria-pressed=true] { background:var(--caelis-raised); color:var(--ink); box-shadow:0 1px 3px #00000010; }
-.settings-window .runtime-model-list .runtime-model-route { display:block; margin-top:3px; color:var(--muted); font-size:11px; font-weight:400; }
 .settings-window .runtime-dialog { padding:24px; border-radius:16px; border:1px solid var(--line); box-shadow:0 16px 48px #00000028; animation:dialog-arrive .14s ease-out; }
 .settings-window .runtime-dialog .setting-row { grid-template-columns:minmax(0,1fr) minmax(100px,200px); gap:18px; }
 .settings-window .runtime-dialog .runtime-choices button { border-radius:10px; }
@@ -83,9 +31,7 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .settings-window .runtime-dialog form>label>input { margin-top:7px; }
 .settings-window .runtime-dialog-scrim { background:#17251e30; }
 .settings-window .runtime-popover-scrim { background:transparent; }
-.settings-window .runtime-model-popover { padding:16px; }
-.settings-window .runtime-model-drawer { padding:12px; }
-.settings-window .runtime-model-popover .runtime-dialog-heading h2 { font-size:12px; }
+.settings-window .runtime-dialog .runtime-dialog-heading h2 { font-size:16px; }
 @keyframes dialog-arrive { from { opacity:0; transform:translateY(5px) scale(.99); } to { opacity:1; transform:none; } }
 .settings-window .messaging-channel { padding:18px 20px; margin:8px 0; gap:16px; border:1px solid var(--line); border-radius:10px; }
 .settings-window .messaging-chevron { flex:none; margin-left:4px; }
@@ -102,43 +48,14 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .setup-flow .bot-introduction h1,.setup-flow .runtime-welcome h1 { font-size:28px; letter-spacing:-.035em; }
 .setup-flow .setup-lead { font-size:13px; line-height:1.7; margin-bottom:26px; }
 .setup-flow .setup-end { border-top:0!important; background:var(--caelis-content)!important; }
-@media(max-width:900px) {
- .settings-window .settings-content { padding:30px 28px 40px; }
- .settings-window .setting-row { gap:20px; grid-template-columns:minmax(0,1fr) minmax(130px,190px); }
- .settings-window .runtime-model-summary { width:190px; }
-}
-@media(max-width:650px) {
- .settings-window aside { flex-basis:164px; width:164px; min-width:164px; padding:18px 8px 12px; }
- .settings-window aside nav { padding:0; }
- .settings-window .settings-identity { margin-left:8px; margin-right:8px; }
- .settings-window .settings-content { padding:26px 20px 36px; }
- .settings-window .setting-row { grid-template-columns:1fr; gap:9px; }
- .settings-window .setting-label { flex-basis:auto; }
- .settings-window .setting-control { width:100%; }
- .settings-window .runtime-setting-row { flex-wrap:wrap; gap:10px; }
- .settings-window .runtime-model-summary { width:100%; max-width:none; }
-}
 @media(prefers-reduced-motion:reduce) {
  .context-view,.runtime-dialog { animation:none!important; }
- .settings-window * { scroll-behavior:auto; transition:none; }
-}
-@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) {
- html[data-native-material] .context-window .settings-window aside { background:var(--caelis-sidebar); }
 }
 html[data-native-material=solid] .context-window .settings-window aside { background:var(--caelis-sidebar); }
-.settings-window .terminal-choice { display:flex; align-items:center; width:100%; gap:8px; }
-.settings-window .terminal-choice select { min-width:0; flex:1; width:0; }
-.settings-window .terminal-choice button { flex:none; }
 .terminal-command-editor label { display:block; margin:14px 0 8px; font-size:12px; }
 .terminal-command-editor textarea { width:100%; height:90px; max-height:160px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-family:ui-monospace,monospace; font-size:12px; line-height:1.6; }
 .terminal-command-editor .custom-terminal-enable { display:flex; align-items:center; gap:8px; }
-.settings-window .runtime-connection-entry { display:flex; justify-content:space-between; align-items:center; gap:20px; width:100%; padding:17px 0; border:0; border-radius:0; background:transparent; text-align:left; }
-.runtime-connection-entry strong,.runtime-connection-entry small { display:block; }
-.runtime-connection-entry strong { font-size:13px; font-weight:550; }
-.runtime-connection-entry small { color:var(--muted); font-size:12px; margin-top:5px; }
-.settings-window .runtime-connection-model { border:0; padding:14px 0; }
 .settings-window .runtime-location-entry { margin:18px 0 8px; color:var(--muted); }
-.settings-window .runtime-team-entry { display:flex; align-items:center; gap:8px; width:auto; border:0; margin-top:20px; padding:6px 0; }
 .settings-window .runtime-dialog input[type=checkbox] { width:16px; height:16px; padding:0; margin:0; flex:none; accent-color:var(--accent); }
 .settings-window .runtime-dialog .custom-terminal-enable { display:flex; flex-direction:row; align-items:center; gap:8px; }
 .context-window .settings-window.setup-window { justify-content:center; background:var(--caelis-content); }
@@ -147,20 +64,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .context-window,.context-view,.settings-window,.setup-page { height:100vh; height:100dvh; }
 .settings-window .runtime-dialog { max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); }
 
-.runtime-workspace .execution-settings { margin-top:28px; }
-.runtime-account-note { margin:0 0 24px; }
-
-/* Connection setup shares the same fields and action sizes as settings. */
-.settings-window .runtime-workspace { max-width:720px; }
-.settings-window .runtime-workspace>h1 { margin-bottom:24px; }
-.settings-window .runtime-active { gap:16px; padding:0 0 20px; border-bottom:1px solid var(--line); }
-.settings-window .runtime-active>div:first-child { flex:1; }
-.settings-window .runtime-active strong { font-size:14px; font-weight:550; }
-.settings-window .runtime-active p { font-size:12px; margin:5px 0 0; }
-.settings-window .runtime-active-actions { gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-.settings-window .runtime-model-section { margin:8px 0 24px; }
-.settings-window .runtime-model-section h2 { margin:20px 0 8px; }
-.settings-window .runtime-section-title { margin-top:24px; }
+/* Onboarding, connection dialogs, and worker setup. */
 .settings-window .runtime-worker-options { font-size:12px; color:var(--muted); margin:8px 0; }
 .settings-window .runtime-worker-options summary,.settings-window .runtime-permissions-disclosure>summary { cursor:pointer; padding:10px 0; }
 .settings-window .runtime-worker-options[open] summary { color:var(--ink); }
@@ -169,7 +73,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-worker-recovery p { margin:0; font-size:12px; }
 .settings-window .runtime-permissions-disclosure { border-top:1px solid var(--line); margin-top:20px; font-size:13px; }
 .settings-window .runtime-permissions-disclosure .setting-section { margin-top:8px; }
-.settings-window .runtime-team-entry { margin:12px 0 0; }
 .settings-window .runtime-connect-catalog { grid-template-columns:1fr; max-height:300px; }
 .settings-window .runtime-connect-catalog button { min-height:44px; padding:12px 14px; border-radius:8px; }
 .settings-window .runtime-dialog>label { display:flex; flex-direction:column; gap:7px; margin:18px 0; }
@@ -193,70 +96,12 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .setup-flow .permission-settings { padding-top:0; }
 .settings-window .setup-flow .permission-privacy { margin-top:16px; }
 @media(max-width:720px) {
- .settings-window .runtime-active { align-items:flex-start; flex-wrap:wrap; }
  .settings-window .runtime-worker-recovery { flex-wrap:wrap; }
  .settings-window .setup-page { padding:24px; }
  .settings-window .setup-progress { gap:12px; }
 }
-.settings-window .runtime-model-picker .runtime-model-choices { border:0; margin:0; padding:0; flex:1 1 auto; min-height:140px; overflow:hidden; }
-.runtime-model-picker .runtime-model-list-body { display:flex; flex-direction:column; height:auto; max-height:320px; }
-.runtime-model-picker .runtime-model-list { flex:1; min-height:80px; overflow:auto; max-height:240px; }
-.runtime-model-picker .runtime-model-search-field,.runtime-model-picker .runtime-model-connect { flex-shrink:0; }
-.runtime-model-picker .model-parameters { max-height:200px; overflow:auto; }
-.runtime-model-picker .runtime-fast-toggle { width:auto; gap:8px; padding:6px 10px; }
 .settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)>summary { display:flex; align-items:center; gap:8px; width:fit-content; border-radius:4px; }
 .settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)[open]>summary svg { transform:rotate(90deg); }
-.settings-window .runtime-model-picker { height:auto; }
-.settings-window .runtime-model-picker .runtime-model-choices { flex:0 1 auto; max-height:320px; min-height:80px; }
-.settings-window .runtime-dialog .runtime-model-search-field input:not([type=checkbox]):not([type=radio]):not([type=range]) { border:0; background:transparent; height:32px; padding:0; box-shadow:none; }
-.settings-window .runtime-model-connect { align-self:flex-start; text-align:left; width:auto; margin-top:10px; }
-
-/* Stable page categories; full-width rows keep labels and controls together. */
-.settings-window .settings-page[data-section=connections] { max-width:960px!important; margin:0; }
-.settings-window .runtime-workspace { max-width:960px; margin:0; }
-.settings-window .runtime-workspace-tabs { flex-direction:row; gap:28px; margin:0 0 24px; }
-.settings-window .runtime-workspace-tabs button { font-size:13px; border-radius:0!important; }
-.settings-window .runtime-workspace [hidden] { display:none; }
-.settings-window .runtime-model-section { margin:20px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
-.settings-window .runtime-model-section .runtime-setting-row { margin:0; padding:16px 20px; min-height:72px; border-bottom:1px solid var(--line); }
-.settings-window .runtime-model-section .runtime-setting-row:last-child { border-bottom:0; }
-.settings-window .runtime-model-section h2 { padding:16px 20px 4px; margin:0; color:var(--muted); font-size:12px; }
-.settings-window .runtime-model-summary { background:transparent; border:1px solid var(--line); border-radius:8px; min-width:210px; }
-.settings-window .runtime-connection-entry { border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); margin:8px 0; padding:16px 20px; }
-.settings-window .runtime-team-entry { width:100%; border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); padding:16px 20px; margin:0; }
-.settings-window .runtime-page-footer { margin-top:24px; }
-.settings-window .runtime-workspace .execution-settings { margin-top:0; }
-.settings-window .runtime-workspace .runtime-section-title { margin-top:0; }
-.settings-window .runtime-workspace .runtime-team small { display:none; }
-@media(max-width:800px) {
- .settings-window .runtime-model-section .runtime-setting-row { padding:14px; }
- .settings-window .runtime-model-summary { min-width:160px; }
-}
-
-.settings-window .runtime-model-picker .model-parameters { border-top:0; margin-top:12px; padding-top:0; }
-.settings-window .runtime-model-picker .runtime-effort-control { margin:8px 0; }
-.settings-window .runtime-model-picker .runtime-model-list button:focus-visible { outline-offset:-2px; }
-
-/* Settings shell: one breadcrumb header, one content grid, shared grouped rows. */
-.settings-window .settings-main { display:flex; flex-direction:column; flex:1; min-width:0; height:100%; }
-.settings-window .settings-toolbar { display:flex; align-items:center; gap:12px; flex:none; height:64px; padding:0 32px; border-bottom:1px solid var(--line); color:var(--muted); }
-.settings-window .settings-toolbar h1 { margin:0; font-size:16px; letter-spacing:0; color:var(--ink); font-weight:600; }
-.settings-window .settings-content { flex:1; min-height:0; padding:28px 32px 40px; }
-.settings-window .settings-page,.settings-window .settings-page[data-section=connections] { max-width:1040px!important; margin:0; }
-.settings-window .runtime-workspace { max-width:none; }
-.settings-page>h1,.settings-page>section>h1 { display:none; }
-.settings-window .setting-section { margin:0 0 24px; }
-.settings-window .setting-list { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
-.settings-window .setting-list .setting-row { min-height:68px; padding:16px 20px; border-top:0; border-bottom:1px solid var(--line); gap:24px; grid-template-columns:minmax(0,1fr) minmax(160px,280px); }
-.settings-window .setting-list .setting-row:last-child { border-bottom:0; }
-.settings-window .general-preferences .setting-list { border-radius:0; border-bottom:0; }
-.settings-window .general-preferences .setting-section:first-of-type .setting-list { border-radius:12px 12px 0 0; }
-.settings-window .general-preferences .setting-section:last-of-type .setting-list { border-radius:0 0 12px 12px; border-bottom:1px solid var(--line); }
-.settings-window .general-settings .general-preferences { margin-bottom:24px; }
-.settings-window .general-settings>.setting-section,.settings-window .appearance-settings .setting-section { margin:0 0 24px; }
-.settings-window .setting-section h2,.settings-window .general-preferences h2 { margin:0 0 10px; font-size:12px; }
-.settings-window .shortcut-editor { padding:0; }
-.settings-window .shortcut-editor+.shortcut-editor { border-top:1px solid var(--line); }
 .settings-window .permission-row { padding:18px 20px; background:var(--caelis-raised); border:1px solid var(--line); border-radius:10px; margin:10px 0; }
 .settings-window .channel-card,.settings-window .machine-card { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; }
 .settings-window .plugin-list { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
@@ -264,12 +109,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-dialog { background:var(--caelis-popover); }
 .settings-window .runtime-dialog-scrim { background:rgba(12,12,16,.42); backdrop-filter:blur(3px); }
 .settings-window .runtime-popover-scrim { background:transparent; backdrop-filter:none; }
-@media(max-width:800px) {
- .settings-window .settings-toolbar { padding:0 24px; }
- .settings-window .settings-content { padding:24px; }
- .settings-window .setting-list .setting-row { padding:14px; gap:16px; grid-template-columns:minmax(0,1fr) minmax(140px,210px); }
-}
-
 .settings-window :is(.messaging-settings,.telegram-page,.plugin-settings,.machine-settings) { max-width:none; }
 .settings-window .messaging-channel { background:var(--caelis-raised); }
 .settings-window .telegram-heading { padding:0 0 16px; }
@@ -283,99 +122,22 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .permission-privacy { padding:20px 0; }
 .settings-window .permission-repair { border:0; margin:0; padding:0; }
 .settings-window .permission-app-path { overflow-wrap:anywhere; }
-.settings-window .settings-page .settings-page-intro { margin:0 0 20px; }
 .settings-window .plugin-tabs { margin-top:0; }
 .settings-window .machine-page-intro { margin-top:0; }
-
-.settings-window .setting-label p :is(span,label) { font-size:12px; font-weight:400; }
 .settings-window .permission-repair .permission-reset-consent { display:flex; align-items:flex-start; gap:10px; }
 .settings-window .permission-reset-consent input { flex:none; width:16px; height:16px; margin:2px 0 0; }
 
-/* Shared settings menus: use app surfaces instead of platform select chrome. */
-.settings-select { position:relative; min-width:0; width:100%; font-size:12px; }
-.settings-select-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:38px; text-align:left; }
-.settings-select-trigger>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.settings-select-trigger svg { flex:none; }
-.settings-select-menu { position:fixed; z-index:110; inset:auto; margin:0; padding:5px; box-sizing:border-box; overflow:auto; background:var(--caelis-raised,var(--surface)); color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 36px #0004; }
-.settings-select-menu:popover-open { display:block; }
-.settings-select-menu button { display:flex; justify-content:space-between; gap:18px; width:100%; min-height:40px; border:0; border-radius:6px; padding:8px 12px; background:transparent; color:var(--ink); text-align:left; }
-.settings-select-menu button:hover,.settings-select-menu button:focus-visible { background:var(--caelis-selected); outline:none; }
-.settings-select-menu button[aria-checked="true"] { color:var(--caelis-selected-text); }
-.settings-select-menu button:disabled { color:var(--muted); opacity:.6; }
-.terminal-choice>.settings-select { flex:1; min-width:160px; }
-.settings-window .settings-select-menu button { border:0; border-radius:6px; background:transparent; padding:8px 12px; min-height:36px; font-size:13px; }
-.settings-window .settings-select-menu button:hover,.settings-window .settings-select-menu button:focus-visible { background:var(--caelis-selected); }
-.settings-select-trigger svg { transform:rotate(90deg); }
-.settings-select[data-select-open] .settings-select-trigger svg { transform:rotate(270deg); }
-
-.shortcut-inline { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
-.shortcut-keycap { font:inherit; background:var(--caelis-hover); border-radius:7px; padding:4px 9px; white-space:nowrap; }
-.shortcut-unset { color:var(--muted); }
-.shortcut-status[data-state="conflict"] { color:var(--error); }
-.settings-window .shortcut-inline button.shortcut-icon { display:grid; place-items:center; border:0; background:transparent; color:var(--muted); width:32px; min-height:32px; padding:4px; }
-.settings-window .shortcut-inline button.shortcut-icon:hover { color:var(--ink); background:var(--caelis-hover); }
-.settings-window .shortcut-inline button.shortcut-cancel { border:0; background:transparent; color:var(--muted); }
-.settings-window input.shortcut-inline-recorder { width:190px; max-width:100%; caret-color:transparent; }
-.shortcut-inline-recorder::placeholder { color:var(--ink); opacity:1; }
-
-.settings-select-menu[hidden] { display:none; }
-.settings-window .shortcut-inline button.shortcut-cancel { flex:none; white-space:nowrap; }
-.settings-window input.shortcut-inline-recorder { min-width:0; width:160px; }
-
-.settings-window .settings-select:has(#interface-language) { max-width:200px; }
-.settings-window .terminal-choice { max-width:260px; }
-.settings-window .custom-terminal-input { width:100%; box-sizing:border-box; margin:8px 0 20px; }
-
 .settings-window .runtime-dialog p.inline-error { color:var(--error); margin:4px 0 16px; }
-.settings-window .appearance-settings .settings-select { max-width:260px; }
-.settings-window .appearance-settings .runtime-segments { width:280px; max-width:100%; margin:0; }
-.settings-window .appearance-settings .runtime-segments button { white-space:nowrap; padding:8px 12px; }
-/* Settings remain readable when a background WKWebView suspends animation frames. */
 .context-view:has(.settings-window),.settings-window .runtime-dialog { animation:none; }
 .settings-window .connection-detail.runtime-team-dialog { width:100%; }
 
-/* Runtime setup: one state, one next action, with maintenance kept separate. */
-.settings-window .codex-runtime-panel { max-width:820px; }
-.settings-window .codex-runtime-status { display:flex; align-items:center; gap:18px; padding:24px 0 32px; }
-.codex-runtime-symbol { display:grid; place-items:center; flex:none; width:48px; height:48px; border-radius:14px; background:var(--wash); color:var(--accent); font-size:26px; }
-.settings-window .codex-runtime-copy { flex:1; min-width:0; }
-.settings-window .codex-runtime-copy h3 { margin:0 0 8px; font-size:18px; font-weight:600; }
-.settings-window .codex-runtime-copy p { margin:0; color:var(--muted); font-size:13px; line-height:1.6; }
-.codex-runtime-actions { display:flex; flex-wrap:wrap; gap:8px; }
+/* Runtime install progress dialog & provider details. */
 .settings-window .codex-update-result { margin:0; padding:0 20px 16px; color:var(--muted); font-size:12px; }
 .settings-window .runtime-install-dialog { width:420px; }
 .runtime-install-progress { height:6px; border-radius:6px; overflow:hidden; margin:24px 0 18px; background:var(--wash); }
 .runtime-install-progress span { display:block; height:100%; width:36%; border-radius:inherit; background:var(--accent); animation:runtime-install-travel 1.6s ease-in-out infinite alternate; }
 @keyframes runtime-install-travel { from { transform:translateX(0); } to { transform:translateX(178%); } }
 @media(prefers-reduced-motion:reduce) { .runtime-install-progress span { animation:quiet-progress 2.4s ease-in-out infinite; width:36%; transform:none; } }
-@media(max-width:760px) { .settings-window .codex-runtime-status { flex-wrap:wrap; } .codex-runtime-actions { margin-left:66px; } }
-.settings-window .connections-page .setting-list > button.connection-navigation-row { border-radius:0; }
-.settings-subpage-slot:empty { display:none; }
-.settings-toolbar:has(.settings-subpage-crumb)>h1 { display:none; }
-.settings-subpage-crumb { display:flex; align-items:center; gap:12px; min-width:0; }
-.settings-window .settings-subpage-crumb>button { padding:0; min-height:32px; font-size:14px; font-weight:400; color:var(--muted); }
-.settings-window .codex-runtime-status { padding:8px 0 24px; }
-.codex-version-status { white-space:nowrap; }
-.settings-window .team-agent-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
-.settings-window .team-agent-card { display:flex; flex-direction:column; align-items:stretch; text-align:left; padding:20px; min-height:148px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
-.settings-window .team-agent-card:hover { background:var(--wash); }
-.settings-window .team-agent-card>strong { font-size:15px; font-weight:600; }
-.settings-window .team-agent-card>p { font-size:13px; color:var(--muted); line-height:1.6; margin:8px 0 20px; font-weight:400; }
-.settings-window .team-agent-model { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:auto; font-size:13px; color:var(--muted); }
-@media(max-width:760px) { .settings-window .team-agent-cards { grid-template-columns:1fr; } }
-
-/* Keep a single, inset search focus ring inside the dialog clip. */
-.settings-window .runtime-model-picker .runtime-model-search-field:focus-within { outline-offset:-2px; }
-.settings-window .runtime-model-picker .runtime-model-search-field input:focus,
-.settings-window .runtime-model-picker .runtime-model-search-field input:focus-visible { outline:none; box-shadow:none; }
-.settings-window .runtime-model-picker .runtime-model-actions { grid-template-columns:minmax(0,1fr) auto auto; }
-.settings-window .runtime-model-picker .runtime-reset-parameters { grid-column:auto; justify-self:start; }
-.settings-window .runtime-model-list button>.runtime-fast-badge { flex:0 0 auto; display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); white-space:nowrap; }
-.settings-window .team-agent-tile { border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); overflow:hidden; display:flex; flex-direction:column; }
-.settings-window .team-agent-tile .team-agent-card { width:100%; border:0; border-radius:0; flex:1; background:transparent; }
-.settings-window .team-agent-tile .team-agent-card:hover { background:var(--wash); }
-.settings-window .runtime-team .team-agent-tile>button.team-classifier-entry { border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; padding:14px 20px; display:flex; justify-content:space-between; gap:12px; text-align:left; font-size:12px; }
-.settings-window .team-classifier-entry>span:last-child { display:flex; align-items:center; gap:8px; color:var(--muted); }
 
 .settings-window .provider-connection .setup-end { justify-content:flex-end; }
 .settings-window .provider-connection .connection-detail-body { max-width:760px; }
@@ -573,15 +335,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .onboarding-connection .runtime-fast-toggle { display:flex; width:auto; gap:8px; padding:6px 10px; }
 .settings-window .onboarding-connection .model-parameters { margin:18px 0 24px; }
 .settings-select-menu .settings-select-search { width:calc(100% - 12px); margin:6px; box-sizing:border-box; }
-/* Shared discrete effort selector for onboarding and settings. */
-.settings-window .runtime-effort-segments { display:flex; width:fit-content; max-width:100%; flex-wrap:wrap; gap:3px; padding:3px; margin-top:9px; border-radius:9px; background:var(--wash); }
-.settings-window .runtime-effort-segments > label { position:relative; display:block; margin:0; padding:0; cursor:pointer; }
-.settings-window .runtime-effort-segments input[type=radio] { position:absolute; opacity:0; width:1px; height:1px; min-height:0; margin:0; padding:0; }
-.settings-window .runtime-effort-segments span { display:block; min-width:44px; padding:7px 12px; border:1px solid transparent; border-radius:7px; font-size:13px; line-height:18px; text-align:center; color:var(--muted); }
-.settings-window .runtime-effort-segments input:checked + span { background:var(--settings-bg,var(--bg)); border-color:var(--line); color:var(--ink); box-shadow:0 1px 3px #0001; }
-.settings-window .runtime-effort-segments input:focus-visible + span { outline:2px solid var(--caelis-focus); outline-offset:1px; }
-.settings-window .runtime-effort-segments label:hover span { color:var(--ink); }
-.settings-window .runtime-effort-segments input:disabled + span { opacity:.5; cursor:default; }
+/* Onboarding effort options share settings-shell defaults with layout overrides below. */
 
 /* Onboarding connection fields form one aligned configuration surface. */
 .settings-window .setup-flow .onboarding-connection .provider-config-group { border:1px solid var(--line); border-radius:12px; padding:0 18px; background:var(--settings-bg,var(--bg)); }
@@ -691,66 +445,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .provider-oauth-page .oauth-manual form { display:flex; flex-direction:column; gap:12px; margin-top:16px; }
 .settings-window .provider-oauth-page .oauth-manual label { display:flex; flex-direction:column; gap:8px; }
 .settings-window .provider-oauth-page .oauth-refresh { margin-top:16px; font-size:12px; }
-/* Keep parameter controls inside their own row, including portalled dialogs. */
-.settings-window .runtime-model-picker .runtime-fast-toggle { display:inline-flex; align-items:center; justify-content:center; width:auto; height:auto; min-height:34px; gap:8px; padding:6px 12px; white-space:nowrap; }
-.settings-window .runtime-model-picker .runtime-model-parameters { display:flex; flex-direction:column; align-items:stretch; gap:16px; }
-.settings-window .runtime-model-picker .runtime-fast-toggle { align-self:flex-start; }
-.settings-window .runtime-model-picker .runtime-model-list { scrollbar-gutter:stable; padding-right:8px; }
-.settings-window .runtime-model-picker .runtime-model-list button { box-sizing:border-box; }
-.settings-window .runtime-model-picker .runtime-model-list button>svg { flex-shrink:0; }
-
-/* Settings-only compact model editor; onboarding keeps its existing controls. */
-.settings-window .runtime-model-compact { width:390px; max-width:calc(100vw - 32px); height:auto; padding:18px; }
-.settings-window .runtime-model-compact .runtime-dialog-heading { margin-bottom:18px; }
-.settings-window .runtime-compact-model-row { display:flex; align-items:center; gap:10px; }
-.settings-window .runtime-compact-model-row>span { flex:none; font-size:12px; color:var(--muted); }
-.settings-window .runtime-compact-model-row .settings-select { flex:1; min-width:0; }
-.settings-window .runtime-compact-model-row .settings-select-trigger { width:100%; min-height:36px; height:36px; text-align:left; }
-.settings-window .runtime-model-compact .runtime-compact-fast { display:grid; place-items:center; flex:none; width:36px; height:36px; min-height:36px; padding:0; border-radius:9px; }
-.settings-window .runtime-model-compact .runtime-compact-fast[aria-pressed=true] { background:var(--caelis-selected); color:var(--accent); border-color:var(--accent); }
-.settings-window .runtime-model-compact .model-parameters { margin-top:18px; overflow:visible; max-height:none; }
-.settings-window .runtime-model-compact .runtime-effort-segments { display:flex; width:100%; flex-wrap:nowrap; }
-.settings-window .runtime-model-compact .runtime-effort-segments label { flex:1 1 0; min-width:0; }
-.settings-window .runtime-model-compact .runtime-effort-segments label span { min-width:0; padding:7px 5px; font-size:12px; white-space:nowrap; }
-.settings-window .runtime-model-compact .runtime-model-actions { margin-top:20px; padding-top:14px; }
-
-/* Shared dropdown geometry includes input padding, borders and focus rings. */
-.settings-select-menu { overflow-x:hidden; max-width:calc(100vw - 16px); }
-.settings-select-menu button { box-sizing:border-box; min-width:0; align-items:center; }
-.settings-select-menu .settings-select-option-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
-.settings-select-menu .settings-select-check { flex:none; width:14px; text-align:center; }
-.settings-select-menu .settings-select-search,
-.settings-window .settings-select-menu input.settings-select-search { display:block; box-sizing:border-box; width:calc(100% - 12px); min-width:0; max-width:calc(100% - 12px); margin:6px 6px 12px; }
-.settings-select-menu input.settings-select-search:focus,
-.settings-select-menu input.settings-select-search:focus-visible { outline-offset:-2px; }
-.settings-select-value { display:flex; flex:1; align-items:center; gap:8px; min-width:0; }
-.settings-select-value>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.settings-source-badge { flex:none; display:inline-flex; align-items:center; padding:2px 6px; border-radius:5px; font-size:10px; font-weight:550; line-height:16px; color:var(--accent); background:var(--caelis-selected); white-space:nowrap; }
-.settings-select-value .settings-source-badge { margin-left:auto; }
-.settings-select-centered .settings-select-trigger { position:relative; padding-inline:17px; text-align:left; }
-.settings-select-centered .settings-select-trigger svg { position:absolute; right:14px; }
-.settings-select-menu .settings-select-badge { display:flex; align-items:center; }
-/* Center one shared content column when space permits. Every label starts on
-   the same left edge; badges and checks have their own aligned columns. */
-.settings-select-centered .settings-select-value,
-.settings-select-menu-centered .settings-select-options { display:grid; grid-template-columns:minmax(0,1fr) fit-content(100%) auto 14px minmax(0,1fr); column-gap:8px; }
-.settings-select-menu-centered .settings-select-options { padding-inline:12px; }
-.settings-select-centered .settings-select-value > .settings-select-option-copy { grid-column:2; grid-row:1; text-align:left; }
-.settings-select-centered .settings-select-value > .settings-source-badge { grid-column:3; grid-row:1; margin:0; }
-.settings-select-measure { display:contents; }
-.settings-select-measure > span { grid-row:1; visibility:hidden; height:0; min-width:0; overflow:hidden; pointer-events:none; }
-.settings-select-measure > .settings-select-option-copy { grid-column:2; }
-.settings-select-measure > .settings-select-badge { grid-column:3; }
-.settings-select-menu-centered .settings-select-options button { display:grid; grid-template-columns:subgrid; grid-column:1/-1; text-align:left; column-gap:8px; padding-inline:0; }
-.settings-select-menu-centered .settings-select-option-copy { grid-column:2; }
-.settings-select-menu-centered .settings-select-badge { grid-column:3; }
-.settings-select-menu-centered .settings-select-check { grid-column:4; }
-
-/* Keep the model identity and its runtime badge on one shared baseline. */
-.settings-window .connections-page .runtime-model-summary > span:first-child { display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:6px 10px; flex:1; min-width:0; }
-.settings-window .connections-page .runtime-model-summary small:not(.settings-source-badge) { flex:0 0 100%; text-align:left; white-space:normal; margin:0; }
-.settings-window .connections-page .runtime-model-summary strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.settings-window .connections-page .runtime-model-summary .settings-source-badge { flex:none; width:auto; margin:0; }
 
 /* Shared first-run progress: page discovery or the initiating action only. */
 .setup-loading { min-height:calc(100dvh - 112px); display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px; color:var(--muted); font-size:13px; }
@@ -770,22 +464,6 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .gateway-read-notice>div { display:flex; align-items:center; gap:12px; }
 .context-navigation{position:absolute;right:14px;top:6px;z-index:4;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;color:var(--muted);background:transparent}
 .context-navigation:hover{background:var(--wash);color:var(--ink)}
-
-.settings-toolbar{position:relative}.settings-navigation{top:50%;transform:translateY(-50%)}
-.settings-window .settings-navigation{padding:0;border:0;min-height:28px;background:transparent}
-
-.settings-window .runtime-experiments>p,.settings-window .runtime-experiments>button { margin:12px 20px; }
-.settings-window .runtime-experiments .setting-row { display:flex; flex-wrap:nowrap; min-height:54px; gap:16px; }
-.settings-window .runtime-experiments .setting-control { flex:0 0 auto; width:auto; }
-
-/* One route trail, shared by desktop and Web. Every ancestor stays reachable. */
-.settings-window .settings-toolbar { height:auto; min-height:64px; padding-top:12px; padding-bottom:12px; }
-.settings-breadcrumbs { flex:1; min-width:0; padding-right:22px; }
-.settings-breadcrumbs ol { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:center; margin:0; padding:0; list-style:none; }
-.settings-breadcrumbs li { display:flex; gap:12px; align-items:baseline; min-width:0; overflow-wrap:anywhere; }
-.settings-window .settings-breadcrumbs button { border:0; background:transparent; padding:0; min-height:28px; font-size:14px; color:var(--muted); text-align:left; }
-.settings-breadcrumbs button:hover { color:var(--ink); text-decoration:underline; }
-.settings-breadcrumbs [aria-current=page] { color:var(--ink); font-size:16px; font-weight:600; line-height:28px; }
 
 /* Permissions share one reading edge inside and outside the existing list. */
 .settings-window .permission-settings .permission-intro { margin:6px 0 18px; font-size:12px; line-height:1.65; }

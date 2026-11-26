@@ -1,0 +1,902 @@
+/* Core settings surfaces: General, Appearance, and Connections & Models. */
+
+/* --- General Settings --- */
+.settings-window .general-settings .general-preferences {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-window .general-settings > .setting-section {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-window .general-preferences .setting-section {
+  margin: 0;
+}
+
+.settings-window .general-preferences .setting-list {
+  border-radius: 0;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.settings-window .general-preferences .setting-section:first-of-type .setting-list {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.settings-window .general-preferences .setting-section:last-of-type .setting-list {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-window .general-preferences .setting-section:only-of-type .setting-list {
+  border-radius: var(--radius-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-window .general-preferences .setting-section:not(:last-of-type) .setting-row:last-child {
+  border-bottom: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .general-settings .maintenance-surface {
+  margin-top: 24px;
+}
+
+/* Uniform 240px control column across General rows */
+.settings-window .settings-select:has(#interface-language) {
+  width: 100%;
+  max-width: var(--settings-control-w);
+}
+
+.settings-window .terminal-choice {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: var(--settings-control-w);
+  gap: 8px;
+}
+
+.settings-window .terminal-choice > .settings-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-window .terminal-choice button {
+  flex: none;
+}
+
+.settings-window .setting-control .task-limit {
+  width: 76px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-window .task-settings-feedback {
+  margin: 0;
+  padding: 0 20px 14px;
+  font-size: 12px;
+}
+
+.settings-window .task-terminal-advanced {
+  margin: 0;
+  padding: 8px 20px 16px;
+  border-top: 1px solid var(--caelis-border-subtle);
+  font-size: 12.5px;
+}
+
+.settings-window .task-terminal-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.settings-window .task-terminal-advanced > label:first-of-type {
+  display: block;
+  margin: 12px 0 8px;
+}
+
+.settings-window .task-terminal-advanced textarea,
+.terminal-command-editor textarea {
+  width: 100%;
+  height: 76px;
+  max-height: 160px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+  color: var(--ink);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.terminal-command-editor label {
+  display: block;
+  margin: 14px 0 8px;
+  font-size: 12px;
+}
+
+.terminal-command-editor .custom-terminal-enable,
+.custom-terminal-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-window .custom-terminal-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 18px;
+}
+
+/* Shortcuts & inline physical keycaps */
+.shortcut-inline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shortcut-keycap {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--caelis-content);
+  box-shadow: 0 1px 0 var(--caelis-border-subtle);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.shortcut-unset {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.shortcut-status[data-state="conflict"] {
+  color: var(--error);
+}
+
+.settings-window .shortcut-inline button.shortcut-icon {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  width: 30px;
+  min-height: 30px;
+  height: 30px;
+  padding: 4px;
+}
+
+.settings-window .shortcut-inline button.shortcut-icon:not(:disabled):hover {
+  color: var(--ink);
+  background: var(--caelis-hover);
+}
+
+.settings-window .shortcut-inline button.shortcut-cancel {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  flex: none;
+  white-space: nowrap;
+}
+
+.settings-window input.shortcut-inline-recorder {
+  width: 164px;
+  max-width: 100%;
+  min-width: 0;
+  caret-color: transparent;
+}
+
+.shortcut-inline-recorder::placeholder {
+  color: var(--ink);
+  opacity: 1;
+}
+
+.shortcut-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.shortcut-recorder {
+  font-variant-numeric: tabular-nums;
+  min-width: 174px;
+}
+
+.shortcut-setting {
+  border: 0;
+}
+
+.settings-window .shortcut-editor {
+  padding: 0;
+  background: var(--caelis-hover);
+}
+
+.settings-window .shortcut-editor + .shortcut-editor {
+  border-top: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .shortcut-editor .setting-row {
+  display: flex;
+  min-height: 58px;
+}
+
+.settings-window .shortcut-editor .setting-label {
+  flex: 1;
+}
+
+.settings-window button.shortcut-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 0;
+  background: transparent;
+  min-height: 34px;
+  padding: 4px 0 4px 12px;
+}
+
+.shortcut-summary kbd {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* --- Appearance Settings --- */
+.settings-window .appearance-settings .character-preview {
+  position: relative;
+  height: 224px;
+  margin: 0 0 22px;
+  border: 1px solid var(--caelis-border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 68% 42% at 50% 84%, color-mix(in oklab, var(--accent) 11%, transparent), transparent 72%),
+    linear-gradient(180deg, color-mix(in oklab, var(--caelis-hover) 52%, var(--caelis-content)), var(--caelis-raised));
+}
+
+.character-preview-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.character-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.character-preview figcaption {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-window .appearance-settings .setting-section {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Align all 4 Appearance rows strictly to the 240px control column */
+.settings-window .appearance-settings .settings-select,
+.settings-window .appearance-settings .runtime-segments,
+.settings-window .appearance-settings .size-control {
+  width: 100%;
+  max-width: var(--settings-control-w);
+}
+
+.settings-window .appearance-settings .runtime-segments button {
+  padding: 5px 10px;
+}
+
+.size-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.size-control input {
+  flex: 1;
+  min-width: 60px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.size-control output {
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* --- Connections & Models --- */
+.settings-window .connections-page {
+  --settings-control-w: 260px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.settings-window .connection-page-heading p {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.settings-window .connections-page .runtime-model-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  max-width: var(--settings-control-w);
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--caelis-content);
+  text-align: left;
+  white-space: normal;
+}
+
+.settings-window .connections-page .runtime-model-summary:not(:disabled):hover {
+  background: var(--caelis-hover);
+  border-color: color-mix(in oklab, var(--ink) 22%, var(--line));
+}
+
+.settings-window .connections-page .runtime-model-summary:disabled {
+  background: var(--caelis-disabled);
+  color: var(--caelis-text-disabled);
+  border-color: var(--caelis-border-subtle);
+}
+
+.settings-window .connections-page .runtime-model-summary > span:first-child {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-window .connections-page .runtime-model-summary strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-window .connections-page .runtime-model-summary small:not(.settings-source-badge) {
+  flex: 0 0 100%;
+  text-align: left;
+  white-space: normal;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.settings-window .connections-page .runtime-model-summary .settings-source-badge {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+
+.settings-selector-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.runtime-model-summary:disabled .settings-selector-icon {
+  visibility: hidden;
+}
+
+/* Flush navigation list rows inside grouped cards */
+.settings-window .connections-page button.connection-navigation-row,
+.settings-window .codex-runtime-panel button.connection-navigation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  min-height: 64px;
+  padding: 15px 20px;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--caelis-border-subtle);
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+.settings-window .setting-list > div:last-child > button.connection-navigation-row,
+.settings-window .setting-list > button.connection-navigation-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-window .connections-page button.connection-navigation-row:not(:disabled):hover,
+.settings-window .codex-runtime-panel button.connection-navigation-row:not(:disabled):hover {
+  background: var(--caelis-hover);
+}
+
+.connection-navigation-row strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.connection-navigation-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.connection-navigation-value {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.connection-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 550;
+  line-height: 16px;
+  white-space: nowrap;
+  background: var(--caelis-hover);
+  color: var(--muted);
+}
+
+.connection-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.connection-status-pill[data-status="ready"] {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.connection-status-pill[data-status="ready"] .connection-status-dot {
+  background: var(--success);
+}
+
+.connection-status-pill[data-status="error"] {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.connection-status-pill[data-status="error"] .connection-status-dot {
+  background: var(--error);
+}
+
+.settings-window .provider-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-window .provider-brand .onboarding-provider-logo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--caelis-border-subtle);
+  background: var(--caelis-content);
+  color: var(--muted);
+}
+
+.settings-window .provider-brand .onboarding-provider-logo img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* --- Built-in & Codex Runtime Hero Card --- */
+.settings-window .codex-runtime-panel {
+  max-width: 760px;
+}
+
+.settings-window .codex-runtime-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  margin: 0 0 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--caelis-raised);
+  box-shadow: var(--shadow-xs);
+}
+
+.codex-runtime-symbol {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 22px;
+}
+
+.codex-runtime-status[data-status="ready"] .codex-runtime-symbol,
+.codex-runtime-status.is-ready .codex-runtime-symbol {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.settings-window .codex-runtime-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-window .codex-runtime-copy h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-window .codex-runtime-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.codex-runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.codex-version-status {
+  white-space: nowrap;
+}
+
+.settings-window .runtime-experiments > p,
+.settings-window .runtime-experiments > button {
+  margin: 12px 20px;
+}
+
+.settings-window .runtime-experiments .setting-row {
+  display: flex;
+  flex-wrap: nowrap;
+  min-height: 56px;
+  gap: 16px;
+}
+
+.settings-window .runtime-experiments .setting-label {
+  flex: 1;
+}
+
+.settings-window .runtime-experiments .setting-control {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+/* --- Team Agent Cards --- */
+.settings-window .team-agent-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.settings-window .team-agent-tile {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--caelis-raised);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.settings-window .team-agent-tile:hover {
+  border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
+}
+
+.settings-window .team-agent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  width: 100%;
+  min-height: 136px;
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-window .team-agent-card:not(:disabled):hover {
+  background: var(--caelis-hover);
+}
+
+.settings-window .team-agent-card > strong {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-window .team-agent-card > p {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 6px 0 18px;
+  font-weight: 400;
+}
+
+.settings-window .team-agent-model {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--caelis-border-subtle);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.settings-window .runtime-team .team-agent-tile > button.team-classifier-entry {
+  border: 0;
+  border-top: 1px solid var(--caelis-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.settings-window .runtime-team .team-agent-tile > button.team-classifier-entry:not(:disabled):hover {
+  background: var(--caelis-hover);
+}
+
+.settings-window .team-classifier-entry > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+/* --- Compact Model Picker Popover --- */
+.settings-window .runtime-model-compact {
+  width: 396px;
+  max-width: calc(100vw - 32px);
+  height: auto;
+  padding: 18px;
+  background: var(--caelis-popover);
+}
+
+.settings-window .runtime-model-compact .runtime-dialog-heading {
+  margin-bottom: 16px;
+}
+
+.settings-window .runtime-model-compact .runtime-dialog-heading h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-window .runtime-compact-model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-window .runtime-compact-model-row > span {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-window .runtime-compact-model-row .settings-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-window .runtime-compact-model-row .settings-select-trigger {
+  width: 100%;
+  min-height: 36px;
+  height: 36px;
+  text-align: left;
+}
+
+.settings-window .runtime-model-compact .runtime-compact-fast {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+
+.settings-window .runtime-model-compact .runtime-compact-fast[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+}
+
+.settings-window .runtime-model-compact .model-parameters {
+  border-top: 0;
+  margin-top: 16px;
+  padding-top: 0;
+  overflow: visible;
+  max-height: none;
+}
+
+.runtime-effort-control {
+  margin: 12px 0 8px;
+}
+
+.runtime-parameter-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.runtime-parameter-heading output {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.settings-window .runtime-model-compact .runtime-effort-control {
+  margin: 6px 0;
+}
+
+.settings-window .runtime-model-compact .runtime-model-connect {
+  align-self: flex-start;
+  text-align: left;
+  width: auto;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.settings-window .runtime-model-compact .runtime-effort-segments {
+  display: flex;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.settings-window .runtime-model-compact .runtime-effort-segments label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.settings-window .runtime-model-compact .runtime-effort-segments label span {
+  min-width: 0;
+  padding: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.settings-window .runtime-model-compact .runtime-model-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--caelis-border-subtle);
+}
+
+.settings-window .runtime-model-compact .runtime-reset-parameters {
+  grid-column: auto;
+  justify-self: start;
+  padding-left: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  gap: 4px;
+}
+
+/* --- Responsive Adjustments --- */
+@media (max-width: 900px) {
+  .settings-window .connections-page {
+    --settings-control-w: 210px;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-window .team-agent-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-window .codex-runtime-status {
+    flex-wrap: wrap;
+  }
+
+  .codex-runtime-actions {
+    margin-left: 60px;
+  }
+}
+
+@media (max-width: 650px) {
+  .settings-window .connections-page {
+    --settings-control-w: 100%;
+  }
+
+  .settings-window .connections-page .runtime-model-summary,
+  .settings-window .appearance-settings .settings-select,
+  .settings-window .appearance-settings .runtime-segments,
+  .settings-window .appearance-settings .size-control,
+  .settings-window .settings-select:has(#interface-language),
+  .settings-window .terminal-choice {
+    max-width: none;
+  }
+
+  .settings-window .connections-page button.connection-navigation-row {
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .connection-navigation-value {
+    gap: 8px;
+  }
+}

@@ -7,14 +7,14 @@ import { changeModelParameters, chooseModel, defaultModel, fastTier, getEffortNa
 import { ConfigurationError } from './client';
 import { SettingsDialog } from './SettingsDialog';
 import { useI18n } from '../../i18n';
-import { ArrowClockwiseIcon, LightningIcon, SettingsChevron } from '../../SettingsIcons';
+import { ArrowClockwiseIcon, CaretUpDownIcon, LightningIcon } from '../../SettingsIcons';
 
 export function ModelSummary({ value, models, disabled, onClick, label, unbound = false, showDetail = true, runtimeDefault }: {
  value: ModelSelection; models: ModelOption[]; disabled?: boolean; onClick: (anchor: HTMLElement) => void; label: string; unbound?: boolean; showDetail?: boolean; runtimeDefault?: ModelSelection | null;
 }) {
  const { t } = useI18n();
  const summary = unbound && !value.model ? { name: t('runtime.unbound'), detail: '' } : selectionSummary(value, models, t, runtimeDefault);
- return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={event => onClick(event.currentTarget)}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><SettingsChevron/></button>;
+ return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={event => onClick(event.currentTarget)}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><CaretUpDownIcon aria-hidden="true" size={14} className="settings-selector-icon"/></button>;
 }
 
 export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault, selectInitialModel=false, sourceLabels={}, missingModelLabel, unavailableLabel, catalogPending=false }: {

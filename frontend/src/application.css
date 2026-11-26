@@ -15,7 +15,9 @@
 @import './worker-chat.css' layer(legacy);
 
 /* Modernized area stylesheets. */
+@import './styles/settings-shell.css' layer(components);
 @import './styles/chat.css' layer(surfaces);
+@import './styles/settings-core.css' layer(surfaces);
 
 /* Necessary status feedback: no rotation, displacement or flashing in reduced
    motion. An indeterminate bar stays partial so it cannot imply completion. */
