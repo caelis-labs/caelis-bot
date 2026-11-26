@@ -66,6 +66,11 @@ export interface BotIntroduction {
   name: string;
   description: string;
 }
+export interface ChatLink {
+  destination: string;
+  file: Artifact;
+  image?: MediaImage | null;
+}
 export interface ChatUpdate {
   changed: boolean;
   snapshot: Snapshot;
@@ -122,6 +127,9 @@ export interface Item {
   artifacts: Array<Artifact>;
   screen?: ScreenPresentation | null;
   media?: MediaPresentation | null;
+  links?: Array<ChatLink>;
+  chatText?: string;
+  beforeItem?: string;
   quoted?: QuotedMessage | null;
   task?: TaskPresentation | null;
   questionCards?: Array<QuestionCard>;

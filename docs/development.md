@@ -111,6 +111,12 @@ For native panel coverage, including hiding and reopening with history retained,
 run the chat preview with `BOT_PREVIEW_FIXTURE=a2ui`
 and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection`, `draft`, `exam` or `exam-error`.
 
+Use `BOT_PREVIEW_FIXTURE=chat-combined` with the same native preview command
+to exercise a form and image, file and website links in one reply. The preview
+checks native WebKit keyboard activation and focus, the file and website
+bridge calls, and a synthetic submission receipt across a history reopen.
+Set `BOT_PREVIEW_COMBINED_SUBMITTED=1` to capture the settled reply and preserved draft.
+
 Inspect the actual desktop/chat/settings windows before claiming visual behavior.
 `bash script/run-ui-review.sh --verify` supplies an isolated review profile.
 The native launch script also supports `--bubble-preview`, `--chat-preview` and

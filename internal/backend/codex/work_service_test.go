@@ -356,7 +356,7 @@ func TestWorkerServiceNativeOutputFilesRemainTaskScopedAcrossBindingReload(t *te
 		t.Fatal(err)
 	}
 	thread, run := workerNativeTarget(t, s, task.ID)
-	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": thread, "turnId": run, "item": nativeItem{ID: "native-output", Type: "imageGeneration", Path: filePath, Status: "completed"}})})
+	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": thread, "turnId": run, "item": nativeItem{ID: "native-output", Type: "imageGeneration", SavedPath: filePath, Status: "completed"}})})
 	awaitState(t, s, func(api.Snapshot) bool {
 		v, e := s.ObserveWork(testContext(t), task.ID)
 		return e == nil && len(v.Items) > 0 && len(v.Items[len(v.Items)-1].Artifacts) > 0

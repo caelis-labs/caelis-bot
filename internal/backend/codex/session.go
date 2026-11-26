@@ -350,6 +350,7 @@ func (s *Session) resetProjection() {
 	s.lastTurn = ""
 	s.historyPaged = false
 	s.state.HasEarlier = false
+	s.state.ChatLinkRepairs = nil
 	s.run = ""
 }
 func opaque(parts ...string) string {
@@ -426,6 +427,7 @@ func (s *Session) publishSnapshot() {
 	b, _ := json.Marshal(s.state)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
+	out.ChatLinkRepairs = s.state.ChatLinkRepairs
 	if s.binding.ThreadID != "" {
 		out.RuntimeOwner = opaque("codex", s.binding.ThreadID)
 	}
@@ -433,6 +435,10 @@ func (s *Session) publishSnapshot() {
 		out.Items[i].AsyncCallID = s.state.Items[i].AsyncCallID
 		out.Items[i].AsyncQuestions = s.state.Items[i].AsyncQuestions
 		out.Items[i].AsyncExpiresAt = s.state.Items[i].AsyncExpiresAt
+		for n := range out.Items[i].Links {
+			out.Items[i].Links[n].Source = s.state.Items[i].Links[n].Source
+		}
+		out.Items[i].ImageOutput = s.state.Items[i].ImageOutput
 	}
 	for i := range out.Approvals {
 		out.Approvals[i].TaskID = s.state.Approvals[i].TaskID
@@ -477,6 +483,7 @@ func (s *Session) Snapshot() api.Snapshot {
 		var out api.Snapshot
 		_ = json.Unmarshal(b, &out)
 		out.RuntimeOwner = snapshot.RuntimeOwner
+		out.ChatLinkRepairs = slices.Clone(snapshot.ChatLinkRepairs)
 		out.InputSources = append([]api.InputSource(nil), snapshot.InputSources...)
 		out.ScheduledSources = append([]api.ScheduledSource(nil), snapshot.ScheduledSources...)
 		out.ReportSources = append([]api.ReportSource(nil), snapshot.ReportSources...)
@@ -484,6 +491,10 @@ func (s *Session) Snapshot() api.Snapshot {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
 			out.Items[i].AsyncQuestions = snapshot.Items[i].AsyncQuestions
 			out.Items[i].AsyncExpiresAt = snapshot.Items[i].AsyncExpiresAt
+			for n := range out.Items[i].Links {
+				out.Items[i].Links[n].Source = snapshot.Items[i].Links[n].Source
+			}
+			out.Items[i].ImageOutput = snapshot.Items[i].ImageOutput
 		}
 		for i := range out.Approvals {
 			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
@@ -916,6 +927,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.update()
 	s.mu.Unlock()
 	go s.observeNativeResources(c, epoch)
+	if threadID != "" {
+		go s.observeRecentChatMedia(c, epoch, threadID)
+	}
 	go func() {
 		ctx, cancel := s.operation(context.Background(), 8*time.Second)
 		defer cancel()

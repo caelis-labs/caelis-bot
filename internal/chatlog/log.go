@@ -1,6 +1,6 @@
 // Package chatlog owns the Bot's IM transcript. Chat reads and older-page loads
 // use this database; observed current Runtime output can update it. Tool output
-// is never stored here; only a tool's projected Artifact handles are visible.
+// is never stored here; only a tool's projected file and media handles are visible.
 // Disk errors retain the live cache;
 // the writer retries independently of input, approval and connection control.
 package chatlog
@@ -25,6 +25,7 @@ import (
 const pageSize = 200
 
 type Log struct {
+	chatLinkRepairs  map[string]api.Item
 	mu               sync.Mutex
 	flushMu          sync.Mutex
 	path             string
@@ -63,12 +64,19 @@ func key(i api.Item) string {
 	return i.ID
 }
 func visibleItem(i api.Item) bool {
-	return i.ID != "" && (i.Kind == "user" || i.Kind == "assistant" || i.Kind == "controlNotice" || i.Kind == "tool" && (i.Status == "completed" || i.Status == "accepted") && len(i.Artifacts) > 0)
+	return i.ID != "" && (i.Kind == "user" || i.Kind == "assistant" || i.Kind == "controlNotice" || i.HasToolResult())
 }
 func copyItem(i api.Item) api.Item {
 	i.Details = ""
 	i.Activity = nil
 	i.Artifacts = append([]api.Artifact(nil), i.Artifacts...)
+	i.Links = append([]api.ChatLink(nil), i.Links...)
+	for n := range i.Links {
+		if i.Links[n].Image != nil {
+			image := *i.Links[n].Image
+			i.Links[n].Image = &image
+		}
+	}
 	if i.Quoted != nil {
 		q := *i.Quoted
 		i.Quoted = &q
@@ -168,6 +176,12 @@ func (l *Log) observeLocked(item api.Item, lookup bool) {
 }
 
 func mergeObservedItem(item, old api.Item) api.Item {
+	if item.Kind == "assistant" && item.ChatText == "" && (item.Text == old.Text || item.Text == old.ChatText) {
+		item.ChatText, item.Links = old.ChatText, old.Links
+	}
+	if item.BeforeItem == "" {
+		item.BeforeItem = old.BeforeItem
+	}
 	if item.Kind == "user" {
 		if (item.Status == "received" || item.Status == "sending") && settledInput(old.Status) {
 			return old
@@ -304,6 +318,10 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 					changed = true
 				}
 			}
+			if l.items[pos].BeforeItem == "" && previous.BeforeItem != "" {
+				l.items[pos].BeforeItem = previous.BeforeItem
+				changed = true
+			}
 			if l.items[pos].SeenAt != previous.SeenAt {
 				l.items[pos].SeenAt = previous.SeenAt
 				changed = true
@@ -317,6 +335,7 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 		}
 	}
 	l.items = append(prefix, l.items...)
+	l.repairAssistantLinksLocked()
 	l.before = earliest
 	l.earlier = more
 	for n := range l.items {

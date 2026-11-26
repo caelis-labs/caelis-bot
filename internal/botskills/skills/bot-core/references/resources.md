@@ -22,6 +22,10 @@ isolated profile unless it would conflict with another owner or risk live data.
 
 ## Deliver and reclaim
 
+Use Markdown links in desktop replies to share files and images you produced
+in Notebook. Link to the actual file and give it a recognizable label. Use a
+full HTTPS URL for a website and show what the reader can find there.
+
 Own cleanup for resources you create or ask Workers to create. Identify each
 path's owner, active tasks/processes and unique or undelivered content. Preserve
 final artifacts in their intended durable location, then remove task-owned

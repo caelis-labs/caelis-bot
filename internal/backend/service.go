@@ -282,19 +282,19 @@ func (s *Service) snapshot(recent bool) api.Snapshot {
 			items[i] = s.presentChatItem(items[i])
 		}
 		knownInput := make(map[string]bool, len(items))
-		knownArtifact := make(map[string]bool, len(items))
+		knownToolResult := make(map[string]bool, len(items))
 		for _, item := range items {
 			if item.Kind == "user" && item.RequestID != "" {
 				knownInput[item.RequestID] = true
 			}
-			if item.Kind == "tool" && len(item.Artifacts) > 0 {
-				knownArtifact[item.ID] = true
+			if item.HasToolResult() {
+				knownToolResult[item.ID] = true
 			}
 		}
 		for _, item := range v.Items {
 			if item.Kind == "user" && strings.HasPrefix(item.ID, "outgoing:") && !knownInput[item.RequestID] {
 				items = append(items, item) // only the transient sending bubble
-			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" && !(item.Kind == "tool" && knownArtifact[item.ID]) {
+			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" && !(item.Kind == "tool" && knownToolResult[item.ID]) {
 				items = append(items, item)
 			}
 		}
@@ -495,13 +495,13 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
-		item = s.presentChatAttachments(item)
+		item = presentInlineChatLinks(s.presentChatAttachments(item))
 		if item.Kind == "user" && item.QuestionReply == nil {
 			if item.RemoteCommand != nil && *item.RemoteCommand || item.RemoteCommand == nil && s.legacyRemoteCommand != nil && s.legacyRemoteCommand(item) {
 				continue
 			}
 		}
-		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.Kind == "tool" && (item.Status == "completed" || item.Status == "accepted") && len(item.Artifacts) > 0 {
+		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.HasToolResult() {
 			item.Details = ""
 			items = append(items, item)
 		}
@@ -520,7 +520,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string, processEpoch s
 		}
 		return cmp.Compare(a.SeenAt, b.SeenAt)
 	})
-	v.Items = items
+	v.Items = positionChatResults(items)
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }
 func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
@@ -554,7 +554,18 @@ func (s *Service) ConfigureLegacyRemoteCommand(classify func(api.Item) bool) {
 
 func (s *Service) ObserveChat(v api.Snapshot) {
 	if s.chat != nil {
-		s.chat.Observe(v.Items)
+		items := make([]api.Item, 0, len(v.Items))
+		for _, item := range v.Items {
+			items = append(items, s.retainChatImages(item))
+		}
+		s.chat.Observe(items)
+		if len(v.ChatLinkRepairs) > 0 {
+			repairs := make([]api.Item, 0, len(v.ChatLinkRepairs))
+			for _, item := range v.ChatLinkRepairs {
+				repairs = append(repairs, s.retainChatImages(item))
+			}
+			s.chat.RepairAssistantLinks(repairs)
+		}
 	}
 }
 

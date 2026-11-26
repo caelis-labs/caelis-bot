@@ -421,7 +421,10 @@ func (s *Session) observeWorkItemLocked(t *taskRecord, run string, item nativeIt
 			_, paths = workArtifacts(t.View.Workspace, item.Text)
 		} else {
 			candidates := []string{}
-			if item.Type == "imageGeneration" || item.Type == "imageView" {
+			switch item.Type {
+			case "imageGeneration":
+				candidates = append(candidates, item.SavedPath)
+			case "imageView":
 				candidates = append(candidates, item.Path)
 			}
 			if item.Type == "fileChange" {

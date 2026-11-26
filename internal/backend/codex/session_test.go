@@ -860,10 +860,10 @@ func TestKnownLocalArtifactHasReadableTextAndOpaqueAction(t *testing.T) {
 	}
 	s.applyItem(s.binding.ThreadID, "run", nativeItem{ID: "answer", Type: "agentMessage", Text: "Done: [result](<" + path + ">)"}, true)
 	view := s.Snapshot().Items[0]
-	if view.Text != "Done: result" || len(view.Artifacts) != 1 {
+	if view.Text != "Done: result" || view.ChatText != "Done: [result](<"+path+">)" || len(view.Links) != 1 || len(view.Artifacts) != 1 {
 		t.Fatal(view)
 	}
-	if actual, err := s.Artifact(view.Artifacts[0].ID); err != nil || actual != path {
+	if actual, err := s.Artifact(view.Links[0].File.ID); err != nil || filepath.Base(actual) != filepath.Base(path) {
 		t.Fatal(actual, err)
 	}
 }
@@ -883,18 +883,18 @@ func TestBoundTemporaryArtifactCanBeExplicitlyLinkedButPathAloneCannot(t *testin
 	defer s.cancelLife()
 	link := "[generated](<" + path + ">)"
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "unbound", Type: "agentMessage", Text: link}, true)
-	if item := s.Snapshot().Items[0]; len(item.Artifacts) != 0 || item.Text != link {
+	if item := s.Snapshot().Items[0]; len(item.Links) != 0 || item.Text != link {
 		t.Fatalf("path granted authority: %+v", item)
 	}
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: path}}}, true)
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: link}, true)
 	items := s.Snapshot().Items
-	if items[1].Kind != "activity" || len(items[1].Artifacts) != 1 || len(items[2].Artifacts) != 1 || items[2].Text != "generated" || items[1].Artifacts[0].ID != items[2].Artifacts[0].ID {
+	if items[1].Kind != "activity" || len(items[1].Artifacts) != 1 || len(items[2].Links) != 1 || items[2].ChatText != link || items[2].Text != "generated" || items[2].Links[0].File.ID != items[1].Artifacts[0].ID {
 		t.Fatalf("bound temp projection: %+v", items)
 	}
 	reopened := NewSession(SessionOptions{Directory: work, StateFile: state})
 	defer reopened.cancelLife()
-	if got, err := reopened.Artifact(items[2].Artifacts[0].ID); err != nil || got != path {
+	if got, err := reopened.Artifact(items[2].Links[0].File.ID); err != nil || got != path {
 		t.Fatalf("binding did not persist: %v", err)
 	}
 	escaping := filepath.Join(root, "outside.md")
@@ -902,7 +902,7 @@ func TestBoundTemporaryArtifactCanBeExplicitlyLinkedButPathAloneCannot(t *testin
 		s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "symlink-change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: escaping}}}, true)
 		s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "symlink-reply", Type: "agentMessage", Text: "[outside](<" + escaping + ">)"}, true)
 		last := s.Snapshot().Items[len(s.Snapshot().Items)-1]
-		if len(last.Artifacts) != 0 {
+		if len(last.Links) != 0 {
 			t.Fatalf("symlink escaped temporary boundary: %+v", last)
 		}
 	}
@@ -931,16 +931,16 @@ func TestSkillCitationLineResolvesAndSurvivesRestart(t *testing.T) {
 	defer s.cancelLife()
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "[SKILL.md:47](" + linkedSkill + ":47)"}, true)
 	view := s.Snapshot().Items[0]
-	if view.Text != "SKILL.md:47" || len(view.Artifacts) != 1 || view.Artifacts[0].Name != "SKILL.md:47" {
+	if view.Text != "SKILL.md:47" || view.ChatText != "[SKILL.md:47]("+linkedSkill+":47)" || len(view.Links) != 1 || view.Links[0].File.Name != "SKILL.md:47" {
 		t.Fatal(view)
 	}
-	got, err := s.Artifact(view.Artifacts[0].ID)
+	got, err := s.Artifact(view.Links[0].File.ID)
 	if err != nil || got != linkedSkill {
 		t.Fatal(got, err)
 	}
 	reopened := NewSession(SessionOptions{Directory: notebook, StateFile: state})
 	defer reopened.cancelLife()
-	got, err = reopened.Artifact(view.Artifacts[0].ID)
+	got, err = reopened.Artifact(view.Links[0].File.ID)
 	if err != nil || got != linkedSkill {
 		t.Fatal("persisted citation", got, err)
 	}

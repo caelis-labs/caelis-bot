@@ -72,7 +72,7 @@ func TestMessageWebLinkSurvivesHistoryProjection(t *testing.T) {
 	text := "[网站](https://example.com/help) and [结果](result.txt)"
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: text}, true)
 	got := s.state.Items[0]
-	if got.Text != "[网站](https://example.com/help) and 结果" || len(got.Artifacts) != 1 || got.Artifacts[0].Name != "result.txt" {
+	if got.Text != "[网站](https://example.com/help) and 结果" || got.ChatText != text || len(got.Links) != 1 || got.Links[0].File.Name != "result.txt" || len(got.Artifacts) != 1 {
 		t.Fatal("web link became a local result", got)
 	}
 }
@@ -82,7 +82,7 @@ func TestMissingLinkedFileIsNotPresentedAsArtifact(t *testing.T) {
 	s.resetProjection()
 	s.applyItem(s.binding.ThreadID, "turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "See [missing](missing.txt)"}, true)
 	got := s.state.Items[0]
-	if got.Text != "See missing" || len(got.Artifacts) != 0 {
+	if got.Text != "See missing" || got.ChatText != "See [missing](missing.txt)" || len(got.Links) != 1 || got.Links[0].File.ID != "" || len(got.Artifacts) != 0 {
 		t.Fatal(got)
 	}
 }

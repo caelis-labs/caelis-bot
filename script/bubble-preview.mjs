@@ -150,6 +150,153 @@ window.fixtureMedia=()=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
  Object.assign(snapshot,{items:[{id:'media-fixture',requestId:'media-fixture-request',turnKey:'fixture',kind:'user',text:'请看这两张图片。\nfirst.png\nsecond.png',status:'completed',artifacts:[],media:{caption:'请看这两张图片。',images:[{id:'media-fixture-one',name:'first.png',width:180,height:180},{id:'media-fixture-two',name:'second.png',width:180,height:180}]}}],phase:'completed',currentTurn:'',canInterrupt:false,canSend:true,activity:null});
 };
+const combinedChat=previewParams.get('fixture')==='chat-combined';
+if(combinedChat||previewParams.get('fixture')==='chat-media'){
+ window.fixtureMedia();
+ const match=(id)=>document.querySelector('[data-message-id="'+id+'"]');
+ const result=(id,name)=>({id,name,width:180,height:180});
+ const localImage='/Notebook/设计 图.png';
+ const imageLink='[预览设计稿](<'+localImage+'>)';
+ const imageParagraph=combinedChat?imageLink:'设计稿如下：'+imageLink+'，请检查标题。';
+ window.fixtureMediaActions=[];
+ snapshot.items[0].artifacts=[{id:'fixture-upload',name:'notes.pdf'}];
+ snapshot.items.push(
+  {id:'media-generated',kind:'tool',status:'completed',text:'',artifacts:[],media:{images:[result('media-fixture-two','generated.png')]}},
+  {id:'media-answer',kind:'assistant',status:'completed',artifacts:[],text:(combinedChat?'请确认交付格式和待验证平台。\n\n':'')+imageParagraph+'\n\n打开[原始说明](notes.txt)、[项目网页](https://example.com/design)或[旧稿](missing.txt)。\n\n![外部图片](https://example.com/preview.png)',links:[
+   {destination:localImage,file:{id:'fixture-image',name:'设计 图.png'},image:result('media-fixture-one','设计 图.png')},
+   {destination:'notes.txt',file:{id:'fixture-notes',name:'notes.txt'}},
+   {destination:'missing.txt',file:{id:'',name:'missing.txt'}},
+  ]},
+ );
+ const answerItem=snapshot.items.at(-1);
+ if(combinedChat)answerItem.text+=[
+  '', '', '<a2ui>',
+  '$/answers = {format:[],platform:""}',
+  'root = Form(child=questions,title="交付确认")',
+  'questions = Column([format,platform])',
+  'format = ChoicePicker(label="交付格式",displayStyle="chips",options=[{label:"可编辑稿",value:"editable"},{label:"最终稿",value:"final"}],value=$/answers/format,checks=[?required("请选择格式。")])',
+  'platform = TextField("待验证平台",$/answers/platform,placeholder="例如 Windows",checks=[?required("请输入平台。")])',
+  '</a2ui>',
+ ].join('\n');
+ const seek=async(probe,label='media fixture condition')=>{
+  for(let attempt=0;attempt<90;attempt++){const value=probe();if(value)return value;await new Promise(resolve=>setTimeout(resolve,40));}
+  throw Error(label+' timed out');
+ };
+ const complete=async()=>{
+  const thumbnail=await seek(()=>{const node=match('media-answer')?.querySelector('.media-thumbnail');return node?.querySelector('img')?.naturalWidth?node:null;});
+  const answer=match('media-answer');
+  const checks=window.fixtureMediaChecks={
+   sourcePosition:thumbnail.closest('p')?.textContent===(combinedChat?'预览设计稿':'设计稿如下：预览设计稿，请检查标题。'),
+   generatedPosition:!!(match('media-generated')?.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING),
+   upload:match('media-fixture')?.querySelectorAll('.media-thumbnail').length===2&&match('media-fixture')?.querySelector('.sent-file')?.textContent==='notes.pdf',
+   missing:answer.querySelector('.message-link-unavailable')?.textContent.includes('旧稿'),
+   remoteBlocked:!answer.querySelector('img[src^="https:"]')&&[...answer.querySelectorAll('[role=link]')].some(link=>link.textContent==='外部图片'),
+  };
+  const nativeAction=async(action)=>await seek(()=>window.webkit?.messageHandlers.mediaKeyboard).then(handler=>handler.postMessage(action));
+  match('media-fixture').querySelector('.sent-file').click();
+  for(const [index,name] of ['原始说明','项目网页'].entries()){
+   [...answer.querySelectorAll('[role=link]')].find(link=>link.textContent===name).focus({preventScroll:true});
+   await nativeAction('enter');
+   await seek(()=>window.fixtureMediaActions.length>=index+2);
+  }
+  checks.openActions=JSON.stringify(window.fixtureMediaActions)===JSON.stringify([['OpenArtifact','fixture-upload'],['ShowArtifactPreview','fixture-notes'],['OpenMessageLink','https://example.com/design']]);
+  thumbnail.focus({preventScroll:true});
+  await nativeAction('enter');
+  await seek(()=>document.querySelector('dialog[open] .screen-full-image')?.naturalWidth);
+  checks.keyboardOpen=document.querySelector('dialog[open]')?.getAttribute('aria-label')==='预览设计稿';
+  await nativeAction('escape');
+  await seek(()=>!document.querySelector('dialog[open]')&&document.activeElement===thumbnail,'image closed and focus returned');
+  checks.keyboardReturn=document.activeElement===thumbnail&&!window.fixtureMediaActions.some(action=>action[0]==='CloseHistory');
+  const reopen=async()=>{
+   window.fixtureMediaWindow=undefined;
+   await nativeAction('reopen');
+   await seek(()=>window.fixtureMediaHidden&&!document.querySelector('dialog[open]')&&!answer.querySelector('.chat-a2ui-surface:not([hidden])'),'history hidden');
+   await nativeAction('reopen-ready');
+   const lifecycle=await seek(()=>window.fixtureMediaWindow,'history visible again');
+   return lifecycle.hidden&&lifecycle.visible;
+  };
+  thumbnail.click();
+  await seek(()=>document.querySelector('dialog[open] .screen-full-image')?.naturalWidth);
+  checks.reopened=await reopen()&&document.querySelectorAll('[data-message-id="media-generated"]').length===1&&answer.querySelectorAll('.media-thumbnail').length===1;
+  if(combinedChat)await checkCombinedForm(checks,answerItem,match,seek,reopen,nativeAction);
+  if(previewParams.get('viewer')==='1'){
+   (match('combined-capture')??match('media-answer')).querySelector('.media-thumbnail').click();
+   await seek(()=>document.querySelector('dialog[open] .screen-full-image')?.naturalWidth);
+  }
+  const ok=Object.values(checks).every(value=>value===true);
+  window.fixtureExpected={ok,checks,theme:document.documentElement.dataset.mode,viewport:innerWidth};
+  if(!ok)window.fixtureExpected.error='Failed checks: '+Object.keys(checks).filter(key=>!checks[key]).join(', ');
+ };
+ void complete().catch(error=>{
+  window.fixtureExpected={ok:false,checks:window.fixtureMediaChecks,error:String(error)};
+ });
+}
+async function checkCombinedForm(checks,item,match,seek,reopen,nativeAction){
+ const answer=match(item.id);
+ const editor=await seek(()=>document.querySelector('.composer-editor[contenteditable="true"]'),'composer ready');
+ const draftText='稍后补充交付说明。';
+ editor.textContent=draftText;
+ editor.dispatchEvent(new Event('input',{bubbles:true}));
+ await seek(()=>draft.text===draftText,'composer draft persisted');
+ const fill=async(row)=>{
+  const button=await seek(()=>row.querySelector('.chat-a2ui-submit:not(:disabled)'),'form ready');
+  row.querySelector('input[type=radio]').click();
+  const input=row.querySelector('.chat-a2ui-input');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Windows');
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+  await seek(()=>row.querySelector('.chat-a2ui-heading span')?.textContent.includes('2 / 2'),'form filled');
+  return {button,input};
+ };
+ const {button,input}=await fill(answer);
+ const file=item.links.find(link=>link.destination==='notes.txt');
+ file.file.name='delivery-notes.txt';
+ revision++;
+ await seek(()=>answer.querySelector('[title="delivery-notes.txt"]'),'updated file handle rendered');
+ checks.formSurvivedMediaUpdate=answer.querySelector('.chat-a2ui-input')===input&&input.value==='Windows';
+ const formCalls=[];
+ let accept;
+ window.fixtureAnswerDispatch=(id,text)=>{
+  formCalls.push({id,text});
+  return new Promise(resolve=>{accept=resolve;});
+ };
+ const before=sendCount;
+ button.focus({preventScroll:true});
+ await nativeAction('enter');
+ await seek(()=>formCalls.length===1&&button.disabled,'one form request in flight');
+ button.click();
+ const original=formCalls[0];
+ const expected='交付确认\n\n交付格式\n可编辑稿\n\n待验证平台\nWindows';
+ checks.oneVisibleAnswerMessage=formCalls.length===1&&original.text===expected;
+ const user={id:'native:'+original.id,requestId:original.id,kind:'user',status:'completed',text:original.text,artifacts:[]};
+ snapshot.items.push(user);
+ snapshot.lastReceipt={id:original.id,outcome:'accepted',message:''};
+ revision++;
+ accept(snapshot.lastReceipt);
+ await seek(()=>match(user.id)&&answer.textContent.includes('答案已发送'),'accepted receipt and one user bubble');
+ checks.composerPreserved=editor.innerText===draftText&&draft.text===draftText&&sendCount===before;
+ checks.formHistoryReopened=await reopen();
+ const persisted=structuredClone(snapshot.items);
+ snapshot.items=[];
+ revision++;
+ await seek(()=>!match(item.id),'history removed before replay');
+ snapshot.items=persisted;
+ revision++;
+ await seek(()=>match(item.id)?.textContent.includes('答案已发送')&&match(user.id),'history replayed original receipt');
+ checks.replayDidNotSend=formCalls.length===1&&sendCount===before&&editor.innerText===draftText&&
+  document.querySelectorAll('[data-message-id="'+user.id+'"]').length===1&&
+  !match(item.id).querySelector('.chat-a2ui-submit')&&match(item.id).querySelectorAll('.media-thumbnail').length===1;
+ const submitted=previewParams.get('submitted')==='1';
+ const captureID=submitted?item.id:'combined-capture';
+ snapshot.items=submitted?persisted.filter(entry=>entry.id===item.id||entry.id===user.id):[{...item,id:captureID}];
+ revision++;
+ const capture=await seek(()=>!match('media-generated')&&match(captureID)?.querySelector('.media-thumbnail img')?.naturalWidth&&match(captureID),'joint capture rendered');
+ if(!submitted)await fill(capture);
+ const body=capture.querySelector('.markdown-body');
+ const form=capture.querySelector('.chat-a2ui-form');
+ checks.narrowLayout=body.scrollWidth<=body.clientWidth+1&&form.scrollWidth<=form.clientWidth+1;
+ document.querySelector('.chat-scroll').scrollTop=0;
+ window.fixtureTarget=captureID;
+}
 if(previewParams.get('fixture')==='sent-files'){
  window.fixtureMedia();
  snapshot.items[0].artifacts=[{id:'fixture-summary',name:'review-notes.txt'}];
@@ -420,6 +567,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='PasteAttachments')return {handled:true,files:draftFiles};
  if(method==='MediaImage')return args[0]==='media-fixture-one'?'__MEDIA_ONE__':'__MEDIA_TWO__';
  if(method==='HistoryVisible')return true;
+ if(window.fixtureMediaActions&&['CloseHistory','OpenArtifact','ShowArtifactPreview','OpenMessageLink'].includes(method)){window.fixtureMediaActions.push([method,...args]);return;}
  if(method==='CopyText'){window.fixtureCopiedText=args[0];return;}
  if(method==='Interrupt')window.fixtureSet('stop');
  if(method==='DismissPreview')snapshot.previewDismissed=true;
@@ -452,4 +600,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&questionCase='+(process.env.BOT_PREVIEW_QUESTION_CASE||'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672);writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'')+'&questionCase='+(process.env.BOT_PREVIEW_QUESTION_CASE||'')+'&width='+(process.env.BOT_PREVIEW_WIDTH||760)+'&height='+(process.env.BOT_PREVIEW_HEIGHT||672)+(process.env.BOT_PREVIEW_MEDIA_VIEWER?'&viewer=1':'')+(process.env.BOT_PREVIEW_COMBINED_SUBMITTED?'&submitted=1':'');writeFileSync(process.argv[2],url);console.log(url);});
