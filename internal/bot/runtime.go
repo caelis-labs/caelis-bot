@@ -94,6 +94,7 @@ type Runtime struct {
 	paused         bool       // guarded by step; fences update shutdown against wakeups
 	path           string
 	state          State
+	persistState   func(State) error
 	now            func() time.Time
 	engine         Engine
 	provider       string
@@ -188,7 +189,12 @@ func (r *Runtime) State() State {
 	}
 	return out
 }
-func (r *Runtime) saveLocked() error { return localstate.Write(r.path, r.state) }
+func (r *Runtime) saveLocked() error {
+	if r.persistState != nil {
+		return r.persistState(r.state)
+	}
+	return localstate.Write(r.path, r.state)
+}
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
