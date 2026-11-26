@@ -392,6 +392,7 @@ export const Call={ByName:async(name,...args)=>{
   return {changed:true,snapshot:value};
  }
  if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
+ if(method==='SubmitChatAnswers')return window.fixtureAnswerDispatch(...args);
  if(method==='Submit'){
   sendCount++;const history=[...snapshot.items],input=args[0],selected=draftFiles.filter(file=>input.fileIds.includes(file.id)),outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,quoted:input.quoted,status:'sending',artifacts:selected.map(file=>({id:file.id,name:file.name}))};snapshot.items=[...history,outgoing];
   if(sendMode.startsWith('attachments-')){if(selected.length!==1)throw Error('original attachment missing');setTimeout(()=>window.dispatchEvent(new Event('files-changed')),100);}

@@ -39,7 +39,20 @@
  }
  [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.url]]];
  [self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
- if(self.autoCapture)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((a2ui?10.0:3.0)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self capture];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.7*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[NSApp terminate:nil];});});
+ if(self.autoCapture){
+  if(a2ui)[self waitForA2ui:[NSDate dateWithTimeIntervalSinceNow:30]];
+  else dispatch_after(dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC),dispatch_get_main_queue(),^{[self captureAndExit];});
+ }
+}
+- (void)waitForA2ui:(NSDate *)deadline {
+ [self.web evaluateJavaScript:@"typeof window.fixtureExpected?.ok === 'boolean'" completionHandler:^(id ready,NSError *error){
+  if([ready boolValue] || deadline.timeIntervalSinceNow <= 0){[self captureAndExit];return;}
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self waitForA2ui:deadline];});
+ }];
+}
+- (void)captureAndExit {
+ [self capture];
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,700*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[NSApp terminate:nil];});
 }
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
  if(![message.name isEqual:@"historyLifecycle"]||![message.body isEqual:@"hide-and-reopen"])return;
@@ -47,7 +60,7 @@
  [self.window orderOut:nil];
  BOOL hidden=!self.window.isVisible;
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
-  [self.web evaluateJavaScript:@"!!document.querySelector('[data-message-id=chat-a2ui-fixture]') && !document.querySelector('.chat-a2ui-surface')" completionHandler:^(id released,NSError *error){
+  [self.web evaluateJavaScript:@"!!document.querySelector('[data-message-id=chat-a2ui-fixture]') && !document.querySelector('.chat-a2ui-surface:not([hidden])')" completionHandler:^(id released,NSError *error){
    [self.window makeKeyAndOrderFront:nil];
    NSString *script=[NSString stringWithFormat:@"window.fixtureVisibility={hidden:%@,visible:%@,released:%@};window.dispatchEvent(new Event('history-open'))",
     hidden?@"true":@"false",self.window.isVisible?@"true":@"false",!error&&[released boolValue]?@"true":@"false"];

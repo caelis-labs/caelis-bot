@@ -1,10 +1,11 @@
-import {comparison, collection, draft} from './a2ui-chat-examples.mjs';
+import {comparison, collection, draft, exam} from './a2ui-chat-examples.mjs';
 
 // Synthetic snapshots for the existing native chat preview. The panel, Markdown
 // parser, Express compiler and renderer are the production build.
 export const a2uiFixture = String.raw`
 window.fixtureA2ui = async () => {
- const id = 'chat-a2ui-fixture';
+ let id = 'chat-a2ui-fixture';
+ const screenshot = ${JSON.stringify(process.env.BOT_PREVIEW_A2UI_CASE ?? 'draft')};
  const first = '<a2ui>\nroot = Card(summary)\nsummary = Column([Text("Review summary", "title"), Divider(), results])\nresults = Row([Text("2 ready"), Text("1 waiting", "caption")])\n</a2ui>';
  const second = '<a2ui>\nroot = Card(Text("Pending · Architecture"))\n</a2ui>';
  const invalid = '<a2ui>\nroot = Image("https://example.test/'+ 'long-invalid-source-'.repeat(14) +'never-load.png")\n</a2ui>';
@@ -24,20 +25,29 @@ window.fixtureA2ui = async () => {
   const receiving = status === 'inProgress';
   const item = {id, turnKey:id, kind:'assistant', text, status, artifacts:[]};
   const user = {id:'a2ui-user-literal', turnKey:id, kind:'user', text:second, status:'completed', artifacts:[]};
-  Object.assign(snapshot,{items:[user,item], currentTurn:receiving?id:'', activity:null, phase:receiving?'working':'completed',canInterrupt:receiving,canSend:!receiving});
+  const items = screenshot.startsWith('exam') ? [item] : [user,item];
+  Object.assign(snapshot,{items, currentTurn:receiving?id:'', activity:null, phase:receiving?'working':'completed',canInterrupt:receiving,canSend:!receiving});
   revision++;
  };
  const wait = async (label, predicate) => {
   const deadline = performance.now()+3500;
   while (!predicate()) {
    if (performance.now()>deadline) throw Error(label);
-   await new Promise(requestAnimationFrame);
+   await new Promise(resolve => setTimeout(resolve, 25));
   }
  };
  window.fixtureTarget = id;
  const checks = [];
  window.fixtureFrames = checks;
+ const callsBefore = sendCount;
+ const edit = (input, value) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+  input.dispatchEvent(new Event('input', {bubbles:true, composed:true}));
+ };
  try {
+  const scenes = ${JSON.stringify({comparison, collection, draft})};
+  const samples = Object.fromEntries(Object.entries(scenes).map(([name, body]) => [name, wrap(body)]));
+  if (!screenshot.startsWith('exam')) {
   write(before + first.slice(0, -9), 'inProgress');
   await wait('stream prefix', () => row()?.textContent.includes('one is waiting.'));
   if (cards().length || fallbacks().length || row().textContent.includes('Card(summary)')) throw Error('unfinished block displayed during streaming');
@@ -63,8 +73,6 @@ window.fixtureA2ui = async () => {
   write(finalText, 'completed');
   await wait('completed history replayed', () => row()?.innerHTML === expected);
   checks.push('history replay matched completed rendering');
-  const scenes = ${JSON.stringify({comparison, collection, draft})};
-  const samples = Object.fromEntries(Object.entries(scenes).map(([name, body]) => [name, wrap(body)]));
   const noEvent = wrap('root = Button(Text("Do this"),Event("deliver"))');
   const noUpdate = wrap('root = Text("first")\n\nsurface chat\nroot = Text("second")');
   const badReference = wrap('root = Column([missing])');
@@ -72,7 +80,6 @@ window.fixtureA2ui = async () => {
   const noRemoteCall = wrap('root = Text(openUrl("https://example.test/no-connection"))');
   const scene = 'The quiet studio is cheaper. Notebooks cost 12.50 and pens cost 8.00. The mock form stays local.';
   const interactive = [scene, ...Object.values(samples), samples.draft, badReference, badExpression, noEvent, noUpdate, noRemoteCall].join('\n\n');
-  const callsBefore = sendCount;
   write(interactive, 'completed');
   await wait('interactive surfaces and rejected event/update/call', () => cards().length === 4 && fallbacks().length === 5);
   if (JSON.stringify(fallbacks().map(el => el.textContent)) !== JSON.stringify([badReference,badExpression,noEvent,noUpdate,noRemoteCall])) throw Error('unsupported sources were lost');
@@ -86,9 +93,8 @@ window.fixtureA2ui = async () => {
   const inputs = card => deep(card, 'input');
   const email = () => inputs(cards()[2]).find(el => el.value.includes('@') || el.value === 'missing-at');
   const copies = () => inputs(cards()[2]).find(el => el.type === 'range');
-  const edit = (input, value) => { input.value = value; input.dispatchEvent(new Event('input', {bubbles:true, composed:true})); };
   await wait('initial form validation', () => email()?.getAttribute('aria-invalid') === 'true' && copies());
-  if (!deep(cards()[2], '.a2ui-error-message').some(el => el.textContent === 'Enter an email address')) throw Error('validation message unavailable');
+  if (!deep(cards()[2], '.a2ui-error-message').some(el => el.lastElementChild?.textContent === 'Enter an email address')) throw Error('validation message unavailable');
   edit(email(), 'demo@example.test');
   edit(copies(), '5');
   await wait('edit updates validation and bound text', () => email()?.getAttribute('aria-invalid') !== 'true' && cards()[2].textContent.includes('demo@example.test') && deep(cards()[2], '.a2ui-slider-value')[0]?.textContent === '5');
@@ -102,6 +108,15 @@ window.fixtureA2ui = async () => {
   if (!inputs(cards()[3]).some(el => el.value === 'missing-at') || inputs(cards()[3]).some(el => el.checked)) throw Error('draft state crossed surfaces');
   if (deep(cards()[2], 'form,button[type=submit],a').length || sendCount !== callsBefore || snapshot.items.at(-1).text !== interactive) throw Error('local draft was sent or history mutated');
   checks.push('mail validation, bounded slider, checkbox and radio changed locally without submit or cross-surface changes');
+  const menu = new MutationObserver(() => document.querySelector('.message-menu [role=menuitem]:last-child')?.click());
+  menu.observe(document.body, {childList:true});
+  try {
+   row().closest('.message').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:140,clientY:150}));
+   await wait('source copy', () => window.fixtureCopiedText === interactive);
+  } finally {
+   menu.disconnect();
+  }
+  checks.push('message context menu copied the original Markdown including the desktop blocks');
   const retainedRow = row();
   const retainedItem = snapshot.items.at(-1);
   const editedCard = cards()[2];
@@ -111,18 +126,123 @@ window.fixtureA2ui = async () => {
   await wait('local form reopened in initial state', () => email()?.value === 'missing-at' && email()?.getAttribute('aria-invalid') === 'true' && !!checkbox() && !checkbox().checked && radio().length === 2 && radio().every(el => !el.checked));
   if (cards()[2] === editedCard || sendCount !== callsBefore || retainedItem.text !== interactive) throw Error('reopening retained a draft or mutated history');
   checks.push('native close and hide released cards, reopening restored initial input while retaining history');
-  row().dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:140,clientY:150}));
-  await wait('message menu', () => document.querySelectorAll('.message-menu [role=menuitem]').length===2);
-  document.querySelectorAll('.message-menu [role=menuitem]')[1].click();
-  await wait('source copy', () => window.fixtureCopiedText === interactive);
-  checks.push('message context menu copied the original Markdown including the desktop blocks');
-  const screenshot = ${JSON.stringify(process.env.BOT_PREVIEW_A2UI_CASE ?? 'draft')};
+  } else {
+   const example = ${JSON.stringify(exam)};
+   const draftText = '尚未发送的聊天草稿';
+   await wait('composer ready', () => document.querySelector('[contenteditable="true"]'));
+   const editor = document.querySelector('[contenteditable="true"]');
+   editor.textContent = draftText;
+   editor.dispatchEvent(new Event('input', {bubbles:true}));
+   await wait('independent composer draft saved', () => draft.text === draftText);
+   const button = () => row()?.querySelector('.chat-a2ui-submit');
+   const field = () => row()?.querySelector('input.chat-a2ui-input');
+   const tabs = () => Array.from(row()?.querySelectorAll('[role=tab]') ?? []);
+   const show = (status = 'completed') => write(wrap(example), status);
+   const inputsOf = type => Array.from(row()?.querySelectorAll('input[type="'+type+'"]') ?? []);
+   const calls = [];
+   let finish;
+   window.fixtureAnswerDispatch = (id, text) => {
+    calls.push({id, text});
+    return new Promise((resolve, reject) => { finish = {resolve, reject}; });
+   };
+   show('inProgress');
+   await wait('streamed exam visible without send affordance', () => button()?.disabled);
+   button().click();
+   show();
+   await wait('final exam ready', () => button() && !button().disabled);
+   button().click();
+   await wait('first invalid answer focused', () => document.activeElement?.type === 'radio' && !!row()?.querySelector('.a2ui-error-message'));
+   if (calls.length) throw Error('invalid/streaming form dispatched');
+   inputsOf('radio')[1].click();
+   inputsOf('radio')[3].click();
+   edit(field(), 'Windows');
+   inputsOf('checkbox')[1].click();
+   edit(inputsOf('range')[0], '80');
+   await wait('all six visible answers valid', () => row()?.querySelector('.chat-a2ui-heading span')?.textContent.includes('6 / 6') &&
+    row()?.querySelector('.a2ui-slider-value')?.textContent === '80');
+   tabs()[0].focus();
+   tabs()[0].dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}));
+   await wait('arrow focused the second tab', () => tabs()[1] === document.activeElement && field()?.value === 'Windows' &&
+    row().textContent.includes('内部备注') && !row().textContent.includes('验收信心'));
+   tabs()[1].dispatchEvent(new KeyboardEvent('keydown', {key:'Home', bubbles:true}));
+   await wait('Home switched back and retained basic edits', () => tabs()[0] === document.activeElement &&
+    inputsOf('range')[0]?.value === '80' && inputsOf('checkbox')[1]?.checked);
+   if (calls.length || editor.innerText !== draftText) throw Error('editing caused a send or lost the composer');
+   checks.push('mixed questions changed locally, validation focused the first field, Tabs arrows and Home moved focus');
+   const expectedText = ['发布前小测','1. 哪个版本可以发布？\n通过验收的版本','2. 填写待验证的平台\nWindows',
+    '3. 构建通过等于实机验收。\n错误','包含构建日志\n是','发送邮件通知\n是','5. 验收信心\n80'].join('\n\n');
+   const start = () => { const submit = button(); submit.click(); submit.click(); };
+   const settle = (index, outcome) => {
+    snapshot.lastReceipt = {id:calls[index].id,outcome,message:''};
+    revision++;
+   };
+   start();
+   await wait('first send pending', () => calls.length === 1 && button()?.disabled);
+   if (calls[0].text !== expectedText) throw Error('payload differs from visible labelled answers: '+JSON.stringify(calls[0].text));
+   settle(0, 'rejected');
+   finish.resolve(snapshot.lastReceipt);
+   await wait('rejection preserves answers and enables retry', () => button()?.textContent === '重新提交' && !button().disabled && field()?.value === 'Windows');
+   const edited = field();
+   window.fixtureVisibility = undefined;
+   window.webkit.messageHandlers.historyLifecycle.postMessage('hide-and-reopen');
+   await wait('form draft survived hiding and reopening', () => window.fixtureVisibility?.visible &&
+    field() === edited && field()?.value === 'Windows' && button()?.textContent === '重新提交');
+   if (calls.length !== 1) throw Error('reopening retried a rejected form');
+   start();
+   await wait('second send pending', () => calls.length === 2 && button()?.disabled);
+   finish.reject(Error('synthetic lost bridge response'));
+   await wait('unknown is visible without retry', () => row()?.textContent.includes('正在核对答案是否已发送') && button()?.disabled);
+   button().click();
+   if (calls.length !== 2 || calls[1].id === calls[0].id || calls[1].text !== expectedText) throw Error('unknown send was replayed or retry changed the answers');
+   settle(1, 'rejected');
+   await wait('original receipt unlocks retry', () => button()?.textContent === '重新提交' && !button().disabled && field()?.value === 'Windows');
+   start();
+   await wait('third send pending', () => calls.length === 3 && button()?.disabled);
+   settle(2, 'accepted');
+   const user = {id:'native:' + calls[2].id, requestId:calls[2].id, kind:'user', text:expectedText,status:'completed',artifacts:[]};
+   snapshot.items.push(user);
+   finish.resolve(snapshot.lastReceipt);
+   await wait('one settled user row', () => row()?.textContent.includes('答案已发送') &&
+    document.querySelectorAll('.message.user p').length > 0 &&
+    [...document.querySelectorAll('.message.user p')].filter(el => el.textContent === expectedText && !el.parentElement.querySelector('.message-delivery')).length === 1);
+   if (editor.innerText !== draftText || draft.text !== draftText || sendCount !== callsBefore) throw Error('form used the composer send or cleared its draft');
+   checks.push('one click used one bridge request, rejected answers stayed editable, unknown stayed locked until its original receipt, one user message landed');
+   const replayID = 'historical-a2ui-replay';
+   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([replayID, 0]))));
+   const replayRequest = 'a2ui-' + Array.from(hash.slice(0,16), byte => byte.toString(16).padStart(2,'0')).join('') + '-previous-request';
+   snapshot.items = [{...snapshot.items.find(item => item.id === id), id:replayID}, {...user,id:'prior-user',requestId:replayRequest}];
+   snapshot.lastReceipt = {id:'unrelated',outcome:'accepted',message:''};
+   revision++;
+   await wait('previous receipt restored from replay without a call', () => !row() &&
+    document.querySelector('[data-message-id="'+replayID+'"] .chat-a2ui-form')?.textContent.includes('答案已发送'));
+   if (calls.length !== 3) throw Error('history resent the form');
+   checks.push('fresh history replay found the matching prior user row without sending');
+   snapshot.items.push(...calls.slice(0, 2).map((call, index) => ({...user, id:'rejected-a2ui-'+index, requestId:call.id, status:'rejected'})));
+   revision++;
+   await wait('failed attempts consumed their optimistic rows', () => document.querySelector('[data-message-id="rejected-a2ui-1"]'));
+   id = 'a2ui-exam-capture';
+   window.fixtureTarget = id;
+   show();
+   await wait('fixture capture reset', () => button() && !button().disabled);
+   inputsOf('radio')[1].click();
+   inputsOf('radio')[3].click();
+   if (screenshot === 'exam-error') {
+    button().click();
+    await wait('capture validation error', () => field()?.getAttribute('aria-invalid') === 'true' && document.activeElement === field());
+   } else {
+    edit(field(), 'Windows');
+    await wait('capture completed answers', () => row()?.querySelector('.chat-a2ui-heading span')?.textContent.includes('6 / 6'));
+   }
+   const form = row().querySelector('.chat-a2ui-form');
+   if (form.scrollWidth > form.clientWidth + 1 || row().scrollWidth > row().clientWidth + 1) throw Error('the exam overflowed the panel');
+   document.querySelector('.chat-scroll').scrollTop = 0;
+  }
   if (samples[screenshot]) {
    const prose = {comparison:'The quiet studio saves $15. Choose a tab to see the trade-offs.', collection:'The two supply lines total 20.50. Notebooks are the costlier line.', draft:'Try the practice values below. There is nothing to submit.'};
    write(prose[screenshot]+'\n\n'+samples[screenshot], 'completed');
    await wait('capture scene', () => cards().length === 1 && cards()[0].textContent.length > 4);
   }
-  window.fixtureExpected = {ok:true, checks};
+  window.fixtureExpected = {ok:true, checks, theme:document.documentElement.dataset.mode, viewport:innerWidth};
  } catch (error) {
   window.fixtureExpected = {ok:false, error:String(error), checks};
  }

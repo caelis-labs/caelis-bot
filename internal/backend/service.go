@@ -730,6 +730,24 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	return s.submitChat(ctx, input, true)
+}
+
+// SubmitChatAnswers shares ordinary user admission and transcript delivery.
+// These answers originate outside the composer and own none of its draft state.
+func (s *Service) SubmitChatAnswers(ctx context.Context, id, text string) (api.Receipt, error) {
+	input := api.Submission{ID: id, Text: text}
+	receipt, err := s.submitChat(ctx, input, false)
+	if errors.Is(err, api.ErrRecoveryPending) {
+		return api.Receipt{ID: id, Outcome: "rejected"}, nil
+	}
+	if receipt.ID == id && (receipt.Outcome == "accepted" || receipt.Outcome == "rejected") {
+		return receipt, nil
+	}
+	return receipt, err
+}
+
+func (s *Service) submitChat(ctx context.Context, input api.Submission, fromComposer bool) (api.Receipt, error) {
 	defer s.beginUserActivity()()
 	input.Quoted = api.BoundQuote(input.Quoted)
 	s.mu.Lock()
@@ -738,7 +756,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.mu.Unlock()
 	// An explicit command in the new body stays a command. Quoted text is only
 	// model context and is never parsed as a decision.
-	if commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 {
+	if fromComposer && commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 {
 		if receipt, handled, err := commandHandler(ctx, input); handled {
 			if err == nil && receipt.Outcome == "accepted" {
 				s.clearDraftAtRevision(input, draftRevision)
@@ -749,6 +767,9 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
+		if !fromComposer {
+			return api.Receipt{ID: input.ID, Outcome: "rejected"}, nil
+		}
 		return api.Receipt{}, errors.New("请先完成运行时设置")
 	}
 
@@ -765,9 +786,13 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "先核对或清理上一条附件消息，不能再次发送原附件"}, nil
 	}
 
-	files, err := s.files(input.FileIDs)
-	if err != nil {
-		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+	var files []api.InputFile
+	if fromComposer {
+		var err error
+		files, err = s.files(input.FileIDs)
+		if err != nil {
+			return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+		}
 	}
 	projected, err := s.resolvePluginReferences(ctx, input)
 	if err != nil {
@@ -787,7 +812,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		}
 	}
 	s.mu.Lock()
-	if len(input.FileIDs) == 0 {
+	if fromComposer && len(input.FileIDs) == 0 {
 		s.pendingDraft = &input
 		s.pendingDraftRevision = s.draft.Revision
 	}
@@ -798,7 +823,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		s.discardOutgoing(input.ID)
 		if len(input.FileIDs) > 0 {
 			s.reconcileDraftReceipt(api.Receipt{ID: input.ID, Outcome: "rejected"})
-		} else {
+		} else if fromComposer {
 			s.mu.Lock()
 			if s.pendingDraft != nil && s.pendingDraft.ID == input.ID {
 				s.pendingDraft = nil
@@ -813,7 +838,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		s.reconcileDraftReceipt(receipt)
 		return receipt, err
 	}
-	if receipt.Outcome == "accepted" {
+	if fromComposer && receipt.Outcome == "accepted" {
 		s.mu.Lock()
 		pending := s.pendingDraft
 		revision := s.pendingDraftRevision

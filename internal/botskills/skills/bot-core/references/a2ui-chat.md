@@ -1,8 +1,10 @@
 # Present results in desktop chat
 
-Give the important facts, recommendation and next step in Markdown. Add one compact block when choosing tabs, reading grouped records or editing a small draft makes the result easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
+Give the important facts, recommendation and next step in Markdown. Add one compact block when tabs, grouped records, a local draft or a short questionnaire makes the reply easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
 
-Tabs, selections and edits stay in the current view. For a mock form use sample values, short labels and one or two relevant checks. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant. Ask the user in ordinary chat when a choice or value needs to reach you. Use ordinary Markdown for actions, approvals, messages intended for text channels, and simple answers. Do not ask for credentials in a draft.
+Use `root = Form(child=questions,title="…")` when you need answers back from desktop chat. Give each control a meaningful label and a writable initial value bound to the local data model. Use `?required("…")` for required answers and clear messages for other checks. Use vertical ChoicePicker rows for longer options and `displayStyle="chips"` for short choices that fit side by side. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant.
+
+Edits and tab changes stay local. When the user chooses Submit answers, you receive one ordinary chat message with the form title, visible field labels and answers in display order. Only the active tab’s questions are included. Put every answer you need in the same view. Use one form for one reply. For local drafts and comparisons, keep a Basic Catalog root such as Card. Provide a plain chat reply path for channels that cannot display the form. Use the existing approval or question workflow when an explicit Runtime decision is needed. Do not request secrets or hidden values in these blocks.
 
 Use the component and function signatures below. Assign initial data with `$/path = value` as shown in the examples. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one `root` tree of up to 40 components per block. Keep repeated templates shallow. Use local bindings and checks. Omit events, surface directives, explicit updates, media and standalone calls.
 
@@ -41,6 +43,25 @@ copies = Slider(label="Copies",min=1,max=5,steps=4,value=$/draft/copies)
 notes = CheckBox("Include notes",$/draft/notes)
 plan = ChoicePicker(label="Detail",variant="mutuallyExclusive",options=[{label:"Brief",value:"brief"},{label:"Full",value:"full"}],value=$/draft/plan)
 echo = Text($/draft/email)
+</a2ui>
+```
+
+### Ask for one consolidated chat reply
+
+```text
+<a2ui>
+$/answers = {version:[],platform:"",correct:[],logs:true,mail:false,confidence:70,notes:"内部备注"}
+root = Form(child=questions,title="发布前小测")
+questions = Column([version,platform,correct,details])
+version = ChoicePicker(label="1. 哪个版本可以发布？",options=[{label:"候选版本",value:"candidate"},{label:"通过验收的版本",value:"verified"}],value=$/answers/version,checks=[?required("请选择一个版本。")])
+platform = TextField("2. 填写待验证的平台",$/answers/platform,placeholder="例如 Windows",checks=[?required("请输入待验证的平台。")])
+correct = ChoicePicker(label="3. 构建通过等于实机验收。",displayStyle="chips",options=[{label:"正确",value:"yes"},{label:"错误",value:"no"}],value=$/answers/correct,checks=[?required("请选择正确或错误。")])
+details = Tabs([{title:"基本信息",child:basic},{title:"高级设置",child:advanced}])
+basic = Column([Text("4. 附加记录", "title"),logs,mail,confidence])
+logs = CheckBox("包含构建日志",$/answers/logs)
+mail = CheckBox("发送邮件通知",$/answers/mail)
+confidence = Slider(label="5. 验收信心",min=0,max=100,steps=10,value=$/answers/confidence)
+advanced = TextField("内部备注",$/answers/notes)
 </a2ui>
 ```
 
@@ -128,6 +149,9 @@ Use these exact positional signatures to instantiate components. Do not output p
 • Divider(axis? (static), weight? (static))
   - axis: The orientation of the divider. Must be one of: 'horizontal', 'vertical'
   - weight: The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.
+• Form(child (static), title (static))
+  - child: The ID of the single child component to be rendered inside the card. To display multiple elements, you MUST wrap them in a layout component (like Column or Row) and pass that container's ID here. Do NOT pass multiple IDs or a non-existent ID.
+  - title: The title of the answer form.
 • List(children, direction? (static), align? (static), weight? (static))
   - children: Defines the children. Use an array of strings for a fixed set of children, or a template object to generate children from a data list.
   - direction: The direction in which the list items are laid out. Must be one of: 'vertical', 'horizontal'

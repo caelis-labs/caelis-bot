@@ -1,4 +1,4 @@
-import { Children, isValidElement, memo, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Children, isValidElement, memo, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown, {type ExtraProps, type Options} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { backend, desktop } from './desktop';
@@ -8,6 +8,7 @@ import { useStreamingText } from './use-streaming-text';
 import { markdownChunks } from './markdown-chunks';
 import { remarkChatA2ui } from './chat-a2ui-markdown';
 import { ChatA2uiBlock } from './ChatA2uiBlock';
+import { ChatA2uiReply } from './chat-a2ui-submit';
 
 export function CopyText({text,label,report}:{text:string;label?:string;report:(error:string)=>void}) {
  const {t} = useI18n();
@@ -36,9 +37,10 @@ function ExternalLink({url,children,report}:{url?:string;children:ReactNode;repo
 type A2uiState = 'receiving' | 'final';
 
 function A2uiSlot({node}: ExtraProps) {
- const {source, body, closed, receiving, permitted} = node?.properties ?? {};
+ const {source, body, closed, receiving, permitted, ordinal} = node?.properties ?? {};
+ const reply = useContext(ChatA2uiReply);
  if (typeof source !== 'string' || typeof body !== 'string') return null;
- return <ChatA2uiBlock source={source} body={body} closed={closed === true} receiving={receiving === true} permitted={permitted === true}/>;
+ return <ChatA2uiBlock source={source} body={body} closed={closed === true} receiving={receiving === true} permitted={permitted === true} replyKey={reply && typeof ordinal === 'number' ? JSON.stringify([reply, ordinal]) : undefined}/>;
 }
 
 const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui,blockOffset}:{source:string;report:(error:string)=>void;a2ui?:A2uiState;blockOffset:number}) {

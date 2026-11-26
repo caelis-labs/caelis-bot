@@ -1,7 +1,7 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {ExpressFormat, SkillGenerator} from '@a2ui/agent';
 import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
-import {comparison, collection, draft} from './a2ui-chat-examples.mjs';
+import {comparison, collection, draft, exam} from './a2ui-chat-examples.mjs';
 
 const target = new URL('../internal/botskills/skills/bot-core/references/a2ui-chat.md', import.meta.url);
 const format = new ExpressFormat([chatCatalog], {version: 'v1.0', allowedMessages: ['createSurface']});
@@ -19,12 +19,14 @@ const rules = sections.filter(section => !unsupported.test(section)).join('\n')
  .replace(/^7\. Logic and validation:[^\n]*/m, '7. Prefix supported client checks with ?. For example, ?email("Enter an email address").')
  .replace('itemTemplate = Image($url)', 'itemTemplate = Text($name)');
 
-const examples = [['Compare details in tabs', comparison], ['Repeat supplied records', collection], ['Edit and validate a local draft', draft]];
+const examples = [['Compare details in tabs', comparison], ['Repeat supplied records', collection], ['Edit and validate a local draft', draft], ['Ask for one consolidated chat reply', exam]];
 const local = `# Present results in desktop chat
 
-Give the important facts, recommendation and next step in Markdown. Add one compact block when choosing tabs, reading grouped records or editing a small draft makes the result easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
+Give the important facts, recommendation and next step in Markdown. Add one compact block when tabs, grouped records, a local draft or a short questionnaire makes the reply easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
 
-Tabs, selections and edits stay in the current view. For a mock form use sample values, short labels and one or two relevant checks. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant. Ask the user in ordinary chat when a choice or value needs to reach you. Use ordinary Markdown for actions, approvals, messages intended for text channels, and simple answers. Do not ask for credentials in a draft.
+Use \`root = Form(child=questions,title="…")\` when you need answers back from desktop chat. Give each control a meaningful label and a writable initial value bound to the local data model. Use \`?required("…")\` for required answers and clear messages for other checks. Use vertical ChoicePicker rows for longer options and \`displayStyle="chips"\` for short choices that fit side by side. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant.
+
+Edits and tab changes stay local. When the user chooses Submit answers, you receive one ordinary chat message with the form title, visible field labels and answers in display order. Only the active tab’s questions are included. Put every answer you need in the same view. Use one form for one reply. For local drafts and comparisons, keep a Basic Catalog root such as Card. Provide a plain chat reply path for channels that cannot display the form. Use the existing approval or question workflow when an explicit Runtime decision is needed. Do not request secrets or hidden values in these blocks.
 
 Use the component and function signatures below. Assign initial data with \`$/path = value\` as shown in the examples. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one \`root\` tree of up to 40 components per block. Keep repeated templates shallow. Use local bindings and checks. Omit events, surface directives, explicit updates, media and standalone calls.
 

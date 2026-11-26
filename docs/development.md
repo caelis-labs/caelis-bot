@@ -94,9 +94,12 @@ migrate automatically between those identities. Release instances keep one
 product lock. Closing a panel or hiding the pet does not quit the application.
 
 Desktop assistant replies can include A2UI Express blocks for comparisons, grouped
-records and editable local drafts. The chat panel renders complete blocks offline.
-Copy and history retain the original Markdown. Reopening a reply restores the
-initial form values. Hiding the chat panel releases its local form state.
+records, editable local drafts and questionnaires. The chat panel renders complete
+blocks offline. Copy and history retain the original Markdown. A root `Form` offers
+an explicit submit button for the visible fields, using ordinary user-message
+admission and receipts while preserving the composer. Hiding the chat panel
+releases preview and local-draft state. Questionnaires retain edits while that
+panel is mounted. A matched receipt restores submission status from history.
 The pet bubble, Telegram and Weixin show the prose. A completed block-only reply
 points the reader to desktop chat. Unsupported WebViews show the exact block source.
 
@@ -106,7 +109,7 @@ reference with `node script/generate-chat-a2ui-reference.mjs` using the pinned
 Node toolchain. `make check` verifies the generated file and the Markdown tests.
 For native panel coverage, including hiding and reopening with history retained,
 run the chat preview with `BOT_PREVIEW_FIXTURE=a2ui`
-and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection` or `draft`.
+and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection`, `draft`, `exam` or `exam-error`.
 
 Inspect the actual desktop/chat/settings windows before claiming visual behavior.
 `bash script/run-ui-review.sh --verify` supplies an isolated review profile.

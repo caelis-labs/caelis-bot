@@ -69,7 +69,7 @@ function markdownExtension(source: string, receiving: boolean, blockOffset: numb
     const close = chatA2uiEnvelope(raw, 0).close;
     const body = close === undefined ? '' : raw.slice('<a2ui>'.length, close).trim();
     this.enter({type: 'thematicBreak', data: {hName: 'chat-a2ui-block',
-     hProperties: {source: raw, body, closed: close !== undefined, receiving, permitted: count++ < 6}}}, token);
+     hProperties: {source: raw, body, closed: close !== undefined, receiving, permitted: count < 6, ordinal: count++}}}, token);
    },
   },
   exit: {chatA2ui(token) { this.exit(token); }},
