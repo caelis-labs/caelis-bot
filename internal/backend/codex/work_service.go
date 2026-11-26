@@ -15,6 +15,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 )
 
 // These ports project the same native bindings used by local Workers. They do
@@ -280,7 +281,7 @@ func workArtifacts(workspace, text string) ([]api.Artifact, map[string]string) {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(workspace, path)
 		}
-		file, valid := existingArtifactFile(path)
+		file, valid := markdownfile.RegularFile(path)
 		if !valid {
 			continue
 		}

@@ -174,12 +174,14 @@ func TestLocalChatReplacesAnAbsoluteCitationInPlace(t *testing.T) {
 	writeLocalChatTestPNG(t, path, 36)
 	destination := filepath.ToSlash(path)
 	uri := (&url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(destination, "/")}).String()
-	item := api.Item{Kind: "assistant", Status: "completed", Text: markdownFile("原标签", path) + " [文件 URI](" + uri + ")",
+	source := markdownFile("原标签", path) + " [文件 URI](" + uri + ") " + markdownFile("带行号的引用", path+":47")
+	item := api.Item{Kind: "assistant", Status: "completed", Text: source,
 		Links: []api.ChatLink{{Destination: destination, File: api.Artifact{ID: "legacy", Name: "设计 图.png"}}}}
 	files := map[string]localChatFile{}
 	projectLocalChatFiles(&item, files)
-	if len(item.Links) != 2 || len(files) != 1 || item.Links[0].Image == nil || item.Links[1].Image == nil ||
-		item.Links[0].Image.ID != item.Links[1].Image.ID || item.Links[0].Image.ID == "legacy" {
+	if item.Text != source || len(item.Links) != 3 || len(files) != 1 || item.Links[0].Image == nil ||
+		item.Links[1].Image == nil || item.Links[2].Image == nil || item.Links[0].Image.ID != item.Links[1].Image.ID ||
+		item.Links[0].Image.ID != item.Links[2].Image.ID || item.Links[0].Image.ID == "legacy" {
 		t.Fatal("absolute link or URI did not share the original desktop preview")
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 	"github.com/caelis-labs/caelis-bot/internal/messageimage"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -63,7 +63,7 @@ func projectLocalChatFiles(item *api.Item, files map[string]localChatFile) {
 	document := goldmark.DefaultParser().Parse(text.NewReader(source))
 	indices := make(map[string]int, len(item.Links))
 	for i, link := range item.Links {
-		indices[decodedChatDestination(link.Destination)] = i
+		indices[markdownfile.Decode(link.Destination)] = i
 	}
 	seen := make(map[string]bool)
 	item.Links = slices.Clone(item.Links)
@@ -86,7 +86,7 @@ func projectLocalChatFiles(item *api.Item, files map[string]localChatFile) {
 		if path == "" {
 			return ast.WalkContinue, nil
 		}
-		key := decodedChatDestination(destination)
+		key := markdownfile.Decode(destination)
 		index, bound := indices[key]
 		if seen[key] {
 			if link := &item.Links[index]; image && link.Image == nil && link.File.ID != "" {
@@ -96,15 +96,13 @@ func projectLocalChatFiles(item *api.Item, files map[string]localChatFile) {
 		}
 		seen[key] = true
 		link := api.ChatLink{Destination: destination, File: api.Artifact{Name: artifactDisplayName(path)}}
-		if real, err := filepath.EvalSymlinks(path); err == nil && localChatAbsolute(real) {
-			if info, err := os.Lstat(real); err == nil && info.Mode().IsRegular() {
-				identity := fmt.Sprintf("%s\x00%d\x00%d", real, info.Size(), info.ModTime().UnixNano())
-				id := fmt.Sprintf("%s%x", localChatFilePrefix, sha256.Sum256([]byte(identity)))
-				files[id] = localChatFile{path: real, info: info}
-				link.File.ID = id
-				if image || localChatImageExt(path) {
-					link.Image = &api.MediaImage{ID: id, Name: link.File.Name}
-				}
+		if file, ok := resolveLocalChatFile(path); ok {
+			identity := fmt.Sprintf("%s\x00%d\x00%d", file.path, file.info.Size(), file.info.ModTime().UnixNano())
+			id := fmt.Sprintf("%s%x", localChatFilePrefix, sha256.Sum256([]byte(identity)))
+			files[id] = file
+			link.File.ID = id
+			if image || localChatImageExt(file.path) {
+				link.Image = &api.MediaImage{ID: id, Name: link.File.Name}
 			}
 		}
 		if bound {
@@ -117,36 +115,30 @@ func projectLocalChatFiles(item *api.Item, files map[string]localChatFile) {
 	})
 }
 
-func decodedChatDestination(destination string) string {
-	value, err := url.PathUnescape(destination)
-	if err != nil {
-		return destination
-	}
-	return value
-}
-
 func localChatPath(destination string) string {
-	value := decodedChatDestination(destination)
-	if strings.HasPrefix(strings.ToLower(destination), "file:") {
-		u, err := url.Parse(destination)
-		if err != nil || u.Opaque != "" || u.Host != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return ""
-		}
-		value = u.Path
-		if len(value) > 1 && value[0] == '/' && filepath.VolumeName(value[1:]) != "" {
-			value = value[1:]
-		}
-	}
+	value := markdownfile.Path(destination)
 	if !localChatAbsolute(value) {
 		return ""
 	}
-	return filepath.Clean(filepath.FromSlash(value))
+	return filepath.Clean(value)
 }
 
 func localChatAbsolute(value string) bool {
-	volume := filepath.VolumeName(value)
 	return filepath.IsAbs(value) && !strings.HasPrefix(value, "//") && !strings.HasPrefix(value, `\\`) &&
-		!strings.ContainsAny(value, "\x00\r\n") && (volume == "" || !strings.Contains(value[len(volume):], ":"))
+		!strings.ContainsAny(value, "\x00\r\n") && markdownfile.ScopePath(value) != ""
+}
+
+func resolveLocalChatFile(path string) (localChatFile, bool) {
+	name, ok := markdownfile.RegularFile(path)
+	if !ok {
+		return localChatFile{}, false
+	}
+	real, err := filepath.EvalSymlinks(name)
+	if err != nil || !localChatAbsolute(real) || markdownfile.ScopePath(real) != real {
+		return localChatFile{}, false
+	}
+	info, err := os.Lstat(real)
+	return localChatFile{path: real, info: info}, err == nil && info.Mode().IsRegular()
 }
 
 func localChatImageExt(path string) bool {

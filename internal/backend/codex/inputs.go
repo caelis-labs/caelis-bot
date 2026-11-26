@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 )
 
 type nativeReference struct {
@@ -163,7 +164,7 @@ func (s *Session) Artifact(id string) (string, error) {
 			return "", errors.New("未知的文件")
 		}
 	}
-	file, valid := existingArtifactFile(path)
+	file, valid := markdownfile.RegularFile(path)
 	if !valid {
 		return "", errors.New("文件已不可用")
 	}
@@ -184,7 +185,7 @@ func legacyCoreCitation(directory, id string) (string, bool) {
 	if err != nil || filepath.Clean(actual) != filepath.Clean(want) {
 		return "", false
 	}
-	if _, valid := existingArtifactFile(path); !valid {
+	if _, valid := markdownfile.RegularFile(path); !valid {
 		return "", false
 	}
 	for line := 1; line <= 999; line++ {

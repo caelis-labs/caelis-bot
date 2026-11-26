@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -47,13 +48,10 @@ func (s *Session) projectChatLinks(view *api.Item) {
 			return ast.WalkContinue, nil
 		}
 		destination := string(util.ResolveEntityNames(util.ResolveNumericReferences(util.UnescapePunctuations(target))))
-		value, err := url.PathUnescape(destination)
-		if err != nil {
-			value = destination
-		}
+		value := markdownfile.Decode(destination)
 		if !seen[value] {
 			seen[value] = true
-			if link, ok := s.chatLink(destination, value); ok {
+			if link, ok := s.chatLink(destination); ok {
 				view.Links = append(view.Links, link)
 				if link.File.ID != "" && !artifacts[link.File.ID] {
 					view.Artifacts = append(view.Artifacts, link.File)
@@ -82,35 +80,24 @@ func (s *Session) projectChatLinks(view *api.Item) {
 	})
 }
 
-func (s *Session) chatLink(destination, decoded string) (api.ChatLink, bool) {
-	if decoded == "" || strings.HasPrefix(destination, "#") || strings.HasPrefix(decoded, "//") || strings.ContainsAny(decoded, "\x00\r\n") {
+func (s *Session) chatLink(destination string) (api.ChatLink, bool) {
+	path := markdownfile.Path(destination)
+	if path == "" || strings.HasPrefix(destination, "#") {
 		return api.ChatLink{}, false
 	}
-	if strings.HasPrefix(strings.ToLower(destination), "file:") {
+	if !filepath.IsAbs(path) {
 		u, err := url.Parse(destination)
-		if err != nil || u.Opaque != "" || u.Host != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.HasPrefix(u.Path, "//") {
+		if err != nil || u.Scheme != "" || u.Host != "" || filepath.VolumeName(path) != "" {
 			return api.ChatLink{}, false
 		}
-		decoded = filepath.FromSlash(u.Path)
-		// A Windows file URI places a slash before the drive letter.
-		if len(decoded) > 1 && filepath.VolumeName(decoded[1:]) != "" {
-			decoded = decoded[1:]
-		}
-		if !filepath.IsAbs(decoded) {
-			return api.ChatLink{}, false
-		}
+		path = filepath.Join(s.opts.Directory, path)
 	}
-	if !filepath.IsAbs(decoded) {
-		u, err := url.Parse(destination)
-		if err != nil || u.Scheme != "" || u.Host != "" || filepath.VolumeName(decoded) != "" {
-			return api.ChatLink{}, false
-		}
-		decoded = filepath.Join(s.opts.Directory, decoded)
-	}
-	path := filepath.Clean(decoded)
+	path = filepath.Clean(path)
+	scope := markdownfile.ScopePath(path)
 	// Only Notebook paths (except private uploads) or already-bound temporary
 	// results can become file citations. A missing Notebook path has no handle.
-	if privateChatAttachment(s.opts.Directory, path) || !notebookRelative(s.opts.Directory, path) && !s.boundTempArtifact(path) {
+	if scope == "" || privateChatAttachment(s.opts.Directory, scope) ||
+		!notebookRelative(s.opts.Directory, scope) && !s.boundTempArtifact(path) {
 		return api.ChatLink{}, false
 	}
 	link := api.ChatLink{Destination: destination, File: api.Artifact{Name: filepath.Base(path)}}
@@ -150,7 +137,7 @@ func privateChatAttachment(root, path string) bool {
 }
 
 func (s *Session) citationFile(path string) (file, root string, ok bool) {
-	file, ok = existingArtifactFile(path)
+	file, ok = markdownfile.RegularFile(path)
 	if !ok || privateChatAttachment(s.opts.Directory, file) {
 		return "", "", false
 	}

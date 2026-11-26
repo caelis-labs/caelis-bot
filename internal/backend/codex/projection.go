@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/markdownfile"
 )
 
 type nativeThread struct {
@@ -381,7 +381,7 @@ func (s *Session) boundTempArtifact(path string) bool {
 	if !inside(path) {
 		return false
 	}
-	file, ok := existingArtifactFile(path)
+	file, ok := markdownfile.RegularFile(path)
 	if !ok || s.artifacts[opaque("artifact", path)] != file {
 		return false
 	}
@@ -397,7 +397,7 @@ func (s *Session) addArtifact(view *api.Item, path string) {
 		path = filepath.Join(s.opts.Directory, path)
 	}
 	path = filepath.Clean(path)
-	file, ok := existingArtifactFile(path)
+	file, ok := markdownfile.RegularFile(path)
 	if !ok {
 		return
 	}
@@ -429,24 +429,6 @@ func (s *Session) registerArtifact(id, file string) bool {
 	return true
 }
 
-// Native citations may append a line number to a real local file. Keep that
-// label and its original opaque ID, but reveal the file rather than `file:line`.
-func existingArtifactFile(path string) (string, bool) {
-	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-		return path, true
-	}
-	at := strings.LastIndexByte(path, ':')
-	if at <= 0 || at == len(path)-1 {
-		return "", false
-	}
-	// Use the final colon, so Windows drive prefixes are not mistaken for lines.
-	base, line := path[:at], path[at+1:]
-	if n, err := strconv.Atoi(line); err != nil || n <= 0 {
-		return "", false
-	}
-	info, err := os.Stat(base)
-	return base, err == nil && info.Mode().IsRegular()
-}
 func (s *Session) applyEvent(event Notification) {
 	s.observeContinuity(event)
 	if len(event.RequestID) > 0 {
