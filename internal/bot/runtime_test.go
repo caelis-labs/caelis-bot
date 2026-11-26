@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,14 @@ type fakeEngine struct {
 	view        api.Snapshot
 	outcome     string
 	submissions []api.Submission
+	onSubmit    func(api.Submission)
 }
 
 func (f *fakeEngine) Snapshot() api.Snapshot { return f.view }
 func (f *fakeEngine) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	if f.onSubmit != nil {
+		f.onSubmit(in)
+	}
 	f.submissions = append(f.submissions, in)
 	r := api.Receipt{ID: in.ID, Outcome: f.outcome}
 	f.view.LastReceipt = r
@@ -129,22 +134,57 @@ func TestUnknownDispatchNeverReplaysAndReconcilesReceipt(t *testing.T) {
 	}
 }
 func TestPersistenceBeforeDispatchAndStableIdentity(t *testing.T) {
-	r, f, now := fixture(t)
-	saveReminder(t, r, "water")
-	*now = now.Add(time.Minute)
-	original := r.path
-	r.path = t.TempDir()
-	if r.Tick(context.Background()) == nil || len(f.submissions) != 0 {
-		t.Fatal("executed without durable occurrence")
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	var saved Wake
+	failedStatus := "pending"
+	saveErr := errors.New("test wake write failed")
+	f := &fakeEngine{view: api.Snapshot{CanSend: true}, outcome: "accepted"}
+	f.onSubmit = func(in api.Submission) {
+		if saved.Status != "dispatching" || saved.ID != in.ID {
+			t.Fatalf("submitted %q before saving its dispatch intent: %+v", in.ID, saved)
+		}
 	}
-	r.path = original
-	before := r.State()
-	restored, e := New(original, nil)
-	if e != nil {
-		t.Fatal(e)
+	r := &Runtime{
+		provider: "codex",
+		now:      func() time.Time { return now },
+		engine:   f,
+		// Exercise system delivery with its normal in-memory ledger and no file path.
+		deliveries: &systemDeliveryLog{state: systemDeliveryState{Records: map[string]systemDeliveryRecord{}}},
+		persistState: func(s State) error {
+			if s.Wake == nil {
+				return nil
+			}
+			if s.Wake.Status == failedStatus {
+				return saveErr
+			}
+			saved = *s.Wake
+			return nil
+		},
 	}
-	if restored.State().ID != before.ID {
-		t.Fatal("Bot identity changed")
+	schedule := saveReminder(t, r, "water")
+	now = schedule.Next
+	if err := r.Tick(t.Context()); !errors.Is(err, saveErr) || len(f.submissions) != 0 {
+		t.Fatalf("failed occurrence save did not prevent dispatch: err=%v submissions=%d", err, len(f.submissions))
+	}
+	if state := r.State(); state.Wake != nil || len(state.Schedules) != 1 || !state.Schedules[0].Next.Equal(schedule.Next) {
+		t.Fatalf("failed occurrence save consumed the due reminder: %+v", state)
+	}
+
+	failedStatus = "dispatching"
+	if err := r.Tick(t.Context()); !errors.Is(err, saveErr) || len(f.submissions) != 0 {
+		t.Fatalf("failed dispatch-intent save did not prevent dispatch: err=%v submissions=%d", err, len(f.submissions))
+	}
+	originalID := saved.ID
+	if wake := r.State().Wake; originalID == "" || saved.Status != "pending" || wake == nil || wake.ID != originalID || wake.Status != "pending" {
+		t.Fatalf("failed dispatch-intent save lost the saved pending wake: saved=%+v current=%+v", saved, wake)
+	}
+
+	failedStatus = ""
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.submissions) != 1 || f.submissions[0].ID != originalID || saved.ID != originalID || saved.Status != "accepted" {
+		t.Fatalf("dispatch did not settle the original wake %q: submissions=%+v saved=%+v", originalID, f.submissions, saved)
 	}
 }
 func TestIdenticalSaveDoesNotMoveReminderAndRemovePreservesOtherQueuedWork(t *testing.T) {
@@ -170,6 +210,7 @@ func TestIdenticalSaveDoesNotMoveReminderAndRemovePreservesOtherQueuedWork(t *te
 func TestRestartSkipsQuitPeriodAndDoesNotResetUnknown(t *testing.T) {
 	r, _, now := fixture(t)
 	saveReminder(t, r, "water")
+	originalID := r.State().ID
 	r.mu.Lock()
 	r.state.Schedules[0].Next = time.Now().Add(-6 * time.Hour)
 	r.state.Wake = &Wake{ID: "wake-uncertain", Status: "dispatching"}
@@ -182,6 +223,9 @@ func TestRestartSkipsQuitPeriodAndDoesNotResetUnknown(t *testing.T) {
 		t.Fatal(e)
 	}
 	s := restored.State()
+	if s.ID != originalID || s.Wake == nil || s.Wake.ID != "wake-uncertain" {
+		t.Fatalf("restart changed Bot or wake identity: Bot ID=%q wake=%+v", s.ID, s.Wake)
+	}
 	if s.Wake.Status != "unknown" || !s.Schedules[0].Next.After(time.Now().Add(-time.Second)) {
 		t.Fatal("quit gap replayed")
 	}
