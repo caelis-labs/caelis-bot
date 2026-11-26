@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.25.0](https://github.com/caelis-labs/caelis-bot/compare/v0.24.0...v0.25.0) (2026-11-26)
+
+
+### Features
+
+* **chat:** submit A2UI forms and preview inline media on desktop ([#314](https://github.com/caelis-labs/caelis-bot/issues/314)) ([9471c15](https://github.com/caelis-labs/caelis-bot/commit/9471c1507f5b63c7f8d4f89a1fdd6724333a034b))
+* **ui:** modernize desktop and web UI surfaces and retire legacy CSS ([#317](https://github.com/caelis-labs/caelis-bot/issues/317)) ([ec869d8](https://github.com/caelis-labs/caelis-bot/commit/ec869d8869ac4b717aa2bb4f193fdf772072adb7))
+
+
+### Bug Fixes
+
+* bundle Caelis v0.87.0 ([#318](https://github.com/caelis-labs/caelis-bot/issues/318)) ([444289e](https://github.com/caelis-labs/caelis-bot/commit/444289ebb099ad0b2a7be313b0f5869411467817))
+* make reminder persistence tests deterministic on Windows ([#316](https://github.com/caelis-labs/caelis-bot/issues/316)) ([bde3ae2](https://github.com/caelis-labs/caelis-bot/commit/bde3ae281af345870235d06e2c738e2b5de43a56))
+
 ## [0.24.0](https://github.com/caelis-labs/caelis-bot/compare/v0.23.0...v0.24.0) (2026-11-25)
 
 
