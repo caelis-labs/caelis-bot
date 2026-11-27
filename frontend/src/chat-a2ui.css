@@ -12,7 +12,7 @@
  padding: 12px;
  background: var(--caelis-raised);
 }
-.message.assistant:has(.chat-a2ui-form) { width: min(472px, calc(100% - 50px)); }
+.message.assistant:has(.chat-a2ui-form) { width: 472px; }
 .chat-a2ui-form {
  width: 100%;
  box-sizing: border-box;
@@ -254,4 +254,33 @@ button.chat-a2ui-submit:disabled {
  color: var(--muted);
  background: var(--caelis-action-disabled);
  cursor: default;
+}
+
+.chat-a2ui-action { min-width: 0; }
+.chat-a2ui-button {
+ min-height: 32px;
+ border: 1px solid var(--a2ui-control-border);
+ border-radius: 6px;
+ padding: 5px 11px;
+ color: var(--ink);
+ background: var(--surface);
+ font: inherit;
+ cursor: pointer;
+}
+.chat-a2ui-button:hover:not(:disabled) { background: var(--wash); }
+.chat-a2ui-button[data-variant="primary"] {
+ border-color: transparent;
+ color: var(--on-accent);
+ background: var(--accent);
+}
+.chat-a2ui-button[data-variant="primary"]:hover:not(:disabled) { filter: brightness(.92); background: var(--accent); }
+.chat-a2ui-button[data-variant="borderless"] { border-color: transparent; background: transparent; }
+.chat-a2ui-button:disabled { opacity: .55; cursor: default; }
+.chat-a2ui-action .a2ui-error-message { margin-top: 5px; }
+.chat-a2ui-table { margin: 0; }
+
+@container chat-content (max-width: 540px) {
+ .chat-a2ui-row:has(.chat-a2ui-column, .chat-a2ui-card, .chat-a2ui-field, .chat-a2ui-table) {
+  flex-direction: column;
+ }
 }

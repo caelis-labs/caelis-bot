@@ -4,6 +4,7 @@ import {MessageProcessor, type SurfaceModel} from '@a2ui/web_core';
 import {chatCatalog, formComponents} from './chat-a2ui-catalog';
 import {chatValidation, compileChatSurface} from './chat-a2ui-compile';
 import {ChatA2uiFormOrigin} from './ChatA2uiForm';
+import {ChatA2uiActions} from './ChatA2uiActions';
 import {chatControls} from './ChatA2uiControls';
 import {useI18n} from './i18n';
 import './chat-a2ui.css';
@@ -23,9 +24,10 @@ export default function ExpressChatSurface({body, fallback, replyKey, receiving,
  if (!message) return visible ? fallback : null;
  const components = message.createSurface.components ?? [];
  const submitForm = components.some(component => component.component === 'Form');
+ const hasActions = components.some(component => component.component === 'Button');
  if (!visible && !submitForm) return null;
  return <ResolvedSurface message={message} fallback={fallback} replyKey={replyKey} receiving={receiving} visible={visible}
-  localForm={!submitForm && components.some(component => formComponents.includes(component.component))}/>;
+  localForm={!hasActions && !submitForm && components.some(component => formComponents.includes(component.component))}/>;
 }
 
 function ResolvedSurface({message, fallback, replyKey, receiving, visible, localForm}: {
@@ -59,6 +61,10 @@ function ResolvedSurface({message, fallback, replyKey, receiving, visible, local
  if (!view) return visible ? fallback : null;
  return <div className="chat-a2ui-surface" hidden={!visible}>
   {localForm && <p className="chat-a2ui-local">{t('chat.a2uiLocalDraft')}</p>}
-  <ChatA2uiFormOrigin.Provider value={{replyKey, receiving}}><A2uiSurface surface={view}/></ChatA2uiFormOrigin.Provider>
+  <ChatA2uiFormOrigin.Provider value={{replyKey, receiving}}>
+   <ChatA2uiActions view={view} replyKey={replyKey} receiving={receiving} visible={visible}>
+    <A2uiSurface surface={view}/>
+   </ChatA2uiActions>
+  </ChatA2uiFormOrigin.Provider>
  </div>;
 }

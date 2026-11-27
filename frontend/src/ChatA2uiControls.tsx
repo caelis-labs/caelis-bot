@@ -1,8 +1,11 @@
-import {Fragment, useId, useState, type CSSProperties, type ReactNode} from 'react';
+import {Fragment, useContext, useId, useState, type CSSProperties, type ReactNode} from 'react';
 import {createComponentImplementation} from '@a2ui/react';
 import {type ResolvedChildRef} from '@a2ui/web_core';
 import {CardApi, CheckBoxApi, ChoicePickerApi, ColumnApi, DividerApi, ListApi, RowApi, SliderApi, TabsApi, TextFieldApi} from '@a2ui/web_core/catalogs/basic/v1';
-import {chatForm, chatText} from './chat-a2ui-catalog';
+import {chatButton, chatForm, chatShow, chatTable, chatText} from './chat-a2ui-catalog';
+import {ChatA2uiSubmitEnabled} from './ChatA2uiActions';
+import {chatEvent} from './chat-a2ui-actions';
+import {fieldText} from './chat-a2ui-functions';
 import {ChatA2uiForm, useAnswer} from './ChatA2uiForm';
 import {useI18n} from './i18n';
 
@@ -40,6 +43,33 @@ const card = createComponentImplementation(CardApi, ({props, buildChild}) => <di
 const divider = createComponentImplementation(DividerApi, ({props}) =>
  <hr className="chat-a2ui-divider" aria-orientation={props.axis ?? 'horizontal'} style={{flex: props.weight}}/>);
 const form = createComponentImplementation(chatForm, ({props, buildChild}) => <ChatA2uiForm title={props.title}>{buildChild(props.child)}</ChatA2uiForm>);
+
+const button = createComponentImplementation(chatButton, ({props, context, buildChild, accessibilityRef}) => {
+ const id = useId();
+ const [checked, setChecked] = useState(false);
+ const canSubmit = useContext(ChatA2uiSubmitEnabled);
+ const submits = chatEvent(context.componentModel.properties.action) === 'submit';
+ const invalid = checked && props.isValid === false;
+ return <div className="chat-a2ui-action" style={{flex: props.weight}}>
+  <button ref={accessibilityRef} className="chat-a2ui-button" data-variant={props.variant}
+   type="button" disabled={props.enabled === false || submits && !canSubmit}
+   aria-describedby={invalid ? `${id}-error` : undefined} onClick={() => {
+    setChecked(true);
+    if (props.isValid !== false) void props.action();
+   }}>{buildChild(props.child)}</button>
+  {invalid && <FieldError id={id} messages={props.validationErrors}/>}
+ </div>;
+});
+
+const show = createComponentImplementation(chatShow, ({props, buildChild}) =>
+ props.when ? <>{buildChild(props.child)}</> : null);
+
+const table = createComponentImplementation(chatTable, ({props}) =>
+ <div className="message-table chat-a2ui-table" tabIndex={0}><table>
+  <thead><tr>{props.headers.map((header, index) => <th key={index} scope="col">{header}</th>)}</tr></thead>
+  <tbody>{(Array.isArray(props.rows) ? props.rows : []).map((row, index) => Array.isArray(row) &&
+   <tr key={index}>{props.headers.map((_, column) => <td key={column}>{fieldText(row[column])}</td>)}</tr>)}</tbody>
+ </table></div>);
 
 const tabs = createComponentImplementation(TabsApi, ({props, buildChild}) => {
  const id = useId();
@@ -166,4 +196,4 @@ const slider = createComponentImplementation(SliderApi, ({props}) => {
  </div>;
 });
 
-export const chatControls = [text, row, column, list, card, divider, tabs, textField, checkBox, choice, slider, form];
+export const chatControls = [text, row, column, list, card, divider, tabs, textField, checkBox, choice, slider, form, button, show, table];

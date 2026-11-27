@@ -93,23 +93,24 @@ Dev builds do not use the public updater; data and system permissions do not
 migrate automatically between those identities. Release instances keep one
 product lock. Closing a panel or hiding the pet does not quit the application.
 
-Desktop assistant replies can include A2UI Express blocks for comparisons, grouped
-records, editable local drafts and questionnaires. The chat panel renders complete
-blocks offline. Copy and history retain the original Markdown. A root `Form` offers
-an explicit submit button for the visible fields, using ordinary user-message
-admission and receipts while preserving the composer. Hiding the chat panel
-releases preview and local-draft state. Questionnaires retain edits while that
-panel is mounted. A matched receipt restores submission status from history.
-The pet bubble, Telegram and Weixin show the prose. A completed block-only reply
-points the reader to desktop chat. Unsupported WebViews show the exact block source.
+Desktop assistant replies can include A2UI Express blocks. The chat panel renders
+complete blocks offline. Markdown, inline media, copy and channel text projections
+keep their original behavior. Buttons can update bounded local bindings or, after
+an explicit click, fill the template with the current field values and submit it
+as an ordinary user message. The composer draft remains independent. The card
+stays editable after sending, and reopening history renders its initial values
+without sending anything. Saved root `Form` replies continue to work. The pet bubble,
+Telegram and Weixin show the prose. Unsupported WebViews display the exact block source.
 
-The chat catalog in `frontend/src/chat-a2ui-catalog.ts` drives compilation,
-rendering and the bundled bot-core reference. After updating it, regenerate the
-reference with `node script/generate-chat-a2ui-reference.mjs` using the pinned
-Node toolchain. `make check` verifies the generated file and the Markdown tests.
-For native panel coverage, including hiding and reopening with history retained,
-run the chat preview with `BOT_PREVIEW_FIXTURE=a2ui`
-and `BOT_PREVIEW_A2UI_CASE=comparison`, `collection`, `draft`, `exam` or `exam-error`.
+The catalog drives compilation, rendering and the bundled bot-core reference.
+After updating it, run `node script/generate-chat-a2ui-reference.mjs` using the
+pinned Node toolchain. `make check` verifies the generated reference and tests
+the A2UI Markdown and interaction contract. For native Mac panel coverage, run
+`BOT_PREVIEW_FIXTURE=a2ui BOT_PREVIEW_A2UI_CASE=interactive BOT_PREVIEW_AUTO_CAPTURE=1 bash script/build_and_run.sh --chat-preview`.
+The `comparison`, `collection`, `draft`, `exam` and `exam-error` cases cover
+saved read-only and form behavior. The `responsive` case runs native resizes
+from 1340 to 360 CSS pixels and checks the shared composer boundary, reading
+measure, individual block scrolling and multi-column card reflow.
 
 Use `BOT_PREVIEW_FIXTURE=chat-combined` with the same native preview command
 to exercise a form and image, file and website links in one reply. The preview

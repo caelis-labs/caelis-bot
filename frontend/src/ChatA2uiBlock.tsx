@@ -3,7 +3,7 @@ import {Component, createContext, lazy, Suspense, useContext, useEffect, useStat
 import {canRenderChatA2ui} from './chat-a2ui-capabilities';
 
 // A hidden native history window retains its React tree. The Express surface
-// releases previews and keeps answer forms available for recovery.
+// releases temporary card state and retains saved root Forms.
 export const ChatA2uiMount = createContext(true);
 
 const ExpressSurface = lazy(() => import('./ExpressChatSurface'));

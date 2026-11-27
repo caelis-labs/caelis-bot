@@ -1,6 +1,7 @@
 import {ExpressParser} from '@a2ui/agent';
 import {getComponentReferences, STRICT_VALIDATION} from '@a2ui/web_core';
 import type {CreateSurfaceMessage} from '@a2ui/web_core/v1_0';
+import {chatEvent} from './chat-a2ui-actions.ts';
 import {chatCatalog, formComponents} from './chat-a2ui-catalog.ts';
 
 const chatSurfaceId = 'chat';
@@ -8,7 +9,7 @@ const parser = new ExpressParser(chatCatalog, chatSurfaceId, 'v1.0');
 const maxItems = 12;
 const maxNodes = 160;
 export const chatValidation = { ...STRICT_VALIDATION, targetVersion: 'v1.0' } as const;
-const forbidden = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype', 'Event', 'surface', 'deleteSurface']);
+const forbidden = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype', 'surface', 'deleteSurface']);
 
 function acceptsSource(body: string) {
  if (body.length > 8192) return false;
@@ -36,12 +37,12 @@ function acceptsSource(body: string) {
  return true;
 }
 
-function boundedData(value: unknown, depth = 0): boolean {
- if (depth > 8) return false;
- if (Array.isArray(value)) return value.length <= maxItems && value.every(item => boundedData(item, depth + 1));
+function boundedData(value: unknown, limit: number, depth = 0): boolean {
+ if (depth > limit) return false;
+ if (Array.isArray(value)) return value.length <= maxItems && value.every(item => boundedData(item, limit, depth + 1));
  if (value && typeof value === 'object') {
   const entries = Object.entries(value);
-  return entries.length <= 40 && entries.every(([key, item]) => !forbidden.has(key) && boundedData(item, depth + 1));
+  return entries.length <= 40 && entries.every(([key, item]) => !forbidden.has(key) && boundedData(item, limit, depth + 1));
  }
  return true;
 }
@@ -79,7 +80,11 @@ export function compileChatSurface(body: string) {
  const opening = create.createSurface;
  if (opening.catalogId !== chatCatalog.id || opening.surfaceId !== chatSurfaceId || !opening.components?.length || opening.components.length > 40) return;
  if (Object.keys(opening).some(key => !['catalogId', 'surfaceId', 'components', 'dataModel'].includes(key))) return;
- if (!boundedData(opening.dataModel) || opening.components.some(component => !boundedData(component))) return;
+ if (!boundedData(opening.dataModel, 8) || opening.components.some(component => !boundedData(component, 16))) return;
+ const buttons = opening.components.filter(component => component.component === 'Button');
+ if (buttons.some(component => !chatEvent(component.action))) return;
+ if (buttons.some(component => chatEvent(component.action) === 'submit') &&
+  opening.components.some(component => component.component === 'TextField' && component.variant === 'obscured')) return;
  if (!withinRenderBudget(opening.components)) return;
  const rootForm = opening.components.some(component => component.id === 'root' && component.component === 'Form');
  if (opening.components.some(component => component.component === 'Form' && component.id !== 'root')) return;

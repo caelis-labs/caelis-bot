@@ -61,8 +61,8 @@ from completed work, and reconcile unknown effects using the original records.
 
 In desktop chat, naturally use a local presentation when the user needs to
 compare several meaningful options, explore grouped details, scan repeated
-records, try a small editable draft with checks, or submit a short questionnaire
-as one chat reply. Read
+records, compare live calculations, fill a query form, or work through an
+exercise before handing it back to you. Read
 [Desktop chat presentation](references/a2ui-chat.md) for these tasks, even
 when the user only describes the outcome they want. Read the local file from
 this skill’s base directory with your file reader. In Caelis use the `Read`
