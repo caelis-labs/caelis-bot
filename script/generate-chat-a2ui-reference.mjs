@@ -4,7 +4,12 @@ import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
 import {comparison, collection, draft, budget, calculator, weather, practice} from './a2ui-chat-examples.mjs';
 
 const target = new URL('../internal/botskills/skills/bot-core/references/a2ui-chat.md', import.meta.url);
-const format = new ExpressFormat([chatCatalog], {version: 'v1.0', allowedMessages: ['createSurface']});
+// Keep the historical Form renderer out of the card authoring reference.
+const authoringCatalog = chatCatalog.derive({
+ catalogId: chatCatalog.id,
+ components: [...chatCatalog.components.keys()].filter(name => name !== 'Form'),
+});
+const format = new ExpressFormat([authoringCatalog], {version: 'v1.0', allowedMessages: ['createSurface']});
 const generated = new SkillGenerator(format).generateSkill().content;
 // Replace the general event and surface rules with the desktop action contract.
 const sections = generated.split(/\n(?=\d+\. |## )/);
@@ -29,7 +34,7 @@ Use \`Button(Text("…"), action=Event("set", {"/path": value}))\` for local act
 
 To hand something to Bot, use a button with a specific call to action and \`Event("submit", {city: $/city, period: $/period}, userMessage="Check the weather in {city} for {period}.")\`. Each named placeholder must match a declared field. Field values can come from any tab and can be derived with a catalog function. Use \`enabled=and([present($/city),present($/period)])\` or relevant checks so all required answers are valid before sending. Declare only the values needed for this request, including when multiple tabs have other inputs or private notes. The user can keep editing while the card is open. Card inputs reset when the user reopens chat. The submitted text appears in history as a user message. Do not add a sending disclaimer or a copy of the outgoing text to the card.
 
-Use a plain chat reply path on channels without desktop cards. Use the existing approval or question workflow for explicit Runtime decisions. Do not request secrets or hidden values. Saved root Form replies still render.
+Use a plain chat reply path on channels without desktop cards. Use the existing approval or question workflow for explicit Runtime decisions. Do not request secrets or hidden values.
 
 Use the signatures below. Assign initial data with \`$/path = value\`. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one \`root\` tree of up to 40 components per block. Keep repeated templates shallow. Use only the set and submit button events. Omit surface directives, explicit updates, media and standalone calls.
 
