@@ -21,7 +21,7 @@
  self.window.appearance=[NSAppearance appearanceNamed:self.dark?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];
  WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];
  if(a2ui)[configuration.userContentController addScriptMessageHandler:self name:@"historyLifecycle"];
- if(media)[configuration.userContentController addScriptMessageHandler:self name:@"mediaKeyboard"];
+ if(media||a2ui)[configuration.userContentController addScriptMessageHandler:self name:@"mediaKeyboard"];
  self.web=[[WKWebView alloc] initWithFrame:NSMakeRect(0,0,width,height) configuration:configuration];self.web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
  self.web.appearance=self.window.appearance;
  [self.window.contentView addSubview:self.web];
@@ -81,7 +81,7 @@
  [self.window orderOut:nil];
  BOOL hidden=!self.window.isVisible;
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
-  [self.web evaluateJavaScript:@"!!document.querySelector('[data-message-id=chat-a2ui-fixture]') && !document.querySelector('.chat-a2ui-surface:not([hidden])')" completionHandler:^(id released,NSError *error){
+  [self.web evaluateJavaScript:@"Array.from(document.querySelectorAll('[data-message-id]')).some(el=>el.dataset.messageId===window.fixtureTarget) && !document.querySelector('.chat-a2ui-surface:not([hidden])')" completionHandler:^(id released,NSError *error){
    [self.window makeKeyAndOrderFront:nil];
    NSString *script=[NSString stringWithFormat:@"window.fixtureVisibility={hidden:%@,visible:%@,released:%@};window.dispatchEvent(new Event('history-open'))",
     hidden?@"true":@"false",self.window.isVisible?@"true":@"false",!error&&[released boolValue]?@"true":@"false"];

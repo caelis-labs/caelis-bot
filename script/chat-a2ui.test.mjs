@@ -7,10 +7,11 @@ import remarkGfm from 'remark-gfm';
 import {readableChatReply, remarkChatA2ui} from '../frontend/src/chat-a2ui-markdown.ts';
 import {chatValidation, compileChatSurface} from '../frontend/src/chat-a2ui-compile.ts';
 import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
-import {MessageProcessor, NodeResolver} from '@a2ui/web_core';
+import {DataModel, isComponentNode, MessageProcessor, NodeResolver} from '@a2ui/web_core';
 import {canRenderChatA2ui} from '../frontend/src/chat-a2ui-capabilities.ts';
+import {applyChatState, fillChatTemplate} from '../frontend/src/chat-a2ui-actions.ts';
 import {markdownChunks} from '../frontend/src/markdown-chunks.ts';
-import {collection, comparison, draft, exam} from './a2ui-chat-examples.mjs';
+import {budget, calculator, collection, comparison, draft, exam, practice, weather} from './a2ui-chat-examples.mjs';
 
 function render(text, receiving = false, enabled = true, blockOffset = 0) {
  const blocks = [];
@@ -67,7 +68,7 @@ test('CRLF and escaped close-tag text survive source extraction', () => {
 });
 
 test('the examples compile to one v1.0 surface each and are accepted by the pinned processor', () => {
- for (const body of [comparison, collection, draft, exam, 'root = Text("Saved heading", "title")']) {
+ for (const body of [comparison, collection, draft, exam, budget, calculator, weather, practice, 'root = Text("Saved heading", "title")']) {
   const message = compileChatSurface(body);
   assert.equal(message?.version, '1.0');
   const processor = new MessageProcessor([chatCatalog], undefined, {version: 'v1.0', validationConfig: chatValidation});
@@ -89,6 +90,11 @@ test('blocks unsupported actions and updates, oversized collections and unsafe p
  const opening = 'root = Text("safe")';
  for (const body of [
   'root = Button(Text("submit"),Event("submit"))',
+  'root = Button(Text("link"),action=Event("openUrl",{url:"https://example.test"}))',
+  'root = Button(Text("send"),action=Event("submit",{hidden:$/secret},userMessage="Send this"))',
+  'root = Button(Text("send"),action=Event("submit",{},userMessage="Send {undeclared}"))',
+  'root = Button(Text("change"),action=Event("set",{"/__proto__/marker":true}))',
+  weather.replace('placeholder="例如上海浦东"', 'variant="obscured"'),
   'root = Text(openUrl("https://example.test"))',
   `${opening}\nsurface chat\nroot = Text("replace")`,
   `$/__proto__/a2uiMarker = 1\n${opening}`,
@@ -206,4 +212,117 @@ test('the desktop feature gate checks the primitives required by the pinned WebV
  assert.equal(canRenderChatA2ui({...capable, Object: {}}), false);
  assert.equal(canRenderChatA2ui({...capable, CSSStyleSheet: class {}}), false);
  assert.equal(canRenderChatA2ui({...capable, ShadowRoot: class {}}), false);
+});
+
+function findNode(node, componentId, path) {
+ if (node.componentId === componentId && (!path || path === node.dataPath)) return node;
+ for (const value of Object.values(node.props.value)) {
+  const children = Array.isArray(value) ? value.flatMap(entry => entry?.child ?? entry) : [value];
+  for (const child of children.filter(isComponentNode)) {
+   const match = findNode(child, componentId, path);
+   if (match) return match;
+  }
+ }
+}
+
+async function withCard(body, verify) {
+ const processor = new MessageProcessor([chatCatalog], undefined, {version: 'v1.0', validationConfig: chatValidation});
+ try {
+  processor.processMessages(compileChatSurface(body));
+  const surface = processor.model.surfacesMap.get('chat');
+  const sent = [], errors = [];
+  surface.onError.subscribe(error => errors.push(error.code));
+  surface.onAction.subscribe(action => {
+   if (action.name === 'set') assert.equal(applyChatState(surface.dataModel, action.context), true);
+   if (action.name === 'submit') sent.push(fillChatTemplate(action.userMessage, action.context));
+  });
+  const resolver = new NodeResolver(surface);
+  try {
+   const find = (id, path) => findNode(resolver.rootNode.value, id, path);
+   const press = (id, path) => find(id, path).props.value.action();
+   await verify({press, find, data: surface.dataModel, sent});
+   assert.deepEqual(errors, []);
+  } finally { resolver.dispose(); }
+ } finally { processor.dispose(); }
+}
+
+test('local calculator actions are scoped, compose, recover from division by zero and emit no submit events', async () => {
+ await withCard(calculator, async ({press, find, data, sent}) => {
+  const digit = digit => press('digit', '/digits/' + ((digit + 9) % 10));
+  await digit(1);
+  await digit(2);
+  await press('operation', '/operators/0');
+  await digit(3);
+  await press('equals');
+  assert.equal(data.get('/calc/entry'), 15);
+  await press('operation', '/operators/2');
+  await digit(2);
+  await press('equals');
+  assert.equal(data.get('/calc/entry'), 30);
+  await press('operation', '/operators/3');
+  await digit(0);
+  await press('equals');
+  assert.equal(find('screen').toJSON().text, '无法计算，请输入新数字');
+  await press('clear');
+  assert.equal(data.get('/calc/entry'), 0);
+  assert.deepEqual(sent, []);
+ });
+});
+
+test('budget reacts to text input and reports validation and arithmetic errors locally', async () => {
+ await withCard(budget, async ({find, data, press, sent}) => {
+  const total = () => find('total_children_1').toJSON().text;
+  const share = () => find('share_children_1').toJSON().text;
+  assert.equal(share(), '70.00');
+  data.set('/budget/people', '0');
+  assert.equal(share(), '请输入有效人数及费用');
+  assert.equal(find('people').toJSON().isValid, false);
+  assert.equal(find('send').toJSON().enabled, false);
+  data.set('/budget/people', '4');
+  data.set('/budget/food', '90');
+  assert.equal(total(), '240.00');
+  assert.equal(share(), '60.00');
+  assert.equal(find('people').toJSON().isValid, true);
+  assert.equal(find('send').toJSON().enabled, true);
+  assert.deepEqual(sent, []);
+  await press('send');
+  assert.equal(sent[0].text, '请优化 4 人的预算，场地 120 元，餐费 90 元，交通 30 元。');
+ });
+});
+
+test('submit interpolates declared fields once and preserves the submitted values when bindings change', async () => {
+ await withCard(weather, async ({data, press, sent}) => {
+  data.set('/weather/city', ' 上海浦东 ');
+  data.set('/weather/period', '未来七天');
+  await press('send');
+  data.set('/weather/period', '今天');
+  assert.deepEqual(sent, [{text:'查一下上海浦东未来七天的天气', fields:[
+   {name: '城市', value: '上海浦东'}, {name: '日期', value: '未来七天'},
+  ]}]);
+  assert.equal(fillChatTemplate('Literal {field}', {field: '{another}'}).text, 'Literal {another}');
+ });
+ await withCard(practice, async ({data, press, find, sent}) => {
+  data.set('/quiz/first', ['12']);
+  data.set('/quiz/second', ['5', '3']);
+  data.set('/quiz/note', 'private local note');
+  await press('grade');
+  assert.deepEqual(find('scores').toJSON().rows, [[2,['12'],['5','3']]]);
+  assert.deepEqual(sent, []);
+  await press('send');
+  data.set('/quiz/first', ['10']);
+  assert.deepEqual(find('scores').toJSON().rows, [[2,['12'],['5','3']]]);
+  assert.deepEqual(sent.map(item => item.fields.map(field => field.value)), [['12','5、3']]);
+ });
+});
+
+test('local mutations are atomic and reject undeclared or forbidden paths', () => {
+ const data = new DataModel({cost: 1, items: ['x']});
+ const read = () => data.get('/');
+ assert.equal(applyChatState(data, {'/cost': 2, '/items/1': 'new'}), false);
+ assert.equal(applyChatState(data, {'/cost': 2, '/__proto__/value': 'unsafe'}), false);
+ assert.deepEqual(read(), {cost: 1, items: ['x']});
+ const observed = [];
+ data.subscribe('/cost', () => observed.push(data.get('/items/0')));
+ assert.equal(applyChatState(data, {'/cost': 2, '/items/0': 'y'}), true);
+ assert.deepEqual(observed, ['y']);
 });

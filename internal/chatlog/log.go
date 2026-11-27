@@ -85,6 +85,11 @@ func copyItem(i api.Item) api.Item {
 		task := *i.Task
 		i.Task = &task
 	}
+	if i.ChatCard != nil {
+		card := *i.ChatCard
+		card.Fields = append(make([]api.ChatCardField, 0, len(card.Fields)), card.Fields...)
+		i.ChatCard = &card
+	}
 	i.QuestionCards = append([]api.QuestionCard(nil), i.QuestionCards...)
 	if i.QuestionReply != nil {
 		reply := *i.QuestionReply
@@ -183,7 +188,12 @@ func mergeObservedItem(item, old api.Item) api.Item {
 		item.BeforeItem = old.BeforeItem
 	}
 	if item.Kind == "user" {
-		if (item.Status == "received" || item.Status == "sending") && settledInput(old.Status) {
+		if old.ChatCard != nil {
+			item.ChatCard = old.ChatCard
+		}
+		if (item.Status == "received" || item.Status == "sending" ||
+			(item.ChatCard != nil && item.Status == "unknown")) && settledInput(old.Status) {
+			old.ChatCard = item.ChatCard
 			return old
 		}
 		preserveQuestionReply(&item, old)
@@ -307,6 +317,10 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 				}
 				if previous.Text != "" && l.items[pos].Text != previous.Text && (l.items[pos].QuestionReply == nil || previous.QuestionReply != nil) {
 					l.items[pos].Text = previous.Text
+					changed = true
+				}
+				if l.items[pos].ChatCard == nil && previous.ChatCard != nil {
+					l.items[pos].ChatCard = previous.ChatCard
 					changed = true
 				}
 				if l.items[pos].Quoted == nil && previous.Quoted != nil {

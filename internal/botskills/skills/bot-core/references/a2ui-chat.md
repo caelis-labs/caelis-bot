@@ -2,11 +2,15 @@
 
 Give the important facts, recommendation and next step in Markdown. Add one compact block when tabs, grouped records, a local draft or a short questionnaire makes the reply easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
 
-Use `root = Form(child=questions,title="…")` when you need answers back from desktop chat. Give each control a meaningful label and a writable initial value bound to the local data model. Use `?required("…")` for required answers and clear messages for other checks. Use vertical ChoicePicker rows for longer options and `displayStyle="chips"` for short choices that fit side by side. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant.
+Use the controls for a task the user can do in the card. Give every input a meaningful label and bind it to an initialized local path. TextField produces text, including its number variant. Use `?required("…")` for required answers and `?numberInRange(0,"…")` for numeric text. Use vertical ChoicePicker rows for long labels, chips for short choices, and Slider steps for bounded numeric choices. Use Table for a small set of records with column headers.
 
-Edits and tab changes stay local. When the user chooses Submit answers, you receive one ordinary chat message with the form title, visible field labels and answers in display order. Only the active tab’s questions are included. Put every answer you need in the same view. Use one form for one reply. For local drafts and comparisons, keep a Basic Catalog root such as Card. Provide a plain chat reply path for channels that cannot display the form. Use the existing approval or question workflow when an explicit Runtime decision is needed. Do not request secrets or hidden values in these blocks.
+Use `Button(Text("…"), action=Event("set", {"/path": value}))` for local actions. Give the button a label that names its effect. A set event updates one or more existing absolute paths on the same card. Each value is evaluated against the pre-click data, then all changes publish together. Declare initial values before binding the inputs. Use `Show(condition, child)` and a button's `enabled` to follow the same data. Tab changes preserve bindings. For calculated output, use `display(value,"…")` with a recovery message for invalid input such as division by zero.
 
-Use the component and function signatures below. Assign initial data with `$/path = value` as shown in the examples. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one `root` tree of up to 40 components per block. Keep repeated templates shallow. Use local bindings and checks. Omit events, surface directives, explicit updates, media and standalone calls.
+To hand something to Bot, use a button with a specific call to action and `Event("submit", {city: $/city, period: $/period}, userMessage="Check the weather in {city} for {period}.")`. Each named placeholder must match a declared field. Field values can come from any tab and can be derived with a catalog function. Use `enabled=and([present($/city),present($/period)])` or relevant checks so all required answers are valid before sending. Declare only the values needed for this request, including when multiple tabs have other inputs or private notes. The user can keep editing after sending. Submitted values appear in history as snapshots. Do not add a sending disclaimer or a copy of the outgoing text to the card.
+
+Use a plain chat reply path on channels without desktop cards. Use the existing approval or question workflow for explicit Runtime decisions. Do not request secrets or hidden values. Saved root Form replies still render.
+
+Use the signatures below. Assign initial data with `$/path = value`. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one `root` tree of up to 40 components per block. Keep repeated templates shallow. Use only the set and submit button events. Omit surface directives, explicit updates, media and standalone calls.
 
 ## Desktop chat examples
 
@@ -46,22 +50,77 @@ echo = Text($/draft/email)
 </a2ui>
 ```
 
-### Ask for one consolidated chat reply
+### Compare and send a budget
 
 ```text
 <a2ui>
-$/answers = {version:[],platform:"",correct:[],logs:true,mail:false,confidence:70,notes:"内部备注"}
-root = Form(child=questions,title="发布前小测")
-questions = Column([version,platform,correct,details])
-version = ChoicePicker(label="1. 哪个版本可以发布？",options=[{label:"候选版本",value:"candidate"},{label:"通过验收的版本",value:"verified"}],value=$/answers/version,checks=[?required("请选择一个版本。")])
-platform = TextField("2. 填写待验证的平台",$/answers/platform,placeholder="例如 Windows",checks=[?required("请输入待验证的平台。")])
-correct = ChoicePicker(label="3. 构建通过等于实机验收。",displayStyle="chips",options=[{label:"正确",value:"yes"},{label:"错误",value:"no"}],value=$/answers/correct,checks=[?required("请选择正确或错误。")])
-details = Tabs([{title:"基本信息",child:basic},{title:"高级设置",child:advanced}])
-basic = Column([Text("4. 附加记录", "title"),logs,mail,confidence])
-logs = CheckBox("包含构建日志",$/answers/logs)
-mail = CheckBox("发送邮件通知",$/answers/mail)
-confidence = Slider(label="5. 验收信心",min=0,max=100,steps=10,value=$/answers/confidence)
-advanced = TextField("内部备注",$/answers/notes)
+$/budget = {people:"3",room:"120",food:"60",travel:"30"}
+root = Card(Column([Text("预算分摊", "title"), costs, result, send]))
+costs = Row([left,right])
+left = Column([people,room],weight=1)
+right = Column([food,travel],weight=1)
+people = TextField("人数",$/budget/people,variant="number",checks=[?numberInRange(1,"人数至少为 1")])
+room = TextField("场地",$/budget/room,variant="number",checks=[?numberInRange(0,"请输入非负金额")])
+food = TextField("餐费",$/budget/food,variant="number",checks=[?numberInRange(0,"请输入非负金额")])
+travel = TextField("交通",$/budget/travel,variant="number",checks=[?numberInRange(0,"请输入非负金额")])
+result = Row([total,share])
+total = Column([Text("合计"),Text(display(sum([$/budget/room,$/budget/food,$/budget/travel]),"检查费用",decimals=2),"title")],weight=1)
+share = Column([Text("人均"),Text(display(calculate("/",sum([$/budget/room,$/budget/food,$/budget/travel]),$/budget/people),"请输入有效人数及费用",decimals=2),"title")],weight=1)
+send = Button(Text("请 Bot 优化预算"), variant="primary", enabled=and([compare("ge",$/budget/people,1),compare("ge",$/budget/room,0),compare("ge",$/budget/food,0),compare("ge",$/budget/travel,0)]), action=Event("submit",{"人数":$/budget/people,"场地":$/budget/room,"餐费":$/budget/food,"交通":$/budget/travel},userMessage="请优化 {人数} 人的预算，场地 {场地} 元，餐费 {餐费} 元，交通 {交通} 元。"))
+</a2ui>
+```
+
+### Calculate locally with a keypad
+
+```text
+<a2ui>
+$/calc = {entry:0,left:0,op:"+",next:true}
+$/digits = [1,2,3,4,5,6,7,8,9,0]
+$/operators = [{label:"+",symbol:"+"},{label:"−",symbol:"-"},{label:"×",symbol:"*"},{label:"÷",symbol:"/"}]
+root = Card(Column([Text("计算器","title"),screen,digits,operators,actions]))
+screen = Text(display($/calc/entry,"无法计算，请输入新数字"),"title")
+digits = List(_template($/digits,digit),direction="horizontal")
+digit = Button(Text(display($,"0")),action=Event("set",{"/calc/entry":choose($/calc/next,$,calculate("+",calculate("*",$/calc/entry,10),$)),"/calc/next":false}))
+operators = List(_template($/operators,operation),direction="horizontal")
+operation = Button(Text($label),enabled=present($/calc/entry),action=Event("set",{"/calc/left":$/calc/entry,"/calc/op":$symbol,"/calc/next":true}))
+actions = Row([clear,equals])
+clear = Button(Text("清除"),action=Event("set",{"/calc/entry":0,"/calc/left":0,"/calc/op":"+","/calc/next":true}))
+equals = Button(Text("="),variant="primary",enabled=not($/calc/next),action=Event("set",{"/calc/entry":calculate($/calc/op,$/calc/left,$/calc/entry),"/calc/next":true}))
+</a2ui>
+```
+
+### Send a weather query
+
+```text
+<a2ui>
+$/weather = {city:"",period:""}
+root = Card(Column([Text("天气查询","title"),city,period,send]))
+city = TextField("城市",$/weather/city,placeholder="例如上海浦东",checks=[?required("请输入城市")])
+period = TextField("日期范围",$/weather/period,placeholder="例如未来七天",checks=[?required("请输入日期范围")])
+send = Button(Text("查天气"),variant="primary",enabled=and([present($/weather/city),present($/weather/period)]),action=Event("submit",{"城市":$/weather/city,"日期":$/weather/period},userMessage="查一下{城市}{日期}的天气"))
+</a2ui>
+```
+
+### Practice across tabs, score locally or ask Bot
+
+```text
+<a2ui>
+$/quiz = {first:[],second:[],instant:true,graded:false,total:0,savedFirst:[],savedSecond:[],note:""}
+root = Card(Column([Text("跨页练习","title"),instant,pages,actions,graded,note]))
+instant = CheckBox("随练随判",$/quiz/instant)
+pages = Tabs([{title:"单选",child:first},{title:"多选",child:second}])
+first = Column([one,feedbackOne])
+one = ChoicePicker(label="3 × 4 等于多少？",options=[{label:"10",value:"10"},{label:"12",value:"12"}],value=$/quiz/first,checks=[?required("请选择一个答案")])
+feedbackOne = Show(and([$/quiz/instant,present($/quiz/first)]),Text(choose(sameSet($/quiz/first,["12"]),"答对了","再试一次")))
+second = Column([two,feedbackTwo])
+two = ChoicePicker(label="哪些是质数？",variant="multipleSelection",options=[{label:"3",value:"3"},{label:"4",value:"4"},{label:"5",value:"5"}],value=$/quiz/second,checks=[?required("请至少选择一个答案")])
+feedbackTwo = Show(and([$/quiz/instant,present($/quiz/second)]),Text(choose(sameSet($/quiz/second,["3","5"]),"答对了","再试一次")))
+actions = Row([grade,send])
+grade = Button(Text("本地评分"),enabled=and([present($/quiz/first),present($/quiz/second)]),action=Event("set",{"/quiz/total":sum([sameSet($/quiz/first,["12"]),sameSet($/quiz/second,["3","5"])]),"/quiz/savedFirst":$/quiz/first,"/quiz/savedSecond":$/quiz/second,"/quiz/graded":true}))
+send = Button(Text("请 Bot 批改"),variant="primary",enabled=and([present($/quiz/first),present($/quiz/second)]),action=Event("submit",{"第一题":$/quiz/first,"第二题":$/quiz/second},userMessage="请批改这份练习。第一题选了 {第一题}，第二题选了 {第二题}。"))
+graded = Show($/quiz/graded,Column([Text("上次本地评分","title"),scores]))
+scores = Table(headers=["得分","第一题","第二题"],rows=[[$/quiz/total,$/quiz/savedFirst,$/quiz/savedSecond]])
+note = TextField("个人备注",$/quiz/note)
 </a2ui>
 ```
 
@@ -121,6 +180,12 @@ These functions are defined by the A2UI protocol, not by a catalog. Call them by
 ## Positional Component Signatures
 
 Use these exact positional signatures to instantiate components. Do not output property keys:
+• Button(child (static), variant? (static), action (static), weight? (static), enabled?, checks? (static))
+  - child: The ID of the child component. Use a 'Text' component for a labeled button. Only use an 'Icon' if the requirements explicitly ask for an icon-only button.
+  - variant: A hint for the button style. If omitted, a default button style is used. 'primary' indicates this is the main call-to-action button. 'borderless' means the button has no visual border or background, making its child content appear like a clickable link. Must be one of: 'default', 'primary', 'borderless'
+  - weight: The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.
+  - enabled: Allow this action only while this condition is true.
+  - checks: A list of validation check rules to perform on the component.
 • Card(child (static), weight? (static))
   - child: The ID of the single child component to be rendered inside the card. To display multiple elements, you MUST wrap them in a layout component (like Column or Row) and pass that container's ID here. Do NOT pass multiple IDs or a non-existent ID.
   - weight: The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.
@@ -163,6 +228,8 @@ Use these exact positional signatures to instantiate components. Do not output p
   - justify: Defines the arrangement of children along the main axis (horizontally). Use 'spaceBetween' to push items to the edges, or 'start'/'end'/'center' to pack them together. Must be one of: 'center', 'end', 'spaceAround', 'spaceBetween', 'spaceEvenly', 'start', 'stretch'
   - align: Defines the alignment of children along the cross axis (vertically). This is similar to the CSS 'align-items' property, but uses camelCase values (e.g., 'start'). Must be one of: 'start', 'center', 'end', 'stretch'
   - weight: The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.
+• Show(when, child (static))
+  - when: Show the child only while this condition is true.
 • Slider(label?, min? (static), max (static), value, steps? (static), weight? (static), checks? (static))
   - label: The label for the slider.
   - min: The minimum value of the slider.
@@ -170,6 +237,8 @@ Use these exact positional signatures to instantiate components. Do not output p
   - value: The current value of the slider.
   - steps: The number of discrete divisions in the slider range. If specified, the slider will snap to discrete values.
   - weight: The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.
+• Table(headers (static), rows)
+  - rows: Rows of cell values in header order.
 • Tabs(tabs (static), weight? (static))
   - tabs: An array of objects, where each object defines a tab with a title and a child component.
     List of maps keys:
@@ -190,6 +259,19 @@ Use these exact positional signatures to instantiate components. Do not output p
 ## Positional Function Signatures
 
 Use these exact positional signatures to instantiate check rules or logic functions:
+• and(values)
+  - Description: Performs a logical AND operation on a list of boolean values.
+  - values: The list of boolean values to evaluate.
+• calculate(op?, left?, right?)
+  - Description: Perform arithmetic on numbers or decimal text. An invalid operand, overflow, or division by zero produces null.
+• choose(when?, yes?, no?)
+  - Description: Return yes when the condition is true, otherwise no.
+• compare(op, left?, right?)
+  - Description: Compare scalars with eq/ne or numbers (including decimal text) with lt/le/gt/ge. Null equals null.
+• count(values?)
+  - Description: Count the items in a list. A missing list counts as zero.
+• display(value?, fallback, decimals?)
+  - Description: Display a scalar or list. For an invalid calculation, display the supplied fallback. Optional fixed decimal precision applies to numbers.
 • email(value)
   - Description: Checks that the value is a valid email address.
 • formatNumber(value, decimals?, grouping?)
@@ -201,10 +283,26 @@ Use these exact positional signatures to instantiate check rules or logic functi
   - Description: Checks string length constraints.
   - min: The minimum allowed length.
   - max: The maximum allowed length.
+• not(value)
+  - Description: Performs a logical NOT operation on a boolean value.
+  - value: The boolean value to negate.
+• numberInRange(value?, min, max?)
+  - Description: Check numeric text or a number against inclusive bounds. Use for TextField number checks.
 • numeric(value, min?, max?)
   - Description: Checks numeric range constraints.
   - min: The minimum allowed value.
   - max: The maximum allowed value.
+• or(values)
+  - Description: Performs a logical OR operation on a list of boolean values.
+  - values: The list of boolean values to evaluate.
+• present(value?)
+  - Description: Check for nonblank text, a finite number, a boolean, or a nonempty list of these values.
 • required(value)
   - Description: Checks that the value is not null, undefined, or empty.
   - value: The value to check.
+• round(value?, mode?)
+  - Description: Round to an integer, floor or ceil. Returns null for invalid input.
+• sameSet(left?, right?)
+  - Description: Compare two lists of scalar values, ignoring order and duplicates.
+• sum(values?)
+  - Description: Add the numbers, decimal text, or booleans (true=1) in a list. Invalid items produce null.

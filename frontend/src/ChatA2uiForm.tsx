@@ -1,5 +1,5 @@
 import {createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ChatA2uiSubmission} from './chat-a2ui-submit';
+import {chatReplyHash, ChatA2uiSubmission} from './chat-a2ui-submit';
 import {useI18n} from './i18n';
 
 type Answer = {label: string; value: string; invalid: boolean};
@@ -25,22 +25,12 @@ export function ChatA2uiForm({title, children}: {title: string; children: ReactN
  const id = useId();
  const {replyKey, receiving} = useContext(ChatA2uiFormOrigin);
  const submission = useContext(ChatA2uiSubmission);
- const [origin, setOrigin] = useState<{replyKey: string; key: string}>();
+ const key = useChatA2uiOrigin(replyKey);
  const [checked, setChecked] = useState(false);
  const [tooLong, setTooLong] = useState(false);
  const [progress, setProgress] = useState({answered: 0, total: 0});
  const root = useRef<HTMLElement>(null);
  const fields = useRef(new Map<HTMLElement, Answer>());
-
- useEffect(() => {
-  if (!replyKey || !crypto.subtle) return;
-  let active = true;
-  void crypto.subtle.digest('SHA-256', new TextEncoder().encode(replyKey)).then(hash => {
-   const key = 'a2ui-' + Array.from(new Uint8Array(hash).slice(0, 16), byte => byte.toString(16).padStart(2, '0')).join('') + '-';
-   if (active) setOrigin({replyKey, key});
-  }).catch(() => {});
-  return () => { active = false; };
- }, [replyKey]);
 
  const register = useCallback((element: HTMLElement, answer: Answer) => {
   const update = () => {
@@ -53,10 +43,9 @@ export function ChatA2uiForm({title, children}: {title: string; children: ReactN
   return () => { fields.current.delete(element); update(); };
  }, []);
 
- const key = origin?.replyKey === replyKey ? origin?.key : undefined;
  const outcome = key ? submission?.outcome(key) : undefined;
- const frozen = outcome === 'sending' || outcome === 'unknown' || outcome === 'accepted';
- const enabled = !!(key && submission?.available && !receiving && !frozen && progress.total);
+ const frozen = outcome === 'sending' || outcome === 'unknown';
+ const enabled = !!(key && submission?.available && !receiving && !frozen && outcome !== 'accepted' && progress.total);
  const submit = () => {
   if (!enabled || !key || !submission) return;
   // Only mounted controls are included. DOM order matches the questions the
@@ -83,7 +72,7 @@ export function ChatA2uiForm({title, children}: {title: string; children: ReactN
  };
  const status = outcome === 'sending' ? t('chat.statusSending') : outcome === 'accepted' ? t('chat.a2uiSubmitted') :
   outcome === 'unknown' ? t('chat.a2uiSendUnknown') : outcome === 'rejected' ? t('chat.a2uiSendRejected') :
-  tooLong ? t('chat.a2uiTooLong') : t('chat.a2uiSubmitHint');
+  tooLong ? t('chat.a2uiTooLong') : undefined;
  const error = outcome === 'rejected' || tooLong;
 
  return <section className="chat-a2ui-form" ref={root} aria-labelledby={id} aria-busy={outcome === 'sending'}>
@@ -92,14 +81,27 @@ export function ChatA2uiForm({title, children}: {title: string; children: ReactN
    {outcome !== 'accepted' && progress.total > 0 &&
     <span>{t('chat.a2uiProgress', {answered: progress.answered, total: progress.total})}</span>}
   </div>
-  {outcome !== 'accepted' && <VisibleAnswers.Provider value={{register, checked, frozen}}>
+  <VisibleAnswers.Provider value={{register, checked, frozen}}>
    <div className="chat-a2ui-questions">{children}</div>
-  </VisibleAnswers.Provider>}
+  </VisibleAnswers.Provider>
   <div className="chat-a2ui-footer">
-   {outcome !== 'accepted' && <button className="chat-a2ui-submit" type="button" disabled={!enabled} aria-describedby={`${id}-status`} onClick={submit}>
+   {outcome !== 'accepted' && <button className="chat-a2ui-submit" type="button" disabled={!enabled} aria-describedby={status ? `${id}-status` : undefined} onClick={submit}>
     {t(outcome === 'rejected' ? 'chat.a2uiRetry' : 'chat.a2uiSubmit')}
    </button>}
-   <div className={error ? 'a2ui-error-message' : 'chat-a2ui-hint'} id={`${id}-status`} role="status">{status}</div>
+   {status && <div className={error ? 'a2ui-error-message' : 'chat-a2ui-hint'} id={`${id}-status`} role="status">{status}</div>}
   </div>
  </section>;
+}
+
+export function useChatA2uiOrigin(replyKey?: string) {
+ const [origin, setOrigin] = useState<{replyKey: string; key: string}>();
+ useEffect(() => {
+  if (!replyKey || !crypto.subtle) return;
+  let active = true;
+  void chatReplyHash(replyKey).then(hash => {
+   if (active) setOrigin({replyKey, key: 'a2ui-' + hash + '-'});
+  }).catch(() => {});
+  return () => { active = false; };
+ }, [replyKey]);
+ return origin?.replyKey === replyKey ? origin?.key : undefined;
 }

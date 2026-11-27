@@ -1,11 +1,13 @@
+import {a2uiInteractiveFixture} from './chat-a2ui-interactive-fixture.mjs';
 import {comparison, collection, draft, exam} from './a2ui-chat-examples.mjs';
 
 // Synthetic snapshots for the existing native chat preview. The panel, Markdown
 // parser, Express compiler and renderer are the production build.
-export const a2uiFixture = String.raw`
+export const a2uiFixture = a2uiInteractiveFixture + String.raw`
 window.fixtureA2ui = async () => {
  let id = 'chat-a2ui-fixture';
  const screenshot = ${JSON.stringify(process.env.BOT_PREVIEW_A2UI_CASE ?? 'draft')};
+ if (screenshot.startsWith('interactive')) return window.fixtureInteractiveCards();
  const first = '<a2ui>\nroot = Card(summary)\nsummary = Column([Text("Review summary", "title"), Divider(), results])\nresults = Row([Text("2 ready"), Text("1 waiting", "caption")])\n</a2ui>';
  const second = '<a2ui>\nroot = Card(Text("Pending · Architecture"))\n</a2ui>';
  const invalid = '<a2ui>\nroot = Image("https://example.test/'+ 'long-invalid-source-'.repeat(14) +'never-load.png")\n</a2ui>';

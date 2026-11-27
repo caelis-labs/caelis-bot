@@ -103,6 +103,8 @@ type Item struct {
 	HistoryID string `json:"historyId,omitempty"`
 	// RequestID correlates a local submission with an authoritative native input.
 	RequestID string `json:"requestId"`
+	// ChatCard holds the committed fields of this ordinary user input.
+	ChatCard *ChatCardSnapshot `json:"chatCard,omitempty"`
 	// SeenAt is local presentation order in Unix microseconds, not Runtime authority.
 	SeenAt    int64               `json:"seenAt,omitempty"`
 	TurnKey   string              `json:"turnKey"`
@@ -139,6 +141,16 @@ type Item struct {
 	AsyncCallID    string          `json:"-"`
 	AsyncExpiresAt int64           `json:"-"` // Fixed original Worker question deadline, host-only.
 	AsyncQuestions []AsyncQuestion `json:"-"`
+}
+
+// ChatCardSnapshot is display evidence bound to its original user request.
+type ChatCardSnapshot struct {
+	Fields []ChatCardField `json:"fields"`
+}
+
+type ChatCardField struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // TaskPresentation is a visible start receipt, not a Worker transcript.
@@ -361,6 +373,7 @@ type RuntimeCheck struct {
 	Message   string `json:"message"`
 }
 type Submission struct {
+	ChatCard *ChatCardSnapshot `json:"-"` // desktop history evidence, never model input
 	// IngressFence is a Control-owned generation selected by a remote channel.
 	// NativeIngressFence is set by Control and checked under the adapter's
 	// submission lock immediately before any native dispatch.

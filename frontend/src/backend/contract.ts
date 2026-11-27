@@ -66,6 +66,13 @@ export interface BotIntroduction {
   name: string;
   description: string;
 }
+export interface ChatCardField {
+  name: string;
+  value: string;
+}
+export interface ChatCardSnapshot {
+  fields: Array<ChatCardField>;
+}
 export interface ChatLink {
   destination: string;
   file: Artifact;
@@ -116,6 +123,7 @@ export interface ExecutionSettings {
 export interface Item {
   historyId?: string;
   requestId: string;
+  chatCard?: ChatCardSnapshot | null;
   seenAt?: number;
   turnKey: string;
   id: string;

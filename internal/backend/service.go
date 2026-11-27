@@ -844,7 +844,9 @@ func (s *Service) submitChat(ctx context.Context, input api.Submission, fromComp
 		return receipt, err
 	}
 	s.finishOutgoing(input.ID, receipt)
-	s.recordInput(input, files, receipt)
+	if input.ChatCard == nil {
+		s.recordInput(input, files, receipt)
+	}
 	if len(input.FileIDs) > 0 {
 		s.reconcileDraftReceipt(receipt)
 		return receipt, err

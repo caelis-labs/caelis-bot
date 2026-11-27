@@ -1,13 +1,12 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {ExpressFormat, SkillGenerator} from '@a2ui/agent';
 import {chatCatalog} from '../frontend/src/chat-a2ui-catalog.ts';
-import {comparison, collection, draft, exam} from './a2ui-chat-examples.mjs';
+import {comparison, collection, draft, budget, calculator, weather, practice} from './a2ui-chat-examples.mjs';
 
 const target = new URL('../internal/botskills/skills/bot-core/references/a2ui-chat.md', import.meta.url);
 const format = new ExpressFormat([chatCatalog], {version: 'v1.0', allowedMessages: ['createSurface']});
 const generated = new SkillGenerator(format).generateSkill().content;
-// The upstream grammar lists events and surface directives even for a catalog
-// without action components. Keep the remaining official text verbatim.
+// Replace the general event and surface rules with the desktop action contract.
 const sections = generated.split(/\n(?=\d+\. |## )/);
 const unsupported = /^(8\. Action events|12\. Required actions|13\. Surface targeting)/;
 if (sections.filter(section => unsupported.test(section)).length !== 3) throw Error('Review upstream Express rules before regenerating');
@@ -19,16 +18,20 @@ const rules = sections.filter(section => !unsupported.test(section)).join('\n')
  .replace(/^7\. Logic and validation:[^\n]*/m, '7. Prefix supported client checks with ?. For example, ?email("Enter an email address").')
  .replace('itemTemplate = Image($url)', 'itemTemplate = Text($name)');
 
-const examples = [['Compare details in tabs', comparison], ['Repeat supplied records', collection], ['Edit and validate a local draft', draft], ['Ask for one consolidated chat reply', exam]];
+const examples = [['Compare details in tabs', comparison], ['Repeat supplied records', collection], ['Edit and validate a local draft', draft], ['Compare and send a budget', budget], ['Calculate locally with a keypad', calculator], ['Send a weather query', weather], ['Practice across tabs, score locally or ask Bot', practice]];
 const local = `# Present results in desktop chat
 
 Give the important facts, recommendation and next step in Markdown. Add one compact block when tabs, grouped records, a local draft or a short questionnaire makes the reply easier to use. Put each sentinel at column one on its own line, with blank lines separating the block from prose. Keep each block independent.
 
-Use \`root = Form(child=questions,title="…")\` when you need answers back from desktop chat. Give each control a meaningful label and a writable initial value bound to the local data model. Use \`?required("…")\` for required answers and clear messages for other checks. Use vertical ChoicePicker rows for longer options and \`displayStyle="chips"\` for short choices that fit side by side. Use a Slider with steps for bounded numeric choices. TextField produces text, including its number variant.
+Use the controls for a task the user can do in the card. Give every input a meaningful label and bind it to an initialized local path. TextField produces text, including its number variant. Use \`?required("…")\` for required answers and \`?numberInRange(0,"…")\` for numeric text. Use vertical ChoicePicker rows for long labels, chips for short choices, and Slider steps for bounded numeric choices. Use Table for a small set of records with column headers.
 
-Edits and tab changes stay local. When the user chooses Submit answers, you receive one ordinary chat message with the form title, visible field labels and answers in display order. Only the active tab’s questions are included. Put every answer you need in the same view. Use one form for one reply. For local drafts and comparisons, keep a Basic Catalog root such as Card. Provide a plain chat reply path for channels that cannot display the form. Use the existing approval or question workflow when an explicit Runtime decision is needed. Do not request secrets or hidden values in these blocks.
+Use \`Button(Text("…"), action=Event("set", {"/path": value}))\` for local actions. Give the button a label that names its effect. A set event updates one or more existing absolute paths on the same card. Each value is evaluated against the pre-click data, then all changes publish together. Declare initial values before binding the inputs. Use \`Show(condition, child)\` and a button's \`enabled\` to follow the same data. Tab changes preserve bindings. For calculated output, use \`display(value,"…")\` with a recovery message for invalid input such as division by zero.
 
-Use the component and function signatures below. Assign initial data with \`$/path = value\` as shown in the examples. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one \`root\` tree of up to 40 components per block. Keep repeated templates shallow. Use local bindings and checks. Omit events, surface directives, explicit updates, media and standalone calls.
+To hand something to Bot, use a button with a specific call to action and \`Event("submit", {city: $/city, period: $/period}, userMessage="Check the weather in {city} for {period}.")\`. Each named placeholder must match a declared field. Field values can come from any tab and can be derived with a catalog function. Use \`enabled=and([present($/city),present($/period)])\` or relevant checks so all required answers are valid before sending. Declare only the values needed for this request, including when multiple tabs have other inputs or private notes. The user can keep editing after sending. Submitted values appear in history as snapshots. Do not add a sending disclaimer or a copy of the outgoing text to the card.
+
+Use a plain chat reply path on channels without desktop cards. Use the existing approval or question workflow for explicit Runtime decisions. Do not request secrets or hidden values. Saved root Form replies still render.
+
+Use the signatures below. Assign initial data with \`$/path = value\`. Use double-quoted, single-line strings, and up to 12 items per list or group. The host accepts one \`root\` tree of up to 40 components per block. Keep repeated templates shallow. Use only the set and submit button events. Omit surface directives, explicit updates, media and standalone calls.
 
 ## Desktop chat examples
 
