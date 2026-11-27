@@ -88,8 +88,8 @@ const MarkdownChunk=memo(function MarkdownChunk({source,report,a2ui,blockOffset,
   a:({href,children}:React.ComponentProps<'a'>)=>renderLink(href,children),
   // A Markdown image can only preview bytes from its message's retained handles.
   img:({src,alt}:React.ComponentProps<'img'>)=>renderLink(typeof src==='string'?src:undefined,alt||t('chat.imageOpen'),true),
-  pre:({children}:React.ComponentProps<'pre'>)=><div className="code-block"><CopyText text={plain(children)} label={t('chat.copyCode')} report={report}/><pre>{children}</pre></div>,
-  table:({children}:React.ComponentProps<'table'>)=><div className="message-table"><table>{children}</table></div>,
+  pre:({children}:React.ComponentProps<'pre'>)=><div className="code-block"><CopyText text={plain(children)} label={t('chat.copyCode')} report={report}/><pre tabIndex={0}>{children}</pre></div>,
+  table:({children}:React.ComponentProps<'table'>)=><div className="message-table" tabIndex={0}><table>{children}</table></div>,
  };
  return <Markdown skipHtml remarkPlugins={plugins} urlTransform={transformURL} components={components}>{source}</Markdown>;
 });

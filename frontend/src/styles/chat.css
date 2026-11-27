@@ -5,6 +5,8 @@ body[data-surface="history"] {
 }
 
 .history-surface {
+  --chat-width: 1200px;
+  --chat-gutter: 22px;
   height: 100dvh;
   width: 100%;
   min-width: 0;
@@ -61,7 +63,7 @@ body[data-surface="history"] {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 14px 22px 28px;
+  padding: 14px var(--chat-gutter) 28px;
 }
 
 .history-surface:has(.chat-settings-entry) .chat-scroll {
@@ -94,8 +96,9 @@ body[data-surface="history"] {
 
 .chat-content {
   display: flow-root;
-  max-width: 760px;
+  max-width: var(--chat-width);
   margin: 0 auto;
+  container: chat-content / inline-size;
 }
 
 .empty-conversation {
@@ -311,6 +314,11 @@ body[data-surface="history"] {
   background: var(--caelis-content);
   border: 1px solid var(--caelis-border);
   box-shadow: var(--shadow-xs);
+}
+
+/* The message keeps the same left edge and avatar gap when a wide block appears. */
+.history-surface .message.assistant:has(> .markdown-body :is(.message-table, .code-block, .chat-a2ui-row :is(.chat-a2ui-column, .chat-a2ui-card, .chat-a2ui-field))) {
+  width: 100%;
 }
 
 .message.assistant.controlNotice {
@@ -633,6 +641,20 @@ button.sent-file:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* Limit reading measure independently of the wide blocks in the same reply. */
+.history-surface .message.assistant > .markdown-body {
+  --chat-prose-width: 72ch;
+}
+
+.history-surface .message.assistant > .markdown-body:lang(zh) {
+  --chat-prose-width: 52em;
+  --chat-prose-width: 52ic;
+}
+
+.history-surface .message.assistant > .markdown-body > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, hr) {
+  max-inline-size: var(--chat-prose-width);
+}
+
 .markdown-body > :first-child {
   margin-top: 0;
 }
@@ -738,6 +760,7 @@ button.sent-file:focus-visible {
   padding: 13px 42px 13px 14px;
   white-space: pre;
   overflow: auto;
+  overscroll-behavior-inline: contain;
   font-size: 12.5px;
   line-height: 1.65;
 }
@@ -749,13 +772,16 @@ button.sent-file:focus-visible {
 }
 
 .message-table {
+  min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   margin: 12px 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
 
 .message-table table {
+  overflow-wrap: normal;
   border-collapse: collapse;
   min-width: 100%;
 }
@@ -765,6 +791,10 @@ button.sent-file:focus-visible {
   text-align: left;
   border-bottom: 1px solid var(--line);
   padding: 7px 11px;
+}
+
+.history-surface .message-table :is(th, td):first-child {
+  min-inline-size: 12ch;
 }
 
 .message-table th + th,
@@ -1378,16 +1408,16 @@ button.sent-file:focus-visible {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  width: 100%;
-  max-width: 804px;
-  margin: 0 auto;
-  padding: 8px 22px 16px;
+  margin-inline-end: var(--chat-scrollbar-width, 0px);
+  padding: 8px var(--chat-gutter) 16px;
   background: var(--caelis-chat);
 }
 
 .history-surface .compose-area {
   flex: 1;
   min-width: 0;
+  max-width: var(--chat-width);
+  margin-inline: auto;
   overflow: hidden;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 30px;
@@ -2356,11 +2386,14 @@ dialog.screen-viewer[open]::backdrop {
 }
 
 @media (max-width: 650px) {
+  .history-surface {
+    --chat-gutter: 14px;
+  }
   .history-surface .chat-scroll {
-    padding: 12px 14px 20px;
+    padding-block: 12px 20px;
   }
   .history-surface footer {
-    padding: 8px 14px 12px;
+    padding-bottom: 12px;
   }
   .history-surface .approval-dock {
     width: calc(100% - 20px);

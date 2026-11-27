@@ -76,7 +76,14 @@
   [self.window sendEvent:event];
   return;
  }
- if(![message.name isEqual:@"historyLifecycle"]||![message.body isEqual:@"hide-and-reopen"])return;
+ if(![message.name isEqual:@"historyLifecycle"])return;
+ if([message.body isKindOfClass:NSDictionary.class]){
+  NSNumber *width=message.body[@"width"];
+  if([width isKindOfClass:NSNumber.class]&&width.doubleValue>=300&&width.doubleValue<=1600)
+   [self.window setContentSize:NSMakeSize(width.doubleValue,self.window.contentView.bounds.size.height)];
+  return;
+ }
+ if(![message.body isEqual:@"hide-and-reopen"])return;
  [self.web evaluateJavaScript:@"window.dispatchEvent(new Event('history-close'))" completionHandler:nil];
  [self.window orderOut:nil];
  BOOL hidden=!self.window.isVisible;

@@ -109,7 +109,9 @@ pinned Node toolchain. `make check` verifies the generated reference and tests
 the A2UI Markdown and interaction contract. For native Mac panel coverage, run
 `BOT_PREVIEW_FIXTURE=a2ui BOT_PREVIEW_A2UI_CASE=interactive BOT_PREVIEW_AUTO_CAPTURE=1 bash script/build_and_run.sh --chat-preview`.
 The `comparison`, `collection`, `draft`, `exam` and `exam-error` cases cover
-saved read-only and form behavior.
+saved read-only and form behavior. The `responsive` case runs native resizes
+from 1340 to 360 CSS pixels and checks the shared composer boundary, reading
+measure, individual block scrolling and multi-column card reflow.
 
 Use `BOT_PREVIEW_FIXTURE=chat-combined` with the same native preview command
 to exercise a form and image, file and website links in one reply. The preview

@@ -65,7 +65,7 @@ const show = createComponentImplementation(chatShow, ({props, buildChild}) =>
  props.when ? <>{buildChild(props.child)}</> : null);
 
 const table = createComponentImplementation(chatTable, ({props}) =>
- <div className="chat-a2ui-table"><table>
+ <div className="message-table chat-a2ui-table" tabIndex={0}><table>
   <thead><tr>{props.headers.map((header, index) => <th key={index} scope="col">{header}</th>)}</tr></thead>
   <tbody>{(Array.isArray(props.rows) ? props.rows : []).map((row, index) => Array.isArray(row) &&
    <tr key={index}>{props.headers.map((_, column) => <td key={column}>{fieldText(row[column])}</td>)}</tr>)}</tbody>

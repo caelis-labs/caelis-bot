@@ -656,8 +656,17 @@ export function History({composerGeneration=0,settingsEntry}:{composerGeneration
  },[activation]);
  useLayoutEffect(()=>{
   if(!active)return;
-  const resize=new ResizeObserver(()=>{position.current?.layout();});
-  resize.observe(scroll.current!);resize.observe(content.current!);
+  const viewport=scroll.current!,surface=viewport.parentElement!;
+  const layout=()=>{
+   // The composer sits outside the scroller. Match its available width even
+   // when the platform reserves space for a vertical scrollbar.
+   const reserved=`${viewport.offsetWidth-viewport.clientWidth}px`;
+   if(surface.style.getPropertyValue('--chat-scrollbar-width')!==reserved)surface.style.setProperty('--chat-scrollbar-width',reserved);
+   position.current?.layout();
+  };
+  layout();
+  const resize=new ResizeObserver(layout);
+  resize.observe(viewport);resize.observe(content.current!);
   return()=>resize.disconnect();
  },[active]);
  const [answeredQuestions,setAnsweredQuestions]=useState<ReadonlySet<string>>(()=>new Set());
