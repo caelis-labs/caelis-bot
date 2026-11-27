@@ -202,11 +202,11 @@ func TestCompatibleRuntimeUpgrade(t *testing.T) {
 	released = false
 	key := "CASE_COMPATIBLE_DISCOVER"
 	model.set(key, modelStep{Name: "js_exec", Args: map[string]any{"code": `
-const catalog = await tools.search({server: "dtw"});
-const apps = catalog.tools.filter(tool => tool.name === "dtw__apps");
-if (apps.length !== 1) throw new Error("Expected one native apps tool");
-const reply = await tools.call(apps[0].name, {query: "Bot Runtime Probe"});
-return {probe: "UPGRADE_DTW_APPS", tool: apps[0].name, result: tools.unpack(reply)};
+const apps = await tools.search({name: "dtw__apps"});
+if (apps.name !== "dtw__apps") throw new Error("Expected the native apps tool");
+const reply = await tools.call(apps.name, {query: "Bot Runtime Probe"});
+const result = reply.data ?? JSON.parse(reply.text);
+return {probe: "UPGRADE_DTW_APPS", apps: result.apps};
 `}, Entered: entered, Block: release})
 	if _, err = upgraded.Submit(ctx, api.Submission{ID: "compatible-fresh-discovery", Text: key}, nil); err != nil {
 		t.Fatal(err)
@@ -222,16 +222,8 @@ return {probe: "UPGRADE_DTW_APPS", tool: apps[0].name, result: tools.unpack(repl
 	waitAcceptance(t, ctx, func() bool { return upgraded.Snapshot().CanSend && len(model.seen(key)) >= 2 })
 	appsReturned := false
 	walkDTWJSON(dtwLastToolOutput(model.seen(key)), func(result map[string]any) {
-		if result["probe"] != "UPGRADE_DTW_APPS" {
-			return
-		}
-		unpacked, _ := result["result"].(map[string]any)
-		parts, _ := unpacked["json"].([]any)
-		for _, part := range parts {
-			data, _ := part.(map[string]any)
-			if _, ok := data["apps"].([]any); ok {
-				appsReturned = true
-			}
+		if _, ok := result["apps"].([]any); result["probe"] == "UPGRADE_DTW_APPS" && ok {
+			appsReturned = true
 		}
 	})
 	if !appsReturned {
