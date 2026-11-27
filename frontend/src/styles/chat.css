@@ -781,9 +781,12 @@ button.sent-file:focus-visible {
 }
 
 .message-table table {
-  overflow-wrap: normal;
   border-collapse: collapse;
   min-width: 100%;
+}
+
+.history-surface .message-table table {
+  overflow-wrap: normal;
 }
 
 .message-table th,

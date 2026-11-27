@@ -79,6 +79,19 @@ test('the examples compile to one v1.0 surface each and are accepted by the pinn
  }
 });
 
+test('button labels reject controls and layouts before rendering', () => {
+ const action = 'action=Event("set",{"/value":"next"})';
+ for (const label of ['TextField("Field",$/value)', `Button(Text("Inner"),${action})`, 'Card(Text("Wrapped"))']) {
+  const body = `$/value = "initial"\nroot = Button(${label},${action})`;
+  const processor = new MessageProcessor([chatCatalog], undefined, {version: 'v1.0', validationConfig: chatValidation});
+  try {
+   const message = compileChatSurface(body);
+   assert.ok(message, body);
+   assert.throws(() => processor.processMessages(message), /Allowed children: \["Text"\]/);
+  } finally { processor.dispose(); }
+ }
+});
+
 test('only the form root can submit and an obscured value cannot become an answer', () => {
  assert.ok(compileChatSurface(exam));
  assert.equal(compileChatSurface(exam.replace('root = Form', 'root = Card(form)\nform = Form')), undefined);
@@ -246,6 +259,22 @@ async function withCard(body, verify) {
  } finally { processor.dispose(); }
 }
 
+test('repeated buttons resolve a referenced Text label in their own item context', async () => {
+ const body = [
+  '$/items = [{name:"First"},{name:"Second"}]',
+  '$/value = ""',
+  'root = List(_template($/items,entry))',
+  'entry = Button(label,action=Event("set",{"/value":$name}))',
+  'label = Text($name)',
+ ].join('\n');
+ await withCard(body, async ({find, press, data}) => {
+  assert.equal(find('label', '/items/0').toJSON().text, 'First');
+  assert.equal(find('label', '/items/1').toJSON().text, 'Second');
+  await press('entry', '/items/1');
+  assert.equal(data.get('/value'), 'Second');
+ });
+});
+
 test('local calculator actions are scoped, compose, recover from division by zero and emit no submit events', async () => {
  await withCard(calculator, async ({press, find, data, sent}) => {
   const digit = digit => press('digit', '/digits/' + ((digit + 9) % 10));
@@ -286,20 +315,19 @@ test('budget reacts to text input and reports validation and arithmetic errors l
   assert.equal(find('send').toJSON().enabled, true);
   assert.deepEqual(sent, []);
   await press('send');
-  assert.equal(sent[0].text, '请优化 4 人的预算，场地 120 元，餐费 90 元，交通 30 元。');
+  assert.deepEqual(sent, ['请优化 4 人的预算，场地 120 元，餐费 90 元，交通 30 元。']);
  });
 });
 
-test('submit interpolates declared fields once and preserves the submitted values when bindings change', async () => {
+test('submit interpolates current values into ordinary message text', async () => {
  await withCard(weather, async ({data, press, sent}) => {
   data.set('/weather/city', ' 上海浦东 ');
   data.set('/weather/period', '未来七天');
   await press('send');
   data.set('/weather/period', '今天');
-  assert.deepEqual(sent, [{text:'查一下上海浦东未来七天的天气', fields:[
-   {name: '城市', value: '上海浦东'}, {name: '日期', value: '未来七天'},
-  ]}]);
-  assert.equal(fillChatTemplate('Literal {field}', {field: '{another}'}).text, 'Literal {another}');
+  await press('send');
+  assert.deepEqual(sent, ['查一下上海浦东未来七天的天气', '查一下上海浦东今天的天气']);
+  assert.equal(fillChatTemplate('Literal {field}', {field: '{another}'}), 'Literal {another}');
  });
  await withCard(practice, async ({data, press, find, sent}) => {
   data.set('/quiz/first', ['12']);
@@ -311,7 +339,7 @@ test('submit interpolates declared fields once and preserves the submitted value
   await press('send');
   data.set('/quiz/first', ['10']);
   assert.deepEqual(find('scores').toJSON().rows, [[2,['12'],['5','3']]]);
-  assert.deepEqual(sent.map(item => item.fields.map(field => field.value)), [['12','5、3']]);
+  assert.deepEqual(sent, ['请批改这份练习。第一题选了 12，第二题选了 5、3。']);
  });
 });
 

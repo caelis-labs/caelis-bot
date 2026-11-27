@@ -5,7 +5,6 @@ import {chatCatalog, formComponents} from './chat-a2ui-catalog';
 import {chatValidation, compileChatSurface} from './chat-a2ui-compile';
 import {ChatA2uiFormOrigin} from './ChatA2uiForm';
 import {ChatA2uiActions} from './ChatA2uiActions';
-import {chatEvent} from './chat-a2ui-actions';
 import {chatControls} from './ChatA2uiControls';
 import {useI18n} from './i18n';
 import './chat-a2ui.css';
@@ -26,15 +25,14 @@ export default function ExpressChatSurface({body, fallback, replyKey, receiving,
  const components = message.createSurface.components ?? [];
  const submitForm = components.some(component => component.component === 'Form');
  const hasActions = components.some(component => component.component === 'Button');
- const hasSubmit = components.some(component => component.component === 'Button' && chatEvent(component.action) === 'submit');
- if (!visible && !submitForm && !hasActions) return null;
+ if (!visible && !submitForm) return null;
  return <ResolvedSurface message={message} fallback={fallback} replyKey={replyKey} receiving={receiving} visible={visible}
-  hasSubmit={hasSubmit} localForm={!hasActions && !submitForm && components.some(component => formComponents.includes(component.component))}/>;
+  localForm={!hasActions && !submitForm && components.some(component => formComponents.includes(component.component))}/>;
 }
 
-function ResolvedSurface({message, fallback, replyKey, receiving, visible, localForm, hasSubmit}: {
+function ResolvedSurface({message, fallback, replyKey, receiving, visible, localForm}: {
  message: NonNullable<ReturnType<typeof compileChatSurface>>; fallback: ReactNode; replyKey?: string;
- receiving: boolean; visible: boolean; localForm: boolean; hasSubmit: boolean;
+ receiving: boolean; visible: boolean; localForm: boolean;
 }) {
  const {t} = useI18n();
  const id = `chat-${useId()}`;
@@ -64,7 +62,7 @@ function ResolvedSurface({message, fallback, replyKey, receiving, visible, local
  return <div className="chat-a2ui-surface" hidden={!visible}>
   {localForm && <p className="chat-a2ui-local">{t('chat.a2uiLocalDraft')}</p>}
   <ChatA2uiFormOrigin.Provider value={{replyKey, receiving}}>
-   <ChatA2uiActions view={view} replyKey={replyKey} receiving={receiving} visible={visible} hasSubmit={hasSubmit}>
+   <ChatA2uiActions view={view} replyKey={replyKey} receiving={receiving} visible={visible}>
     <A2uiSurface surface={view}/>
    </ChatA2uiActions>
   </ChatA2uiFormOrigin.Provider>

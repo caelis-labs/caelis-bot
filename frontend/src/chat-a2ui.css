@@ -284,17 +284,3 @@ button.chat-a2ui-submit:disabled {
   flex-direction: column;
  }
 }
-.chat-a2ui-snapshots {
- margin-top: 10px;
- font-size: .92em;
- color: var(--muted);
-}
-.chat-a2ui-snapshots summary { width: fit-content; cursor: pointer; }
-.chat-a2ui-snapshots dl {
- display: grid;
- grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
- gap: 4px 12px;
- margin-block: 6px;
-}
-.chat-a2ui-snapshots dt { font-weight: 600; }
-.chat-a2ui-snapshots dd { margin: 0; white-space: pre-wrap; }

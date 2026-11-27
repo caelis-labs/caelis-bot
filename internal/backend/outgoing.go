@@ -34,7 +34,6 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) boo
 	}
 	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: "sending", SeenAt: time.Now().UnixMicro(), Artifacts: []api.Artifact{}}
 	item.Quoted = api.BoundQuote(input.Quoted)
-	item.ChatCard = input.ChatCard
 	if !input.ScreenInput {
 		item.Media = s.messageMedia.Presentation(input.ID)
 	}
@@ -72,7 +71,6 @@ func (s *Service) recordInput(input api.Submission, files []api.InputFile, recei
 	}
 	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: receipt.Outcome}
 	item.Quoted = api.BoundQuote(input.Quoted)
-	item.ChatCard = input.ChatCard
 	s.mu.Lock()
 	for _, pending := range s.outbox {
 		if pending.item.RequestID == input.ID {

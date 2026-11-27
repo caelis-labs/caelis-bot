@@ -96,12 +96,11 @@ product lock. Closing a panel or hiding the pet does not quit the application.
 Desktop assistant replies can include A2UI Express blocks. The chat panel renders
 complete blocks offline. Markdown, inline media, copy and channel text projections
 keep their original behavior. Buttons can update bounded local bindings or, after
-an explicit click, submit an author-supplied template with the declared field values
-through ordinary user-message admission. The composer remains independent. The IM
-persists each submitted field snapshot under the original request ID before dispatch
-and restores it alongside the editable card. An unknown send is never replayed.
-Saved root `Form` replies continue to work. The pet bubble, Telegram and Weixin
-show the prose. Unsupported WebViews display the exact block source.
+an explicit click, fill the template with the current field values and submit it
+as an ordinary user message. The composer draft remains independent. The card
+stays editable after sending, and reopening history renders its initial values
+without sending anything. Saved root `Form` replies continue to work. The pet bubble,
+Telegram and Weixin show the prose. Unsupported WebViews display the exact block source.
 
 The catalog drives compilation, rendering and the bundled bot-core reference.
 After updating it, run `node script/generate-chat-a2ui-reference.mjs` using the

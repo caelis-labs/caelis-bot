@@ -19,7 +19,9 @@ export const chatForm = {
 
 export const chatButton = {
  ...ButtonApi,
+ allowedChildren: [chatText.name],
  schema: ButtonApi.schema.extend({
+  child: ChildSchema.describe('REF:#/$defs/Child|Use a single Text component as the button label.'),
   enabled: DynamicBooleanSchema.describe('REF:#/$defs/DynamicBoolean|Allow this action only while this condition is true.').optional(),
  }),
 };

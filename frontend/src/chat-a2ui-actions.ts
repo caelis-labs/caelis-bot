@@ -51,17 +51,13 @@ export function applyChatState(model: DataModel, changes: Record<string, unknown
  return true;
 }
 
-export type ChatCardField = {name: string; value: string};
 export function fillChatTemplate(template: string, values: Record<string, unknown>) {
- const fields: ChatCardField[] = [];
  const display = new Map<string, string>();
- for (const [name, entry] of Object.entries(values)) {
-  const value = fieldText(entry);
+ for (const [, name] of template.matchAll(placeholder)) {
+  if (display.has(name)) continue;
+  const value = fieldText(Object.hasOwn(values, name) ? values[name] : undefined);
   if (!value) return;
-  fields.push({name, value});
   display.set(name, value);
  }
- const text = template.replace(placeholder, (_, name: string) => display.get(name) ?? '').trim();
- if (!text) return;
- return {text, fields};
+ return template.replace(placeholder, (_, name: string) => display.get(name) ?? '').trim() || undefined;
 }
