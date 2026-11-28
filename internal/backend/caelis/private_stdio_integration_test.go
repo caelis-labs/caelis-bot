@@ -346,6 +346,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	const skillCase = "CASE_STDIO_NATIVE_SKILL"
 	model.set(skillCase, modelStep{Name: "Skill", Args: map[string]string{"name": "bot-core"}})
+	waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
 	submitAcceptance(t, ctx, s, skillCase)
 	skillRequests := model.seen(skillCase)
 	if len(skillRequests) != 2 {
