@@ -1,27 +1,27 @@
 {
-  "version": "v0.89.0",
-  "commit": "d899f7ce1b5eb54b5a609712853a9579bd01cb26",
+  "version": "v0.89.1",
+  "commit": "b686ac84c46556c3d007ab5df916be9baab50145",
   "team": "64KZ67PM5J",
   "targets": {
     "darwin-arm64": {
-      "artifact": "caelis_0.89.0_darwin_arm64.tar.gz",
-      "sha256": "c3b16b22f54df7fe7d59891a0066f9c3b496f068f76fae5a051bdb02098509bc",
-      "binary_sha256": "0e96a83da7d24e5084732db8be5bf1a0cc01337bdabb432ae8be79925fae6451"
+      "artifact": "caelis_0.89.1_darwin_arm64.tar.gz",
+      "sha256": "40509d9628a4f5a3f4d55c286f29f3baae0075df8db9cdd4cd912f569b4cd045",
+      "binary_sha256": "4a995de9bc9daf95f706273df7017c540955833cebde0dfc5fdf2a80a9b54d3e"
     },
     "windows-amd64": {
-      "artifact": "caelis_0.89.0_windows_amd64.tar.gz",
-      "sha256": "b1610eba0c6b957ba70af54d7bbbf70f1df48673f85f06217ce4cb4c0b0e38b1",
-      "binary_sha256": "a4e2b4a2e9d1aecf649b2ee0b2d5a45b7dd2388d3cb042162c7ff121950fceb0"
+      "artifact": "caelis_0.89.1_windows_amd64.tar.gz",
+      "sha256": "a21afb345def1109ee87c4661ccf741dacbd57508fb48d8b92a536e89bcd4553",
+      "binary_sha256": "ba5da63ad05dcf4738bce4dde510d09eb492b36b72af59f2d36a6a9dc4ce2842"
     },
     "linux-amd64": {
-      "artifact": "caelis_0.89.0_linux_amd64.tar.gz",
-      "sha256": "ef56899532366691a53f0f15353ebfdef76420947113d62648fee04ed9956da0",
-      "binary_sha256": "00593507348142d0cf3d08758bc49903a73553bd39f59423c1f61ab259d93908"
+      "artifact": "caelis_0.89.1_linux_amd64.tar.gz",
+      "sha256": "8f1bf490db5d9e9b6398b3fc98921aa8052508877e61a1e10944152cb323a6d5",
+      "binary_sha256": "30b7e8a475be5c8feedabdd1d6c36d099f7a0e4d8fef94a15a224179eb33e7d7"
     },
     "linux-arm64": {
-      "artifact": "caelis_0.89.0_linux_arm64.tar.gz",
-      "sha256": "3663b334b087ed402d61df2dc5a9149a1b7fdf9858658ccebff0200fb17fb7d2",
-      "binary_sha256": "ad7511c7a6c3040d54aa780a9704a675d0f9ca13edc7729f72506f722a6d5343"
+      "artifact": "caelis_0.89.1_linux_arm64.tar.gz",
+      "sha256": "9a6f5f3239e1f3b664e359f8a5d2483330012cbc5d26b3150387fec874cbba00",
+      "binary_sha256": "92c3a6b35f1b979a51b9d0ea36d0483276fad9aa369ef90d0104bb1a76105440"
     }
   }
 }
