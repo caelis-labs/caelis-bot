@@ -49,7 +49,7 @@ func Run(assets fs.FS) error {
 	assembly, err := newProductAssembly(root, macPreferredLanguages(), func(s *Service, diagnostics *diagnosticlog.Logger) app.Host {
 		return app.Host{OpenURL: func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 			RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-			TrashFile:  trashNativePath, ScheduleSample: macPresenceSampler(diagnostics)}
+			TrashFile:  trashNativePath}
 	})
 	if err != nil {
 		return err

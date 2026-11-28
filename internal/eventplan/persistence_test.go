@@ -48,13 +48,13 @@ func TestConfirmedFailureRollsBackAndIndependentEventRuns(t *testing.T) {
 	})
 	before := e.Snapshot()
 	restore := obstructLedger(t, e.path)
-	_, err := e.Save(Plan{ID: "failed", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	_, err := saveTestPlan(e, Plan{ID: "failed", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	requireRenameFailure(t, err)
 	if got := e.Snapshot(); !reflect.DeepEqual(before, got) {
 		t.Fatalf("failed save published state: %+v", got)
 	}
 	restore()
-	p, err := e.Save(Plan{ID: "independent", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	p, err := saveTestPlan(e, Plan{ID: "independent", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +115,12 @@ func TestLateMutationSerializesOtherWriters(t *testing.T) {
 			e, now := setup(t, nil)
 			release := delayLedgerWrite(e)
 			original := Plan{ID: "original", Event: "mail", Kind: "after", Seconds: 1}
-			if _, err := e.Save(original, *now); !errors.Is(err, context.DeadlineExceeded) {
+			if _, err := saveTestPlan(e, original, *now); !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("original deadline = %v", err)
 			}
 			next := Plan{ID: "independent", Event: "mail", Kind: "after", Seconds: 2}
 			concurrent := make(chan error, 1)
-			go func() { _, err := e.Save(next, *now); concurrent <- err }()
+			go func() { _, err := saveTestPlan(e, next, *now); concurrent <- err }()
 			if err := <-concurrent; !errors.Is(err, ErrWritePending) {
 				t.Fatalf("concurrent write overtook original: %v", err)
 			}
@@ -133,11 +133,11 @@ func TestLateMutationSerializesOtherWriters(t *testing.T) {
 				restore()
 			} else {
 				settleDelayedLedger(t, e, release, "")
-				if _, err := e.Save(original, now.Add(time.Second)); err != nil {
+				if _, err := saveTestPlan(e, original, now.Add(time.Second)); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := e.Save(next, *now); err != nil {
+			if _, err := saveTestPlan(e, next, *now); err != nil {
 				t.Fatal(err)
 			}
 			onDisk, err := Open(e.path, nil, *now)
@@ -163,7 +163,7 @@ func TestLateIntentIsClearedBeforeFreshWakeAdmission(t *testing.T) {
 	e, now := setup(t, func(context.Context, Event) (json.RawMessage, error) {
 		return json.RawMessage(`{"count":1}`), nil
 	})
-	p, err := e.Save(Plan{ID: "wake", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	p, err := saveTestPlan(e, Plan{ID: "wake", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,13 +192,13 @@ func TestLateIntentIsClearedBeforeFreshWakeAdmission(t *testing.T) {
 	}
 	defer restored.Close()
 	s := restored.Snapshot()
-	if len(s.WakeAttempts) != 0 || s.Occurrences[0].Status != "pending" || !s.Plans[0].LastWake.IsZero() || calls != 0 {
+	if s.Occurrences[0].Status != "pending" || calls != 0 {
 		t.Fatalf("unused intent consumed wake admission: %+v, calls=%d", s, calls)
 	}
 	d.Ready = func() bool { return true }
 	tick(t, e, p.Next, d)
 	tick(t, e, p.Next, d)
-	if calls != 1 || e.Snapshot().Occurrences[0].Status != "accepted" {
+	if calls != 1 || e.Snapshot().Occurrences[0].Status != "completed" {
 		t.Fatalf("original wake did not submit once: calls=%d", calls)
 	}
 }
@@ -211,7 +211,7 @@ func TestFailedObservationCheckpointDoesNotInvokeActionsAgain(t *testing.T) {
 				collections.Add(1)
 				return json.RawMessage(`{"count":1}`), nil
 			})
-			p, err := e.Save(Plan{ID: "observe", Event: "mail", Kind: "after", Seconds: 1}, *now)
+			p, err := saveTestPlan(e, Plan{ID: "observe", Event: "mail", Kind: "after", Seconds: 1}, *now)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -245,10 +245,9 @@ func TestFailedObservationCheckpointDoesNotInvokeActionsAgain(t *testing.T) {
 			tick(t, e, p.Next, d)
 			tick(t, e, p.Next, d)
 			s := e.Snapshot()
-			want := map[string]string{"accepted": "accepted", "unknown": "unknown_wake", "deferred": "pending"}[outcome]
-			if calls != 1 || collections.Load() != 1 || s.Occurrences[0].Status != want ||
-				(outcome == "deferred") != (len(s.WakeAttempts) == 0) {
-				t.Fatalf("original effects or budget changed: %+v, calls=%d collections=%d", s, calls, collections.Load())
+			want := map[string]string{"accepted": "completed", "unknown": "unknown_wake", "deferred": "pending"}[outcome]
+			if calls != 1 || collections.Load() != 1 || s.Occurrences[0].Status != want {
+				t.Fatalf("original effects changed: %+v, calls=%d collections=%d", s, calls, collections.Load())
 			}
 		})
 	}
@@ -258,7 +257,7 @@ func TestLateWakeReceiptKeepsOriginalAndAllowsIndependentWake(t *testing.T) {
 	e, now := setup(t, func(context.Context, Event) (json.RawMessage, error) {
 		return json.RawMessage(`{"count":1}`), nil
 	})
-	p, err := e.Save(Plan{ID: "observe", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	p, err := saveTestPlan(e, Plan{ID: "observe", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,15 +287,11 @@ func TestLateWakeReceiptKeepsOriginalAndAllowsIndependentWake(t *testing.T) {
 		t.Fatalf("lost original receipt: %+v", originalReceipt)
 	}
 
-	_, err = e.Register(Event{ID: "independent", Label: "Independent", Kind: "wake", OutputSchema: testSchema}, p.Next)
+	independent, err := saveTestPlan(e, Plan{ID: "independent", Kind: "after", Seconds: 2}, p.Next)
 	if err != nil {
 		t.Fatal(err)
 	}
-	independent, err := e.Save(Plan{ID: "independent", Event: "independent", Kind: "after", Seconds: 300}, p.Next)
-	if err != nil {
-		t.Fatal(err)
-	}
-	collect(t, e, independent.Next, noDelivery())
+	tick(t, e, independent.Next, noDelivery())
 	next := e.Snapshot().Occurrences[1].ID
 	calls := 0
 	d.Submit = func(_ context.Context, w Wake) (string, error) {
@@ -322,12 +317,12 @@ func TestParentSyncFailurePreservesAlreadyRenamedMutation(t *testing.T) {
 		}
 		return &localstate.WriteError{Stage: "parent_sync", Err: os.ErrPermission}
 	}
-	p, err := e.Save(Plan{ID: "renamed", Event: "mail", Kind: "after", Seconds: 1}, *now)
+	p, err := saveTestPlan(e, Plan{ID: "renamed", Event: "mail", Kind: "after", Seconds: 1}, *now)
 	if localstate.DescribeFailure(err).Stage != "parent_sync" || len(e.Snapshot().Plans) != 0 {
 		t.Fatalf("unconfirmed directory sync was acknowledged: %v", err)
 	}
 	next := Plan{ID: "second", Event: "mail", Kind: "after", Seconds: 2}
-	if _, err := e.Save(next, *now); err != nil {
+	if _, err := saveTestPlan(e, next, *now); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(e.path)
@@ -339,14 +334,15 @@ func TestParentSyncFailurePreservesAlreadyRenamedMutation(t *testing.T) {
 
 func TestFailedRetirementCheckpointKeepsRevocationResult(t *testing.T) {
 	e, now := setup(t, nil)
-	if err := e.ArchiveEvent("mail", *now); err != nil {
+	e.state.Plans = []Plan{{ID: "legacy", Event: "legacy", GrantID: "care:mail", Created: *now, Next: *now, Status: "cancelled", Finished: *now}}
+	if err := e.persist(); err != nil {
 		t.Fatal(err)
 	}
 	d := noDelivery()
 	var restore func()
 	calls := 0
 	d.Revoke = func(id string) error {
-		if id != "event:mail" || calls != 0 {
+		if id != "care:mail" || calls != 0 {
 			t.Fatalf("unexpected revoke %s, calls=%d", id, calls)
 		}
 		calls++
@@ -356,7 +352,7 @@ func TestFailedRetirementCheckpointKeepsRevocationResult(t *testing.T) {
 	requireRenameFailure(t, e.Tick(t.Context(), *now, d))
 	restore()
 	tick(t, e, now.Add(time.Minute), d)
-	if calls != 1 || !e.Snapshot().Events[0].Retired {
+	if calls != 1 || e.Snapshot().Plans[0].GrantID != "" {
 		t.Fatal("revocation result was lost")
 	}
 }

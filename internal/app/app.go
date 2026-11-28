@@ -13,6 +13,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
@@ -22,7 +23,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
@@ -33,7 +33,6 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
-	ScheduleSample func() scheduledata.Sample
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale              func() i18n.Locale
 	Diagnostics         *diagnosticlog.Logger
@@ -84,7 +83,6 @@ type Application struct {
 	cancel                  context.CancelFunc
 	startupCancel           context.CancelFunc
 	dreamReady              bool
-	nativeSourcesReady      bool
 	workers                 sync.WaitGroup
 	companion               *bot.Runtime
 	bridge                  *bot.Bridge
@@ -431,13 +429,6 @@ func (a *Application) preparePersonalLocked() error {
 			a.host.ReportError(err)
 		}
 	}
-	if !a.nativeSourcesReady {
-		if err := resident.ConfigureNativeSources(a.host.ScheduleSample); err != nil {
-			report(err)
-		} else {
-			a.nativeSourcesReady = true
-		}
-	}
 	if a.personal == nil {
 		personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
 		if err == nil {
@@ -587,13 +578,11 @@ func (a *Application) startRuntime() error {
 		err = resident.ConfigureTasks(manager, manager)
 	}
 	resident.ConfigureWorkerInteractions(a)
-	if a.plugins != nil {
-		resident.ConfigureEvents(a.plugins, filepath.Join(a.root, "Notebook"))
-	} else {
-		resident.ConfigureEvents(nil, filepath.Join(a.root, "Notebook"))
-	}
 	if err != nil && manager != nil {
 		return err
+	}
+	if profile, profileErr := a.setup.Profile("caelis"); profileErr == nil {
+		resident.ConfigureShellObserver(caelis.NewNotebookObserver(profile, filepath.Join(a.root, "Notebook")))
 	}
 	configuredPluginRevision := uint64(0)
 	bridge, err := bot.Serve(resident)
@@ -812,7 +801,6 @@ func (a *Application) startRuntime() error {
 			}
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
 			snapshot.Approvals = append(snapshot.Approvals, a.retainedWorkerApprovals()...)
-			a.observeWorkerApprovalNotice(ctx, snapshot)
 			if err := a.textControl.Reconcile(snapshot); err != nil && a.host.ReportError != nil {
 				a.host.ReportError(err)
 			}

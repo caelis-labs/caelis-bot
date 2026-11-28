@@ -2,7 +2,6 @@ package caelis
 
 import (
 	"sort"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/activation"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -98,43 +97,4 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 		turns[out.CurrentTurn] = "running"
 	}
 	return activation.Dream(activation.Present(out, turns, pending), dreams, pending && s.state.Operations[s.sendingScheduled].Dream)
-}
-
-func (s *Session) captureBackgroundResultsLocked() {
-	for id, j := range s.state.Operations {
-		if !j.Scheduled || j.Dream || j.TurnID == "" {
-			continue
-		}
-		old := s.state.BackgroundResults[id]
-		if old.Complete {
-			continue
-		}
-		for sid, v := range s.state.Views {
-			if v == nil || !v.CommandCaughtUp || j.Path != "/sessions/"+idPath(sid)+"/prompt" {
-				continue
-			}
-			status := v.Turns[j.TurnID]
-			if status == "" && value(v.State.Run.TurnId) == j.TurnID && value(v.State.Run.Status) != "" {
-				status = value(v.State.Run.Status)
-			}
-			raw := api.Snapshot{Items: clone(v.Items)}
-			s.correlateSessionInputs(&raw, sid)
-			approval := v.State.Approval.Active != nil && !s.automaticApprovalLocked(sid, v.State.Approval.Active) && value(v.State.Run.TurnId) == j.TurnID
-			next := activation.Observe(old, id, j.TurnID, status, raw.Items, approval, time.Now())
-			if next == old || !next.Visible && !next.Complete {
-				continue
-			}
-			if s.state.BackgroundResults == nil {
-				s.state.BackgroundResults = map[string]api.BackgroundResult{}
-			}
-			s.state.BackgroundResults[id] = next
-		}
-	}
-}
-func (s *Session) BackgroundResult(id string) api.BackgroundResult {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := s.state.BackgroundResults[id]
-	out.ID = id
-	return out
 }

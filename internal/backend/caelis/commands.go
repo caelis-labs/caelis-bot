@@ -157,6 +157,32 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	_ = json.Unmarshal(b, &headers)
 	e = c.json(ctx, "POST", path, req, &out, op, headers.Revision)
 	if e != nil {
+		if errors.Is(e, api.ErrSystemDispatchExpired) {
+			s.mu.Lock()
+			prior, seed := s.state.Operations[op], s.state.Context
+			prefix, hadPrefix := s.state.ContextInputs[op]
+			fingerprint, hadFingerprint := s.state.ContextRequests[op]
+			delete(s.state.Operations, op)
+			delete(s.state.ContextInputs, op)
+			delete(s.state.ContextRequests, op)
+			s.state.Context.Resolve(op, "rejected")
+			save := s.saveLocked()
+			if save != nil {
+				// Without a durable rollback the old intent still owns recovery.
+				s.state.Operations[op], s.state.Context = prior, seed
+				if hadPrefix {
+					s.state.ContextInputs[op] = prefix
+				}
+				if hadFingerprint {
+					s.state.ContextRequests[op] = fingerprint
+				}
+			}
+			s.mu.Unlock()
+			if save != nil {
+				return wire.CommandResult{OperationId: op, Outcome: "unknown"}, save
+			}
+			return wire.CommandResult{}, &commandNotDispatchedError{e}
+		}
 		var remote *remoteError
 		if errors.As(e, &remote) && (remote.Status == 400 || remote.Status == 401 || remote.Status == 403 || remote.Status == 404 || remote.Status == 409 || remote.Status == 413) {
 			s.mu.Lock()
@@ -287,6 +313,9 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		if e := s.tools.PrepareTurn(ctx); e != nil {
 			return receipt, e
 		}
+	}
+	if !retry && api.SystemDispatchExpired(ctx) {
+		return receipt, api.ErrSystemDispatchExpired
 	}
 	modelText := in.ModelInputText()
 	req := wire.PromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &modelText, SourceKind: &source}

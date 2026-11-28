@@ -17,7 +17,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -58,14 +57,6 @@ func runCompact() error {
 	}
 	defer memory.Close()
 	if e = resident.ConfigurePersonal(memory); e != nil {
-		return e
-	}
-	// Presence is synthetic to keep condition tests deterministic. No test event
-	// is published and all saved event predicates are false.
-	yes := true
-	if e = resident.ConfigureNativeSources(func() scheduledata.Sample {
-		return scheduledata.Sample{Presence: scheduledata.Presence{Awake: true, Unlocked: &yes}}
-	}); e != nil {
 		return e
 	}
 	bridge, e := bot.Serve(resident)
@@ -137,7 +128,7 @@ func runCompact() error {
 		return errors.New("resume history lost")
 	}
 	resident.Start(engine)
-	evidence := map[string]any{"runtime": provider, "model": model, "privateBindings": true, "resumedHistory": true, "presenceFixture": true, "tools": len(resident.Definitions())}
+	evidence := map[string]any{"runtime": provider, "model": model, "privateBindings": true, "resumedHistory": true, "tools": len(resident.Definitions())}
 	run := func(id, prompt string) error {
 		fmt.Fprintln(os.Stderr, "compact stage:", provider, id)
 		started := time.Now()
@@ -149,7 +140,7 @@ func runCompact() error {
 		}
 		return err
 	}
-	if e = run("memory-schedule", `For this isolated test, read fresh local time, nod once, remember the synthetic preference "COMPACT_ACCEPTANCE concise" with requestId compact-memory-once, then recall it. Discover the available event sources and test this pure condition against activeSeconds=7300,idleSeconds=20: event.activeSeconds >= 7200 && event.idleSeconds < 120, source desktop.usage, current local timezone. Save two arrangements: a calendar reminder id compact-calendar, label Compact calendar, prompt Only reply compact-reminder, every 60 minutes; and an event rule id compact-event, label Compact event, prompt Only reply compact-event, source clock.minute, condition false. Use the current timezone. List both saved arrangements. Do not publish events or use shell, files (except the provided skill), network, native subagents or external services. Report verified registrations briefly.`); e != nil {
+	if e = run("memory-schedule", `For this isolated test, read fresh local time, nod once, remember the synthetic preference "COMPACT_ACCEPTANCE concise" with requestId compact-memory-once, then recall it. Test the pure condition event.count >= 20 with sample {"count":23}. Save two arrangements: a calendar reminder id compact-calendar, label Compact calendar, prompt Only reply compact-reminder, every 60 minutes; and a clock-only Bot wake id compact-event in 3600 seconds, context Only reply compact-event. Use the current timezone. List both saved arrangements. Do not publish events or use shell, files (except the provided skill), network, native subagents or external services. Report verified registrations briefly.`); e != nil {
 		return e
 	}
 	if gestures.Load() != 1 || len(resident.State().Schedules) != 1 {
@@ -159,9 +150,9 @@ func runCompact() error {
 	if e != nil || len(recalled.Evidence) != 1 {
 		return errors.New("actual memory receipt missing")
 	}
-	r := resident.CallTool(ctx, "bot_schedule", json.RawMessage(`{"request":{"type":"list","kind":"event"}}`))
+	r := resident.CallTool(ctx, "bot_schedule", json.RawMessage(`{"request":{"type":"list","kind":"registered"}}`))
 	b, _ := json.Marshal(r.StructuredContent)
-	if r.IsError || !strings.Contains(string(b), "event:compact-event") {
+	if r.IsError || !strings.Contains(string(b), "schedule:compact-event") {
 		return fmt.Errorf("actual event registration missing: %s", b)
 	}
 	evidence["memoryCalendarEventPureTest"] = true
@@ -219,7 +210,7 @@ func runCompact() error {
 		return fmt.Errorf("follow-up original request lookup: %w", e)
 	}
 	evidence["ownedWorkerExactBytesAndContinuation"] = true
-	if e = run("compact-cleanup", `Remove exactly the two saved arrangements calendar:compact-calendar and event:compact-event. Correct the synthetic COMPACT_ACCEPTANCE memory evidence to "COMPACT_ACCEPTANCE brief", verify it, then forget that evidence. Use stable mutation request IDs. Do not delete Notebook files, unrelated memory or task workspaces. Nod once when done.`); e != nil {
+	if e = run("compact-cleanup", `Remove exactly the two saved arrangements calendar:compact-calendar and schedule:compact-event. Correct the synthetic COMPACT_ACCEPTANCE memory evidence to "COMPACT_ACCEPTANCE brief", verify it, then forget that evidence. Use stable mutation request IDs. Do not delete Notebook files, unrelated memory or task workspaces. Nod once when done.`); e != nil {
 		return e
 	}
 	recalled, e = memory.ReadMemory(ctx, "COMPACT_ACCEPTANCE")

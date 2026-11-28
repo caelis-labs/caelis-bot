@@ -21,7 +21,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 type Schedule struct {
@@ -78,14 +77,11 @@ type Runtime struct {
 	userWaiting    atomic.Int32
 	events         *eventplan.Engine
 	eventsErr      error
-	eventTools     EventTools
-	eventDirectory string
+	shellObserver  ShellObserver
 	dream          *dreamController  // guarded by step
 	idle           *idleConversation // guarded by step
 	handoff        *handoffStore     // application-private context seed
 	nativeErr      error
-	nativeSample   func() scheduledata.Sample
-	nativeSources  scheduledata.SourcesTracker
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex

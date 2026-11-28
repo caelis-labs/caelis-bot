@@ -106,9 +106,8 @@ func (r callRecord) handoffFrom(id, session, turn string) bool {
 }
 
 type binding struct {
-	Continuity        continuity.State `json:"continuity,omitempty"`
-	migrationSource   json.RawMessage
-	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+	Continuity      continuity.State `json:"continuity,omitempty"`
+	migrationSource json.RawMessage
 
 	Context            contextseed.State                    `json:"context,omitempty"`
 	ContextInputs      map[string]int                       `json:"contextInputs,omitempty"`
@@ -246,7 +245,6 @@ func (s *Session) saveLocked() error {
 			return err
 		}
 	}
-	s.captureBackgroundResultsLocked()
 	if e := privateWrite(s.path, s.state); e != nil {
 		s.issue = "Caelis 连接记录暂未保存；原请求已保留，将自动重试"
 		return e

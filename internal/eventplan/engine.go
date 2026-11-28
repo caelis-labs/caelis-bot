@@ -2,10 +2,11 @@ package eventplan
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
+var ErrObservationUnavailable = errors.New("Notebook Shell observation unavailable")
+
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type completion struct {
@@ -23,6 +26,7 @@ type completion struct {
 	output json.RawMessage
 	err    error
 }
+
 type Engine struct {
 	workers      sync.WaitGroup
 	mu           sync.Mutex
@@ -39,110 +43,98 @@ type Engine struct {
 	cancel       context.CancelFunc
 	stopped      bool
 	firstFailure error
-	lastStart    time.Time
 	lastRevoke   time.Time
 }
 
 func Open(path string, run Runner, now time.Time) (*Engine, error) {
-	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), changes: make(chan struct{}, 1), state: State{Version: 1, Policy: DefaultPolicy()}}
-	var interrupted []Occurrence
+	e := &Engine{path: path, write: localstate.Write, runner: run, results: make(chan completion, 1), changes: make(chan struct{}, 1), state: State{Version: 2}}
 	raw, err := localstate.ReadAfterWrites(path)
 	changed := errors.Is(err, os.ErrNotExist)
-	if err == nil {
-		if len(raw) > 16<<20 || json.Unmarshal(raw, &e.state) != nil || e.state.Version != 1 {
+	switch {
+	case err == nil:
+		if len(raw) > 16<<20 || json.Unmarshal(raw, &e.state) != nil || (e.state.Version != 1 && e.state.Version != 2) {
 			return nil, errors.New("event arrangements unavailable; preserve saved state")
 		}
-		e.saved = copyState(e.state)
-		for i := range e.state.Occurrences {
-			o := &e.state.Occurrences[i]
-			if o.Status == "collecting" {
-				o.Status = "unknown"
-				o.Issue = "collection_unconfirmed"
-				interrupted = append(interrupted, *o)
-				changed = true
-			}
-			if o.Status == "dispatching" {
-				o.Status = "unknown_wake"
-				changed = true
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	case !changed:
 		return nil, err
-	} else {
-		e.saved = copyState(e.state)
 	}
-	if e.state.Migration != nil && (e.state.Migration.Version != 1 || e.state.Migration.Digest == "" || e.state.Migration.Completed.IsZero()) {
-		return nil, errors.New("unsupported native migration checkpoint")
+	e.saved = copyState(e.state)
+	if e.state.Version == 1 {
+		e.upgrade(raw, now)
+		changed = true
 	}
-	if !e.state.Policy.valid() {
-		return nil, errors.New("invalid schedule policy")
+	if err := e.validateSaved(); err != nil {
+		return nil, err
 	}
-	// Validate definitions before any restored executable or expression is used.
-	seen := map[string]bool{}
-	for _, v := range e.state.Events {
-		if seen[v.ID] || validateEvent(v) != nil {
-			return nil, errors.New("invalid saved event definition")
-		}
-		seen[v.ID] = true
-	}
-	plans := map[string]bool{}
-	imported := map[string]bool{}
-	for _, p := range e.state.Plans {
-		if plans[p.ID] || p.Created.IsZero() || p.Expires.IsZero() || p.Next.IsZero() || p.CooldownSeconds < 60 || p.CooldownSeconds > 31622400 || !slices.Contains([]string{"active", "suspended", "cancelled", "expired", "filtered", "failed", "completed"}, p.Status) {
-			return nil, errors.New("invalid saved arrangement state")
-		}
-		if p.Kind == "native" {
-			if p.PendingSeconds < 60 || p.PendingSeconds > 86400 || len(p.Sources) > 32 || p.Status == "active" && len(p.Sources) == 0 {
-				return nil, errors.New("invalid saved native subscription")
+	for i := range e.state.Occurrences {
+		o := &e.state.Occurrences[i]
+		switch o.Status {
+		case "collecting":
+			o.Status, o.Issue = "unknown", "collection_unconfirmed"
+			if p := e.plan(o.Plan); p.Finished.IsZero() {
+				p.Status, p.Issue = "suspended", o.Issue
 			}
-			for _, source := range p.Sources {
-				if !scheduledata.KnownSource(source) {
-					return nil, errors.New("unsupported saved native source")
-				}
-			}
-		}
-		plans[p.ID] = true
-		imported[p.ID] = e.state.Migration != nil && p.LegacyVersion != "" && strings.HasPrefix(p.GrantID, "care:")
-		if p.Kind == "interval" && (p.Seconds < 60 || p.Seconds > 604800) || p.Kind == "completion" && p.Seconds != 30 || p.Kind == "after" && (p.Seconds < 1 || p.Seconds > 31622400) {
-			return nil, errors.New("invalid saved timing")
-		}
-		if !identifier.MatchString(p.ID) || !seen[p.Event] || (p.Kind != "at" && p.Kind != "after" && p.Kind != "interval" && p.Kind != "completion" && p.Kind != "native") {
-			return nil, errors.New("invalid saved arrangement")
-		}
-		if err := validateCondition(p); err != nil {
-			return nil, errors.New("invalid saved condition")
+			changed = true
+		case "dispatching":
+			o.Status = "unknown_wake"
+			changed = true
 		}
 	}
-	occurrences := map[string]bool{}
-	for _, o := range e.state.Occurrences {
-		if occurrences[o.ID] || (o.ID == "" || !strings.HasPrefix(o.ID, "occurrence:") && !imported[o.Plan]) || !plans[o.Plan] || !seen[o.Event] || o.At.IsZero() || !slices.Contains([]string{"collecting", "unknown", "unknown_wake", "filtered", "pending", "dispatching", "accepted", "completed", "expired", "failed", "cancelled"}, o.Status) {
-			return nil, errors.New("invalid saved occurrence")
-		}
-		occurrences[o.ID] = true
-	}
-	if len(e.state.Plans) > 1024 || len(e.state.Events) > 1024 || len(e.state.Occurrences) > 1024 {
-		return nil, errors.New("event state exceeds bounded capacity")
-	}
-	for _, o := range interrupted {
-		if p := e.plan(o.Plan); p != nil && p.Finished.IsZero() {
-			p.Status = "suspended"
-			p.Issue = "collection_unconfirmed"
-			e.attention(o, now)
-		}
-	}
-	if e.cleanup(now) || changed {
-		// Recovery of interrupted identities must settle before new dispatch.
-		// The decoded ledger remains usable for reads while storage recovers.
+	if changed {
+		// No admission until interrupted identities and schema changes are durable.
 		e.mu.Lock()
 		_ = e.persistAs(writeObservation)
 		e.mu.Unlock()
 	}
 	return e, nil
 }
+
+func (e *Engine) validateSaved() error {
+	if len(e.state.Plans) > 1024 || len(e.state.Events) > 1024 || len(e.state.Occurrences) > 1024 {
+		return errors.New("event state exceeds bounded capacity")
+	}
+	if m := e.state.Migration; m != nil && (m.Version != 1 || m.Digest == "" || m.Completed.IsZero()) {
+		return errors.New("unsupported native migration checkpoint")
+	}
+	events := map[string]bool{}
+	for _, v := range e.state.Events {
+		if events[v.ID] || validateEvent(v) != nil {
+			return errors.New("invalid saved event definition")
+		}
+		events[v.ID] = true
+	}
+	plans := map[string]Plan{}
+	for _, p := range e.state.Plans {
+		_, duplicate := plans[p.ID]
+		if duplicate || !identifier.MatchString(p.ID) || !identifier.MatchString(p.Event) || p.Created.IsZero() ||
+			!slices.Contains([]string{"active", "suspended", "cancelled", "expired", "filtered", "failed", "completed"}, p.Status) {
+			return errors.New("invalid saved arrangement state")
+		}
+		if p.Finished.IsZero() {
+			if p.Next.IsZero() || !events[p.Event] || !validTiming(p) || validateCondition(p) != nil {
+				return errors.New("invalid active arrangement")
+			}
+		}
+		plans[p.ID] = p
+	}
+	seen := map[string]bool{}
+	for _, o := range e.state.Occurrences {
+		p, ok := plans[o.Plan]
+		if seen[o.ID] || !ok || p.Event != o.Event || o.At.IsZero() || o.ID == "" ||
+			(!strings.HasPrefix(o.ID, "occurrence:") && e.state.Migration == nil) ||
+			!slices.Contains([]string{"collecting", "unknown", "unknown_wake", "filtered", "pending", "dispatching", "accepted", "completed", "expired", "failed", "cancelled"}, o.Status) {
+			return errors.New("invalid saved occurrence")
+		}
+		seen[o.ID] = true
+	}
+	return nil
+}
+
 func (e *Engine) saveChanges() error {
 	defer e.signal()
 	return e.persist()
 }
+
 func (e *Engine) signal() {
 	select {
 	case e.changes <- struct{}{}:
@@ -157,6 +149,7 @@ func (e *Engine) FirstStorageFailure() error {
 	defer e.mu.Unlock()
 	return e.firstFailure
 }
+
 func (e *Engine) prepareWrite() error {
 	if e.stopped {
 		return errors.New("event scheduler stopped")
@@ -166,342 +159,255 @@ func (e *Engine) prepareWrite() error {
 	}
 	return e.retryWrite()
 }
-func clone[T any](v T) T          { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
+
+func clone[T any](v T) T {
+	b, _ := json.Marshal(v)
+	var out T
+	_ = json.Unmarshal(b, &out)
+	return out
+}
 func (e *Engine) Snapshot() State { e.mu.Lock(); defer e.mu.Unlock(); return clone(e.state) }
+
 func validateEvent(v Event) error {
-	raw, err := json.Marshal(v)
-	if err != nil || len(raw) > 32<<10 {
-		return errors.New("event definition exceeds 32 KiB")
-	}
 	if !identifier.MatchString(v.ID) || strings.TrimSpace(v.Label) == "" || len(v.Label) > 200 || len(v.Context) > 4096 {
 		return errors.New("event needs a stable id, label and bounded context")
 	}
-	if err := ValidateSchema(v.OutputSchema); err != nil {
-		return err
-	}
 	switch v.Kind {
-	case "wake", "native":
-		if v.Script != "" || v.Tool != "" || v.Task != "" {
-			return errors.New("wake event cannot execute a collector")
+	case "wake":
+		if v.Command == "" {
+			return nil
 		}
-	case "script":
-		if v.Interpreter == "" || v.ExecutableDigest == "" || strings.TrimSpace(v.Script) == "" || len(v.Script) > 16384 || v.Tool != "" || v.Task != "" {
-			return errors.New("script event requires a pinned interpreter and inline script")
+	case "shell":
+		if strings.TrimSpace(v.Command) != "" && len(v.Command) <= 4096 && !strings.ContainsRune(v.Command, 0) {
+			return nil
 		}
-	case "tool":
-		if v.Server == "" || v.Tool == "" || v.Binding == "" || v.Script != "" || v.Task != "" {
-			return errors.New("tool event requires a pinned available server and tool")
-		}
-	case "task":
-		if v.Task == "" || v.Script != "" || v.Tool != "" {
-			return errors.New("task event requires original owned task handle")
-		}
-	default:
-		return errors.New("unsupported event kind")
 	}
-	return nil
+	return errors.New("invalid observation definition")
 }
-func (e *Engine) Register(v Event, now time.Time, authorize ...func() error) (Event, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if err := e.prepareWrite(); err != nil {
-		return Event{}, err
-	}
-	if err := validateEvent(v); err != nil {
-		return Event{}, err
-	}
-	if e.cleanup(now) {
-		if err := e.saveChanges(); err != nil {
-			return Event{}, err
-		}
-	}
-	for _, old := range e.state.Events {
-		if old.ID == v.ID {
-			n := old
-			n.Created = time.Time{}
-			n.LastUsed = time.Time{}
-			n.Archived = time.Time{}
-			n.Retired = false
-			if !old.Archived.IsZero() || !reflect.DeepEqual(clone(n), clone(v)) {
-				return Event{}, errors.New("event id already bound; use a new id for a changed collector")
-			}
-			return clone(old), nil
-		}
-	}
-	if err := e.eventCapacity(); err != nil {
-		return Event{}, err
-	}
-	if len(authorize) > 0 {
-		if err := authorize[0](); err != nil {
-			return Event{}, err
-		}
-	}
-	v.Created = now
-	v.LastUsed = now
-	e.state.Events = append(e.state.Events, clone(v))
-	return v, e.saveChanges()
-}
-func activeEvents(s State) int {
-	n := 0
-	for _, v := range s.Events {
-		if v.Archived.IsZero() {
-			n++
-		}
-	}
-	return n
-}
-func (e *Engine) eventCapacity() error {
-	if activeEvents(e.state) >= MaxActive || len(e.state.Events) >= MaxActive+MaxHistory {
-		return errors.New("active event limit reached; archive unused events")
-	}
-	return nil
-}
+
 func (e *Engine) event(id string) (Event, bool) {
 	for _, v := range e.state.Events {
 		if v.ID == id {
-			return v, v.Archived.IsZero()
+			return v, true
 		}
 	}
 	return Event{}, false
 }
-func (e *Engine) Event(id string) (Event, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	v, ok := e.event(id)
-	if !ok {
-		return v, errors.New("event unavailable")
+
+func validTiming(p Plan) bool {
+	switch p.Kind {
+	case "after":
+		return p.Seconds >= 1 && p.Seconds <= 31622400
+	case "interval":
+		return p.Seconds >= 60 && p.Seconds <= 604800
+	case "at":
+		_, err := time.Parse(time.RFC3339, p.At)
+		return err == nil
 	}
-	return clone(v), nil
+	return false
 }
-func Normalize(p Plan, now time.Time) (Plan, error) {
-	if !identifier.MatchString(p.ID) || !identifier.MatchString(p.Event) {
-		return p, errors.New("use a stable arrangement id and returned event handle")
-	}
+
+func normalizeCondition(p Plan) Plan {
 	if p.TimeZone == "" {
 		p.TimeZone = "UTC"
 	}
 	if p.When == "" {
 		p.When = "true"
 	}
-	if p.CooldownSeconds == 0 {
-		p.CooldownSeconds = 3600
+	return p
+}
+
+func validateCondition(p Plan) error {
+	p = normalizeCondition(p)
+	return scheduledata.Validate(p.When, p.TimeZone)
+}
+
+func testCondition(p Plan, data map[string]any, now time.Time) (bool, error) {
+	p = normalizeCondition(p)
+	return scheduledata.Test(context.Background(), p.When, p.TimeZone, data, now)
+}
+
+func scheduleTimes(p Plan, v Event, now time.Time) (Plan, error) {
+	if !validTiming(p) {
+		return p, errors.New("invalid schedule timing")
 	}
-	if p.CooldownSeconds < 60 || p.CooldownSeconds > 31622400 {
-		return p, errors.New("cooldownSeconds must be 60–31622400")
-	}
-	switch p.Kind {
-	case "after":
-		if p.Seconds < 1 || p.Seconds > 31622400 {
-			return p, errors.New("after seconds must be 1–31622400")
-		}
-		p.Next = now.Add(time.Duration(p.Seconds) * time.Second)
-	case "interval":
-		if p.Seconds < 60 || p.Seconds > 604800 {
-			return p, errors.New("interval seconds must be 60–604800")
-		}
-		p.Next = now.Add(time.Duration(p.Seconds) * time.Second)
-	case "completion":
-		p.Seconds = 30
-		p.Next = now
-	case "at":
-		t, err := time.Parse(time.RFC3339, p.At)
-		if err != nil || !t.After(now) {
+	p.Next = now.Add(time.Duration(p.Seconds) * time.Second)
+	if p.Kind == "at" {
+		p.Next, _ = time.Parse(time.RFC3339, p.At)
+		if !p.Next.After(now) {
 			return p, errors.New("at must be a future RFC3339 timestamp with offset")
 		}
-		p.Next = t
-	default:
-		return p, errors.New("unsupported arrangement type")
 	}
-	p.Expires = p.Next.Add(time.Hour)
-	if p.Kind == "interval" || p.Kind == "completion" {
-		p.Expires = now.Add(30 * 24 * time.Hour)
+	if p.Kind != "interval" && v.Kind == "wake" {
+		p.Expires = p.Next.Add(time.Hour)
 	}
 	if p.Until != "" {
 		t, err := time.Parse(time.RFC3339, p.Until)
-		if err != nil || !t.After(now) || t.Before(p.Next) {
-			return p, errors.New("until must be after the first check")
+		if err != nil || !t.After(now) || !t.After(p.Next) || t.After(now.Add(366*24*time.Hour)) {
+			return p, errors.New("until must be after the first check and within one year")
 		}
 		p.Expires = t
 	}
-	if p.Expires.After(now.Add(366 * 24 * time.Hour)) {
-		return p, errors.New("arrangement lifetime exceeds one year")
-	}
-	// Pure compilation is independent of sample field availability.
-	err := validateCondition(p)
-	if err != nil {
-		return p, err
-	}
-	p.Created = now
-	p.Status = "active"
 	return p, nil
 }
-func validateCondition(p Plan) error {
-	when := p.When
-	if when == "" {
-		when = "true"
-	}
-	zone := p.TimeZone
-	if zone == "" {
-		zone = "UTC"
-	}
-	return scheduledata.Validate(when, zone)
-}
-func Test(p Plan, data map[string]any, now time.Time) (bool, error) {
-	when := p.When
-	if when == "" {
-		when = "true"
-	}
-	zone := p.TimeZone
-	if zone == "" {
-		zone = "UTC"
-	}
-	return scheduledata.Test(context.Background(), when, zone, data, now)
-}
-func definition(p Plan) Plan {
-	p.OriginRequests = nil // retries retain the original registration source
-	p.Created = time.Time{}
-	p.Next = time.Time{}
-	p.Expires = time.Time{}
-	p.LastWake = time.Time{}
-	p.Status = ""
-	p.Issue = ""
-	p.Finished = time.Time{}
-	p.Failures = 0
-	p.Retired = false
-	return p
-}
-func (e *Engine) Save(p Plan, now time.Time, authorize ...func() error) (Plan, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if err := e.prepareWrite(); err != nil {
-		return p, err
-	}
-	if e.cleanup(now) {
-		if err := e.saveChanges(); err != nil {
-			return p, err
-		}
-	}
-	// Identical retries preserve relative deadlines, even after one-shot completion.
-	for _, old := range e.state.Plans {
-		if old.ID == p.ID {
-			n := p
-			if n.TimeZone == "" {
-				n.TimeZone = "UTC"
-			}
-			if n.When == "" {
-				n.When = "true"
-			}
-			if n.CooldownSeconds == 0 {
-				n.CooldownSeconds = 3600
-			}
-			if n.Kind == "completion" {
-				n.Seconds = 30
-			}
-			if reflect.DeepEqual(definition(old), definition(n)) {
-				return clone(old), nil
-			}
-			return p, errors.New("arrangement id already bound; remove it and use a new id")
-		}
-	}
-	v, ok := e.event(p.Event)
-	if !ok {
-		return p, errors.New("register the event first")
-	}
-	if v.Kind == "native" {
-		return p, errors.New("native observations use source subscriptions, not timed collectors")
-	}
-	if p.Kind == "completion" && v.Kind != "task" {
-		return p, errors.New("completion requires an owned-task event")
-	}
-	var err error
-	p, err = Normalize(p, now)
-	if err != nil {
-		return p, err
-	}
-	if err := e.planCapacity(); err != nil {
-		return p, err
-	}
-	if len(authorize) > 0 {
-		if err := authorize[0](); err != nil {
-			return p, err
-		}
-	}
-	p.Sources = slices.Clone(p.Sources)
-	p.OriginRequests = slices.Clone(p.OriginRequests)
-	e.state.Plans = append(e.state.Plans, p)
-	for i := range e.state.Events {
-		if e.state.Events[i].ID == v.ID {
-			e.state.Events[i].LastUsed = now
-		}
-	}
-	return clone(p), e.saveChanges()
+
+func fingerprint(p Plan, inline *Event) string {
+	p = normalizeCondition(p)
+	b, _ := json.Marshal(struct {
+		ID, Event, Kind, At, When, TimeZone, Until string
+		Seconds                                    int
+		Inline                                     *Event
+	}{p.ID, p.Event, p.Kind, p.At, p.When, p.TimeZone, p.Until, p.Seconds, inline})
+	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
-// Count arrangements, not their reusable definitions. Cancellation does not
-// release capacity until the original receipt has settled.
-func (e *Engine) planCapacity() error {
-	active := 0
-	for _, p := range e.state.Plans {
-		if p.Finished.IsZero() || e.pending(p.ID) {
-			active++
+// Save atomically saves a timed arrangement and its inline definition, or reuses
+// an existing definition by handle. Retries retain the original schedule ID.
+func (e *Engine) Save(p Plan, inline *Event, now time.Time, shellAvailable func() bool) (Plan, error) {
+	if inline != nil {
+		p.Event = inline.ID
+		if err := validateEvent(*inline); err != nil {
+			return p, err
 		}
 	}
-	if active >= MaxActive || len(e.state.Plans) >= MaxActive+MaxHistory {
-		return errors.New("active arrangement limit reached")
+	if !identifier.MatchString(p.ID) || !identifier.MatchString(p.Event) {
+		return p, errors.New("use a stable arrangement id and a valid observation handle")
 	}
-	return nil
+	p.Fingerprint = fingerprint(p, inline)
+	e.mu.Lock()
+	candidate, definition, existing, err := e.checkSave(p, inline, now)
+	if err == nil && !existing && definition.Kind == "shell" && shellAvailable != nil {
+		// A Control handshake may wait on another process. Revalidate against
+		// the current ledger before committing the checked registration.
+		e.mu.Unlock()
+		available := shellAvailable()
+		e.mu.Lock()
+		var current Event
+		candidate, current, existing, err = e.checkSave(p, inline, now)
+		if err == nil && !existing {
+			switch {
+			case current != definition:
+				err = errors.New("observation changed during registration")
+			case !available:
+				err = ErrObservationUnavailable
+			}
+		}
+	}
+	defer e.mu.Unlock()
+	if err != nil || existing {
+		return candidate, err
+	}
+	if inline != nil {
+		definition.Created = now
+		if definition.Kind == "shell" {
+			definition.When, definition.TimeZone = candidate.When, candidate.TimeZone
+		}
+		e.state.Events = append(e.state.Events, definition)
+	}
+	candidate.OriginRequests = slices.Clone(candidate.OriginRequests)
+	candidate.Created, candidate.Status = now, "active"
+	e.state.Plans = append(e.state.Plans, candidate)
+	return candidate, e.saveChanges()
 }
-func unresolved(o Occurrence) bool { return o.Finished.IsZero() }
+
+func (e *Engine) checkSave(p Plan, inline *Event, now time.Time) (Plan, Event, bool, error) {
+	if err := e.prepareWrite(); err != nil {
+		return p, Event{}, false, err
+	}
+	if old := e.plan(p.ID); old != nil {
+		if old.Fingerprint == p.Fingerprint {
+			return *old, Event{}, true, nil
+		}
+		return p, Event{}, false, errors.New("arrangement id already bound; use a new id")
+	}
+	if e.activePlans() >= MaxActive || len(e.state.Plans) >= 1024 {
+		return p, Event{}, false, errors.New("active arrangement limit reached")
+	}
+	v, exists := e.event(p.Event)
+	if inline != nil {
+		if exists {
+			return p, Event{}, false, errors.New("observation id already bound; reference it or use a new id")
+		}
+		if len(e.state.Events) >= MaxActive {
+			return p, Event{}, false, errors.New("observation definition limit reached")
+		}
+		v = *inline
+	} else if !exists {
+		return p, Event{}, false, errors.New("observation unavailable")
+	}
+	if v.Kind == "shell" {
+		if p.When == "" {
+			p.When = v.When
+			if p.TimeZone == "" {
+				p.TimeZone = v.TimeZone
+			}
+		}
+		if strings.TrimSpace(p.When) == "" {
+			return p, Event{}, false, errors.New("Shell observation requires a wake condition")
+		}
+	}
+	p = normalizeCondition(p)
+	p, err := scheduleTimes(p, v, now)
+	if err == nil {
+		err = validateCondition(p)
+	}
+	return p, v, false, err
+}
+
+func (e *Engine) activePlans() int {
+	n := 0
+	for _, p := range e.state.Plans {
+		if p.Finished.IsZero() || e.pending(p.ID) {
+			n++
+		}
+	}
+	return n
+}
+
 func (e *Engine) pending(id string) bool {
-	return slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == id && unresolved(o) })
+	return slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == id && o.Finished.IsZero() })
 }
+
 func (e *Engine) Remove(id string, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err := e.prepareWrite(); err != nil {
 		return err
 	}
-	found := false
-	for i := range e.state.Plans {
-		p := &e.state.Plans[i]
-		if p.ID == id {
-			p.Status = "cancelled"
-			p.Finished = now
-			found = true
-		}
-	}
-	if !found {
+	p := e.plan(id)
+	if p == nil {
 		return errors.New("arrangement not found")
+	}
+	if p.Finished.IsZero() {
+		p.Status, p.Finished = "cancelled", now
 	}
 	for i := range e.state.Occurrences {
 		o := &e.state.Occurrences[i]
 		if o.Plan == id && o.Status == "pending" {
-			o.Status = "cancelled"
-			o.Finished = now
+			o.Status, o.Finished = "cancelled", now
 		}
 	}
+	e.cleanup(now)
 	return e.saveChanges()
 }
-func (e *Engine) ArchiveEvent(id string, now time.Time) error {
+
+func (e *Engine) RemoveEvent(id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err := e.prepareWrite(); err != nil {
 		return err
 	}
-	for _, p := range e.state.Plans {
-		if p.Event == id && (p.Finished.IsZero() || e.pending(p.ID)) {
-			return errors.New("event still has active arrangements or unresolved receipts")
-		}
+	if e.eventInUse(id) {
+		return errors.New("observation still has active or unresolved arrangements")
 	}
-	for i := range e.state.Events {
-		v := &e.state.Events[i]
-		if v.ID == id {
-			v.Archived = now
-			return e.saveChanges()
-		}
+	before := len(e.state.Events)
+	e.state.Events = slices.DeleteFunc(e.state.Events, func(v Event) bool { return v.ID == id })
+	if len(e.state.Events) == before {
+		return errors.New("observation unavailable")
 	}
-	return errors.New("event not found")
+	return e.saveChanges()
 }
+
 func (e *Engine) Close() {
 	e.mu.Lock()
 	e.stopped = true

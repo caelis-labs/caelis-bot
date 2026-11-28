@@ -38,13 +38,12 @@ type binding struct {
 	OwnerClosing bool `json:"ownerClosing,omitempty"`
 	// Ordinary Close stops a private owner. Its old receipts remain evidence,
 	// but that owner can no longer be queried or used to resume its threads.
-	OwnerUnavailable   bool                            `json:"ownerUnavailable,omitempty"`
-	LostOwners         []lostOwnerRecord               `json:"lostOwners,omitempty"`
-	LostOwnerTasks     map[string]bool                 `json:"lostOwnerTasks,omitempty"`
-	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
-	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
-	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
-	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+	OwnerUnavailable   bool              `json:"ownerUnavailable,omitempty"`
+	LostOwners         []lostOwnerRecord `json:"lostOwners,omitempty"`
+	LostOwnerTasks     map[string]bool   `json:"lostOwnerTasks,omitempty"`
+	PendingApprovalIDs []string          `json:"pendingApprovalIds,omitempty"`
+	RuntimeVersion     string            `json:"runtimeVersion,omitempty"`
+	TrustWriteUnknown  bool              `json:"trustWriteUnknown,omitempty"`
 
 	Context          contextseed.State            `json:"context,omitempty"`
 	ContextInputs    map[string]int               `json:"contextInputs,omitempty"`
@@ -127,14 +126,13 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
-	cached                 atomic.Pointer[api.Snapshot]
-	cachedComposer         atomic.Pointer[api.Snapshot]
-	cachedRecovery         atomic.Pointer[api.RecoveryState]
-	residentSyncNeeded     bool
-	workspaceMCPRevision   [32]byte
-	workItems              map[string][]api.Item // bounded, task-owned live snapshot; not a journal
-	workerOnly             bool                  // trusted target owner; no resident API is exposed
-	backgroundResultsDirty bool
+	cached               atomic.Pointer[api.Snapshot]
+	cachedComposer       atomic.Pointer[api.Snapshot]
+	cachedRecovery       atomic.Pointer[api.RecoveryState]
+	residentSyncNeeded   bool
+	workspaceMCPRevision [32]byte
+	workItems            map[string][]api.Item // bounded, task-owned live snapshot; not a journal
+	workerOnly           bool                  // trusted target owner; no resident API is exposed
 
 	residentExecution      api.WorkExecutionSettings
 	usage                  api.ContextUsage
@@ -381,16 +379,6 @@ func (s *Session) update() {
 	s.state.CurrentTurn = ""
 	if s.run != "" {
 		s.state.CurrentTurn = opaque(s.run)
-	}
-	if s.captureBackgroundResults() {
-		s.backgroundResultsDirty = true
-	}
-	if s.backgroundResultsDirty {
-		if err := s.save(); err != nil {
-			s.state.Message = "后台结果暂未保存；功能仍可用，将自动重试"
-		} else {
-			s.backgroundResultsDirty = false
-		}
 	}
 	if s.binding.OwnerClosing || s.binding.OwnerUnavailable && !s.ownerUnavailableVerified {
 		s.state.Phase = "unknown"
@@ -1148,6 +1136,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 			return r, nil
 		}
 	}
+	if api.SystemDispatchExpired(ctx) {
+		return r, api.ErrSystemDispatchExpired
+	}
 	input, err := s.prepareInput(in, files, refs)
 	if err != nil {
 		r.Message = err.Error()
@@ -1166,6 +1157,10 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		r.Message = "上下文暂不可用，消息未发送"
 		return r, nil
 	}
+	wasUnsubmitted := s.binding.Unsubmitted
+	wasReport := s.binding.HostReports[in.ID]
+	_, wasScheduled := s.binding.Scheduled[in.ID]
+	priorOrigins := s.binding.ScheduledOrigins[in.ID]
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run, SystemSource: in.SystemSource}
 	if report {
@@ -1229,6 +1224,44 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	err = s.startWithCapacityRetry(ctx, c, method, params, &response, threadID, in.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if errors.Is(err, api.ErrSystemDispatchExpired) && !(s.state.LastReceipt.ID == in.ID && s.state.LastReceipt.Outcome == "accepted") {
+		// The writer stopped before its first frame. Only a durable rollback
+		// lets the resident clear its original delivery intent.
+		prior := s.binding
+		s.binding.Pending = nil
+		s.binding.Unsubmitted = wasUnsubmitted
+		s.binding.Context.Resolve(in.ID, "rejected")
+		s.binding.ContextInputs = maps.Clone(prior.ContextInputs)
+		delete(s.binding.ContextInputs, in.ID)
+		if !wasReport {
+			s.binding.HostReports = maps.Clone(prior.HostReports)
+			delete(s.binding.HostReports, in.ID)
+		}
+		if !wasScheduled {
+			s.binding.Scheduled = maps.Clone(prior.Scheduled)
+			delete(s.binding.Scheduled, in.ID)
+		}
+		if len(in.OriginRequests) != 0 {
+			s.binding.ScheduledOrigins = maps.Clone(prior.ScheduledOrigins)
+			if priorOrigins == nil {
+				delete(s.binding.ScheduledOrigins, in.ID)
+			} else {
+				s.binding.ScheduledOrigins[in.ID] = priorOrigins
+			}
+		}
+		if save := s.save(); save != nil {
+			s.binding = prior
+			s.state.Phase = "unknown"
+			s.update()
+			return api.Receipt{ID: in.ID, Outcome: "unknown"}, save
+		}
+		if s.state.Phase == "sending" {
+			s.state.Phase = "idle"
+		}
+		s.update()
+		r.Deferred = true
+		return r, api.ErrSystemDispatchExpired
+	}
 	if err == nil {
 		if run != "" && response.TurnID != run {
 			err = ErrProtocol

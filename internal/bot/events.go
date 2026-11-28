@@ -5,28 +5,39 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
-	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
-// EventTools is the host's generation-fenced plugin relay, not a model-owned
-// arbitrary MCP endpoint. The desktop injects it into its resident Bot only.
-type EventTools interface {
-	EventBindings() map[string]string
-	CollectEvent(context.Context, string, string, string, map[string]any) (json.RawMessage, error)
+// ShellObserver executes registered commands through the managed local Core.
+type ShellObserver interface {
+	ShellObservationAvailable(context.Context) bool
+	ObserveShell(context.Context, string) (json.RawMessage, error)
 }
 
-func (r *Runtime) ConfigureEvents(tools EventTools, directory string) {
+func (r *Runtime) ConfigureShellObserver(observer ShellObserver) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.eventTools = tools
-	r.eventDirectory = directory
+	r.shellObserver = observer
 }
+
+func (r *Runtime) shellObservationAvailable(ctx context.Context) bool {
+	r.mu.Lock()
+	observer, engine := r.shellObserver, r.engine
+	r.mu.Unlock()
+	if p, ok := engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
+		return false
+	}
+	return observer != nil && observer.ShellObservationAvailable(ctx)
+}
+
+type shellUnavailable struct{}
+
+func (shellUnavailable) Error() string          { return "Notebook Shell observation is unavailable" }
+func (shellUnavailable) ConfirmedFailure() bool { return true }
+
 func (r *Runtime) initEvents() {
 	r.events, r.eventsErr = eventplan.Open(filepath.Join(filepath.Dir(r.path), "events-"+r.provider+".json"), r.runEvent, r.now())
 	if r.eventsErr == nil {
@@ -41,165 +52,30 @@ func (r *Runtime) migrateNativeEvents() error {
 	r.mu.Unlock()
 	return err
 }
+
 func (r *Runtime) runEvent(ctx context.Context, v eventplan.Event) (json.RawMessage, error) {
 	r.mu.Lock()
-	tools, dir, tasks := r.eventTools, r.eventDirectory, r.tasks
+	shell := r.shellObserver
 	r.mu.Unlock()
-	switch v.Kind {
-	case "wake":
-		return json.RawMessage(`{}`), nil
-	case "script":
-		if runtime.GOOS == "windows" {
-			return nil, errors.New("script collectors unavailable on this platform")
-		}
-		return eventplan.RunScript(ctx, v, dir)
-	case "tool":
-		if tools == nil {
-			return nil, errors.New("event tool source unavailable")
-		}
-		return tools.CollectEvent(ctx, v.Server, v.Binding, v.Tool, v.Arguments)
-	case "task":
-		if tasks == nil {
-			return nil, errors.New("task source unavailable")
-		}
-		if source, ok := tasks.(api.TaskExecutionSource); ok {
-			t, generation, err := source.ObserveTaskExecution(v.Task)
-			if err != nil {
-				return nil, err
-			}
-			if v.TaskExecution == "" || generation != v.TaskExecution {
-				return nil, errors.New("original task execution changed; verify original receipt")
-			}
-			return json.Marshal(map[string]any{"task": t.ID, "status": t.Status, "outcome": t.Outcome})
-		}
-		return nil, errors.New("original task unavailable")
+	if shell == nil {
+		return nil, shellUnavailable{}
 	}
-	return nil, errors.New("unsupported collector")
+	return shell.ObserveShell(ctx, v.Command)
 }
-func eventDefinition() api.ToolDefinition {
-	schema := tc.Schema{"type": "object", "additionalProperties": true, "description": "Your tested output contract, not an assumed tool guarantee. JSON Schema subset: type, properties, required, additionalProperties boolean, items, description. Root object; max 8 KiB."}
-	base := func() tc.Schema {
-		return tc.Schema{"id": text(64), "label": text(160), "context": text(4096), "outputSchema": schema}
-	}
-	script := base()
-	script["interpreter"] = tc.String("Absolute interpreter executable; receives the saved inline script on stdin, no shell wrapper. Native execution under this reviewed registration, not a sandbox.")
-	script["script"] = text(16384)
-	tool := base()
-	tool["server"] = tc.String("Exact server key returned by bot_schedule sources.eventTools")
-	tool["tool"] = text(256)
-	tool["arguments"] = tc.Schema{"type": "object", "additionalProperties": true}
-	task := tc.Schema{"id": text(64), "label": text(160), "context": text(4096), "task": text(256)}
-	return tc.Definition("bot_event", "Register a reusable observation for future Bot wakeups. First debug the tool/script and declare its actual JSON output contract. Registration does not execute it. Script/tool registrations grant the exact bounded native collector, so use only authorized observation work; never bypass a denied tool or sandbox. Read bot-core events guidance. Stable IDs are immutable; archive unused events. Use schedule tools for timing and optional CEL.", tc.Request(
-		tc.Branch("script", script, "id", "label", "interpreter", "script", "outputSchema"),
-		tc.Branch("tool", tool, "id", "label", "server", "tool", "arguments", "outputSchema"),
-		tc.Branch("task", task, "id", "label", "task"),
-		tc.Branch("read", tc.Schema{"event": text(128), "cursor": tc.String("Opaque nextCursor for original JSON")}, "event"),
-		tc.Branch("archive", tc.Schema{"event": text(128)}, "event")))
-}
-func scheduleDefinitions() []api.ToolDefinition {
-	out := scheduleBaseDefinitions()
-	for i := range out {
-		var schema tc.Schema
-		_ = json.Unmarshal(out[i].InputSchema, &schema)
-		req := schema["properties"].(map[string]any)["request"].(map[string]any)
-		branches := req["anyOf"].([]any)
-		if out[i].Name == "bot_schedule" {
-			branches = append(branches, tc.Branch("events", tc.Schema{"archived": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}), tc.Branch("arrangements", tc.Schema{"archived": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}), tc.Branch("read", tc.Schema{"handle": text(256), "cursor": tc.String("Opaque nextCursor for original JSON")}, "handle"), tc.Branch("condition", tc.Schema{"event": text(128), "when": text(2048), "sample": tc.Schema{"type": "object", "additionalProperties": true}, "timeZone": text(128)}, "event", "when", "sample"))
-			out[i].Description = "Read time, native observation sources, arrangements and original results, or test a pure CEL condition. Reads never execute collectors or wake Bot. History is opt-in. See bot-core events guide."
-		} else {
-			for _, kind := range []string{"after", "at", "interval", "completion"} {
-				fields := tc.Schema{"id": text(64), "event": tc.String("event:<id>; omit for a plain timed Bot wakeup"), "label": text(160), "context": tc.String("Saved purpose and next step"), "when": text(2048), "timeZone": text(128), "until": tc.String("Optional RFC3339 expiry"), "cooldownSeconds": tc.Integer(60, 31622400)}
-				required := []string{"id"}
-				if kind == "at" {
-					fields["at"] = text(128)
-					required = append(required, "at")
-				} else if kind != "completion" {
-					fields["seconds"] = tc.Integer(1, 31622400)
-					required = append(required, "seconds")
-				} else {
-					required = append(required, "event")
-				}
-				branches = append(branches, tc.Branch(kind, fields, required...))
-			}
-			out[i].Description = "Arrange user-authorized attention with after, at, interval, completion, or save for calendar/native event sources. Optional CEL filters observed data. Desktop lock or unknown presence never blocks dispatch globally. Stable IDs preserve original deadlines, grants and receipts. Remove the returned handle when work ends. Configure changes the shared event wake budget only on explicit user request. See bot-core events guide."
-		}
-		req["anyOf"] = branches
-		out[i].InputSchema, _ = json.Marshal(schema)
-	}
-	return out
-}
+
 func (r *Runtime) eventError() error {
 	if r.eventsErr != nil || r.events == nil {
 		return errors.New("event store unavailable; existing data preserved")
 	}
 	return nil
 }
-func (r *Runtime) callEvent(ctx context.Context, q map[string]any) api.ToolResult {
-	if err := r.eventError(); err != nil {
-		return compactError("events_unavailable", err)
-	}
-	kind := str(q, "type")
-	id := strings.TrimPrefix(str(q, "event"), "event:")
-	if kind == "read" {
-		v, err := r.events.Event(id)
-		if err != nil {
-			return compactError("event_unavailable", err)
-		}
-		return boundedData(map[string]any{"ok": true, "event": "event:" + v.ID, "data": v}, q)
-	}
-	if kind == "archive" {
-		err := r.events.ArchiveEvent(id, r.now())
-		if err != nil {
-			return compactError("archive_unconfirmed", err)
-		}
-		return compactValue(map[string]any{"ok": true}, false)
-	}
-	raw, _ := json.Marshal(q)
-	var v eventplan.Event
-	_ = json.Unmarshal(raw, &v)
-	v.Kind = kind
-	if kind == "script" {
-		if runtime.GOOS == "windows" {
-			return compactError("unavailable", errors.New("script collectors are currently macOS only"))
-		}
-		var err error
-		v, err = eventplan.PinScriptContext(ctx, v)
-		if err != nil {
-			return compactError("invalid_arguments", err)
-		}
-	} else if kind == "tool" {
-		r.mu.Lock()
-		tools := r.eventTools
-		r.mu.Unlock()
-		if tools == nil {
-			return compactError("unavailable", errors.New("no event tool connections"))
-		}
-		v.Binding = tools.EventBindings()[v.Server]
-	} else if kind == "task" {
-		v.OutputSchema = json.RawMessage(`{"type":"object","properties":{"task":{"type":"string"},"status":{"type":"string"},"outcome":{"type":"string"}},"required":["task","status","outcome"]}`)
-		r.mu.Lock()
-		tasks := r.tasks
-		r.mu.Unlock()
-		source, ok := tasks.(api.TaskExecutionSource)
-		if !ok {
-			return compactError("unavailable", errors.New("task execution identity unavailable"))
-		}
-		_, generation, err := source.ObserveTaskExecution(v.Task)
-		if err != nil || generation == "" {
-			return compactError("unavailable", errors.New("original owned task execution unavailable"))
-		}
-		v.TaskExecution = generation
-	}
-	saved, err := r.events.Register(v, r.now())
-	if err != nil {
-		return compactError("event_registration", err)
-	}
-	return compactValue(map[string]any{"ok": true, "event": "event:" + saved.ID, "outputSchema": saved.OutputSchema, "validation": "contract accepted; no collector executed", "next": map[string]any{"tool": "bot_schedule_update", "request": map[string]any{"type": "after", "id": saved.ID + "-once", "event": "event:" + saved.ID, "seconds": 60}}}, false)
-}
+
 func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]any) (api.ToolResult, bool) {
-	kind := str(q, "type")
-	isNew := name == "bot_schedule" && (kind == "events" || kind == "arrangements" || kind == "read" || kind == "condition") || name == "bot_schedule_update" && (kind == "after" || kind == "at" || kind == "interval" || kind == "completion" || kind == "remove" && strings.HasPrefix(str(q, "automation"), "schedule:"))
-	if !isNew {
+	kind, handle := str(q, "type"), str(q, "automation")
+	managed := name == "bot_schedule" && (kind == "events" || kind == "read") ||
+		name == "bot_schedule_update" && (kind == "after" || kind == "at" || kind == "interval" ||
+			kind == "remove" && (strings.HasPrefix(handle, "schedule:") || strings.HasPrefix(handle, "event:")))
+	if !managed {
 		return api.ToolResult{}, false
 	}
 	fail := func(err error) (api.ToolResult, bool) { return compactError("event_arrangement", err), true }
@@ -208,120 +84,107 @@ func (r *Runtime) eventSchedule(ctx context.Context, name string, q map[string]a
 	}
 	if name == "bot_schedule" {
 		s := r.events.Snapshot()
-		history, _ := q["archived"].(bool)
-		switch kind {
-		case "events":
+		if kind == "events" {
 			items := []map[string]any{}
 			for _, v := range s.Events {
-				if history != v.Archived.IsZero() {
-					items = append(items, map[string]any{"event": "event:" + v.ID, "label": v.Label, "kind": v.Kind, "archived": v.Archived})
-				}
+				items = append(items, map[string]any{"event": "event:" + v.ID, "label": v.Label, "kind": v.Kind, "retain": v.Retain})
 			}
 			return summaryPage(items, q, "event"), true
-		case "arrangements":
-			items := []map[string]any{}
-			for _, p := range s.Plans {
-				if history != p.Finished.IsZero() {
-					items = append(items, map[string]any{"automation": "schedule:" + p.ID, "event": "event:" + p.Event, "type": p.Kind, "next": p.Next, "expires": p.Expires, "status": p.Status, "issue": p.Issue, "latestOccurrence": latestOccurrence(s, p.ID)})
-				}
-			}
-			return summaryPage(items, q, "automation"), true
-		case "condition":
-			v, err := r.events.Event(strings.TrimPrefix(str(q, "event"), "event:"))
-			if err != nil {
-				return fail(err)
-			}
-			raw, _ := json.Marshal(q["sample"])
-			data, err := eventplan.ValidateOutput(v.OutputSchema, raw)
-			if err != nil {
-				return fail(err)
-			}
-			match, err := eventplan.Test(eventplan.Plan{When: str(q, "when"), TimeZone: str(q, "timeZone")}, data, r.now())
-			if err != nil {
-				return fail(err)
-			}
-			return compactValue(map[string]any{"ok": true, "wouldWake": match}, false), true
-		case "read":
-			h := str(q, "handle")
-			for _, p := range s.Plans {
-				if h == "schedule:"+p.ID {
-					p.OriginRequests = nil
-					p.GrantID = ""
-					p.LegacyVersion = ""
-					return boundedData(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, q), true
-				}
-			}
-			for _, o := range s.Occurrences {
-				if h == o.ID {
-					o.OriginRequests = nil
-					return boundedData(map[string]any{"ok": true, "data": o}, q), true
-				}
-			}
-			return fail(errors.New("handle unavailable or history retention elapsed"))
 		}
+		h := str(q, "handle")
+		for _, v := range s.Events {
+			if h == "event:"+v.ID {
+				return boundedData(map[string]any{"ok": true, "data": v}, q), true
+			}
+		}
+		for _, p := range s.Plans {
+			if h == "schedule:"+p.ID {
+				p.OriginRequests, p.GrantID, p.Fingerprint = nil, "", ""
+				return boundedData(map[string]any{"ok": true, "data": p, "latestOccurrence": latestOccurrence(s, p.ID)}, q), true
+			}
+		}
+		for _, o := range s.Occurrences {
+			if h == o.ID {
+				o.OriginRequests = nil
+				return boundedData(map[string]any{"ok": true, "data": o}, q), true
+			}
+		}
+		return fail(errors.New("handle unavailable or history retention elapsed"))
 	}
+
 	if kind == "remove" {
-		id := strings.TrimPrefix(str(q, "automation"), "schedule:")
-		if err := r.events.Remove(id, r.now()); err != nil {
+		domain, id, _ := strings.Cut(handle, ":")
+		var err error
+		if domain == "event" {
+			err = r.events.RemoveEvent(id)
+		} else {
+			err = r.events.Remove(id, r.now())
+		}
+		if err != nil {
 			return fail(err)
 		}
-		// Cancellation is durable immediately. Tick's retirement path owns grant
-		// revocation, including shared migration grants, unresolved receipts and
-		// bounded retries. Removing one historical Plan cannot revoke its peers.
 		return compactValue(map[string]any{"ok": true}, false), true
 	}
+
 	raw, _ := json.Marshal(q)
 	var p eventplan.Plan
-	_ = json.Unmarshal(raw, &p)
-	p.OriginRequests = r.scheduleOrigin(ctx)
-	p.Kind = kind
-	p.Event = strings.TrimPrefix(p.Event, "event:")
-	if p.Event == "" {
-		label := str(q, "label")
-		if label == "" {
-			label = p.ID
-		}
-		purpose := str(q, "context")
-		if purpose == "" {
-			return fail(errors.New("plain wakeup needs context describing the intended follow-up"))
-		}
-		v := eventplan.Event{ID: p.ID, Label: label, Context: purpose, Kind: "wake", OutputSchema: json.RawMessage(`{"type":"object"}`)}
-		if _, err := r.events.Register(v, r.now()); err != nil {
-			return fail(err)
-		}
-		p.Event = v.ID
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return fail(errors.New("invalid arrangement arguments"))
 	}
-	// Fingerprint the original relative specification, not wall-clock-derived Next.
-	saved, err := r.events.Save(p, r.now())
+	p.Kind, p.OriginRequests = kind, r.scheduleOrigin(ctx)
+	label := str(q, "label")
+	if label == "" {
+		label = p.ID
+	}
+	var definition *eventplan.Event
+	retain, _ := q["retain"].(bool)
+	if p.Event != "" {
+		handle, ok := strings.CutPrefix(p.Event, "event:")
+		if !ok || str(q, "observe") != "" || retain || str(q, "context") != "" || str(q, "label") != "" {
+			return fail(errors.New("reuse an event by exact handle with timing and condition, or supply an inline definition"))
+		}
+		p.Event = handle
+	} else {
+		v := eventplan.Event{ID: p.ID, Label: label, Context: str(q, "context"), Kind: "wake", Retain: retain}
+		if command := str(q, "observe"); command != "" {
+			if strings.TrimSpace(p.When) == "" {
+				return fail(errors.New("Shell observation requires a wake condition"))
+			}
+			v.Kind, v.Command = "shell", command
+		} else if retain {
+			return fail(errors.New("retain applies to Notebook observation definitions"))
+		}
+		definition = &v
+	}
+	saved, err := r.events.Save(p, definition, r.now(), func() bool { return r.shellObservationAvailable(ctx) })
+	if errors.Is(err, eventplan.ErrObservationUnavailable) {
+		return compactError("shell_observation_unavailable", shellUnavailable{}), true
+	}
 	if err != nil {
 		return fail(err)
 	}
-	return compactValue(map[string]any{"ok": true, "automation": "schedule:" + saved.ID, "event": "event:" + saved.Event, "next": saved.Next, "expires": saved.Expires, "status": saved.Status}, false), true
+	receipt := map[string]any{"ok": true, "automation": "schedule:" + saved.ID, "event": "event:" + saved.Event, "status": saved.Status}
+	if saved.Finished.IsZero() {
+		receipt["next"] = saved.Next
+	}
+	return compactValue(receipt, false), true
 }
+
 func (r *Runtime) tickEvents(ctx context.Context) error {
 	if r.events == nil {
 		return nil
 	}
-	// Explicit arrangements can run while the desktop is locked or presence is
-	// unknown. A collector may observe presence and its CEL may require it; that
-	// is task data, not a global admission policy. The adapter rechecks busy state.
-	nativeErr := r.nativeMigrationError()
+	r.mu.Lock()
+	nativeErr := r.nativeErr
+	r.mu.Unlock()
 	if errors.Is(nativeErr, eventplan.ErrWritePending) {
-		nativeErr = r.migrateNativeEvents()
-		if errors.Is(nativeErr, eventplan.ErrWritePending) {
-			return nativeErr
-		}
-	}
-	if nativeErr == nil && r.events.HasNativePlans() {
-		sample := scheduledata.Sample{}
-		if r.nativeSample != nil {
-			sample = r.nativeSample()
-		}
-		if err := r.events.ReceiveNative(ctx, r.nativeSources.Poll(r.now(), sample), r.now()); err != nil {
+		if err := r.migrateNativeEvents(); errors.Is(err, eventplan.ErrWritePending) {
 			return err
 		}
 	}
-	return r.events.Tick(ctx, r.now(), eventplan.Delivery{Ready: func() bool { return r.engine.Snapshot().CanSend },
+	return r.events.Tick(ctx, r.now(), eventplan.Delivery{
+		Now:   r.now,
+		Ready: func() bool { return r.engine.Snapshot().CanSend },
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
 				return b.RevokeBackground(ctx, id)
@@ -329,35 +192,27 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return nil
 		},
 		Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
-			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}})
+			receipt, err := r.submitSystemBeforeLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}}, wake.Deadline)
 			if receipt.ID != wake.ID {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
 			if receipt.Outcome == "rejected" && receipt.Deferred {
+				if errors.Is(err, api.ErrSystemDispatchExpired) {
+					return "expired", nil
+				}
 				return "deferred", err
 			}
 			return receipt.Outcome, err
-		}, Receipt: func(id string) string {
+		},
+		Receipt: func(id string) string {
 			receipt := r.SystemReceipt(id)
 			if receipt.ID != id {
 				return "unknown"
 			}
 			return receipt.Outcome
-		}, Complete: func(id string) bool {
-			if b, ok := r.engine.(api.BackgroundResultProvider); ok {
-				result := b.BackgroundResult(id)
-				return result.ID == id && result.Complete
-			}
-			return false
-		}})
-}
-func (r *Runtime) eventBindings() map[string]string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.eventTools == nil {
-		return map[string]string{}
-	}
-	return r.eventTools.EventBindings()
+		},
+		Settled: r.forgetCallbackDeliveries,
+	})
 }
 
 func latestOccurrence(s eventplan.State, plan string) string {

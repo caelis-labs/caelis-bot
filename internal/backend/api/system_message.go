@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"time"
 )
 
 // SystemMessage is host-only delivery data. Its origin is assigned by the
@@ -66,6 +68,35 @@ func WorkerInteractionMessageID(kind, nativeID string) string {
 type SystemDelivery interface {
 	SubmitSystem(context.Context, SystemMessage) (Receipt, error)
 	SystemReceipt(string) Receipt
+}
+
+// ErrSystemDispatchExpired proves that the current attempt was stopped before
+// native dispatch. It does not cancel a request already sent.
+var ErrSystemDispatchExpired = errors.New("system dispatch deadline passed")
+
+type systemDispatchDeadlineKey struct{}
+
+// WithSystemDispatchDeadline carries host admission policy without shortening
+// transport observation or changing the identity of the original message.
+func WithSystemDispatchDeadline(ctx context.Context, deadline time.Time, now func() time.Time) context.Context {
+	if deadline.IsZero() {
+		return ctx
+	}
+	return context.WithValue(ctx, systemDispatchDeadlineKey{}, func() time.Duration { return deadline.Sub(now()) })
+}
+
+func SystemDispatchExpired(ctx context.Context) bool {
+	left, ok := SystemDispatchTimeLeft(ctx)
+	return ok && left <= 0
+}
+
+// SystemDispatchTimeLeft bounds waiting for transport admission.
+func SystemDispatchTimeLeft(ctx context.Context) (time.Duration, bool) {
+	remaining, ok := ctx.Value(systemDispatchDeadlineKey{}).(func() time.Duration)
+	if !ok {
+		return 0, false
+	}
+	return remaining(), true
 }
 
 // BusinessWake classifies known resident work for observation only. Unknown

@@ -18,7 +18,7 @@ renderer / browser → typed product operations and snapshots
 | `internal/app` | One application, configuration, admission, start/quit and service assembly |
 | `internal/backend/api` | Product DTOs and explicit capability ports; private host tool connections |
 | `internal/backend/{codex,caelis}` | Native protocol projection, execution bindings, policy, receipts and recovery |
-| `internal/bot`, `tasks`, `eventplan`, `scheduledata` | Identity, introduction, delegation, follow-ups, occurrence and wake budgets |
+| `internal/bot`, `tasks`, `eventplan`, `scheduledata` | Identity, introduction, delegation, follow-ups, schedules and durable occurrences |
 | `internal/notebook`, `botskills` | Editable Markdown and application-scoped skill installation |
 | `internal/machines`, `taskterminal` | Peer routing and owned external task-observation lifecycles |
 | `internal/textchannel`, `telegram`, `weixin` | Shared interaction controls and independent authenticated channel ledgers |
@@ -319,31 +319,48 @@ Original URL receipts remain readable through the frozen binding without replaci
 
 ## Scheduling and message channels
 
-[eventplan](../internal/eventplan/engine.go) owns durable events/arrangements/occurrences;
-`scheduledata` supplies pure CEL and native metadata, without a second dispatcher.
-Timed, conditional, native-observation and task-completion arrangements share scheduling
-and original receipts. No care engine or idle LLM poll exists. Collection runs bounded
-native scripts or selected plugin tools; declared output schema and pure conditions
-precede a natural-language wake carrying saved purpose and untrusted collected facts.
-Script registration reviews pinned interpreter/source and ongoing observation; it grants
-no Runtime sandbox bypass. Windows script registration is unavailable without equivalent
-process lifecycle guarantees. Unknown collector effects suspend the arrangement, never
-rerun automatically. Wakes persist identity before dispatch and reconcile original input.
-The resident scheduler waits for actual deadlines, collector results, and admission
-or work changes. Active retained Workers and desktop source subscriptions keep
-bounded observation where the original owner provides no wake edge. Event writes
-roll back on a confirmed failure and wait for the disk result of any timed-out
-writer before admitting another mutation. An unexecuted intent is cleared
-durably before fresh admission. Completed actions keep their original identities
-and receipts while their results are saved. Independent Worker reports and legacy
-reminders retain their admission paths. Diagnostics record the first failed write
-stage and error category and any eventual disk result.
+[eventplan](../internal/eventplan/engine.go) owns durable arrangements,
+observations and occurrences. A clock wake creates an occurrence directly.
+A timed Shell observation saves its command with the arrangement in one write.
+The owning resident Runtime reviews registration through its existing MCP policy.
 
-Busy admission, original grants, cancellation, deadlines, deduplication and shared wake
-budgets restrict dispatch; desktop presence/lock is not a global gate. Explicit collectors
-may use it, while desktop input retains its own lock/permission checks. Sleep/exit pauses
-execution. Terminal arrangements leave active lists, unreferenced events archive, and
-bounded retention never prunes unresolved receipts or rebinds retained registration IDs.
+Bot assembly binds observation to the Notebook and the configured local Core
+profile. Bot checks `shell-execution-v1` in authenticated Control discovery
+before registration and execution. The Core adapter uses the managed loopback
+Host and `POST /api/control/v1/shell/execute`. Core supplies the platform sandbox,
+process lifetime and exit receipt. The command is the only execution input
+provided by the model. The adapter keeps Host credentials and the Notebook
+path outside the tool contract.
+
+The scheduler applies the existing CEL predicate to bounded JSON output.
+A nonmatch or confirmed sample failure leaves the observation eligible for its
+next check. The first match enqueues one wake carrying the saved purpose and
+untrusted result. If Control loses an execution result the original sample
+stays unresolved, and that observation is suspended. The scheduler records the
+occurrence before submitting, then checks only its original Runtime receipt.
+A busy admission leaves the same occurrence pending. A clock wake with an
+explicit deadline expires before submission. Caelis limits the wait for a
+Control connection and rechecks it before handing that connection to the
+HTTP writer. Codex checks the deadline after acquiring its native writer.
+The deadline governs local admission. An in-flight wake retains its original
+receipt. Committed cancellation stops the observation request and prevents
+results from waking the resident.
+Acceptance consumes a one-shot arrangement immediately. A clock interval
+schedules later occurrences.
+Shell intervals govern sampling cadence. A definition survives if another
+arrangement still references it or registration explicitly chose retention.
+Settled occurrence and registration deduplication records have bounded
+retention. The scheduler uses timed deadlines and result/admission signals.
+
+Upgrade preserves calendar reminders, explicit clock intervals and original
+unresolved wake identities. Managed Shell replaces legacy script and plugin
+collectors. Retired desktop signals and Worker polling cannot enqueue new
+occurrences. Older care files are read only for original delivery and grant
+retirement. Worker approvals, asynchronous questions and completion reports
+still use their native ingress and original delivery identities. Only settled
+callback receipts move out of the shared delivery log after their occurrence
+checkpoint; Worker receipts remain with their producer. Desktop input owns its
+own permissions and availability.
 
 [textchannel](../internal/textchannel/control.go) provides shared `/approve` and `/answer`
 controls with durable short references and immutable native option catalogs. Transport

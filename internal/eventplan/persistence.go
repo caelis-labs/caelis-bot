@@ -2,7 +2,6 @@ package eventplan
 
 import (
 	"errors"
-	"maps"
 	"slices"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -26,9 +25,6 @@ func copyState(s State) State {
 	s.Events = slices.Clone(s.Events)
 	s.Plans = slices.Clone(s.Plans)
 	s.Occurrences = slices.Clone(s.Occurrences)
-	s.WakeAttempts = slices.Clone(s.WakeAttempts)
-	s.WakeReservations = slices.Clone(s.WakeReservations)
-	s.NativeWatermarks = maps.Clone(s.NativeWatermarks)
 	return s
 }
 
@@ -82,6 +78,7 @@ func (e *Engine) settleWrite(next State, kind writeKind, err error, late bool) {
 	if err == nil && !(late && kind == writeIntent) {
 		e.saved = copyState(next)
 		e.state = next
+		e.cancelRemovedCollection()
 		return
 	}
 	e.state = copyState(e.saved)

@@ -8,6 +8,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 const capacityWaitMessage = "模型当前繁忙，正在等待后重试；可以停止等待"
@@ -75,6 +77,7 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 	if method != "turn/start" {
 		return callDecode(ctx, c, method, params, result)
 	}
+	var lastRejection error
 	var retryCtx context.Context
 	var cancel context.CancelFunc
 	defer func() {
@@ -109,9 +112,13 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 			s.mu.Unlock()
 		}
 		err := callDecode(callCtx, c, method, params, result)
+		if lastRejection != nil && errors.Is(err, api.ErrSystemDispatchExpired) {
+			return lastRejection
+		}
 		if err == nil || !capacityNativeError(err) {
 			return err
 		}
+		lastRejection = err
 		if attempt == 2 {
 			return fmt.Errorf("模型仍然繁忙，自动重试已耗尽: %w", err)
 		}

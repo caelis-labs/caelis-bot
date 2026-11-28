@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
@@ -109,6 +110,33 @@ func (d *systemDeliveryLog) record(id string, next systemDeliveryRecord) error {
 	return nil
 }
 
+// Forget only callback IDs which the scheduler has durably settled. Worker
+// request identities and all unresolved deliveries retain the existing journal.
+func (r *Runtime) forgetCallbackDeliveries(ids []string) {
+	d := r.deliveries
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var removed map[string]systemDeliveryRecord
+	for _, id := range ids {
+		record := d.state.Records[id]
+		if record.Source == api.SystemCallback && record.Outcome != "unknown" && record.Provider == r.provider {
+			if removed == nil {
+				removed = make(map[string]systemDeliveryRecord)
+			}
+			removed[id] = record
+			delete(d.state.Records, id)
+		}
+	}
+	if len(removed) != 0 && localstate.Write(d.path, d.state) != nil {
+		for id, record := range removed {
+			d.state.Records[id] = record
+		}
+	}
+}
+
 // ImportSystemReceipts migrates old producer delivery proofs once. Unknown is
 // a no-replay fence, never evidence that an input was accepted.
 func (r *Runtime) ImportSystemReceipts(receipts []api.Receipt) error {
@@ -185,6 +213,10 @@ func (r *Runtime) SubmitSystem(ctx context.Context, message api.SystemMessage) (
 }
 
 func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	return r.submitSystemBeforeLocked(ctx, message, time.Time{})
+}
+
+func (r *Runtime) submitSystemBeforeLocked(ctx context.Context, message api.SystemMessage, deadline time.Time) (api.Receipt, error) {
 	rejected := api.Receipt{ID: message.ID, Outcome: "rejected"}
 	if !message.Valid() {
 		return rejected, errors.New("invalid system message")
@@ -230,7 +262,7 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 			return rejected, nil
 		}
 	}
-	if !r.engine.Snapshot().CanSend {
+	if !r.engine.Snapshot().CanSend || !deadline.IsZero() && !r.now().Before(deadline) {
 		return rejected, nil
 	}
 	native, ok := r.engine.(api.SystemDelivery)
@@ -241,10 +273,16 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 	if err := d.record(message.ID, original); err != nil {
 		return rejected, err
 	}
-	// Do not hold the log lock during native I/O or snapshot callbacks.
-	d.mu.Unlock()
-	receipt, err := native.SubmitSystem(ctx, message)
-	d.mu.Lock()
+	var err error
+	if !deadline.IsZero() && !r.now().Before(deadline) {
+		// The intent is durable, but this process can prove no native call began.
+		receipt = rejected
+	} else {
+		// Do not hold the log lock during native I/O or snapshot callbacks.
+		d.mu.Unlock()
+		receipt, err = native.SubmitSystem(api.WithSystemDispatchDeadline(ctx, deadline, r.now), message)
+		d.mu.Lock()
+	}
 	// A native event can settle the original receipt while dispatch unwinds.
 	// Its terminal proof must survive a late transport-unknown return.
 	if settled := d.state.Records[message.ID]; settled.Outcome != "unknown" {

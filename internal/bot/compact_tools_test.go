@@ -167,17 +167,15 @@ func TestTaskReadUsesCompletedMessageIdentityAndUTF8ByteFolding(t *testing.T) {
 }
 func TestCompactScheduleRegistrationAndNamespaces(t *testing.T) {
 	r, base, now := fixture(t)
-	configureNativeSources(t, r)
 	grant := &scheduleGrantEngine{fakeEngine: base, deny: true}
 	r.engine = grant
 	calendar := `{"request":{"type":"save","id":"same-id","label":"Calendar","prompt":"Reminder","trigger":{"type":"calendar","timeZone":"UTC","schedule":{"type":"interval","everyMinutes":1}}}}`
-	event := `{"request":{"type":"save","id":"same-id","label":"Event","prompt":"Care","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`
 	invokeCompact(t, r, "bot_schedule_update", calendar)
 	if grant.authorized != "" {
 		t.Fatal("calendar registration called the old grant hook")
 	}
-	invokeCompact(t, r, "bot_schedule_update", event)
-	if _, ok := r.events.NativePlan("same-id"); !ok || grant.authorized != "" {
+	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"same-id","seconds":60,"label":"Event","context":"Follow up"}}`)
+	if len(r.events.Snapshot().Plans) != 1 || grant.authorized != "" {
 		t.Fatal("native event schedule required a callback grant")
 	}
 	out := invokeCompact(t, r, "bot_schedule", `{"request":{"type":"list","limit":1}}`)
@@ -187,7 +185,7 @@ func TestCompactScheduleRegistrationAndNamespaces(t *testing.T) {
 	if !r.CallTool(t.Context(), "bot_schedule", json.RawMessage(`{"request":{"type":"list","kind":"calendar","cursor":"`+cursor+`"}}`)).IsError {
 		t.Fatal("cursor filters not fenced")
 	}
-	invokeCompact(t, r, "bot_schedule", `{"request":{"type":"test","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"},"event":{}}}`)
+	invokeCompact(t, r, "bot_schedule", `{"request":{"type":"test","when":"true","sample":{}}}`)
 	if len(base.submissions) != 0 {
 		t.Fatal("pure test dispatched")
 	}
@@ -195,7 +193,7 @@ func TestCompactScheduleRegistrationAndNamespaces(t *testing.T) {
 	if len(r.State().Schedules) != 0 || len(r.events.Snapshot().Plans) != 1 {
 		t.Fatal("namespace collision")
 	}
-	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"remove","automation":"event:same-id"}}`)
+	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"remove","automation":"schedule:same-id"}}`)
 	if r.events.Snapshot().Plans[0].Status != "cancelled" {
 		t.Fatal("event remove")
 	}

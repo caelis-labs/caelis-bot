@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
@@ -343,6 +344,10 @@ func (t *transport) sendFrame(ctx context.Context, message wireMessage, finishFr
 	}
 	if err := t.conn.SetWriteDeadline(deadline); err != nil {
 		return false, err
+	}
+	if (message.Method == "turn/start" || message.Method == "turn/steer") && api.SystemDispatchExpired(ctx) {
+		_ = t.conn.SetWriteDeadline(time.Time{})
+		return false, api.ErrSystemDispatchExpired
 	}
 	cancelDone := make(chan struct{})
 	cancel := func() bool { return true }

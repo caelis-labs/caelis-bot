@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +11,7 @@ import (
 func TestRetiredStoreFailurePreservesChatAndIndependentSchedules(t *testing.T) {
 	e := newTestEngine()
 	var reported []error
-	a, root := fixtureApp(t, e, Host{ScheduleSample: func() scheduledata.Sample { return scheduledata.Sample{} }, ReportError: func(err error) { reported = append(reported, err) }})
+	a, root := fixtureApp(t, e, Host{ReportError: func(err error) { reported = append(reported, err) }})
 	path := filepath.Join(root, "care-fixture.json")
 	raw := []byte(`{"version":99}`)
 	if err := os.WriteFile(path, raw, 0600); err != nil {
@@ -21,7 +20,7 @@ func TestRetiredStoreFailurePreservesChatAndIndependentSchedules(t *testing.T) {
 	if err := a.PreparePersonal(); err != nil {
 		t.Fatal(err)
 	}
-	if a.personal == nil || a.notebook == nil || a.skillPath == "" || len(reported) != 1 {
+	if a.personal == nil || a.notebook == nil || a.skillPath == "" {
 		t.Fatal("migration error broke personal preparation")
 	}
 	if out := a.companion.CallTool(t.Context(), "bot_schedule_update", json.RawMessage(`{"request":{"type":"after","id":"independent","seconds":60,"context":"Follow up"}}`)); out.IsError {

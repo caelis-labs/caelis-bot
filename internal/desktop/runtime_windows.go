@@ -59,7 +59,7 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	assembly, err := newProductAssembly(root, windowsPreferredLanguages(), func(*Service, *diagnosticlog.Logger) app.Host {
-		return app.Host{OpenURL: windowsOpenURL, RevealFile: windowsRevealFile, TrashFile: windowsTrashFile, ScheduleSample: windowsPresenceSample}
+		return app.Host{OpenURL: windowsOpenURL, RevealFile: windowsRevealFile, TrashFile: windowsTrashFile}
 	})
 	if err != nil {
 		return err

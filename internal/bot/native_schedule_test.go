@@ -5,22 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
-
-func configureNativeSources(t *testing.T, r *Runtime) {
-	t.Helper()
-	yes := true
-	if err := r.ConfigureNativeSources(func() scheduledata.Sample {
-		return scheduledata.Sample{Presence: scheduledata.Presence{Awake: true, Unlocked: &yes}}
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
 
 type scheduleGrantEngine struct {
 	*fakeEngine
@@ -50,8 +39,6 @@ func (f *scheduleGrantEngine) SubmitSystem(ctx context.Context, message api.Syst
 }
 func (f *scheduleGrantEngine) SystemReceipt(id string) api.Receipt { return f.receipt }
 
-const nativeRequest = `{"request":{"type":"save","id":"demo","label":"Native","prompt":"Offer a timely break","trigger":{"type":"event","sources":["clock.minute"],"condition":"true","timeZone":"UTC"}}}`
-
 type retainedReminderEngine struct {
 	*fakeEngine
 	receipt api.Receipt
@@ -63,7 +50,7 @@ func (f *retainedReminderEngine) SystemReceipt(id string) api.Receipt {
 	return f.receipt
 }
 
-func TestReminderRecoveryPrecedesNativeEvent(t *testing.T) {
+func TestReminderRecoveryPrecedesCallback(t *testing.T) {
 	for _, retained := range []bool{false, true} {
 		name := "legacy-last-receipt"
 		if retained {
@@ -85,15 +72,13 @@ func TestReminderRecoveryPrecedesNativeEvent(t *testing.T) {
 				base.view.LastReceipt = api.Receipt{ID: "later-user-message", Outcome: "accepted"}
 			}
 			base.outcome = "accepted"
-			configureNativeSources(t, r)
-			if out := r.CallTool(t.Context(), "bot_schedule_update", json.RawMessage(nativeRequest)); out.IsError {
-				t.Fatal(out)
-			}
+			invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"demo","seconds":1,"context":"Offer a timely break"}}`)
+			*now = now.Add(time.Second)
 			if err := r.Tick(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			if w := r.State().Wake; w.ID != id || w.Status != "accepted" {
-				t.Fatal("reminder receipt lost to care dispatch", w)
+				t.Fatal("reminder receipt lost to callback dispatch", w)
 			}
 			var persisted State
 			b, err := os.ReadFile(r.path)
@@ -134,10 +119,8 @@ func TestReminderRecoveryRequiresExactDurableAcceptance(t *testing.T) {
 			f := &retainedReminderEngine{fakeEngine: base, receipt: api.Receipt{ID: id, Outcome: outcome}}
 			r.engine = f
 			base.view.LastReceipt = api.Receipt{ID: id, Outcome: "accepted"} // Exact provider evidence takes priority.
-			configureNativeSources(t, r)
-			if out := r.CallTool(t.Context(), "bot_schedule_update", json.RawMessage(nativeRequest)); out.IsError {
-				t.Fatal(out)
-			}
+			invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"demo","seconds":1,"context":"Offer a timely break"}}`)
+			*now = now.Add(time.Second)
 			switch outcome {
 			case "wrong-id":
 				f.receipt = api.Receipt{ID: "other-wake", Outcome: "accepted"}
