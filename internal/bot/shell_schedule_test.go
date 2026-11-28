@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -133,14 +134,14 @@ func TestScheduleObservationLateResultAndUnknownAreIsolated(t *testing.T) {
 	for _, cancelPlan := range []bool{true, false} {
 		t.Run(fmt.Sprintf("cancel=%t", cancelPlan), func(t *testing.T) {
 			started, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			defer releaseOnce.Do(func() { close(release) })
 			shell := &countedShell{ShellObserver: shellFunc(func(ctx context.Context, _ string) (json.RawMessage, error) {
 				close(started)
-				select {
-				case <-release:
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
+				<-release
 				if cancelPlan {
+					// Model a result already in flight even though its context
+					// was cancelled before processing the result.
 					return json.RawMessage(`{"ready":true}`), nil
 				}
 				return nil, context.DeadlineExceeded
@@ -167,7 +168,7 @@ func TestScheduleObservationLateResultAndUnknownAreIsolated(t *testing.T) {
 			if cancelPlan {
 				invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"remove","automation":"schedule:blocked"}}`)
 			}
-			close(release)
+			releaseOnce.Do(func() { close(release) })
 			deadline := time.NewTimer(10 * time.Second)
 			defer deadline.Stop()
 			for {

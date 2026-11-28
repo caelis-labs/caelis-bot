@@ -78,6 +78,7 @@ func (e *Engine) settleWrite(next State, kind writeKind, err error, late bool) {
 	if err == nil && !(late && kind == writeIntent) {
 		e.saved = copyState(next)
 		e.state = next
+		e.cancelRemovedCollection()
 		return
 	}
 	e.state = copyState(e.saved)

@@ -31,10 +31,10 @@ func (e *Engine) NextCheck(now time.Time) time.Time {
 			continue
 		}
 		if !p.Finished.IsZero() {
-			if p.GrantID != "" {
+			if e.grantRetirable(p) {
 				offer(e.lastRevoke.Add(5 * time.Second))
-			} else {
-				offer(p.Finished.Add(Retention))
+			} else if retainFrom := e.planRetentionStart(p); !retainFrom.IsZero() {
+				offer(retainFrom.Add(Retention))
 			}
 			continue
 		}

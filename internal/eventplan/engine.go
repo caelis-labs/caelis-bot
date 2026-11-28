@@ -264,11 +264,6 @@ func fingerprint(p Plan, inline *Event) string {
 // Save atomically saves a timed arrangement and its inline definition, or reuses
 // an existing definition by handle. Retries retain the original schedule ID.
 func (e *Engine) Save(p Plan, inline *Event, now time.Time, shellAvailable func() bool) (Plan, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if err := e.prepareWrite(); err != nil {
-		return p, err
-	}
 	if inline != nil {
 		p.Event = inline.ID
 		if err := validateEvent(*inline); err != nil {
@@ -278,30 +273,67 @@ func (e *Engine) Save(p Plan, inline *Event, now time.Time, shellAvailable func(
 	if !identifier.MatchString(p.ID) || !identifier.MatchString(p.Event) {
 		return p, errors.New("use a stable arrangement id and a valid observation handle")
 	}
-	requestFingerprint := fingerprint(p, inline)
-	p.Fingerprint = requestFingerprint
-	for _, old := range e.state.Plans {
-		if old.ID == p.ID {
-			if old.Fingerprint == p.Fingerprint {
-				return old, nil
+	p.Fingerprint = fingerprint(p, inline)
+	e.mu.Lock()
+	candidate, definition, existing, err := e.checkSave(p, inline, now)
+	if err == nil && !existing && definition.Kind == "shell" && shellAvailable != nil {
+		// A Control handshake may wait on another process. Revalidate against
+		// the current ledger before committing the checked registration.
+		e.mu.Unlock()
+		available := shellAvailable()
+		e.mu.Lock()
+		var current Event
+		candidate, current, existing, err = e.checkSave(p, inline, now)
+		if err == nil && !existing {
+			switch {
+			case current != definition:
+				err = errors.New("observation changed during registration")
+			case !available:
+				err = ErrObservationUnavailable
 			}
-			return p, errors.New("arrangement id already bound; use a new id")
 		}
 	}
+	defer e.mu.Unlock()
+	if err != nil || existing {
+		return candidate, err
+	}
+	if inline != nil {
+		definition.Created = now
+		if definition.Kind == "shell" {
+			definition.When, definition.TimeZone = candidate.When, candidate.TimeZone
+		}
+		e.state.Events = append(e.state.Events, definition)
+	}
+	candidate.OriginRequests = slices.Clone(candidate.OriginRequests)
+	candidate.Created, candidate.Status = now, "active"
+	e.state.Plans = append(e.state.Plans, candidate)
+	return candidate, e.saveChanges()
+}
+
+func (e *Engine) checkSave(p Plan, inline *Event, now time.Time) (Plan, Event, bool, error) {
+	if err := e.prepareWrite(); err != nil {
+		return p, Event{}, false, err
+	}
+	if old := e.plan(p.ID); old != nil {
+		if old.Fingerprint == p.Fingerprint {
+			return *old, Event{}, true, nil
+		}
+		return p, Event{}, false, errors.New("arrangement id already bound; use a new id")
+	}
 	if e.activePlans() >= MaxActive || len(e.state.Plans) >= 1024 {
-		return p, errors.New("active arrangement limit reached")
+		return p, Event{}, false, errors.New("active arrangement limit reached")
 	}
 	v, exists := e.event(p.Event)
 	if inline != nil {
 		if exists {
-			return p, errors.New("observation id already bound; reference it or use a new id")
+			return p, Event{}, false, errors.New("observation id already bound; reference it or use a new id")
 		}
 		if len(e.state.Events) >= MaxActive {
-			return p, errors.New("observation definition limit reached")
+			return p, Event{}, false, errors.New("observation definition limit reached")
 		}
 		v = *inline
 	} else if !exists {
-		return p, errors.New("observation unavailable")
+		return p, Event{}, false, errors.New("observation unavailable")
 	}
 	if v.Kind == "shell" {
 		if p.When == "" {
@@ -311,32 +343,15 @@ func (e *Engine) Save(p Plan, inline *Event, now time.Time, shellAvailable func(
 			}
 		}
 		if strings.TrimSpace(p.When) == "" {
-			return p, errors.New("Shell observation requires a wake condition")
-		}
-		if shellAvailable != nil && !shellAvailable() {
-			return p, ErrObservationUnavailable
+			return p, Event{}, false, errors.New("Shell observation requires a wake condition")
 		}
 	}
 	p = normalizeCondition(p)
-	var err error
-	p, err = scheduleTimes(p, v, now)
-	if err != nil {
-		return p, err
+	p, err := scheduleTimes(p, v, now)
+	if err == nil {
+		err = validateCondition(p)
 	}
-	if err = validateCondition(p); err != nil {
-		return p, err
-	}
-	if inline != nil {
-		v.Created = now
-		if v.Kind == "shell" {
-			v.When, v.TimeZone = p.When, p.TimeZone
-		}
-		e.state.Events = append(e.state.Events, v)
-	}
-	p.OriginRequests = slices.Clone(p.OriginRequests)
-	p.Created, p.Status = now, "active"
-	e.state.Plans = append(e.state.Plans, p)
-	return p, e.saveChanges()
+	return p, v, false, err
 }
 
 func (e *Engine) activePlans() int {

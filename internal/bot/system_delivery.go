@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
@@ -212,6 +213,10 @@ func (r *Runtime) SubmitSystem(ctx context.Context, message api.SystemMessage) (
 }
 
 func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMessage) (api.Receipt, error) {
+	return r.submitSystemBeforeLocked(ctx, message, time.Time{})
+}
+
+func (r *Runtime) submitSystemBeforeLocked(ctx context.Context, message api.SystemMessage, deadline time.Time) (api.Receipt, error) {
 	rejected := api.Receipt{ID: message.ID, Outcome: "rejected"}
 	if !message.Valid() {
 		return rejected, errors.New("invalid system message")
@@ -257,7 +262,7 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 			return rejected, nil
 		}
 	}
-	if !r.engine.Snapshot().CanSend {
+	if !r.engine.Snapshot().CanSend || !deadline.IsZero() && !r.now().Before(deadline) {
 		return rejected, nil
 	}
 	native, ok := r.engine.(api.SystemDelivery)
@@ -268,10 +273,16 @@ func (r *Runtime) submitSystemLocked(ctx context.Context, message api.SystemMess
 	if err := d.record(message.ID, original); err != nil {
 		return rejected, err
 	}
-	// Do not hold the log lock during native I/O or snapshot callbacks.
-	d.mu.Unlock()
-	receipt, err := native.SubmitSystem(ctx, message)
-	d.mu.Lock()
+	var err error
+	if !deadline.IsZero() && !r.now().Before(deadline) {
+		// The intent is durable, but this process can prove no native call began.
+		receipt = rejected
+	} else {
+		// Do not hold the log lock during native I/O or snapshot callbacks.
+		d.mu.Unlock()
+		receipt, err = native.SubmitSystem(ctx, message)
+		d.mu.Lock()
+	}
 	// A native event can settle the original receipt while dispatch unwinds.
 	// Its terminal proof must survive a late transport-unknown return.
 	if settled := d.state.Records[message.ID]; settled.Outcome != "unknown" {

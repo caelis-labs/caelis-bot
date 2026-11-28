@@ -35,7 +35,7 @@ func (o *NotebookObserver) connect(ctx context.Context) (*client, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	unavailable := notebookObservationFailure("managed local Core does not offer Shell observation")
-	if !filepath.IsAbs(o.directory) {
+	if ctx.Err() != nil || !filepath.IsAbs(o.directory) {
 		return nil, unavailable
 	}
 	d, token, err := Discover(o.settings)
@@ -70,6 +70,9 @@ func (o *NotebookObserver) ObserveShell(ctx context.Context, command string) (js
 		return nil, err
 	}
 	defer c.http.CloseIdleConnections()
+	if ctx.Err() != nil {
+		return nil, notebookObservationFailure("Shell observation ended before execution")
+	}
 
 	req := wire.ShellRequest{Workspace: o.directory, Command: command}
 	result := wire.ShellResult{ExitCode: -1}

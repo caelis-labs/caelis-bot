@@ -82,7 +82,22 @@ func (e *Engine) Tick(ctx context.Context, now time.Time, d Delivery) error {
 		if err := e.persistAs(writeIntent); err != nil {
 			return err
 		}
-		outcome, err := d.Submit(ctx, Wake{ID: o.ID, Text: WakeText(v, *p, *o), Plan: p.ID, Grant: p.Authorization(), OriginRequests: slices.Clone(p.OriginRequests)})
+		deadline := clockWakeDeadline(*p, v)
+		if !deadline.IsZero() {
+			if d.Now != nil {
+				now = d.Now()
+			}
+			if !now.Before(deadline) {
+				// This process still owns the intent and has not submitted it.
+				o.Status, o.Finished = "expired", now
+				e.cleanup(now)
+				return e.persistAs(writeObservation)
+			}
+		}
+		outcome, err := d.Submit(ctx, Wake{ID: o.ID, Text: WakeText(v, *p, *o), Plan: p.ID, Grant: p.Authorization(), Deadline: deadline, OriginRequests: slices.Clone(p.OriginRequests)})
+		if !deadline.IsZero() && d.Now != nil {
+			now = d.Now()
+		}
 		e.settleWake(o, outcome, now)
 		e.cleanup(now)
 		saveErr := e.persistAs(writeObservation)
@@ -161,6 +176,27 @@ func (e *Engine) startCollection(ctx context.Context, plan *Plan, event Event, n
 		e.signal()
 	}()
 	return nil
+}
+
+// A committed removal cancels only its own observation. A POST already admitted
+// by Core may still have an unknown result, which the occurrence retains.
+func (e *Engine) cancelRemovedCollection() {
+	if e.running == "" {
+		return
+	}
+	for _, o := range e.state.Occurrences {
+		if o.ID == e.running && e.plan(o.Plan).Status == "cancelled" {
+			e.cancel()
+			return
+		}
+	}
+}
+
+func clockWakeDeadline(p Plan, v Event) time.Time {
+	if p.Until != "" && v.Kind == "wake" {
+		return p.Expires
+	}
+	return time.Time{}
 }
 
 func (e *Engine) duePlan(now time.Time) (*Plan, Event) {
@@ -282,6 +318,21 @@ func (e *Engine) eventInUse(id string) bool {
 func (e *Engine) cleanup(now time.Time) bool {
 	events, plans, occurrences := len(e.state.Events), len(e.state.Plans), len(e.state.Occurrences)
 	changed := false
+	for i := range e.state.Occurrences {
+		o := &e.state.Occurrences[i]
+		if o.Status != "pending" {
+			continue
+		}
+		p := e.plan(o.Plan)
+		if p == nil {
+			continue
+		}
+		v, _ := e.event(p.Event)
+		if deadline := clockWakeDeadline(*p, v); !deadline.IsZero() && !now.Before(deadline) {
+			o.Status, o.Finished = "expired", now
+			changed = true
+		}
+	}
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
 		if p.Finished.IsZero() && !p.Expires.IsZero() && !now.Before(p.Expires) && !e.pending(p.ID) {
@@ -298,13 +349,15 @@ func (e *Engine) cleanup(now time.Time) bool {
 		return o.Status == "filtered" || o.Status == "failed" && o.Issue != "wake_rejected"
 	})
 	trimHistory(&e.state.Occurrences, now, func(o Occurrence) time.Time { return o.Finished })
-	trimHistory(&e.state.Plans, now, func(p Plan) time.Time {
-		if p.GrantID != "" || slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == p.ID }) {
-			return time.Time{}
-		}
-		return p.Finished
-	})
+	trimHistory(&e.state.Plans, now, e.planRetentionStart)
 	return changed || events != len(e.state.Events) || plans != len(e.state.Plans) || occurrences != len(e.state.Occurrences)
+}
+
+func (e *Engine) planRetentionStart(p Plan) time.Time {
+	if p.GrantID != "" || slices.ContainsFunc(e.state.Occurrences, func(o Occurrence) bool { return o.Plan == p.ID }) {
+		return time.Time{}
+	}
+	return p.Finished
 }
 
 func trimHistory[T any](items *[]T, now time.Time, finished func(T) time.Time) {
@@ -333,16 +386,10 @@ func (e *Engine) retireGrant(now time.Time, revoke func(string) error) bool {
 	}
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
-		if p.GrantID == "" || p.Finished.IsZero() || e.pending(p.ID) {
+		if !e.grantRetirable(*p) {
 			continue
 		}
 		id := p.GrantID
-		shared := slices.ContainsFunc(e.state.Plans, func(other Plan) bool {
-			return other.GrantID == id && (other.Finished.IsZero() || e.pending(other.ID))
-		})
-		if shared {
-			continue
-		}
 		e.lastRevoke = now
 		if revoke != nil && revoke(id) != nil {
 			return false
@@ -355,6 +402,15 @@ func (e *Engine) retireGrant(now time.Time, revoke func(string) error) bool {
 		return true
 	}
 	return false
+}
+
+func (e *Engine) grantRetirable(p Plan) bool {
+	if p.GrantID == "" || p.Finished.IsZero() || e.pending(p.ID) {
+		return false
+	}
+	return !slices.ContainsFunc(e.state.Plans, func(other Plan) bool {
+		return other.GrantID == p.GrantID && (other.Finished.IsZero() || e.pending(other.ID))
+	})
 }
 
 func (e *Engine) observationUnresolved(id string) bool {

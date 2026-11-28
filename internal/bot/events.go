@@ -183,6 +183,7 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 		}
 	}
 	return r.events.Tick(ctx, r.now(), eventplan.Delivery{
+		Now:   r.now,
 		Ready: func() bool { return r.engine.Snapshot().CanSend },
 		Revoke: func(id string) error {
 			if b, ok := r.engine.(api.BackgroundGrantRevoker); ok {
@@ -191,7 +192,7 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 			return nil
 		},
 		Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
-			receipt, err := r.submitSystemLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}})
+			receipt, err := r.submitSystemBeforeLocked(ctx, api.SystemMessage{ID: wake.ID, Text: wake.Text, Source: api.SystemCallback, OriginRequests: wake.OriginRequests, Grants: []string{wake.Grant}}, wake.Deadline)
 			if receipt.ID != wake.ID {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}

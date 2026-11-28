@@ -68,10 +68,12 @@ type Runner func(context.Context, Event) (json.RawMessage, error)
 
 type Wake struct {
 	ID, Text, Plan, Grant string
+	Deadline              time.Time
 	OriginRequests        []string
 }
 
 type Delivery struct {
+	Now     func() time.Time // refresh the clock at wake admission
 	Revoke  func(string) error
 	Ready   func() bool
 	Submit  func(context.Context, Wake) (string, error)
