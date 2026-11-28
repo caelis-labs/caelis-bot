@@ -135,24 +135,21 @@ async function scenario(mode) {
     'requires_openai_auth = false', 'request_max_retries = 0', 'stream_max_retries = 0', 'supports_websockets = false',
   ].join('\n'), { mode: 0o600 });
   const ledger = join(directory, 'events-codex.json');
-  const expires = Date.now() + 15000;
-  const attempt = new Date(expires - 86400000).toISOString();
+  const due = Date.now() + 15000;
   const created = new Date().toISOString();
-  const due = expires + 8000;
-  await writeJSON(ledger, {
-    version: 1, policy: { maximumInterruptionsPer24Hours: 8, minimumGapSeconds: 300 },
-    migration: { version: 1, digest: 'absent', completed: new Date().toISOString() },
-    wakeAttempts: [attempt], occurrences: [],
-    events: mode !== 'fault' ? [] : [{
-      id: recoveryPlan, label: 'Isolated recovery wake', context: recoveryPlan, kind: 'wake',
-      outputSchema: { type: 'object' }, created, lastUsed: created,
-    }],
-    plans: mode !== 'fault' ? [] : [{
+  const migration = { version: 1, digest: 'absent', completed: created };
+  const originalLedger = mode === 'fault' ? {
+    version: 2, migration, occurrences: [],
+    events: [{ id: recoveryPlan, label: 'Isolated recovery wake', context: recoveryPlan, kind: 'wake', created }],
+    plans: [{
       id: recoveryPlan, event: recoveryPlan, kind: 'after', seconds: 1, when: 'true', timeZone: 'UTC',
-      cooldownSeconds: 60, created, next: new Date(due).toISOString(), expires: new Date(due + 3600000).toISOString(),
-      status: 'active',
+      created, next: new Date(due).toISOString(), expires: new Date(due + 3600000).toISOString(), status: 'active',
     }],
-  });
+  } : {
+    version: 1, migration, policy: { maximumInterruptionsPer24Hours: 1, minimumGapSeconds: 300 },
+    wakeAttempts: [created], events: [], plans: [], occurrences: [],
+  };
+  await writeJSON(ledger, originalLedger);
   const original = await stat(ledger);
   const child = spawn(bot, ['serve', '--data-dir', directory, '--listen', '127.0.0.1:0'], {
     cwd: directory, env: isolatedEnv(home, profile),
@@ -192,18 +189,19 @@ async function scenario(mode) {
       .trimEnd().split('\n').map(line => JSON.parse(line));
     let fault;
     if (mode === 'fault') {
-      assert.ok(Date.now() < expires, 'inject before the original cleanup deadline');
+      assert.ok(Date.now() < due, 'inject before the original arrangement is due');
       await rename(ledger, ledger + '.saved');
       await mkdir(ledger, { mode: 0o700 });
       fault = await until('real scheduler first write fault', async () =>
         (await logs()).find(record => record.component === 'eventplan' && record.code === 'storage_write_failed'));
       assert.equal(fault.phase, 'rename');
       assert.match(fault.reason, /kind=filesystem.*os_code=[1-9]\d*.*outcome=failed/);
-      assert.deepEqual((await readJSON(ledger + '.saved')).wakeAttempts, [attempt]);
+      assert.deepEqual(await readJSON(ledger + '.saved'), originalLedger);
     } else {
-      await until('real scheduled cleanup', async () => !(await readJSON(ledger)).wakeAttempts);
+      await until('legacy ledger upgraded', async () => (await readJSON(ledger)).version === 2);
+      assert.equal((await readJSON(ledger)).wakeAttempts, undefined, 'the obsolete budget must leave the ledger');
       const cleaned = await stat(ledger);
-      assert.notEqual(cleaned.ino, original.ino, 'cleanup should atomically replace the document');
+      assert.notEqual(cleaned.ino, original.ino, 'upgrade should atomically replace the document');
       await delay(2100);
       const idle = await stat(ledger);
       assert.equal(idle.ino, cleaned.ino);
@@ -238,7 +236,7 @@ async function scenario(mode) {
     const histories = join(profile, 'sessions');
     const workerHistory = await nativeHistory(histories, binding.worker.thread);
     assert.ok(workerHistory.some(row => row.payload.type === 'task_complete' && row.payload.turn_id === binding.worker.run));
-    let recovered;
+    let recovered, callbackTurn;
     if (fault) {
       assert.ok((await stat(ledger)).isDirectory(), 'Worker report arrived while Event writes were obstructed');
       assert.equal(calls.filter(call => call.role === 'recovery').length, 0);
@@ -246,10 +244,22 @@ async function scenario(mode) {
       await rename(ledger + '.saved', ledger);
       recovered = await until('existing Event plan settled after storage recovered', async () =>
         (await readJSON(ledger)).occurrences.find(o => o.plan === recoveryPlan && o.status === 'completed'));
-      assert.equal((await readJSON(ledger)).wakeAttempts.length, 1, 'only the recovered wake uses budget');
-      const record = (await readJSON(join(directory, 'system-deliveries.json'))).records[recovered.id];
-      assert.equal(record?.source, 'callback');
-      assert.equal(record?.outcome, 'accepted');
+      const settled = await readJSON(ledger);
+      assert.deepEqual(settled.occurrences.map(o => o.id), [recovered.id]);
+      assert.equal(settled.plans.find(p => p.id === recoveryPlan)?.status, 'completed');
+      assert.ok(!settled.events?.some(event => event.id === recoveryPlan), 'settled inline event must be released');
+      await until('original callback receipt compacted', async () => {
+        const { records } = await readJSON(join(directory, 'system-deliveries.json'));
+        assert.equal(records[task.reportId]?.outcome, 'accepted', 'Worker report receipt survived callback cleanup');
+        return records[recovered.id] === undefined;
+      });
+      callbackTurn = await until('original native callback completed', async () => {
+        const native = await readJSON(join(directory, 'conversation.json'));
+        const turn = native.scheduled?.[recovered.id];
+        if (!turn) return;
+        const history = await nativeHistory(histories, binding.resident);
+        if (history.some(row => row.payload.type === 'task_complete' && row.payload.turn_id === turn)) return turn;
+      });
     }
     await delay(2100);
     const residentHistory = await nativeHistory(histories, binding.resident);
@@ -264,6 +274,7 @@ async function scenario(mode) {
       }
       if (recovered && row.type === 'response_item' && p.type === 'message' && p.role === 'user' &&
           JSON.stringify(p.content).includes('Bot system event: callback') && JSON.stringify(p.content).includes(recovered.id)) {
+        assert.equal(turn, callbackTurn);
         recoveryReceives++;
       }
     }
@@ -279,7 +290,7 @@ async function scenario(mode) {
     return { task: id, execution: task.execution, workerThread: binding.worker.thread, workerTurn: binding.worker.run,
       report: task.reportId, residentThread: binding.resident, residentTurn: binding.notice.turn, nativeReceives, modelReceives: 1,
       receipt: durable.outcome, ...(fault && { fault: { phase: fault.phase, reason: fault.reason } }),
-      ...(recovered && { recovered: { occurrence: recovered.id, nativeReceives: recoveryReceives, status: recovered.status } }) };
+      ...(recovered && { recovered: { occurrence: recovered.id, nativeTurn: callbackTurn, nativeReceives: recoveryReceives, status: recovered.status } }) };
   } catch (error) {
     evidence.failure = { mode, cause: error.message, detail: error.cause?.message, calls, stderr };
     await writeJSON(evidencePath, evidence);
