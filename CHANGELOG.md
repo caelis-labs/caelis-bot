@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.26.0](https://github.com/caelis-labs/caelis-bot/compare/v0.25.0...v0.26.0) (2026-11-28)
+
+
+### Features
+
+* **chat:** add interactive A2UI cards and responsive chat layout ([#321](https://github.com/caelis-labs/caelis-bot/issues/321)) ([0d86e5c](https://github.com/caelis-labs/caelis-bot/commit/0d86e5cdda1e3d26f1af4badcb4e80f946caabd8))
+
+
+### Bug Fixes
+
+* bundle Caelis v0.88.0 ([#323](https://github.com/caelis-labs/caelis-bot/issues/323)) ([fe34072](https://github.com/caelis-labs/caelis-bot/commit/fe340729c9c8ff52371192ff6f535ca4deb15fa8))
+* bundle Caelis v0.89.0 ([#325](https://github.com/caelis-labs/caelis-bot/issues/325)) ([c18b645](https://github.com/caelis-labs/caelis-bot/commit/c18b6453863c603de383520d62de3d77ae8eb663))
+* bundle Caelis v0.89.1 ([#327](https://github.com/caelis-labs/caelis-bot/issues/327)) ([5f0ebc5](https://github.com/caelis-labs/caelis-bot/commit/5f0ebc5a36167c8d49151547e00e9ea8f10be92b))
+
 ## [0.25.0](https://github.com/caelis-labs/caelis-bot/compare/v0.24.0...v0.25.0) (2026-11-26)
 
 
