@@ -29,7 +29,7 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - name: Validate CI routing and release metadata rules
         run: |
-          node --test script/ci-scope.test.mjs script/release-version.test.mjs
+          node --test script/ci-scope.test.mjs script/release-version.test.mjs script/caelis-runtime-pin.test.mjs
           node script/check-public-tree.mjs
       - name: Select checks from changed content
         id: scope

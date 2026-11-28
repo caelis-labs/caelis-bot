@@ -13,6 +13,23 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
+def release_members(archive, binary_name):
+    with tarfile.open(archive) as tar:
+        extracted = {}
+        for name in [binary_name, 'LICENSE']:
+            matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
+            if len(matches) != 1 or not matches[0].isfile():
+                raise ValueError('Invalid Caelis release member: ' + name)
+            extracted[name] = tar.extractfile(matches[0]).read()
+        return extracted
+
+
+def inspect_pin_archive(archive, binary_name, archive_sha256):
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != archive_sha256:
+        raise ValueError('Caelis archive checksum mismatch')
+    return hashlib.sha256(release_members(archive, binary_name)[binary_name]).hexdigest()
+
+
 def stage(bundle):
     manifest = json.loads((ROOT / 'resources/caelis-runtime/release.json').read_text())
     target = manifest['targets']['darwin-arm64']
@@ -31,13 +48,8 @@ def stage(bundle):
         raise ValueError('Cached Caelis archive checksum mismatch; remove the damaged cache file')
     with tempfile.TemporaryDirectory(dir=cache) as temporary:
         binary = pathlib.Path(temporary) / 'caelis'
-        with tarfile.open(archive) as tar:
-            # Extract only two fixed regular members; no links or archive paths.
-            for name in ['caelis', 'LICENSE']:
-                matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
-                if len(matches) != 1 or not matches[0].isfile():
-                    raise ValueError('Invalid Caelis release member: ' + name)
-                (pathlib.Path(temporary) / name).write_bytes(tar.extractfile(matches[0]).read())
+        for name, contents in release_members(archive, 'caelis').items():
+            (pathlib.Path(temporary) / name).write_bytes(contents)
         binary.chmod(0o755)
         subprocess.run(['codesign', '--verify', '--strict', '--test-requirement',
                         '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "' + manifest['team'] + '" and identifier "caelis"', str(binary)], check=True)
@@ -98,12 +110,8 @@ def stage_windows(bundle):
         raise ValueError('Cached Caelis archive checksum mismatch')
     with tempfile.TemporaryDirectory(dir=cache) as directory:
         temporary = pathlib.Path(directory)
-        with tarfile.open(archive) as tar:
-            for name in ['caelis.exe', 'LICENSE']:
-                matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
-                if len(matches) != 1 or not matches[0].isfile():
-                    raise ValueError('Invalid Caelis release member: ' + name)
-                (temporary / name).write_bytes(tar.extractfile(matches[0]).read())
+        for name, contents in release_members(archive, 'caelis.exe').items():
+            (temporary / name).write_bytes(contents)
         binary = temporary / 'caelis.exe'
         if hashlib.sha256(binary.read_bytes()).hexdigest() != target['binary_sha256']:
             raise ValueError('Caelis executable checksum mismatch')
@@ -149,13 +157,7 @@ def stage_headless(bundle, target_name):
             downloaded.replace(archive)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != target['sha256']:
         raise ValueError('Cached Caelis archive checksum mismatch')
-    with tarfile.open(archive) as tar:
-        members = {}
-        for name in ['caelis', 'LICENSE']:
-            matches = [m for m in tar.getmembers() if m.name in (name, './' + name)]
-            if len(matches) != 1 or not matches[0].isfile():
-                raise ValueError('Invalid Caelis release member: ' + name)
-            members[name] = tar.extractfile(matches[0]).read()
+    members = release_members(archive, 'caelis')
     binary = members['caelis']
     if hashlib.sha256(binary).hexdigest() != target['binary_sha256']:
         raise ValueError('Caelis executable checksum mismatch')
@@ -177,7 +179,9 @@ def stage_headless(bundle, target_name):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'stage-headless':
+    if sys.argv[1] == 'inspect-pin-archive':
+        print(inspect_pin_archive(pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4]))
+    elif sys.argv[1] == 'stage-headless':
         stage_headless(pathlib.Path(sys.argv[2]), sys.argv[3])
     else:
         {'stage': stage, 'verify': verify, 'stage-windows': stage_windows, 'verify-windows': verify_windows}[sys.argv[1]](pathlib.Path(sys.argv[2]))
