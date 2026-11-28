@@ -82,12 +82,21 @@ func WithSystemDispatchDeadline(ctx context.Context, deadline time.Time, now fun
 	if deadline.IsZero() {
 		return ctx
 	}
-	return context.WithValue(ctx, systemDispatchDeadlineKey{}, func() bool { return !now().Before(deadline) })
+	return context.WithValue(ctx, systemDispatchDeadlineKey{}, func() time.Duration { return deadline.Sub(now()) })
 }
 
 func SystemDispatchExpired(ctx context.Context) bool {
-	expired, ok := ctx.Value(systemDispatchDeadlineKey{}).(func() bool)
-	return ok && expired()
+	left, ok := SystemDispatchTimeLeft(ctx)
+	return ok && left <= 0
+}
+
+// SystemDispatchTimeLeft bounds waiting for transport admission.
+func SystemDispatchTimeLeft(ctx context.Context) (time.Duration, bool) {
+	remaining, ok := ctx.Value(systemDispatchDeadlineKey{}).(func() time.Duration)
+	if !ok {
+		return 0, false
+	}
+	return remaining(), true
 }
 
 // BusinessWake classifies known resident work for observation only. Unknown

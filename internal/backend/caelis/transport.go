@@ -12,8 +12,10 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -89,14 +91,70 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	if revision != "" {
 		req.Header.Set("If-Match", `"`+revision+`"`)
 	}
-	if method == http.MethodPost && strings.HasSuffix(path, "/prompt") && api.SystemDispatchExpired(ctx) {
-		return nil, api.ErrSystemDispatchExpired
+	do := c.http.Do
+	if method == http.MethodPost && strings.HasSuffix(path, "/prompt") {
+		do = c.doPrompt
 	}
-	res, e := c.http.Do(req)
+	res, e := do(req)
+	if e == api.ErrSystemDispatchExpired {
+		return nil, e
+	}
 	if e != nil {
 		return nil, errors.New("Caelis 连接中断，操作结果需要核对")
 	}
 	return res, nil
+}
+
+func (c *client) doPrompt(req *http.Request) (*http.Response, error) {
+	parent := req.Context()
+	left, guarded := api.SystemDispatchTimeLeft(parent)
+	if !guarded {
+		return c.http.Do(req)
+	}
+	if left <= 0 {
+		return nil, api.ErrSystemDispatchExpired
+	}
+	// Prompt requests use jsonTimeout, whose parent stays live through the
+	// response body. Only cancel this child while no connection has been admitted.
+	ctx, cancel := context.WithCancel(parent)
+	var mu sync.Mutex
+	var admitted, expired bool
+	timer := time.AfterFunc(left, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !admitted && api.SystemDispatchExpired(parent) {
+			expired = true
+			cancel()
+		}
+	})
+	defer timer.Stop()
+	trace := &httptrace.ClientTrace{GotConn: func(conn httptrace.GotConnInfo) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !admitted && (expired || api.SystemDispatchExpired(parent)) {
+			expired = true
+			cancel()
+			// Control uses loopback HTTP/1. The exclusive connection has
+			// just been assigned, and its request write has not been queued.
+			// Close it here because cancellation alone can race the writer.
+			_ = conn.Conn.Close()
+			return
+		}
+		admitted = true
+		timer.Stop()
+	}}
+	res, err := c.http.Do(req.WithContext(httptrace.WithClientTrace(ctx, trace)))
+	if err != nil {
+		timer.Stop()
+		mu.Lock()
+		wasExpired := expired
+		mu.Unlock()
+		cancel()
+		if wasExpired {
+			return nil, api.ErrSystemDispatchExpired
+		}
+	}
+	return res, err
 }
 func (c *client) json(ctx context.Context, method, path string, body, out any, op, rev string) error {
 	return c.jsonTimeout(ctx, method, path, body, out, op, rev, 30*time.Second)
