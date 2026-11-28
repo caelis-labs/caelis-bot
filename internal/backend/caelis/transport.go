@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/wirejson"
 )
@@ -87,6 +88,9 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	}
 	if revision != "" {
 		req.Header.Set("If-Match", `"`+revision+`"`)
+	}
+	if method == http.MethodPost && strings.HasSuffix(path, "/prompt") && api.SystemDispatchExpired(ctx) {
+		return nil, api.ErrSystemDispatchExpired
 	}
 	res, e := c.http.Do(req)
 	if e != nil {

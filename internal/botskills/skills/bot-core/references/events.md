@@ -8,9 +8,8 @@ only when retrying the same registration. Keep the returned handle and timing.
 ```
 
 Use `after` with seconds or `at` with an offset-bearing RFC3339 timestamp for
-a one-shot clock. A clock `interval` in seconds repeats. If the user sets an
-`until` deadline for a clock wake, it expires while waiting for the Bot to
-become ready. See
+a one-shot clock. A clock `interval` in seconds repeats. The Runtime must
+submit a clock wake before its explicit `until` deadline. See
 [Reminders](reminders.md) for recurring local times and permitted weekdays.
 
 ## Watch a condition

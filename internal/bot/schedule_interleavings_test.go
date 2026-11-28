@@ -217,3 +217,61 @@ func TestClockDeadlineRecheckedAfterSystemDeliveryIntent(t *testing.T) {
 		t.Fatal("expired native submission left a delivery effect or fence", receipt, err)
 	}
 }
+
+type preparedClockFixture struct {
+	*fakeEngine
+	entered, release chan struct{}
+}
+
+func (f preparedClockFixture) SubmitSystem(ctx context.Context, msg api.SystemMessage) (api.Receipt, error) {
+	close(f.entered)
+	<-f.release
+	if api.SystemDispatchExpired(ctx) {
+		return api.Receipt{ID: msg.ID, Outcome: "rejected", Deferred: true}, api.ErrSystemDispatchExpired
+	}
+	return f.fakeEngine.SubmitSystem(ctx, msg)
+}
+
+func TestClockDeadlinePropagatesToNativeAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		wakes        int
+	}{
+		{"before-deadline", "completed", 1},
+		{"expires-during-preparation", "expired", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, engine, now := scheduleFixture(t, nil)
+			prepared := preparedClockFixture{engine, make(chan struct{}), make(chan struct{})}
+			r.engine = prepared
+			deadline := now.Add(2 * time.Second)
+			args := fmt.Sprintf(`{"request":{"type":"after","id":"clock","seconds":1,"until":%q}}`, deadline.Format(time.RFC3339))
+			invokeCompact(t, r, "bot_schedule_update", args)
+			*now = now.Add(time.Second)
+			var once sync.Once
+			defer once.Do(func() { close(prepared.release) })
+			ticked := make(chan error, 1)
+			go func() { ticked <- r.Tick(t.Context()) }()
+			waitScheduleBarrier(t, prepared.entered)
+			if tc.wakes == 0 {
+				*now = deadline
+			}
+			once.Do(func() { close(prepared.release) })
+			select {
+			case err := <-ticked:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("native admission did not settle")
+			}
+			*now = deadline.Add(time.Second)
+			scheduleTick(t, r)
+			s := r.events.Snapshot()
+			if len(s.Occurrences) != 1 || s.Occurrences[0].Status != tc.status || len(engine.submissions) != tc.wakes ||
+				len(s.Plans) != 1 || s.Plans[0].Status != tc.status || len(s.Events) != 0 || len(r.deliveries.state.Records) != 0 {
+				t.Fatal("clock did not settle as one original occurrence", s, engine.submissions)
+			}
+		})
+	}
+}

@@ -280,7 +280,7 @@ func (r *Runtime) submitSystemBeforeLocked(ctx context.Context, message api.Syst
 	} else {
 		// Do not hold the log lock during native I/O or snapshot callbacks.
 		d.mu.Unlock()
-		receipt, err = native.SubmitSystem(ctx, message)
+		receipt, err = native.SubmitSystem(api.WithSystemDispatchDeadline(ctx, deadline, r.now), message)
 		d.mu.Lock()
 	}
 	// A native event can settle the original receipt while dispatch unwinds.

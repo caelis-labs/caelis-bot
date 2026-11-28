@@ -339,10 +339,12 @@ untrusted result. If Control loses an execution result the original sample
 stays unresolved, and that observation is suspended. The scheduler records the
 occurrence before submitting, then checks only its original Runtime receipt.
 A busy admission leaves the same occurrence pending. A clock wake with an
-explicit deadline expires before submission, including after a busy delay.
-An in-flight wake retains its original receipt. Committed cancellation stops
-the observation request and prevents results from waking the resident.
-Acceptance consumes a one-shot arrangement immediately. A clock interval schedules later occurrences.
+explicit deadline expires before submission. Caelis checks the deadline before
+the Control prompt request, and Codex checks it after acquiring its native
+writer. An in-flight wake retains its original receipt. Committed cancellation
+stops the observation request and prevents results from waking the resident.
+Acceptance consumes a one-shot arrangement immediately. A clock interval
+schedules later occurrences.
 Shell intervals govern sampling cadence. A definition survives if another
 arrangement still references it or registration explicitly chose retention.
 Settled occurrence and registration deduplication records have bounded

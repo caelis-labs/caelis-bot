@@ -126,6 +126,11 @@ func (e *Engine) settleWake(o *Occurrence, outcome string, now time.Time) {
 		if p.Next.Before(now.Add(sampleRetry)) {
 			p.Next = now.Add(sampleRetry)
 		}
+	case "expired":
+		o.Status, o.Finished = "expired", now
+		if p.Finished.IsZero() {
+			p.Status, p.Finished = "expired", now
+		}
 	case "deferred":
 		// The same occurrence remains pending after a proved busy race.
 		o.Status = "pending"

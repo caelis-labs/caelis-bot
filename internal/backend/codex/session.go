@@ -1136,6 +1136,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 			return r, nil
 		}
 	}
+	if api.SystemDispatchExpired(ctx) {
+		return r, api.ErrSystemDispatchExpired
+	}
 	input, err := s.prepareInput(in, files, refs)
 	if err != nil {
 		r.Message = err.Error()
@@ -1154,6 +1157,10 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		r.Message = "上下文暂不可用，消息未发送"
 		return r, nil
 	}
+	wasUnsubmitted := s.binding.Unsubmitted
+	wasReport := s.binding.HostReports[in.ID]
+	_, wasScheduled := s.binding.Scheduled[in.ID]
+	priorOrigins := s.binding.ScheduledOrigins[in.ID]
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run, SystemSource: in.SystemSource}
 	if report {
@@ -1217,6 +1224,44 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	err = s.startWithCapacityRetry(ctx, c, method, params, &response, threadID, in.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if errors.Is(err, api.ErrSystemDispatchExpired) && !(s.state.LastReceipt.ID == in.ID && s.state.LastReceipt.Outcome == "accepted") {
+		// The writer stopped before its first frame. Only a durable rollback
+		// lets the resident clear its original delivery intent.
+		prior := s.binding
+		s.binding.Pending = nil
+		s.binding.Unsubmitted = wasUnsubmitted
+		s.binding.Context.Resolve(in.ID, "rejected")
+		s.binding.ContextInputs = maps.Clone(prior.ContextInputs)
+		delete(s.binding.ContextInputs, in.ID)
+		if !wasReport {
+			s.binding.HostReports = maps.Clone(prior.HostReports)
+			delete(s.binding.HostReports, in.ID)
+		}
+		if !wasScheduled {
+			s.binding.Scheduled = maps.Clone(prior.Scheduled)
+			delete(s.binding.Scheduled, in.ID)
+		}
+		if len(in.OriginRequests) != 0 {
+			s.binding.ScheduledOrigins = maps.Clone(prior.ScheduledOrigins)
+			if priorOrigins == nil {
+				delete(s.binding.ScheduledOrigins, in.ID)
+			} else {
+				s.binding.ScheduledOrigins[in.ID] = priorOrigins
+			}
+		}
+		if save := s.save(); save != nil {
+			s.binding = prior
+			s.state.Phase = "unknown"
+			s.update()
+			return api.Receipt{ID: in.ID, Outcome: "unknown"}, save
+		}
+		if s.state.Phase == "sending" {
+			s.state.Phase = "idle"
+		}
+		s.update()
+		r.Deferred = true
+		return r, api.ErrSystemDispatchExpired
+	}
 	if err == nil {
 		if run != "" && response.TurnID != run {
 			err = ErrProtocol

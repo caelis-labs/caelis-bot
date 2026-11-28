@@ -197,6 +197,9 @@ func (r *Runtime) tickEvents(ctx context.Context) error {
 				return "unknown", errors.New("wake receipt identity mismatch")
 			}
 			if receipt.Outcome == "rejected" && receipt.Deferred {
+				if errors.Is(err, api.ErrSystemDispatchExpired) {
+					return "expired", nil
+				}
 				return "deferred", err
 			}
 			return receipt.Outcome, err
