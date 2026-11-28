@@ -213,7 +213,8 @@ func waitFixedDTW(t *testing.T, ctx context.Context, c *client, sid string) wire
 		}
 		fixed := 0
 		for _, p := range d.Plugins {
-			if value(p.Id) == "desktop-world" && value(p.Version) == "0.5.0" && p.Status == "builtin" {
+			// Core reports a built-in package as assembled and owns its version.
+			if value(p.Id) == "desktop-world" && value(p.Version) != "" && p.Status == "assembled" {
 				fixed++
 			}
 		}
