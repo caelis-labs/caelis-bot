@@ -1,0 +1,52 @@
+name: Caelis runtime pin
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Verify the candidate without publishing a PR
+        type: boolean
+        default: true
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: caelis-runtime-pin-main
+  cancel-in-progress: false
+jobs:
+  pin:
+    if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Check public Core release and prepare the pin
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node script/caelis-runtime-pin.mjs prepare
+      - name: Create repository-scoped PR token
+        if: steps.prepare.outputs.ready == 'true' && !inputs.dry_run
+        id: app
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: caelis-bot
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Publish ordinary pin PR
+        if: steps.app.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PIN_APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: node script/caelis-runtime-pin.mjs publish

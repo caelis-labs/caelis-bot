@@ -34,9 +34,41 @@ prerequisite; platform artifact checks and all macOS security gates remain manda
 
 Exact-tag build jobs use pinned toolchains/actions, read-only permissions and no signing credentials.
 PR CI has no Apple/App secrets. Apple credentials stay in main-only `macos-release`; Windows/Linux update
-keys stay in main-only `windows-release`/`linux-release`. Only publication gets ephemeral Contents write.
+keys stay in main-only `windows-release`/`linux-release`. Within tag workflows, only publication jobs get
+ephemeral Contents write.
 Release-please mints a scoped token with `RELEASE_APP_ID`/`RELEASE_APP_PRIVATE_KEY`; asset PR automation
 has its own configured copy. No private modeling credentials enter public builds.
+
+## Bundled Caelis pin
+
+The [Caelis runtime pin workflow](../.github/workflows/caelis-runtime-pin.yml) checks GitHub Latest
+daily and accepts a published stable tag newer than Bot's pin. It waits when the latest release is
+missing a bundled target, the checksum file or an uploaded asset digest. It verifies the four
+archives Bot bundles against both the published checksums and GitHub asset digests, then updates
+the runtime manifest and the public Control contract from the exact tag commit. The protocol
+checker runs before a PR is opened. The preparation step reads archive members without running
+the downloaded executables. Platform package checks still apply when building Bot.
+
+An open PR targeting `main` that already changes the pin or its contract takes precedence,
+including drafts. Otherwise the workflow keeps one ordinary PR on
+`automation/caelis-runtime-pin`. It preserves the branch history and repeats a successful run
+without another commit or PR when the pin and base are current. If the base moves before the
+write, the next run prepares against the new base. Product fixes needed for compatibility still
+go through review and the normal `product` check.
+
+Dispatch the workflow on `main` with its default dry run to check the candidate without a remote
+write. The write path uses the existing `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`. The App
+must be installed on `caelis-bot` with Contents and Pull requests write access, and repository
+policy must allow it to push the automation branch and open PRs. The scoped App token lets the
+ordinary `pull_request` workflow run on open and synchronize. GitHub's built-in workflow token
+can require human approval of those runs. If the App is unavailable, the write step fails and a
+maintainer can prepare the pin in a clean worktree for a manual PR. The pin workflow never merges
+PRs or creates tags or releases.
+
+```sh
+node script/caelis-runtime-pin.mjs candidate
+node script/check-caelis-protocol.mjs
+```
 
 ## macOS
 

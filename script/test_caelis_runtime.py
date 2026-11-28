@@ -48,6 +48,14 @@ class ReleaseGuards(unittest.TestCase):
         path.write_text(json.dumps(self.manifest))
         return archive
 
+    def test_inspect_pin_reports_binary_digest_and_checks_archive(self):
+        archive = self.archive()
+        expected = self.manifest['targets']['darwin-arm64']['sha256']
+        self.assertEqual(runtime.inspect_pin_archive(archive, 'caelis', expected),
+                         hashlib.sha256(b'fixture').hexdigest())
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            runtime.inspect_pin_archive(archive, 'caelis', '0' * 64)
+
     def test_corrupt_cache_is_rejected_before_execution(self):
         self.archive().write_bytes(b'corrupt')
         with patch.object(runtime.subprocess, 'run') as run:
