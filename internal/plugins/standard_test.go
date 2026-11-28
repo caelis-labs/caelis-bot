@@ -131,8 +131,11 @@ func TestDisabledStdioGenerationStopsExistingProcess(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if body, err := os.ReadFile(pidPath); err == nil {
+			// The shell creates the file before printf publishes its PID.
 			pid, _ = strconv.Atoi(strings.TrimSpace(string(body)))
-			break
+			if pid > 0 {
+				break
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

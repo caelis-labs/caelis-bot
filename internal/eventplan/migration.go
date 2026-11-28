@@ -26,6 +26,7 @@ func (e *Engine) upgrade(raw []byte, now time.Time) {
 		Events []struct {
 			ID       string
 			Archived time.Time
+			Retired  bool
 		}
 		Plans []struct {
 			ID, Kind string
@@ -36,27 +37,30 @@ func (e *Engine) upgrade(raw []byte, now time.Time) {
 		}
 	}
 	_ = json.Unmarshal(raw, &legacy)
-	retired := map[string]bool{}
+	archived := map[string]bool{}
+	retiredEvents := map[string]bool{}
 	for _, v := range legacy.Events {
-		retired[v.ID] = !v.Archived.IsZero()
+		archived[v.ID] = !v.Archived.IsZero()
+		retiredEvents[v.ID] = v.Retired
 	}
 	for _, p := range legacy.Plans {
-		if p.Retired {
-			// The record has already completed its old grant retirement.
-			if current := e.plan(p.ID); current != nil {
+		if current := e.plan(p.ID); current != nil {
+			if p.Retired {
 				current.GrantID = ""
+			} else if current.GrantID == "" {
+				// Older runtimes keyed schedule grants by this handle rather
+				// than storing an explicit grant ID in the plan.
+				current.GrantID = current.Authorization()
 			}
 		}
 	}
 	for i := range e.state.Plans {
 		p := &e.state.Plans[i]
 		v, exists := e.event(p.Event)
-		executable := exists && !retired[p.Event] && validateEvent(v) == nil && validTiming(*p)
+		executable := exists && !archived[p.Event] && validateEvent(v) == nil && validTiming(*p)
 		if !executable && p.Finished.IsZero() {
 			p.Status, p.Finished = "cancelled", now
-			if p.GrantID == "" {
-				p.GrantID = p.Authorization()
-			}
+
 		}
 		if executable && p.Until == "" && (repeats(*p, v) || v.Kind == "shell") {
 			p.Expires = time.Time{}
@@ -78,7 +82,11 @@ func (e *Engine) upgrade(raw []byte, now time.Time) {
 		}
 		switch o.Status {
 		case "accepted", "completed":
-			e.settleWake(o, "accepted", now)
+			finished := o.Finished
+			if finished.IsZero() {
+				finished = now
+			}
+			e.settleWake(o, "accepted", finished)
 		case "dispatching", "unknown_wake", "unknown":
 			// Keep unresolved original receipts for this Runtime.
 		case "pending":
@@ -91,7 +99,15 @@ func (e *Engine) upgrade(raw []byte, now time.Time) {
 			}
 		}
 	}
-	e.state.Events = slices.DeleteFunc(e.state.Events, func(v Event) bool { return retired[v.ID] || validateEvent(v) != nil })
+	// Older registrations held separate event-source grants. Their collectors
+	// are retired. Wake submission used the plan grant, reconciled above.
+	for _, v := range e.state.Events {
+		if slices.Contains([]string{"tool", "script", "task"}, v.Kind) && !retiredEvents[v.ID] && identifier.MatchString(v.ID) {
+			id := legacyPlanID("grant:" + v.ID)
+			e.state.Plans = append(e.state.Plans, Plan{ID: id, Event: v.ID, GrantID: "event:" + v.ID, Status: "cancelled", Created: now, Finished: now})
+		}
+	}
+	e.state.Events = slices.DeleteFunc(e.state.Events, func(v Event) bool { return archived[v.ID] || validateEvent(v) != nil })
 	e.state.Version = 2
 	e.cleanup(now)
 }
