@@ -17,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 const notebookInitializeFixture = `{
@@ -37,18 +38,30 @@ func notebookControlFixture(t *testing.T, handler http.HandlerFunc) *caelis.Note
 	if err := os.MkdirAll(service, 0700); err != nil {
 		t.Fatal(err)
 	}
-	discovery := fmt.Sprintf(`{"schema_version":"caelis.control.service-discovery/v1","endpoint":%q,"instance_id":"fixture-host","principal_id":"fixture-owner"}`, server.URL)
-	if err := os.WriteFile(filepath.Join(service, "discovery.json"), []byte(discovery), 0600); err != nil {
+	if err := localstate.Write(filepath.Join(service, "discovery.json"), map[string]string{
+		"schema_version": "caelis.control.service-discovery/v1",
+		"endpoint":       server.URL,
+		"instance_id":    "fixture-host",
+		"principal_id":   "fixture-owner",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(service, "auth.token"), []byte("fixture-only-token"), 0600); err != nil {
+	token := filepath.Join(service, "auth.token")
+	if err := os.WriteFile(token, []byte("fixture-only-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstate.ProtectFile(token); err != nil {
 		t.Fatal(err)
 	}
 	notebook := filepath.Join(dir, "Notebook")
 	if err := os.Mkdir(notebook, 0700); err != nil {
 		t.Fatal(err)
 	}
-	return caelis.NewNotebookObserver(api.RuntimeSettings{Runtime: "caelis", CaelisStore: dir}, notebook)
+	settings := api.RuntimeSettings{Runtime: "caelis", CaelisStore: dir}
+	if _, _, err := caelis.Discover(settings); err != nil {
+		t.Fatalf("private Control fixture could not be discovered: %v", err)
+	}
+	return caelis.NewNotebookObserver(settings, notebook)
 }
 
 func waitScheduleBarrier(t *testing.T, ch <-chan struct{}) {
