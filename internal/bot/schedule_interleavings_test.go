@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -126,6 +127,19 @@ func TestRemoveCancelsNotebookControlInFlight(t *testing.T) {
 	}
 }
 
+type heldNotebookProbe struct {
+	*caelis.NotebookObserver
+	release <-chan struct{}
+}
+
+func (o heldNotebookProbe) ShellObservationAvailable(ctx context.Context) bool {
+	available := o.NotebookObserver.ShellObservationAvailable(ctx)
+	// Keep ownership of the probe until the test releases it, even if the
+	// real Control client reaches its own request timeout first.
+	<-o.release
+	return available
+}
+
 func TestClockWakesBeforeBlockedNotebookCapabilityProbeReturns(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -143,7 +157,7 @@ func TestClockWakesBeforeBlockedNotebookCapabilityProbeReturns(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
-	r, engine, now := scheduleFixture(t, observer)
+	r, engine, now := scheduleFixture(t, heldNotebookProbe{NotebookObserver: observer, release: release})
 	invokeCompact(t, r, "bot_schedule_update", `{"request":{"type":"after","id":"alarm","seconds":1}}`)
 	*now = now.Add(time.Second)
 	result := make(chan api.ToolResult, 1)
