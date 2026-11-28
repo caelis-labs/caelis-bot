@@ -109,6 +109,33 @@ func (d *systemDeliveryLog) record(id string, next systemDeliveryRecord) error {
 	return nil
 }
 
+// Forget only callback IDs which the scheduler has durably settled. Worker
+// request identities and all unresolved deliveries retain the existing journal.
+func (r *Runtime) forgetCallbackDeliveries(ids []string) {
+	d := r.deliveries
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var removed map[string]systemDeliveryRecord
+	for _, id := range ids {
+		record := d.state.Records[id]
+		if record.Source == api.SystemCallback && record.Outcome != "unknown" && record.Provider == r.provider {
+			if removed == nil {
+				removed = make(map[string]systemDeliveryRecord)
+			}
+			removed[id] = record
+			delete(d.state.Records, id)
+		}
+	}
+	if len(removed) != 0 && localstate.Write(d.path, d.state) != nil {
+		for id, record := range removed {
+			d.state.Records[id] = record
+		}
+	}
+}
+
 // ImportSystemReceipts migrates old producer delivery proofs once. Unknown is
 // a no-replay fence, never evidence that an input was accepted.
 func (r *Runtime) ImportSystemReceipts(receipts []api.Receipt) error {

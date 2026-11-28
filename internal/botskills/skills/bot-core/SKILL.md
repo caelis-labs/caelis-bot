@@ -84,12 +84,10 @@ Load only the references needed for the current work:
   review unfinished commitments or resume work after automatic context renewal.
 - [Follow-ups](references/follow-ups.md): identify future work, choose a wake source
   and continue it without another user prompt.
-- [Events](references/events.md): register delayed work, conditional observations
-  or a distinct task-completion follow-up; inspect or cancel arrangements.
+- [Events](references/events.md): register clock wakes or conditional Notebook
+  observations, then inspect or cancel arrangements.
 - [Reminders](references/reminders.md): arrange calendar times or recurring reminders
   and act when they become due.
-- [Native events](references/native-events.md): arrange conditions on clock,
-  desktop usage or foreground application changes.
 - [Remote connections](references/remote-connections.md): connect or repair a
   user-selected remote Worker environment.
 - [Screen input](references/screen-input.md): interpret a screen selection or learn

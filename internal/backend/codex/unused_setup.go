@@ -17,5 +17,5 @@ func (s *Session) CanLeaveUnsubmittedSetup() bool {
 		len(b.HostReportTurns) == 0 && len(b.ScheduledOrigins) == 0 &&
 		b.CapacityStopThread == "" && b.CapacityStopTurn == "" && !b.CapacityStopAccepted &&
 		b.CapacityStopPhase == "" && b.CapacityStopStatus == "" &&
-		len(b.Scheduled) == 0 && len(b.HostReports) == 0 && len(b.BackgroundResults) == 0
+		len(b.Scheduled) == 0 && len(b.HostReports) == 0
 }

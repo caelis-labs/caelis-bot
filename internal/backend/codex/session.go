@@ -38,13 +38,12 @@ type binding struct {
 	OwnerClosing bool `json:"ownerClosing,omitempty"`
 	// Ordinary Close stops a private owner. Its old receipts remain evidence,
 	// but that owner can no longer be queried or used to resume its threads.
-	OwnerUnavailable   bool                            `json:"ownerUnavailable,omitempty"`
-	LostOwners         []lostOwnerRecord               `json:"lostOwners,omitempty"`
-	LostOwnerTasks     map[string]bool                 `json:"lostOwnerTasks,omitempty"`
-	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
-	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
-	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
-	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+	OwnerUnavailable   bool              `json:"ownerUnavailable,omitempty"`
+	LostOwners         []lostOwnerRecord `json:"lostOwners,omitempty"`
+	LostOwnerTasks     map[string]bool   `json:"lostOwnerTasks,omitempty"`
+	PendingApprovalIDs []string          `json:"pendingApprovalIds,omitempty"`
+	RuntimeVersion     string            `json:"runtimeVersion,omitempty"`
+	TrustWriteUnknown  bool              `json:"trustWriteUnknown,omitempty"`
 
 	Context          contextseed.State            `json:"context,omitempty"`
 	ContextInputs    map[string]int               `json:"contextInputs,omitempty"`
@@ -127,14 +126,13 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
-	cached                 atomic.Pointer[api.Snapshot]
-	cachedComposer         atomic.Pointer[api.Snapshot]
-	cachedRecovery         atomic.Pointer[api.RecoveryState]
-	residentSyncNeeded     bool
-	workspaceMCPRevision   [32]byte
-	workItems              map[string][]api.Item // bounded, task-owned live snapshot; not a journal
-	workerOnly             bool                  // trusted target owner; no resident API is exposed
-	backgroundResultsDirty bool
+	cached               atomic.Pointer[api.Snapshot]
+	cachedComposer       atomic.Pointer[api.Snapshot]
+	cachedRecovery       atomic.Pointer[api.RecoveryState]
+	residentSyncNeeded   bool
+	workspaceMCPRevision [32]byte
+	workItems            map[string][]api.Item // bounded, task-owned live snapshot; not a journal
+	workerOnly           bool                  // trusted target owner; no resident API is exposed
 
 	residentExecution      api.WorkExecutionSettings
 	usage                  api.ContextUsage
@@ -381,16 +379,6 @@ func (s *Session) update() {
 	s.state.CurrentTurn = ""
 	if s.run != "" {
 		s.state.CurrentTurn = opaque(s.run)
-	}
-	if s.captureBackgroundResults() {
-		s.backgroundResultsDirty = true
-	}
-	if s.backgroundResultsDirty {
-		if err := s.save(); err != nil {
-			s.state.Message = "后台结果暂未保存；功能仍可用，将自动重试"
-		} else {
-			s.backgroundResultsDirty = false
-		}
 	}
 	if s.binding.OwnerClosing || s.binding.OwnerUnavailable && !s.ownerUnavailableVerified {
 		s.state.Phase = "unknown"

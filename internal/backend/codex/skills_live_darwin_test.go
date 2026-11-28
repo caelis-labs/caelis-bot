@@ -19,7 +19,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 )
 
 // Real App Server and native file tool, local deterministic provider. No account
@@ -292,16 +291,16 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = nativeEngine.SaveNative(eventplan.NativeArrangement{ID: "native-event", Label: "Native fixture", Sources: []string{"clock.minute"}, When: "true", Prompt: "Synthetic scheduled activation", TimeZone: "UTC"}, time.Now(), nil)
+	now := time.Now()
+	definition := eventplan.Event{ID: "native-event", Label: "Native fixture", Kind: "wake", Context: "Synthetic scheduled activation"}
+	plan, err := nativeEngine.Save(eventplan.Plan{ID: definition.ID, Kind: "after", Seconds: 1}, &definition, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now()
-	if err = nativeEngine.ReceiveNative(ctx, []scheduledata.Event{{Source: "clock.minute", At: now, Data: map[string]any{}}}, now); err != nil {
-		t.Fatal(err)
-	}
+	now = plan.Next
+
 	before := s.Snapshot().CurrentTurn
-	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+	err = nativeEngine.Tick(ctx, now, eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
 		receipt, err := s.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Text, Scheduled: true}, nil)
 		return receipt.Outcome, err
 	}})
@@ -319,14 +318,11 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		}
 	}
 	a := nativeEngine.Snapshot().Occurrences[0]
-	if a.Status != "accepted" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
+	if a.Status != "completed" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
 		t.Fatal("native event did not use native background projection")
 	}
-	result := s.BackgroundResult(a.ID)
-	if !result.Complete || !result.Visible {
-		t.Fatal("native visible result was not retained", result)
-	}
-	if err = nativeEngine.Tick(ctx, time.Now(), eventplan.Delivery{Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }}); err != nil {
+
+	if err = nativeEngine.Tick(ctx, time.Now(), eventplan.Delivery{Receipt: func(id string) string { return s.SystemReceipt(id).Outcome }}); err != nil {
 		t.Fatal(err)
 	}
 	if nativeEngine.Snapshot().Occurrences[0].Status != "completed" {

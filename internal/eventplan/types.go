@@ -11,97 +11,72 @@ const MaxHistory = 128
 const Retention = 7 * 24 * time.Hour
 
 type Event struct {
-	Retired          bool            `json:"retired,omitempty"`
-	ID               string          `json:"id"`
-	Label            string          `json:"label"`
-	Context          string          `json:"context,omitempty"`
-	Kind             string          `json:"kind"` // script, tool, wake
-	Script           string          `json:"script,omitempty"`
-	Interpreter      string          `json:"interpreter,omitempty"`
-	ExecutableDigest string          `json:"executableDigest,omitempty"`
-	Server           string          `json:"server,omitempty"`
-	Tool             string          `json:"tool,omitempty"`
-	TaskExecution    string          `json:"taskExecution,omitempty"`
-	Task             string          `json:"task,omitempty"`
-	Arguments        map[string]any  `json:"arguments,omitempty"`
-	Binding          string          `json:"binding,omitempty"`
-	OutputSchema     json.RawMessage `json:"outputSchema"`
-	Created          time.Time       `json:"created"`
-	LastUsed         time.Time       `json:"lastUsed"`
-	Archived         time.Time       `json:"archived,omitempty"`
+	ID       string    `json:"id"`
+	Label    string    `json:"label"`
+	Context  string    `json:"context,omitempty"`
+	Kind     string    `json:"kind"` // wake or shell
+	Command  string    `json:"command,omitempty"`
+	When     string    `json:"when,omitempty"`
+	TimeZone string    `json:"timeZone,omitempty"`
+	Retain   bool      `json:"retain,omitempty"`
+	Created  time.Time `json:"created"`
 }
+
 type Plan struct {
-	// Host-only migration identity: preserves the original native grant and handle.
-	NativeID       string   `json:"nativeId,omitempty"`
+	ID       string    `json:"id"`
+	Event    string    `json:"event"`
+	Kind     string    `json:"kind"` // interval, after, at
+	Seconds  int       `json:"seconds,omitempty"`
+	At       string    `json:"at,omitempty"`
+	When     string    `json:"when,omitempty"`
+	TimeZone string    `json:"timeZone,omitempty"`
+	Until    string    `json:"until,omitempty"`
+	Created  time.Time `json:"created"`
+	Next     time.Time `json:"next"`
+	Expires  time.Time `json:"expires,omitempty"`
+	Status   string    `json:"status"`
+	Issue    string    `json:"issue,omitempty"`
+	Finished time.Time `json:"finished,omitempty"`
+	// Retained only while needed to reconcile original deliveries.
 	GrantID        string   `json:"grantId,omitempty"`
-	LegacyVersion  string   `json:"legacyVersion,omitempty"`
-	Sources        []string `json:"sources,omitempty"`
-	PendingSeconds int      `json:"pendingSeconds,omitempty"`
-	// Host-only registration provenance, persisted but redacted from tool reads.
-	OriginRequests  []string  `json:"originRequests,omitempty"`
-	Retired         bool      `json:"retired,omitempty"`
-	ID              string    `json:"id"`
-	Event           string    `json:"event"`
-	Kind            string    `json:"kind"` // interval, after, at
-	Seconds         int       `json:"seconds,omitempty"`
-	At              string    `json:"at,omitempty"`
-	When            string    `json:"when,omitempty"`
-	TimeZone        string    `json:"timeZone"`
-	Until           string    `json:"until,omitempty"`
-	CooldownSeconds int       `json:"cooldownSeconds,omitempty"`
-	Created         time.Time `json:"created"`
-	Next            time.Time `json:"next"`
-	Expires         time.Time `json:"expires"`
-	LastWake        time.Time `json:"lastWake,omitempty"`
-	Status          string    `json:"status"`
-	Issue           string    `json:"issue,omitempty"`
-	Finished        time.Time `json:"finished,omitempty"`
-	Failures        int       `json:"failures,omitempty"`
+	OriginRequests []string `json:"originRequests,omitempty"`
+	Fingerprint    string   `json:"fingerprint,omitempty"`
 }
+
 type Occurrence struct {
 	OriginRequests []string        `json:"originRequests,omitempty"`
-	Expires        time.Time       `json:"expires,omitempty"`
-	AttentionFor   string          `json:"attentionFor,omitempty"`
 	ID             string          `json:"id"`
 	Plan           string          `json:"plan"`
 	Event          string          `json:"event"`
 	At             time.Time       `json:"at"`
-	Status         string          `json:"status"` // collecting, unknown, filtered, pending, dispatching, accepted, completed, expired, failed, cancelled
+	Status         string          `json:"status"`
 	Result         json.RawMessage `json:"result,omitempty"`
 	Issue          string          `json:"issue,omitempty"`
 	Finished       time.Time       `json:"finished,omitempty"`
 }
+
 type State struct {
-	// Imported quota reservations are not dispatch attempts and do not advance the gap.
-	WakeReservations []time.Time          `json:"wakeReservations,omitempty"`
-	Policy           Policy               `json:"policy"`
-	NativeWatermarks map[string]time.Time `json:"nativeWatermarks,omitempty"`
-	Migration        *Migration           `json:"migration,omitempty"`
-	WakeAttempts     []time.Time          `json:"wakeAttempts,omitempty"`
-	Version          int                  `json:"version"`
-	Events           []Event              `json:"events"`
-	Plans            []Plan               `json:"plans"`
-	Occurrences      []Occurrence         `json:"occurrences"`
+	Version     int          `json:"version"`
+	Migration   *Migration   `json:"migration,omitempty"`
+	Events      []Event      `json:"events"`
+	Plans       []Plan       `json:"plans"`
+	Occurrences []Occurrence `json:"occurrences"`
 }
 
-// Runner executes the exact reviewed, pinned collector. It must be cancellable,
-// bounded, and must not silently retry a call with uncertain effects.
+// Runner is cancellable and bounded. Ambiguous effects cannot be retried.
 type Runner func(context.Context, Event) (json.RawMessage, error)
+
 type Wake struct {
 	ID, Text, Plan, Grant string
 	OriginRequests        []string
 }
+
 type Delivery struct {
-	Revoke   func(string) error
-	Ready    func() bool
-	Submit   func(context.Context, Wake) (string, error)
-	Receipt  func(string) string
-	Complete func(string) bool
+	Revoke  func(string) error
+	Ready   func() bool
+	Submit  func(context.Context, Wake) (string, error)
+	Receipt func(string) string
+	// Settled receives only IDs with a committed terminal wake result. The
+	// occurrence ledger now owns their deduplication.
+	Settled func([]string)
 }
-
-// A failure returned with a confirmed result is different from a lost transport.
-// Implementations expose this marker without leaking diagnostic text to users.
-type collectorFailure string
-
-func (e collectorFailure) Error() string        { return string(e) }
-func (collectorFailure) ConfirmedFailure() bool { return true }

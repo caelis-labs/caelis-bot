@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"time"
 )
 
 // WorkRuntime is the native execution port consumed by the application's task
@@ -193,17 +192,6 @@ type WorkerQuestion struct {
 type BackgroundGrantRevoker interface {
 	RevokeBackground(context.Context, string) error
 }
-
-// BackgroundResult is retained presentation evidence for one native submission.
-// ObservedAt is the host's first observation, not a fabricated native timestamp.
-// It carries no text or execution authority and never means the user read it.
-type BackgroundResult struct {
-	ID         string    `json:"id"`
-	Complete   bool      `json:"complete"`
-	Visible    bool      `json:"visible"`
-	ObservedAt time.Time `json:"observedAt,omitempty"`
-}
-type BackgroundResultProvider interface{ BackgroundResult(string) BackgroundResult }
 
 // QuestionClosure is a retired peer compatibility shape. Receivers acknowledge
 // it without model input; question lifecycle belongs to the local host.

@@ -23,7 +23,7 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
-			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate" || d.Name == "bot_interactions") || !caps.ScheduledActivation && (d.Name == "bot_schedule_update" || d.Name == "bot_event")
+			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate" || d.Name == "bot_interactions") || !caps.ScheduledActivation && d.Name == "bot_schedule_update"
 		})
 		if !caps.ScheduledActivation {
 			for i, d := range out {
@@ -79,8 +79,6 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	}
 	req := args["request"].(map[string]any)
 	switch name {
-	case "bot_event":
-		return r.callEvent(ctx, req)
 	case "bot_tasks":
 		return r.callTasksV3(ctx, req)
 	case "bot_interactions":
@@ -90,6 +88,7 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	}
 	return compactError("unavailable", errors.New("unsupported native tool"))
 }
+
 func compactError(code string, err error) api.ToolResult {
 	v := map[string]any{"ok": false, "error": map[string]string{"code": code, "message": err.Error()}}
 	if code == "invalid_arguments" {
@@ -174,18 +173,16 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 	if name == "bot_schedule" {
 		switch kind {
 		case "context":
-			return compactValue(map[string]any{"ok": true, "data": r.Clock()}, false)
+			return compactValue(map[string]any{"ok": true, "data": r.Clock(), "shellObservationAvailable": r.shellObservationAvailable(ctx)}, false)
 		case "list":
 			return r.schedulePage(q)
-		case "sources":
-			data := map[string]any{"sources": scheduledata.NativeSources(), "eventTools": r.eventBindings(), "nativeAvailable": r.nativeMigrationError() == nil, "desktopObservationsAvailable": r.nativeSample != nil}
-			if r.events != nil {
-				data["policy"] = r.events.Snapshot().Policy
-			}
-			return boundedData(map[string]any{"ok": true, "data": data, "clock": r.Clock()}, q)
 		case "test":
-			trigger := q["trigger"].(map[string]any)
-			matched, err := scheduledata.Test(ctx, str(trigger, "condition"), str(trigger, "timeZone"), q["event"].(map[string]any), r.now())
+			sample, _ := q["sample"].(map[string]any)
+			zone := str(q, "timeZone")
+			if zone == "" {
+				zone = "UTC"
+			}
+			matched, err := scheduledata.Test(ctx, str(q, "when"), zone, sample, r.now())
 			if err != nil {
 				return compactError("invalid_condition", err)
 			}
@@ -194,47 +191,31 @@ func (r *Runtime) callCompactSchedule(ctx context.Context, name string, q map[st
 	}
 	var out api.ToolResult
 	switch kind {
-	case "configure":
-		return r.configureSchedulePolicy(q)
 	case "remove":
 		domain, id, ok := strings.Cut(str(q, "automation"), ":")
 		if !ok || id == "" {
 			return compactError("invalid_arguments", errors.New("use exact returned automation handle"))
 		}
 		legacy := "bot_reminders"
-		if domain == "event" {
-			if err := r.eventError(); err != nil {
-				return compactError("events_unavailable", err)
-			}
-			p, ok := r.events.NativePlan(id)
-			if !ok {
-				return compactError("unavailable", errors.New("native arrangement unavailable"))
-			}
-			out, _ := r.eventSchedule(ctx, name, map[string]any{"type": "remove", "automation": "schedule:" + p.ID})
-			return out
-		} else if domain != "calendar" {
+		if domain != "calendar" {
 			return compactError("invalid_arguments", errors.New("unknown automation kind"))
 		}
 		out = r.callLegacyTool(ctx, legacy, encoded(map[string]any{"operation": "remove", "id": id}))
 	case "save":
 		trigger := q["trigger"].(map[string]any)
 		args := map[string]any{"operation": "save", "id": q["id"], "label": q["label"], "prompt": q["prompt"]}
-		if str(trigger, "type") == "event" {
-			return r.saveNativeSchedule(ctx, q)
-		} else {
-			schedule := trigger["schedule"].(map[string]any)
-			for k, v := range schedule {
-				if k != "type" {
-					args[k] = v
-				}
+		schedule := trigger["schedule"].(map[string]any)
+		for k, v := range schedule {
+			if k != "type" {
+				args[k] = v
 			}
-			for _, key := range []string{"timeZone", "weekdays", "windowStart", "windowEnd"} {
-				if v, ok := trigger[key]; ok {
-					args[key] = v
-				}
-			}
-			out = r.callLegacyTool(ctx, "bot_reminders", encoded(args))
 		}
+		for _, key := range []string{"timeZone", "weekdays", "windowStart", "windowEnd"} {
+			if v, ok := trigger[key]; ok {
+				args[key] = v
+			}
+		}
+		out = r.callLegacyTool(ctx, "bot_reminders", encoded(args))
 	}
 	res := compact(out, nil)
 	res.StructuredContent["clock"] = r.Clock()
@@ -247,7 +228,7 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 	kind, query := str(q, "kind"), strings.ToLower(str(q, "query"))
 	items := []map[string]any{}
 	for _, s := range r.State().Schedules {
-		if s.Runtime != r.provider || kind == "event" {
+		if s.Runtime != r.provider || kind == "registered" {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(s.ID+" "+s.Label), query) {
@@ -264,13 +245,10 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 		}
 		for _, p := range state.Plans {
 			label := labels[p.Event]
-			if (kind == "event" && p.Kind != "native") || !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event+" "+p.NativeID+" "+label), query) {
+			if !p.Finished.IsZero() || query != "" && !strings.Contains(strings.ToLower(p.ID+" "+p.Event+" "+label), query) {
 				continue
 			}
 			item := map[string]any{"automation": "schedule:" + p.ID, "kind": "registered", "id": p.ID, "label": label, "event": "event:" + p.Event, "next": p.Next, "status": p.Status}
-			if p.NativeID != "" {
-				item["nativeId"] = p.NativeID
-			}
 			items = append(items, item)
 		}
 	}
@@ -305,13 +283,6 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 			Fingerprint string
 			Offset      int
 		}{fingerprint, end}))
-	}
-	if kind != "calendar" {
-		data["nativeAvailable"] = r.nativeMigrationError() == nil
-		if r.events != nil {
-			data["policy"] = r.events.Snapshot().Policy
-		}
-
 	}
 	return compactValue(map[string]any{"ok": true, "data": data}, false)
 }

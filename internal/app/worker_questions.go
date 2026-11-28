@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
@@ -19,24 +19,7 @@ import (
 func (a *Application) observeWorkerQuestions(ctx context.Context) {
 	a.observeWorkerApprovalNotice(ctx, a.allApprovalSnapshot())
 	a.reconcileAnswerReceipt(ctx)
-	states := a.workerStates()
-	for _, state := range states {
-		for _, item := range state.AsyncQuestions {
-			_, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID)
-			if err != nil {
-				if a.host.ReportError != nil {
-					a.host.ReportError(err)
-				}
-				continue
-			}
-		}
-	}
-	if err := a.textControl.ReconcileAsync(a.currentEngine().Snapshot(), states); err != nil {
-		if a.host.ReportError != nil {
-			a.host.ReportError(err)
-		}
-		return
-	}
+	states := a.reconcileWorkerQuestions()
 	for _, state := range states {
 		for _, item := range state.AsyncQuestions {
 			for _, q := range a.textControl.AsyncButtonQuestions(item.ID) {
@@ -48,7 +31,24 @@ func (a *Application) observeWorkerQuestions(ctx context.Context) {
 			}
 		}
 	}
+}
 
+func (a *Application) reconcileWorkerQuestions() []api.WorkState {
+	states := a.workerStates()
+	for _, state := range states {
+		for _, item := range state.AsyncQuestions {
+			if _, err := a.textControl.AsyncWorkCard(item, state.Runtime, state.Task.ID); err != nil && a.host.ReportError != nil {
+				a.host.ReportError(err)
+			}
+		}
+	}
+	if err := a.textControl.ReconcileAsync(a.currentEngine().Snapshot(), states); err != nil {
+		if a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+		return nil
+	}
+	return states
 }
 
 func (a *Application) WorkerQuestions() []api.WorkerQuestion {
@@ -150,8 +150,8 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 	return api.Receipt{ID: in.ID, Outcome: "rejected", Message: "原 Worker 问题已失效。"}, nil
 }
 
-func (a *Application) PresentWorkerQuestion(ctx context.Context, id string, presentation *api.QuestionPresentation) (api.Receipt, error) {
-	a.observeWorkerQuestions(ctx)
+func (a *Application) PresentWorkerQuestion(_ context.Context, id string, presentation *api.QuestionPresentation) (api.Receipt, error) {
+	a.reconcileWorkerQuestions()
 	item, err := a.textControl.PresentWorkerQuestion(id, presentation)
 	if err != nil {
 		return api.Receipt{ID: id, Outcome: "rejected", Message: err.Error()}, nil

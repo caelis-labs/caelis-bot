@@ -145,12 +145,6 @@ type TaskHistoryEntry struct {
 	Environment string `json:"environment"`
 }
 
-// TaskExecutionSource fixes completion observers to one execution of a reusable task.
-// A missing or changed identity must never follow a subsequent continuation.
-type TaskExecutionSource interface {
-	ObserveTaskExecution(string) (Task, string, error)
-}
-
 // TaskFinishToken binds inspection to the original owner/task/native generation.
 // It is opaque to the model; reading a different generation invalidates it.
 func TaskFinishToken(v WorkState) string {

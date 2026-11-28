@@ -112,19 +112,21 @@ func TestMutationOutputOverflowKeepsTypedOriginalReceipt(t *testing.T) {
 
 func TestRegisteredEventAndWorkerMessageReadsUseBoundedOriginalJSON(t *testing.T) {
 	r, _, _ := fixture(t)
-	configureNativeSources(t, r)
-	r.ConfigureEvents(&eventFixtureTools{}, t.TempDir())
-	args := map[string]any{"request": map[string]any{"type": "tool", "id": "large-original", "label": "Original", "server": "fixture/mail", "tool": "read", "arguments": map[string]any{"original": strings.Repeat("原文<&>", 800)}, "outputSchema": map[string]any{"type": "object"}}}
-	registered := r.CallTool(t.Context(), "bot_event", encoded(args))
-	if registered.IsError {
-		t.Fatal(registered.StructuredContent)
-	}
-	original, err := r.events.Event("large-original")
-	if err != nil {
-		t.Fatal(err)
-	}
+	value := strings.Repeat("×<&>", 780)
+	r.ConfigureShellObserver(shellFunc(func(context.Context, string) (json.RawMessage, error) {
+		t.Fatal("read executed Shell")
+		return nil, nil
+	}))
+	invokeCompact(t, r, "bot_schedule_update", string(encoded(map[string]any{"request": map[string]any{
+		"type": "after", "id": "large-original", "seconds": 1, "context": value, "observe": value, "when": "true",
+	}})))
+	original := r.events.Snapshot().Events[0]
 	got := collectBoundedJSON(t, func(cursor string) api.ToolResult {
-		return r.CallTool(t.Context(), "bot_event", encoded(map[string]any{"request": map[string]any{"type": "read", "event": "event:large-original", "cursor": cursor}}))
+		request := map[string]any{"type": "read", "handle": "event:large-original"}
+		if cursor != "" {
+			request["cursor"] = cursor
+		}
+		return r.CallTool(t.Context(), "bot_schedule", encoded(map[string]any{"request": request}))
 	})
 	if got != string(encoded(original)) {
 		t.Fatal("event read changed source")

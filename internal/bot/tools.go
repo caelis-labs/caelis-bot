@@ -161,7 +161,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 		b.services = []api.ToolService{
 			{Name: "caelis_context", Token: rand.Text(), Tools: []string{"bot_dream"}},
 			{Name: "caelis_tasks", Token: rand.Text(), Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
-			{Name: "caelis_schedule", Token: rand.Text(), Tools: []string{"bot_schedule", "bot_schedule_update", "bot_event"}},
+			{Name: "caelis_schedule", Token: rand.Text(), Tools: []string{"bot_schedule", "bot_schedule_update"}},
 			{Name: "caelis_personal", Token: rand.Text(), Tools: []string{"bot_gesture"}},
 		}
 		if r.idle != nil {
@@ -478,19 +478,7 @@ func forwardFailure(req toolRequest, message string) toolResult {
 	out.StructuredContent["outcome"] = "unknown"
 	var next map[string]any
 	if req.Name == "bot_schedule_update" {
-		kind := "list"
-		var args struct {
-			Request struct {
-				Type string `json:"type"`
-			} `json:"request"`
-		}
-		if json.Unmarshal(req.Arguments, &args) == nil && (args.Request.Type == "after" || args.Request.Type == "at" || args.Request.Type == "interval" || args.Request.Type == "completion") {
-			kind = "arrangements"
-		}
-		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": kind}}
-	}
-	if req.Name == "bot_event" {
-		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "events"}}
+		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "list"}}
 	}
 	if next != nil {
 		out.StructuredContent["next"] = next

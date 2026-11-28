@@ -1,4 +1,4 @@
-// Package scheduledata provides pure conditions and native observations, never dispatch policy.
+// Package scheduledata provides pure conditions for scheduled observations.
 package scheduledata
 
 import (

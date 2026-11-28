@@ -111,9 +111,6 @@ func (r *Runtime) nextTick(now time.Time) time.Time {
 	}
 	if scheduled && r.events != nil && !(legacyBlocked && wake.Runtime == r.provider && (wake.Status == "unknown" || wake.Status == "dispatching")) {
 		offer(r.events.NextCheck(now))
-		if r.nativeMigrationError() == nil && r.events.HasNativePlans() {
-			offer(retry)
-		}
 	}
 	// A still-due producer can be deferred by admission or storage. It can
 	// retry on an external edge or the next bounded attempt without spinning.

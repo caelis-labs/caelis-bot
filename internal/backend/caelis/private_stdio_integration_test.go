@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -240,6 +241,8 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if err := os.Mkdir(notebook, 0700); err != nil {
 		t.Fatal(err)
 	}
+	observer := NewNotebookObserver(settings, notebook)
+	resident.ConfigureShellObserver(observer)
 	s := New(opts)
 	defer closeNativeFixture(t, s)
 	manager, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", &reportLoopRuntime{Session: s}, resident, s.Snapshot)
@@ -330,7 +333,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 					t.Fatal("Core failed to initialize resident stdio", value(server.Warning))
 				}
 				return value(server.Ready) && slices.Equal(sortedTools(server.Tools),
-					[]string{"bot_delegate", "bot_event", "bot_gesture", "bot_interactions", "bot_schedule", "bot_schedule_update", "bot_tasks"})
+					[]string{"bot_delegate", "bot_gesture", "bot_interactions", "bot_schedule", "bot_schedule_update", "bot_tasks"})
 			}
 		}
 		return false
@@ -382,9 +385,9 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 			return map[string]any{"code": "throw new Error('worker attachment absent');"}
 		}
 		arg, _ := json.Marshal(map[string]string{"path": paths[0]})
-		return map[string]any{"code": "const listing = await tools.search({names:['caelis_tasks__bot_delegate','caelis_tasks__bot_event','caelis_tasks__bot_gesture','caelis_tasks__bot_interactions','caelis_tasks__bot_schedule','caelis_tasks__bot_schedule_update','caelis_tasks__bot_tasks','Read']}); " +
-			"if (listing.tools.slice(0,7).some(item => item.error_code !== 'not_found') || !listing.tools[7].entry) throw new Error('unexpected Worker catalog'); " +
-			"const file = await tools.call('Read'," + string(arg) + "); return {taskEntries: listing.tools.slice(0,7), file: file.data ?? file.text};"}
+		return map[string]any{"code": "const listing = await tools.search({names:['caelis_tasks__bot_delegate','caelis_tasks__bot_gesture','caelis_tasks__bot_interactions','caelis_tasks__bot_schedule','caelis_tasks__bot_schedule_update','caelis_tasks__bot_tasks','Read']}); " +
+			"if (listing.tools.slice(0,6).some(item => item.error_code !== 'not_found') || !listing.tools[6].entry) throw new Error('unexpected Worker catalog'); " +
+			"const file = await tools.call('Read'," + string(arg) + "); return {taskEntries: listing.tools.slice(0,6), file: file.data ?? file.text};"}
 	}})
 	model.set(first, modelStep{Name: "js_exec", BuildArgs: func() any {
 		var attachments []map[string]any
@@ -450,10 +453,10 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	}
 	finish()
 	workerOutput := fmt.Sprint(dtwLastToolOutput(model.seen(attachmentWorkerFixture)))
-	if !strings.Contains(workerOutput, strings.TrimSpace(payload)) || strings.Count(workerOutput, "not_found") != 7 {
+	if !strings.Contains(workerOutput, strings.TrimSpace(payload)) || strings.Count(workerOutput, "not_found") != 6 {
 		t.Fatal("original Worker catalog or native attachment Read differs", workerOutput)
 	}
-	t.Log("native Worker tool search returned not_found for all seven resident tools and found Read; Read returned the selected attachment bytes")
+	t.Log("native Worker tool search returned not_found for all six resident tools and found Read; Read returned the selected attachment bytes")
 	for _, server := range readStatus(s, original.Binding.SessionId).Servers {
 		if server.Name == privateTasksService {
 			t.Fatal("Worker inherited private services")
@@ -561,6 +564,7 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	if err := resident.ConfigureTasks(manager, nil); err != nil {
 		t.Fatal(err)
 	}
+	resident.ConfigureShellObserver(observer)
 	restartedBridge, err := bot.Serve(resident)
 	if err != nil {
 		t.Fatal(err)
@@ -630,13 +634,52 @@ func privateStdioWorkerRoundTrip(t *testing.T, settings api.RuntimeSettings, mai
 	review(`{"option_id":"allow_once"}`, nil)
 	run("CASE_STDIO_NATIVE_SCHEDULE_CONTEXT", "bot_schedule", map[string]any{"request": map[string]any{"type": "context"}}, nil)
 	run("CASE_STDIO_NATIVE_GESTURE", "bot_gesture", map[string]any{"action": "nod"}, nil)
-	run("CASE_STDIO_NATIVE_EVENT", "bot_event", map[string]any{"request": map[string]any{
-		"type": "task", "id": "original-worker-event", "label": "Observe the fixture Worker", "task": task,
-	}}, nil)
-	if out := fmt.Sprint(dtwLastToolOutput(model.seen("CASE_STDIO_NATIVE_EVENT"))); !strings.Contains(out, "event:original-worker-event") {
-		t.Fatal("approved event registration did not persist the original task observation")
+	schedule := map[string]any{"type": "after", "id": "native-reviewed-schedule", "seconds": 3600, "context": "Read the original fixture result."}
+	shellAvailable := observer.ShellObservationAvailable(ctx)
+	if shellAvailable {
+		schedule["seconds"] = 1
+		schedule["observe"] = "printf '%s' '{\"ready\":true}'"
+		if runtime.GOOS == "windows" {
+			schedule["observe"] = "'{\"ready\":true}'"
+		}
+		schedule["when"] = "event.ready == true"
+	}
+	scheduleArgs := map[string]any{"request": schedule}
+	review(`{"option_id":"cancel","rationale":"Reject the synthetic registration."}`, nil)
+	run("CASE_STDIO_NATIVE_SCHEDULE_DENIED", "bot_schedule_update", scheduleArgs, nil)
+	if out := resident.CallTool(ctx, "bot_schedule", json.RawMessage(`{"request":{"type":"read","handle":"schedule:native-reviewed-schedule"}}`)); !out.IsError {
+		t.Fatal("denied review persisted a schedule")
 	}
 	review(`{"option_id":"allow_once"}`, nil)
+	run("CASE_STDIO_NATIVE_SCHEDULE_ALLOWED", "bot_schedule_update", scheduleArgs, nil)
+	if out := resident.CallTool(ctx, "bot_schedule", json.RawMessage(`{"request":{"type":"read","handle":"schedule:native-reviewed-schedule"}}`)); out.IsError {
+		t.Fatal("approved native MCP registration did not persist the schedule", out.StructuredContent)
+	}
+	if shellAvailable {
+		var occurrence string
+		waitAcceptance(t, ctx, func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			for id, record := range s.state.Operations {
+				if strings.HasPrefix(id, "occurrence:") && record.Source.Kind == "external_material" &&
+					succeeded(wire.Outcome(record.Outcome)) && s.fixtureScheduledTurnTerminal(record.TurnID) {
+					occurrence = id
+					return true
+				}
+			}
+			return false
+		})
+		read, _ := json.Marshal(map[string]any{"request": map[string]string{"type": "read", "handle": occurrence}})
+		out := resident.CallTool(ctx, "bot_schedule", read)
+		data, _ := json.Marshal(out.StructuredContent)
+		if out.IsError || !strings.Contains(string(data), `"ready":true`) || !strings.Contains(string(data), "native-reviewed-schedule") {
+			t.Fatal("native resident wake lost its original Shell observation")
+		}
+		t.Log("reviewed MCP registration, managed Core Shell, original occurrence and native resident turn completed")
+	}
+	run("CASE_STDIO_NATIVE_SCHEDULE_REMOVE", "bot_schedule_update", map[string]any{"request": map[string]any{
+		"type": "remove", "automation": "schedule:native-reviewed-schedule",
+	}}, nil)
 	questions := &residentQuestionFixture{manager: manager, question: api.WorkerQuestion{
 		ID: "Q7", Binding: "fixture-original-binding", TaskID: task,
 		Title: "Which fixture option?", Options: []string{"Fixture option A"},
@@ -887,7 +930,11 @@ func runNativeReminderAcceptance(t *testing.T, ctx context.Context, s *Session, 
 	for {
 		if wake := resident.State().Wake; wake != nil && wake.Status == "accepted" &&
 			slices.Equal(wake.ScheduleIDs, []string{"native-fire"}) && observedWakes() == 1 {
-			waitAcceptance(t, wakeCtx, func() bool { return s.BackgroundResult(wake.ID).Complete })
+			waitAcceptance(t, wakeCtx, func() bool {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return s.fixtureScheduledTurnTerminal(s.state.Operations[wake.ID].TurnID)
+			})
 			break
 		}
 		select {
@@ -933,4 +980,18 @@ func nativeMCPStep(tool string, args any) modelStep {
 
 func hasNativeTaskMCP(profile *wire.SessionProfile) bool {
 	return profile != nil && len(profile.Tools) == 0 && hasNativeMCPServer(profile.McpServers, privateTasksService)
+}
+
+// Called with the Session lock held. The fixture checks the original native
+// turn directly after verifying the accepted operation.
+func (s *Session) fixtureScheduledTurnTerminal(turn string) bool {
+	if turn == "" {
+		return false
+	}
+	for _, v := range s.state.Views {
+		if v != nil && v.CommandCaughtUp && v.Turns[turn] == "completed" {
+			return true
+		}
+	}
+	return false
 }

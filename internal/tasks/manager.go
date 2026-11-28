@@ -1247,21 +1247,6 @@ func (m *Manager) TaskMachines() []api.TaskMachine {
 	return []api.TaskMachine{}
 }
 
-func (m *Manager) ObserveTaskExecution(id string) (api.Task, string, error) {
-	if err := m.refresh(); err != nil {
-		return api.Task{}, "", err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	r := m.state.Records[id]
-	if r == nil || !m.owns(r) || r.Execution == "" {
-		return api.Task{}, "", errors.New("original task execution unavailable")
-	}
-	v := r.View
-	v.Result = ""
-	return v, r.Execution, nil
-}
-
 // SSH configuration is a host file, never a Worker capability or a grant.
 func (m *Manager) SSHConfiguration() (api.SSHConfiguration, error) {
 	p, ok := m.work.(interface {

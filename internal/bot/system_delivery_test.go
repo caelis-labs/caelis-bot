@@ -101,9 +101,9 @@ func TestEventStorageFailureDoesNotBlockWorkerCompletionReport(t *testing.T) {
 	}
 	event := eventplan.Event{
 		ID: "follow-up", Label: "Follow up", Context: "Check the assignment",
-		Kind: "wake", OutputSchema: json.RawMessage(`{"type":"object"}`),
+		Kind: "wake",
 	}
-	if _, err := r.events.Register(event, r.now()); err == nil {
+	if _, err := r.events.Save(eventplan.Plan{ID: event.ID, Kind: "after", Seconds: 1}, &event, r.now(), nil); err == nil {
 		t.Fatal("fixture did not fail the event write")
 	}
 	if r.events.FirstStorageFailure() == nil {
@@ -136,7 +136,7 @@ func TestEventStorageFailureDoesNotBlockWorkerCompletionReport(t *testing.T) {
 	if err := os.Rename(ledger+".saved", ledger); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.events.Register(event, r.now()); err != nil {
+	if _, err := r.events.Save(eventplan.Plan{ID: event.ID, Kind: "after", Seconds: 1}, &event, r.now(), nil); err != nil {
 		t.Fatal("replacement write could not proceed after recovery", err)
 	}
 	if err := r.Tick(t.Context()); err != nil || len(f.inputs) != 1 {

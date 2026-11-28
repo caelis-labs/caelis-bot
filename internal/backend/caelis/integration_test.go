@@ -26,7 +26,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/eventplan"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
-	"github.com/caelis-labs/caelis-bot/internal/scheduledata"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
@@ -706,39 +705,31 @@ Use this fixture only when asked about private Notebook skill discovery.
 		return
 	}
 	if !t.Run("B00_native_event_activation", func(t *testing.T) {
-		if _, err := nativeEngine.SaveNative(eventplan.NativeArrangement{
-			ID: "native-event", Label: "Native event", Sources: []string{"clock.minute"},
-			When: "true", Prompt: "CASE_NATIVE_EVENT_FIRE", TimeZone: "UTC",
-		}, time.Now(), nil); err != nil {
+		now := time.Now()
+		definition := eventplan.Event{ID: "native-event", Label: "Native event", Kind: "wake", Context: "CASE_NATIVE_EVENT_FIRE"}
+		plan, err := nativeEngine.Save(eventplan.Plan{ID: definition.ID, Kind: "after", Seconds: 1}, &definition, now, nil)
+		if err != nil {
 			t.Fatal("seed scheduler fixture", err)
 		}
+		now = plan.Next
 		saved := nativeEngine.Snapshot()
-		if len(saved.Plans) != 1 || saved.Plans[0].Status != "active" {
-			t.Fatal("native event registration failed")
-		}
-		now := time.Now()
-		if err := nativeEngine.ReceiveNative(ctx, []scheduledata.Event{{Source: "clock.minute", At: now, Data: map[string]any{}}}, now); err != nil {
-			t.Fatal(err)
-		}
+
 		model.set("CASE_NATIVE_EVENT_FIRE", modelStep{Reply: api.SilentReminder})
 		before := s.Snapshot().CurrentTurn
-		delivery := eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return deliveryResident.SystemReceipt(id).Outcome }, Complete: func(id string) bool { return s.BackgroundResult(id).Complete }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
+		delivery := eventplan.Delivery{Ready: func() bool { return s.Snapshot().CanSend }, Receipt: func(id string) string { return deliveryResident.SystemReceipt(id).Outcome }, Revoke: func(id string) error { return s.RevokeBackground(ctx, id) }, Submit: func(ctx context.Context, wake eventplan.Wake) (string, error) {
 			receipt, err := deliveryResident.SubmitSystem(ctx, api.SystemMessage{Source: api.SystemCallback, ID: wake.ID, Text: wake.Text, Grants: []string{"schedule:" + wake.Plan}})
 			return receipt.Outcome, err
 		}}
-		err := nativeEngine.Tick(ctx, now, delivery)
+		err = nativeEngine.Tick(ctx, now, delivery)
 		if err != nil {
 			t.Fatal(err)
 		}
 		waitTurn(t, ctx, s, before)
 		a := nativeEngine.Snapshot().Occurrences[0]
-		if a.Status != "accepted" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
+		if a.Status != "completed" || s.SystemReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
 			t.Fatal("native event did not use native silent background path")
 		}
-		result := s.BackgroundResult(a.ID)
-		if !result.Complete || result.Visible {
-			t.Fatal("native silent result was not retained", result)
-		}
+
 		delivery.Ready = nil
 		if err = nativeEngine.Tick(ctx, now, delivery); err != nil {
 			t.Fatal(err)

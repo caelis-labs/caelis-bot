@@ -242,6 +242,17 @@ settles the original pending callback receipt.
 For a worktree under the platform temporary directory, set
 `CAELIS_BOT_TEST_EFFECT_DIRECTORY` to a disposable writable directory outside
 that boundary so the Guardian file-write cases exercise native approval.
+For the Notebook scheduling matrix, use the executable extracted from the
+pinned Core release archive after verifying both digests against
+`resources/caelis-runtime/release.json`. The fixture starts an isolated
+Host, uses a controlled Bot clock and reads files and a loopback service.
+Use the v0.88.0 executable separately for the capability absence check.
+
+```bash
+GOWORK=off CAELIS_BOT_TEST_SHELL_BINARY=/absolute/path/to/pinned/caelis   go test -race -v -count=1 -run 'Test(ClockOnly|ScheduleObservation|NotebookSchedule)' ./internal/bot
+GOWORK=off CAELIS_BOT_TEST_PREVIOUS_SHELL_BINARY=/absolute/path/to/previous/caelis   go test -v -count=1 -run TestNativeNotebookShellCapabilityAbsentOnPreviousRelease ./internal/backend/caelis
+```
+
 `make smoke-caelis-live` is separately opt-in and billable; it requires an
 isolated configured `CAELIS_BOT_LIVE_STORE` and `CAELIS_BOT_LIVE_MODEL`.
 A skipped external-binary test is not evidence of native integration.
